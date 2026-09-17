@@ -1495,28 +1495,37 @@ function MProductCard({ s, user, product, onBack, onStart, go, setState, notify,
 }
 
 // ── Skaner (symulacja) i cztery stany wyniku ──
-// Live barcode scanner: html5-qrcode from cdnjs (EAN-13/8, Code 128 incl. GS1-128 / SSCC, QR). The camera needs a secure context (HTTPS or localhost).
-const loadScannerLib = () => new Promise((res, rej) => { if (window.Html5Qrcode) return res(); const el = document.createElement("script"); el.src = "https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"; el.onload = res; el.onerror = () => rej(new Error("could not load the scanner library")); document.head.appendChild(el); });
+// Live barcode scanner v2: our own <video> preview (works on iOS: playsinline + muted + started by a tap) and a separate decoder —
+// native BarcodeDetector when the browser has it, otherwise ZXing (bundled in the repo as window.ZXingBrowser) reading frames from the same video.
 function LiveScanner({ onCode }) {
-  const [state, setState] = useState("idle"); const [err, setErr] = useState(""); const ref = useRef(null);
+  const [state, setState] = useState("idle"); const [err, setErr] = useState(""); const [decoder, setDecoder] = useState(""); const videoRef = useRef(null); const streamRef = useRef(null); const timerRef = useRef(null); const zxingRef = useRef(null);
   const secure = typeof window !== "undefined" && (window.isSecureContext || location.hostname === "localhost");
-  const stop = async () => { try { if (ref.current) { await ref.current.stop(); ref.current.clear(); } } catch (e) {} ref.current = null; setState("idle"); };
+  const stop = () => { if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; } try { zxingRef.current?.stopContinuousDecode?.(); zxingRef.current?.reset?.(); } catch (e) {} zxingRef.current = null; try { streamRef.current?.getTracks().forEach(t => t.stop()); } catch (e) {} streamRef.current = null; if (videoRef.current) videoRef.current.srcObject = null; setState("idle"); };
+  const found = txt => { const code = String(txt || "").replace(/[^0-9A-Za-z]/g, ""); if (!code) return; stop(); onCode(code); };
   const start = async () => {
-    setErr(""); if (!secure) { setErr("The camera only works over HTTPS (or localhost). Open the app via https://… or type the code below."); return; }
+    setErr(""); if (!secure) { setErr("The camera only works over HTTPS (or localhost)."); return; }
+    if (!navigator.mediaDevices?.getUserMedia) { setErr("This browser exposes no camera API. Type the code below."); return; }
     setState("starting");
-    try { await loadScannerLib(); const H = window.Html5Qrcode; const fmts = H && window.Html5QrcodeSupportedFormats ? [window.Html5QrcodeSupportedFormats.EAN_13, window.Html5QrcodeSupportedFormats.EAN_8, window.Html5QrcodeSupportedFormats.CODE_128, window.Html5QrcodeSupportedFormats.CODE_39, window.Html5QrcodeSupportedFormats.QR_CODE, window.Html5QrcodeSupportedFormats.ITF] : undefined;
-      const inst = new H("qc-live-scanner", { formatsToSupport: fmts, verbose: false }); ref.current = inst;
-      await inst.start({ facingMode: "environment" }, { fps: 10, qrbox: (w, h) => ({ width: Math.round(w * 0.85), height: Math.round(Math.min(h, w) * 0.4) }) }, txt => { const code = String(txt).replace(/[^0-9A-Za-z]/g, ""); onCode(code); stop(); }, () => {});
-      setState("live");
-    } catch (e) { setErr(e?.message?.includes("Permission") || e?.name === "NotAllowedError" ? "Camera permission denied — allow it in Safari settings for this site." : String(e?.message || e)); setState("idle"); }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
+      streamRef.current = stream; const v = videoRef.current; v.srcObject = stream; v.setAttribute("playsinline", "true"); v.muted = true; await v.play(); setState("live");
+      if (window.BarcodeDetector) {
+        setDecoder("native"); const det = new window.BarcodeDetector({ formats: ["ean_13", "ean_8", "code_128", "code_39", "itf", "qr_code"] });
+        timerRef.current = setInterval(async () => { try { if (v.readyState < 2) return; const codes = await det.detect(v); if (codes.length) found(codes[0].rawValue); } catch (e) {} }, 250);
+      } else if (window.ZXingBrowser?.BrowserMultiFormatReader) {
+        setDecoder("zxing"); const reader = new window.ZXingBrowser.BrowserMultiFormatReader(); zxingRef.current = reader;
+        reader.decodeFromVideoElement(v, (result) => { if (result) found(result.getText()); });
+      } else { setDecoder("none"); }
+    } catch (e) { setErr(e?.name === "NotAllowedError" ? "Camera permission denied — allow it in Settings → Safari → Camera." : e?.name === "NotFoundError" ? "No camera found." : String(e?.message || e)); stop(); }
   };
-  useEffect(() => () => { stop(); }, []);
+  useEffect(() => () => stop(), []);
   return (
-    <div className="rounded-2xl overflow-hidden mb-3 relative" style={{ background: C.ink, minHeight: 200 }}>
-      <div id="qc-live-scanner" style={{ width: "100%", minHeight: state === "live" ? 200 : 0 }} />
+    <div className="rounded-2xl overflow-hidden mb-3 relative" style={{ background: "#0b0f0d", minHeight: 220 }}>
+      <video ref={videoRef} autoPlay muted playsInline style={{ width: "100%", height: 220, objectFit: "cover", display: state === "live" ? "block" : "none", background: "#000" }} />
+      {state === "live" && <div className="absolute pointer-events-none" style={{ left: "8%", right: "8%", top: "30%", height: "40%", border: "2px solid rgba(255,255,255,.7)", borderRadius: 10 }} />}
+      {state === "live" && <div className="absolute left-0 right-0 bottom-0 flex items-center gap-2 px-3 py-1.5 text-[11px]" style={{ color: "#fff", background: "rgba(0,0,0,.5)" }}><span className="flex-1">{decoder === "native" ? "Scanning (native)" : decoder === "zxing" ? "Scanning (ZXing)" : "Preview only — no decoder in this browser, type the code below"}</span><button onClick={stop} className="underline">stop</button></div>}
       {state !== "live" && <button onClick={start} className="absolute inset-0 w-full flex flex-col items-center justify-center" style={{ color: "#fff" }}><ScanLine size={40} strokeWidth={1.5} /><span className="text-sm mt-2 font-medium">{state === "starting" ? "Starting camera…" : "Tap to scan with the camera"}</span><span className="text-[11px] opacity-70 mt-0.5">pallet SSCC · product EAN</span></button>}
-      {state === "live" && <button onClick={stop} className="absolute left-0 right-0 bottom-0 py-2 text-xs" style={{ color: "#fff", background: "rgba(0,0,0,.45)" }}>stop camera</button>}
-      {err && <p className="text-[11px] px-3 py-2" style={{ color: "#fff", background: "#5a2a2a" }}>{err}</p>}
+      {err && <p className="absolute left-0 right-0 top-0 text-[11px] px-3 py-2" style={{ color: "#fff", background: "#5a2a2a" }}>{err}</p>}
     </div>
   );
 }
