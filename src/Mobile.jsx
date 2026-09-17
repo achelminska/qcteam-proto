@@ -1506,16 +1506,16 @@ function LiveScanner({ onCode }) {
     setState("starting");
     try { await loadScannerLib(); const H = window.Html5Qrcode; const fmts = H && window.Html5QrcodeSupportedFormats ? [window.Html5QrcodeSupportedFormats.EAN_13, window.Html5QrcodeSupportedFormats.EAN_8, window.Html5QrcodeSupportedFormats.CODE_128, window.Html5QrcodeSupportedFormats.CODE_39, window.Html5QrcodeSupportedFormats.QR_CODE, window.Html5QrcodeSupportedFormats.ITF] : undefined;
       const inst = new H("qc-live-scanner", { formatsToSupport: fmts, verbose: false }); ref.current = inst;
-      await inst.start({ facingMode: "environment" }, { fps: 10, qrbox: { width: 260, height: 140 }, aspectRatio: 1.6 }, txt => { const code = String(txt).replace(/[^0-9A-Za-z]/g, ""); onCode(code); stop(); }, () => {});
+      await inst.start({ facingMode: "environment" }, { fps: 10, qrbox: (w, h) => ({ width: Math.round(w * 0.85), height: Math.round(Math.min(h, w) * 0.4) }) }, txt => { const code = String(txt).replace(/[^0-9A-Za-z]/g, ""); onCode(code); stop(); }, () => {});
       setState("live");
     } catch (e) { setErr(e?.message?.includes("Permission") || e?.name === "NotAllowedError" ? "Camera permission denied — allow it in Safari settings for this site." : String(e?.message || e)); setState("idle"); }
   };
   useEffect(() => () => { stop(); }, []);
   return (
-    <div className="rounded-2xl overflow-hidden mb-3" style={{ background: C.ink, minHeight: 160 }}>
-      <div id="qc-live-scanner" style={{ width: "100%", display: state === "live" ? "block" : "none" }} />
-      {state !== "live" && <button onClick={start} className="w-full flex flex-col items-center justify-center" style={{ height: 160, color: "#fff" }}><ScanLine size={40} strokeWidth={1.5} /><span className="text-sm mt-2 font-medium">{state === "starting" ? "Starting camera…" : "Tap to scan with the camera"}</span><span className="text-[11px] opacity-70 mt-0.5">pallet SSCC · product EAN</span></button>}
-      {state === "live" && <button onClick={stop} className="w-full py-2 text-xs" style={{ color: "#fff", background: "rgba(0,0,0,.4)" }}>stop camera</button>}
+    <div className="rounded-2xl overflow-hidden mb-3 relative" style={{ background: C.ink, minHeight: 200 }}>
+      <div id="qc-live-scanner" style={{ width: "100%", minHeight: state === "live" ? 200 : 0 }} />
+      {state !== "live" && <button onClick={start} className="absolute inset-0 w-full flex flex-col items-center justify-center" style={{ color: "#fff" }}><ScanLine size={40} strokeWidth={1.5} /><span className="text-sm mt-2 font-medium">{state === "starting" ? "Starting camera…" : "Tap to scan with the camera"}</span><span className="text-[11px] opacity-70 mt-0.5">pallet SSCC · product EAN</span></button>}
+      {state === "live" && <button onClick={stop} className="absolute left-0 right-0 bottom-0 py-2 text-xs" style={{ color: "#fff", background: "rgba(0,0,0,.45)" }}>stop camera</button>}
       {err && <p className="text-[11px] px-3 py-2" style={{ color: "#fff", background: "#5a2a2a" }}>{err}</p>}
     </div>
   );
@@ -1793,7 +1793,7 @@ function MChat({ s, set, user }) {
 }
 
 // ── Menu / profile / notifications / announcements ──
-function MMenu({ s, set, user, go, users, setUser, dark, onTheme, simOffline, onSimOffline }) {
+function MMenu({ s, set, user, go, users, setUser, dark, onTheme, simOffline, onSimOffline, onSync, syncMsg }) {
   const items = user.role === "Head" ? [["profile", User, "Profile and statistics"], ["head-escalations", HelpCircle, "Questions from controllers"], ["head-flags", Flag, "Flags to resolve"], ["head-announce", Megaphone, "New announcement"], ["announcements", Megaphone, "Announcements"], ["notifications", Bell, "Notifications"], ["history", ClipboardList, "Inspection history"]] : [["profile", User, "Profile and statistics"], ["announcements", Megaphone, "Announcements"], ["notifications", Bell, "Notifications"], ["flags", Flag, "My flags"], ["history", ClipboardList, "Inspection history"]];
   const [dataOpen, setDataOpen] = useState(false); const [io, setIo] = useState(""); const [msg, setMsg] = useState("");
   const exportState = async () => { const json = JSON.stringify(s, null, 2); setIo(json); try { await navigator.clipboard.writeText(json); setMsg("Copied."); } catch { setMsg("Copy manually from the field."); } };
@@ -1807,6 +1807,7 @@ function MMenu({ s, set, user, go, users, setUser, dark, onTheme, simOffline, on
         <p className="label-sm mt-5 mb-2" style={{ color: C.muted }}>Signed in (simulation)</p>
         {users.filter(u => u.active !== false).map(u => <button key={u.id} onClick={() => setUser(u.id)} className="w-full flex items-center gap-3 py-2.5 text-left" style={{ borderBottom: `1px solid ${C.line}` }}><div className="w-8 h-8 rounded-full flex items-center justify-center text-xs" style={{ background: u.id === user.id ? C.accent : C.accentSoft, color: u.id === user.id ? C.onDark : C.accent }}>{u.name.split(" ").map(x => x[0]).join("").slice(0, 2)}</div><span className="text-sm flex-1">{u.name}</span><span className="text-xs" style={{ color: C.muted }}>{u.role === "Head" ? "Head" : "Controller"}</span></button>)}
         <p className="label-sm mt-5 mb-2" style={{ color: C.muted }}>Date</p>
+        <button onClick={onSync} className="w-full flex items-center gap-3 py-3 text-left" style={{ borderBottom: `1px solid ${C.line}` }}><span className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: C.bg, color: C.accent }}><Ic i={Download} s={17} mr={0} /></span><span className="text-sm flex-1">Sync now<span className="block text-[11px]" style={{ color: C.muted }}>{syncMsg || "pull the latest state from the server"}</span></span></button>
         <button onClick={() => setDataOpen(o => !o)} className="w-full flex items-center gap-3 py-3 text-left" style={{ borderBottom: `1px solid ${C.line}` }}><span className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: C.bg, color: C.accent }}><Ic i={Database} s={17} mr={0} /></span><span className="text-sm flex-1">Export / import state</span><span style={{ color: C.muted }}>{dataOpen ? "▾" : "›"}</span></button>
         {dataOpen && (
           <div className="rounded-xl p-3 mt-2" style={{ background: C.bg }}>
@@ -1945,6 +1946,9 @@ export default function App() {
   const [pendingStart, setPendingStart] = useState(null);
   useEffect(() => { if (toast) { const id = setTimeout(() => setToast(""), 3500); return () => clearTimeout(id); } }, [toast]);
   const [dark, setDark] = useState(false);
+  const [syncMsg, setSyncMsg] = useState("");
+  const pullState = async (announce) => { try { if (!window.storage) return; const r = await window.storage.get(STORAGE_KEY); if (r?.value) { const p = JSON.parse(r.value); if (p && Array.isArray(p.categories)) { setRaw(prev => { const next = sortState(normalize(p)); _S = next; return JSON.stringify(prev) === JSON.stringify(next) ? prev : next; }); if (announce) setSyncMsg(`Synced ${new Date().toLocaleTimeString("en-GB")}`); } } } catch (e) { if (announce) setSyncMsg("Sync failed: " + (e.message || e)); } };
+  useEffect(() => { const h = () => { if (document.visibilityState === "visible") pullState(false); }; document.addEventListener("visibilitychange", h); window.addEventListener("focus", h); window.addEventListener("pageshow", h); return () => { document.removeEventListener("visibilitychange", h); window.removeEventListener("focus", h); window.removeEventListener("pageshow", h); }; }, []);
   useEffect(() => { (async () => { try { if (window.storage) { const r = await window.storage.get(THEME_KEY); if (r?.value === "dark") { applyTheme(true); setDark(true); } } } catch (e) {} })(); }, []);
   const toggleTheme = () => { const d = !dark; applyTheme(d); setDark(d); (async () => { try { if (window.storage) await window.storage.set(THEME_KEY, d ? "dark" : "light"); } catch (e) {} })(); };
   useEffect(() => { (async () => { try { if (window.storage) { const r = await window.storage.get(STORAGE_KEY); if (r?.value) { const p = JSON.parse(r.value); if (p && Array.isArray(p.categories)) set(normalize(p)); } } } catch (e) {} setLoaded(true); })(); }, []);
@@ -1992,7 +1996,7 @@ export default function App() {
       {page === "history" && <MHistory s={s} user={user} go={go} />}
       {page === "catalog" && <MCatalog key={param || "catalog"} s={s} user={user} go={go} onStart={(pid, palletNo, typeId) => startInspection(pid, palletNo, false, typeId)} setState={set} notify={notify} onVisual={visualInspection} preset={param} />}
       {page === "chat" && <MChat s={s} set={set} user={user} />}
-      {page === "menu" && <MMenu s={s} set={set} user={user} go={go} users={s.users} setUser={id => { setUserId(id); go("home"); }} dark={dark} onTheme={toggleTheme} simOffline={simOffline} onSimOffline={() => setSimOffline(o => !o)} />}
+      {page === "menu" && <MMenu s={s} set={set} user={user} go={go} users={s.users} setUser={id => { setUserId(id); go("home"); }} dark={dark} onTheme={toggleTheme} simOffline={simOffline} onSimOffline={() => setSimOffline(o => !o)} onSync={() => pullState(true)} syncMsg={syncMsg} />}
       {page === "profile" && <MProfile s={s} set={set} user={user} go={go} />}
       {page === "notifications" && <MNotifications s={s} set={set} user={user} go={go} />}
       {page === "announcements" && <MAnnouncements s={s} user={user} go={go} />}
