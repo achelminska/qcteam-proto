@@ -33,6 +33,13 @@ const THEME_KEY = "qcteam-theme";
 // Icons (lucide) — one size, one stroke width
 const Ic = ({ i: I, s = 15, mr = 6, style }) => <I size={s} strokeWidth={2} style={{ display: "inline-block", verticalAlign: "-3px", marginRight: mr, flexShrink: 0, ...style }} />;
 const Avatar = ({ user, size = 28, onPick }) => { const initials = (user?.name || "?").split(" ").map(x => x[0]).join("").slice(0, 2); const el = user?.photoUrl ? <img src={user.photoUrl} alt="" className="rounded-full object-cover" style={{ width: size, height: size }} /> : <div className="rounded-full flex items-center justify-center font-medium" style={{ width: size, height: size, background: C.accentSoft, color: C.accent, fontSize: size * .4 }}>{initials}</div>; return onPick ? <button onClick={async () => { const { out } = await pickPhotos(); if (out[0]) onPick(out[0].dataUrl); }} title="Users.PhotoUrl — change photo" className="relative">{el}<span className="absolute -bottom-1 -right-1 rounded-full flex items-center justify-center" style={{ width: 16, height: 16, background: C.ink, color: C.onDark }}><Ic i={Camera} s={9} mr={0} /></span></button> : el; };
+// Search input with a properly centred icon (the icon lives inside the input's own box, not the padded container around it).
+const SearchBox = ({ value, onChange, placeholder, className = "", style = {}, inputClass = "", autoFocus, onKeyDown, size = 15 }) => (
+  <div className={`relative ${className}`} style={style}>
+    <span className="absolute flex items-center justify-center pointer-events-none" style={{ left: 10, top: 0, bottom: 0, width: size, color: C.muted }}><Search size={size} strokeWidth={2} style={{ display: "block" }} /></span>
+    <input autoFocus={autoFocus} value={value} onChange={e => onChange(e.target.value)} onKeyDown={onKeyDown} placeholder={placeholder} className={`w-full text-sm ${inputClass}`} style={{ paddingLeft: size + 18 }} />
+  </div>
+);
 const Dot = ({ on }) => <span className="inline-block rounded-full ml-2 align-middle" style={{ width: 7, height: 7, background: on ? C.ok : C.line }} />;
 const NAV_ICON = { integrations: Link2, lists: ListIcon, analytics: BarChart3, settings: SlidersHorizontal, dashboard: LayoutDashboard, inspections: ClipboardList, flags: Flag, notifications: Bell, categories: FolderTree, problems: ListTree, products: Package, forms: LayoutTemplate, suppliers: Truck, countries: Globe, announcements: Megaphone, messages: MessageSquare, users: Users, catalog: Package, home: Home, chat: MessageSquare, menu: MenuIcon };
 const EMPTY_ICON = { "📁": FolderTree, "🌳": ListTree, "📦": Package, "🧩": LayoutTemplate, "📖": BookOpen, "📏": Ruler, "📋": ClipboardList, "🚩": Flag, "🔔": Bell, "📣": Megaphone, "💬": MessageSquare, "🔒": LockIcon };
@@ -850,14 +857,15 @@ const NAV_CONTROLLER = [
   { group: null, items: [["dashboard", "🏠", "Dashboard"], ["inspections", "📋", "Inspections"], ["catalog", "📦", "Products"], ["messages", "💬", "Messages"], ["flags", "🚩", "My flags"], ["notifications", "🔔", "Notifications"]] },
 ];
 
-function Shell({ page, setPage, children, badge, topRight, users, user, setUser, onLogout, unread, onBell }) {
+function Shell({ page, setPage, children, badge, topRight, users, user, setUser, onLogout, unread, onBell, onSearch }) {
+  const [topQ, setTopQ] = useState("");
   const NAV = user.role === "Head" ? NAV_HEAD : NAV_CONTROLLER;
   return (
     <div className="qc min-h-screen" style={{ background: C.bg, color: C.ink }}>
       <style>{GLOBAL_CSS()}</style>
       <div className="flex items-center gap-4 px-5" style={{ height: 56, background: C.surface, borderBottom: `1px solid ${C.line}` }}>
         <div className="flex items-center gap-2.5" style={{ width: 190 }}><span className="w-7 h-7 rounded-lg flex items-center justify-center text-sm font-bold" style={{ background: C.accent, color: C.onDark }}>Q</span><span className="font-semibold text-[15px] tracking-tight">QCteam</span><span className="text-[11px] px-1.5 py-0.5 rounded-md" style={{ background: C.accentSoft, color: C.accent }}>Head</span></div>
-        <div className="relative hidden md:block" style={{ width: 320 }}><span className="absolute left-2.5 top-1/2 -translate-y-1/2 flex" style={{ color: C.muted }}><Ic i={Search} s={15} mr={0} /></span><input placeholder="Search products, inspections…" className="w-full pl-8 text-sm" style={{ background: C.bg }} /></div>
+<SearchBox value={topQ} onChange={setTopQ} placeholder="Search products, inspections…" className="hidden md:block" style={{ width: 320 }} inputClass="rounded-xl" onKeyDown={e => { if (e.key === "Enter" && topQ.trim()) { onSearch && onSearch(topQ.trim()); } }} />
         <div className="flex-1" />
         {topRight}
         <button onClick={onBell} className="relative text-lg" title="notifications"><Ic i={Bell} s={18} mr={0} />{unread > 0 && <span className="absolute -top-1 -right-2 text-[10px] px-1.5 rounded-full" style={{ background: C.bad, color: C.onDark }}>{unread}</span>}</button>
@@ -1370,9 +1378,10 @@ function DictionaryPage({ s, set, listKey, title, hint, placeholder, usageOf }) 
 }
 
 // ═══════════════════ STRONA: Products ═══════════════════
-function ProductsPage({ s, set, sel, setSel }) {
+function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset }) {
   const [d, setD] = useState({ name: "", articleId: "", categoryId: "", isBio: false, cusPerTu: "", piecesPerCu: "", weightPerCu: "" });
   const [filter, setFilter] = useState(""); const [importOpen, setImportOpen] = useState(false); const [importText, setImportText] = useState(""); const [importMsg, setImportMsg] = useState("");
+  useEffect(() => { if (presetFilter) { setFilter(presetFilter); clearPreset && clearPreset(); } }, [presetFilter]);
   const [supQ, setSupQ] = useState("");
   const [varName, setVarName] = useState(""); const [varOpen, setVarOpen] = useState(false);
   const product = s.products.find(p => p.id === sel);
@@ -1430,7 +1439,7 @@ function ProductsPage({ s, set, sel, setSel }) {
           </Card>
           <Card>
             <div className="flex items-center gap-2 mb-2">
-              <input value={filter} onChange={e => setFilter(e.target.value)} placeholder="search by name or ID…" className="flex-1 text-xs rounded px-2 py-1.5 outline-none" style={inp} />
+<SearchBox value={filter} onChange={setFilter} placeholder="search by name or ID…" className="flex-1" inputClass="rounded" size={13} />
               <button onClick={() => setImportOpen(o => !o)} className="text-xs px-2.5 py-1.5 rounded-lg" style={{ background: importOpen ? C.accent : C.accentSoft, color: importOpen ? C.onDark : C.accent }}><Ic i={Download} s={13} />Import</button>
             </div>
             {importOpen && (
@@ -2197,7 +2206,7 @@ function InspectionsPage({ s, set, user, notify, openId, setOpenId, preset, clea
             {newProduct && !resolveTemplate(s, s.products.find(p => p.id === newProduct)) && <p className="text-xs mt-2" style={{ color: C.bad }}>This product has no form — no global template.</p>}
           </Card>
           <Card>
-            <div className="flex gap-2 mb-2"><input value={q} onChange={e => setQ(e.target.value)} placeholder="search by product name or article ID…" className="flex-1 text-sm rounded px-2 py-1.5 outline-none" style={inp} /><button onClick={() => setAdvOpen(o => !o)} className="text-xs px-3 py-1.5 rounded-lg" style={{ background: advCount ? C.accent : C.accentSoft, color: advCount ? C.onDark : C.accent }}>Filtry{advCount ? ` · ${advCount}` : ""}</button></div>
+            <div className="flex gap-2 mb-2"><SearchBox value={q} onChange={setQ} placeholder="search by product name or article ID…" className="flex-1" inputClass="rounded" /><button onClick={() => setAdvOpen(o => !o)} className="text-xs px-3 py-1.5 rounded-lg" style={{ background: advCount ? C.accent : C.accentSoft, color: advCount ? C.onDark : C.accent }}>Filtry{advCount ? ` · ${advCount}` : ""}</button></div>
             {advOpen && (
               <div className="rounded-lg p-3 mb-3 grid gap-2" style={{ background: C.bg, gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))" }}>
                 <label className="text-xs" style={{ color: C.muted }}>date range<select value={adv.range} onChange={e => setAdv(x => ({ ...x, range: e.target.value }))} className="w-full text-sm rounded px-2 py-1.5 outline-none mt-1" style={inp}><option value="all">everything</option><option value="0">today</option><option value="7">7 days</option><option value="30">30 days</option><option value="custom">custom</option></select></label>
@@ -2836,6 +2845,7 @@ export default function App() {
   const syncerRef = useRef(createSyncer());
   const [openInspId, setOpenInspId] = useState(null);
   const [presetProduct, setPresetProduct] = useState("");
+  const [productsQuery, setProductsQuery] = useState("");
   const [dark, setDark] = useState(false);
   useEffect(() => { (async () => { try { if (window.storage) { const r = await window.storage.get(THEME_KEY); if (r?.value === "dark") { applyTheme(true); setDark(true); } } } catch (e) {} })(); }, []);
   const toggleTheme = () => { const d = !dark; applyTheme(d); setDark(d); (async () => { try { if (window.storage) await window.storage.set(THEME_KEY, d ? "dark" : "light"); } catch (e) {} })(); };
@@ -2867,14 +2877,14 @@ export default function App() {
   const guard = key => user.role === "Head" || NAV_CONTROLLER.some(g => g.items.some(([k]) => k === key));
   const safePage = guard(page) ? page : "dashboard";
   return (
-    <Shell onLogout={() => { writeSession(null); setUserId(null); }} page={safePage} setPage={setPage} badge={{ ...badge, messages: unreadMsgs, notifications: unread, flags: user.role === "Head" ? s.flags.filter(f => f.status === "Open").length : 0, inspections: user.role === "Head" ? s.inspections.filter(i => i.status === "PendingReview").length : 0 }} topRight={dataButton} users={s.users} user={user} setUser={id => { setUserId(id); setPage("dashboard"); setOpenInspId(null); }} unread={unread} onBell={() => setPage("notifications")}>
+    <Shell onSearch={q => { setProductsQuery(q); setPage("products"); }} onLogout={() => { writeSession(null); setUserId(null); }} page={safePage} setPage={setPage} badge={{ ...badge, messages: unreadMsgs, notifications: unread, flags: user.role === "Head" ? s.flags.filter(f => f.status === "Open").length : 0, inspections: user.role === "Head" ? s.inspections.filter(i => i.status === "PendingReview").length : 0 }} topRight={dataButton} users={s.users} user={user} setUser={id => { setUserId(id); setPage("dashboard"); setOpenInspId(null); }} unread={unread} onBell={() => setPage("notifications")}>
       <BlockingOverlay s={s} set={set} user={user} />
       {dataOpen && <DataPanel s={s} set={set} onClose={() => setDataOpen(false)} />}
       {toastMsg && <div className="fixed left-1/2 -translate-x-1/2 text-sm px-4 py-2 rounded-xl" style={{ top: 12, zIndex: 90, background: C.ink, color: C.onDark, boxShadow: "0 8px 20px rgba(0,0,0,.25)" }}>{toastMsg}</div>}
       {safePage === "dashboard" && (user.role === "Head" ? <Dashboard s={s} setPage={setPage} seed={() => set(olaState())} /> : <ControllerDashboard s={s} user={user} setPage={setPage} setOpenId={setOpenInspId} />)}
       {safePage === "categories" && <CategoriesPage s={s} set={set} />}
       {safePage === "problems" && <ProblemsPage s={s} set={set} />}
-      {safePage === "products" && <ProductsPage s={s} set={set} sel={selProduct} setSel={setSelProduct} />}
+      {safePage === "products" && <ProductsPage s={s} set={set} sel={selProduct} setSel={setSelProduct} presetFilter={productsQuery} clearPreset={() => setProductsQuery("")} />}
       {safePage === "forms" && <FormsPage s={s} set={set} />}
       {safePage === "suppliers" && <DictionaryPage s={s} set={set} listKey="suppliers" title="Suppliers" hint="One global list of all suppliers (Suppliers). Assign to products in Products." placeholder="e.g. El Ciruelo" usageOf={id => s.products.filter(p => (p.supplierIds || []).includes(id)).length} />}
       {safePage === "lists" && <ListsPage s={s} set={set} />}
