@@ -2729,6 +2729,9 @@ const olaState = () => normalize(JSON.parse(JSON.stringify(OLA_STATE)));
 function DataPanel({ s, set, onClose }) {
   const [io, setIo] = useState("");
   const [msg, setMsg] = useState("");
+  const [backups, setBackups] = useState(null);
+  const loadBackups = async () => { if (!window.__qcServer) { setBackups([]); return; } try { const r = await fetch(`${window.__qcServer}/backups`); setBackups(r.ok ? await r.json() : []); } catch { setBackups([]); } };
+  const restore = async name => { if (!window.confirm || window.confirm(`Restore ${name}? The current state is snapshotted first.`)) { try { const r = await fetch(`${window.__qcServer}/backups/${encodeURIComponent(name)}/restore`, { method: "POST" }); if (r.ok) { setMsg("Restored on the server — reloading…"); setTimeout(() => location.reload(), 800); } else setMsg("Restore failed: " + r.status); } catch (e) { setMsg("Restore failed: " + (e.message || e)); } } };
   const exportState = async () => {
     const json = JSON.stringify(s, null, 2);
     setIo(json);
@@ -2751,6 +2754,11 @@ function DataPanel({ s, set, onClose }) {
       <div className="flex gap-2 mb-2 flex-wrap"><Primary small onClick={exportState}>Export state</Primary><Ghost onClick={importState}>Import from the field below</Ghost><button onClick={reset} className="text-xs px-2.5 py-1.5 rounded-lg" style={{ background: C.badBg, color: C.bad }}>Clear everything</button></div>
       {msg && <p className="text-xs mb-2" style={{ color: C.accent }}>{msg}</p>}
       <textarea value={io} onChange={e => setIo(e.target.value)} rows={6} placeholder="The export will appear here, or paste JSON to import" className="w-full text-xs rounded px-2 py-1.5 outline-none font-mono" style={inp} />
+      <div className="mt-3">
+        <div className="flex items-center gap-2 mb-1"><p className="font-medium text-sm">Server backups</p><button onClick={loadBackups} className="text-xs underline" style={{ color: C.accent }}>{backups ? "refresh" : "show"}</button></div>
+        <p className="text-[11px] mb-2" style={{ color: C.muted }}>Snapshots of the whole state, taken on change (at most one per 10 minutes, last 48 kept). Restoring snapshots the current state first, so nothing is lost.</p>
+        {backups && (backups.length === 0 ? <p className="text-xs" style={{ color: C.muted }}>No backups yet (or no server).</p> : <div className="rounded-xl" style={{ border: `1px solid ${C.line}`, maxHeight: 220, overflowY: "auto" }}>{backups.map(b => <div key={b.name} className="flex items-center gap-2 px-2 py-1.5 text-xs" style={{ borderTop: `1px solid ${C.line}` }}><span className="flex-1">{new Date(b.at).toLocaleString("en-GB")}<span style={{ color: C.muted }}> · {b.categories} cat · {b.products} prod · {b.inspections} insp · {b.integrations} integr</span></span><button onClick={() => restore(b.name)} className="px-2 py-1 rounded-lg font-semibold" style={{ background: C.ink, color: C.onDark }}>Restore</button></div>)}</div>)}
+      </div>
     </Card>
   );
 }
