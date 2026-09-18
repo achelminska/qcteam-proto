@@ -594,6 +594,17 @@ function DeadlineBanner({ s, alerts, onOpen, onMessage, openLabel = "Open" }) {
     </div>
   );
 }
+// Recent-problem history for a product: rejected Full inspections in the last `days`, with which problems came up and how often.
+// This is what tells a controller "this pallet's article has been flagged before — here's what to look for."
+const recentProblemsFor = (s, productId, nowMs = Date.now(), days = 14) => {
+  if (!productId) return { count: 0, problems: [], lastAt: null };
+  const insps = s.inspections.filter(i => i.productId === productId && i.status === "Completed" && isVerdictType(s, i) && i.result === "Rejected" && i.completedAt && (nowMs - new Date(i.completedAt).getTime()) <= days * 86400000);
+  const tally = {};
+  insps.forEach(i => (i.remarks || []).forEach(r => { const name = pathOf(s.problems, r.leafId).split(" › ").pop() || "?"; tally[name] = (tally[name] || 0) + 1; }));
+  const problems = Object.entries(tally).sort((a, b) => b[1] - a[1]).map(([name, count]) => ({ name, count }));
+  const lastAt = insps.length ? insps.map(i => i.completedAt).sort().slice(-1)[0] : null;
+  return { count: insps.length, problems, lastAt };
+};
 const dockSummary = s => { const it = (s.integrations || []).find(i => i.purpose === "Dock" && i.rows?.length); return it?.summary || null; };
 const blockedRowsLive = s => { const it = (s.integrations || []).find(i => i.purpose === "Blocked" && i.rows?.length); if (!it) return []; const seen = new Set(); return it.rows.filter(r => !r._errors?.length).map(r => ({ article: String(r.article || ""), name: r.name || "", hu: String(r.hu || "").replace(/\D/g, ""), location: r.location || "", zone: r.zone || "", pickLocation: r.pickLocation || "", deadline: r.deadline || "", wmsStatus: r.wmsStatus || "", status: r.status || "", date: r.date || "", time: r.time || "" })).filter(r => { const k = r.hu || `${r.article}|${r.location}`; if (seen.has(k)) return false; seen.add(k); return true; }); };
 const blockedSummary = s => { const it = (s.integrations || []).find(i => i.purpose === "Blocked" && i.rows?.length); return it?.summary || null; };
