@@ -2981,12 +2981,16 @@ export default function App() {
   const [presetProduct, setPresetProduct] = useState("");
   const [productsQuery, setProductsQuery] = useState("");
   const [pendingChatContext, setPendingChatContext] = useState(null);
+  const bootIdRef = useRef(null); const [newVersion, setNewVersion] = useState(false);
   const [dark, setDark] = useState(false);
   useEffect(() => { (async () => { try { if (window.storage) { const r = await window.storage.get(THEME_KEY); if (r?.value === "dark") { applyTheme(true); setDark(true); } } } catch (e) {} })(); }, []);
   const toggleTheme = () => { const d = !dark; applyTheme(d); setDark(d); (async () => { try { if (window.storage) await window.storage.set(THEME_KEY, d ? "dark" : "light"); } catch (e) {} })(); };
   useEffect(() => { if (!loaded) return; const tick = () => refreshPushedIntegrations(() => _S, set); tick(); const id = setInterval(tick, 60000); return () => clearInterval(id); }, [loaded]);
   // Fast, cheap poll: check the version every ~5s; pull the full state only when it changed and we have nothing unsaved of our own.
-  useEffect(() => { if (!loaded) return; const id = setInterval(async () => { if (!window.storage?.getMeta || syncerRef.current.busy || syncerRef.current.pending.length) return; const v = await window.storage.getMeta(STORAGE_KEY); if (v && v !== syncerRef.current.version) { const r = await window.storage.get(STORAGE_KEY); if (r?.value) { const nx = sortState(normalize(JSON.parse(r.value))); _S = nx; setRaw(nx); syncerRef.current.version = r.version || v; } } }, 5000); return () => clearInterval(id); }, [loaded]);
+  useEffect(() => { if (!loaded) return; const id = setInterval(async () => {
+    if (window.storage?.getBootId) { const b = await window.storage.getBootId(); if (b) { if (bootIdRef.current === null) bootIdRef.current = b; else if (b !== bootIdRef.current) setNewVersion(true); } }
+    if (!window.storage?.getMeta || syncerRef.current.busy || syncerRef.current.pending.length) return; const v = await window.storage.getMeta(STORAGE_KEY); if (v && v !== syncerRef.current.version) { const r = await window.storage.get(STORAGE_KEY); if (r?.value) { const nx = sortState(normalize(JSON.parse(r.value))); _S = nx; setRaw(nx); syncerRef.current.version = r.version || v; } }
+  }, 5000); return () => clearInterval(id); }, [loaded]);
 
   // Load saved state on start
   useEffect(() => {
@@ -3018,6 +3022,7 @@ export default function App() {
       <BlockingOverlay s={s} set={set} user={user} />
       {dataOpen && <DataPanel s={s} set={set} onClose={() => setDataOpen(false)} />}
       {toastMsg && <div className="fixed left-1/2 -translate-x-1/2 text-sm px-4 py-2 rounded-xl" style={{ top: 12, zIndex: 90, background: C.ink, color: C.onDark, boxShadow: "0 8px 20px rgba(0,0,0,.25)" }}>{toastMsg}</div>}
+      {newVersion && <div className="fixed left-1/2 -translate-x-1/2 flex items-center gap-3 text-sm px-4 py-2.5 rounded-xl" style={{ top: 12, zIndex: 91, background: C.accent, color: C.onDark, boxShadow: "0 8px 20px rgba(0,0,0,.3)" }}>A new version is live<button onClick={() => location.reload()} className="px-2.5 py-1 rounded-lg font-semibold" style={{ background: C.onDark, color: C.accent }}>Refresh</button></div>}
       {safePage === "dashboard" && (user.role === "Head" ? <Dashboard s={s} user={user} setPage={setPage} seed={() => set(olaState())} openProduct={id => { setSelProduct(id); setPage("products"); }} onAssign={a => { setPendingChatContext({ kind: "pallet", id: a.hu, label: `${a.name} · ${a.location}` }); setPage("messages"); }} /> : <ControllerDashboard s={s} user={user} setPage={setPage} setOpenId={setOpenInspId} />)}
       {safePage === "categories" && <CategoriesPage s={s} set={set} />}
       {safePage === "problems" && <ProblemsPage s={s} set={set} />}
