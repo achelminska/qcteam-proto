@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceArea, ReferenceLine, Legend } from "recharts";
-import { Link2, List as ListIcon, BarChart3, Printer, SlidersHorizontal, SkipForward, LayoutDashboard, ClipboardList, Flag, Bell, FolderTree, ListTree, Package, LayoutTemplate, Truck, Globe, Megaphone, MessageSquare, Users, Search, Sun, Moon, Database, Home, Menu as MenuIcon, ScanLine, Plus, ChevronLeft, User, Camera, Image as ImageIcon, Paperclip, Send, Star, Pencil, Sparkles, HelpCircle, Download, Lock as LockIcon, AlertTriangle, Inbox, FileText, ShieldAlert, Tag, Layers, BookOpen, Filter, Check, X, Ruler, Boxes } from "lucide-react";
+import { MessageCircle, Link2, List as ListIcon, BarChart3, Printer, SlidersHorizontal, SkipForward, LayoutDashboard, ClipboardList, Flag, Bell, FolderTree, ListTree, Package, LayoutTemplate, Truck, Globe, Megaphone, MessageSquare, Users, Search, Sun, Moon, Database, Home, Menu as MenuIcon, ScanLine, Plus, ChevronLeft, User, Camera, Image as ImageIcon, Paperclip, Send, Star, Pencil, Sparkles, HelpCircle, Download, Lock as LockIcon, AlertTriangle, Inbox, FileText, ShieldAlert, Tag, Layers, BookOpen, Filter, Check, X, Ruler, Boxes } from "lucide-react";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // QCteam — portal Head of Quality (mini-aplikacja, stan startowy pusty)
@@ -40,6 +40,11 @@ const SearchBox = ({ value, onChange, placeholder, className = "", style = {}, i
     <input autoFocus={autoFocus} value={value} onChange={e => onChange(e.target.value)} onKeyDown={onKeyDown} placeholder={placeholder} className={`w-full text-sm ${inputClass}`} style={{ paddingLeft: size + 18 }} />
   </div>
 );
+// Notification look: one lucide icon per type in a soft circle; legacy messages get their emoji stripped on display.
+const NOTIF = { Exceeded: [AlertTriangle, "bad"], AcceptedDespite: [AlertTriangle, "warn"], Escalation: [HelpCircle, "warn"], Question: [MessageCircle, "info"], Answered: [MessageCircle, "ok"], Flag: [Flag, "warn"], Announcement: [Megaphone, "info"], EditedByOther: [Pencil, "info"] };
+const notifLook = t => { const [I, tone] = NOTIF[t] || [Bell, "info"]; const fg = tone === "bad" ? C.bad : tone === "warn" ? C.warn : tone === "ok" ? C.ok : C.accent; const bg = tone === "bad" ? C.badBg : tone === "warn" ? C.warnBg : tone === "ok" ? C.okBg : C.accentSoft; return { I, fg, bg }; };
+const cleanMsg = m => String(m || "").replace(/^[\p{Extended_Pictographic}\uFE0F\s]+/u, "");
+const NotifIcon = ({ type, size = 32 }) => { const { I, fg, bg } = notifLook(type); return <span className="rounded-full flex items-center justify-center flex-shrink-0" style={{ width: size, height: size, background: bg, color: fg }}><I size={Math.round(size * 0.5)} strokeWidth={2} /></span>; };
 const Dot = ({ on }) => <span className="inline-block rounded-full ml-2 align-middle" style={{ width: 7, height: 7, background: on ? C.ok : C.line }} />;
 const NAV_ICON = { integrations: Link2, lists: ListIcon, analytics: BarChart3, settings: SlidersHorizontal, dashboard: LayoutDashboard, inspections: ClipboardList, flags: Flag, notifications: Bell, categories: FolderTree, problems: ListTree, products: Package, forms: LayoutTemplate, suppliers: Truck, countries: Globe, announcements: Megaphone, messages: MessageSquare, users: Users, catalog: Package, home: Home, chat: MessageSquare, menu: MenuIcon };
 const EMPTY_ICON = { "📁": FolderTree, "🌳": ListTree, "📦": Package, "🧩": LayoutTemplate, "📖": BookOpen, "📏": Ruler, "📋": ClipboardList, "🚩": Flag, "🔔": Bell, "📣": Megaphone, "💬": MessageSquare, "🔒": LockIcon };
@@ -2186,7 +2191,7 @@ function InspectionsPage({ s, set, user, notify, openId, setOpenId, preset, clea
   };
   const escalate = q => { patchInsp(insp.id, { status: "PendingReview", question: q, answer: null }); log(insp.id, "Escalation", q); notify("Escalation", `${user.name} asks about ${product.name}: „${q}"`, "Inspection", insp.id); };
   const answer = a => { patchInsp(insp.id, { status: "Draft", answer: a }); log(insp.id, "Head's answer", a); notify("Answered", `The Head answered re ${product.name}: „${a}"`, "Inspection", insp.id, insp.controllerId); };
-  const raiseFlag = text => { set(x => ({ ...x, flags: [...x.flags, { id: uid(), productId: product.id, inspectionId: insp.id, raisedBy: user.id, description: text, status: "Open", createdAt: nowISO() }] })); notify("Flag", `🚩 ${user.name}: ${product.name} — ${text}`, "ProductFlag", null); };
+  const raiseFlag = text => { set(x => ({ ...x, flags: [...x.flags, { id: uid(), productId: product.id, inspectionId: insp.id, raisedBy: user.id, description: text, status: "Open", createdAt: nowISO() }] })); notify("Flag", `${user.name}: ${product.name} — ${text}`, "ProductFlag", null); };
   const cancel = () => { patchInsp(insp.id, { status: "Cancelled" }); log(insp.id, "Cancelled"); setOpenId(null); };
 
   const list = s.inspections.filter(i => filter === "all" ? true : filter === "mine" ? i.controllerId === user.id : filter.startsWith("type:") ? (i.typeId || legacyTypeId(i.type)) === filter.slice(5) : i.status === filter).filter(matchAdv).sort((a, b) => (b.startedAt || "").localeCompare(a.startedAt || ""));
@@ -2272,7 +2277,7 @@ function CatalogPage({ s, set, user, notify, onStartInspection }) {
   const suppliers = assigned.length ? assigned : (s.suppliers || []);
   const history = product ? s.inspections.filter(i => i.productId === product.id && i.status === "Completed").sort((a, b) => (b.completedAt || "").localeCompare(a.completedAt || "")).slice(0, 5) : [];
   const openFlags = product ? s.flags.filter(f => f.productId === product.id && f.status === "Open") : [];
-  const raise = () => { if (!flagText.trim()) return; set(x => ({ ...x, flags: [...x.flags, { id: uid(), productId: product.id, inspectionId: null, raisedBy: user.id, description: flagText.trim(), status: "Open", createdAt: nowISO() }] })); notify("Flag", `🚩 ${user.name}: ${product.name} — ${flagText.trim()}`, "ProductFlag", null); setFlagText(""); setFlagOpen(false); };
+  const raise = () => { if (!flagText.trim()) return; set(x => ({ ...x, flags: [...x.flags, { id: uid(), productId: product.id, inspectionId: null, raisedBy: user.id, description: flagText.trim(), status: "Open", createdAt: nowISO() }] })); notify("Flag", `${user.name}: ${product.name} — ${flagText.trim()}`, "ProductFlag", null); setFlagText(""); setFlagOpen(false); };
   return (
     <div>
       <h1 className="mb-1">Products</h1>
@@ -2350,7 +2355,7 @@ function AnnouncementsPage({ s, set, user, notify }) {
     if (!valid) return;
     const a = { id: uid(), isBlocking: d.blocking, showOnDashboard: d.dashboard, productId: d.product ? d.productId : null, title: d.title.trim(), body: d.body.trim(), validTo: d.dashboard ? (d.validTo || null) : null, createdBy: user.id, createdAt: nowISO(), acks: {} };
     set(x => ({ ...x, announcements: [...x.announcements, a] }));
-    if (a.isBlocking) controllers.forEach(c => notify("Announcement", `📣 New blocking announcement: ${a.title}`, "Announcement", a.id, c.id));
+    if (a.isBlocking) controllers.forEach(c => notify("Announcement", `New blocking announcement: ${a.title}`, "Announcement", a.id, c.id));
     setD({ blocking: false, dashboard: true, product: false, title: "", body: "", productId: "", validTo: "" });
   };
   const remove = id => set(x => ({ ...x, announcements: x.announcements.filter(a => a.id !== id) }));
@@ -2500,10 +2505,10 @@ function NotificationsPage({ s, set, user, setPage, setOpenId }) {
       <p className="text-sm mb-5" style={{ color: C.muted, maxWidth: 640 }}>One generic table (Notification) fed by: tolerance exceeded, accepted despite exceeding, escalation, answer, flag, editing someone else's report.</p>
       <Card>
         {mine.length === 0 ? <Empty icon="🔔" title="Quiet" hint="Nothing needs your attention." /> : mine.map(n => (
-          <button key={n.id} onClick={() => { markRead(n.id); if (n.entityType === "Inspection" && n.entityId) { setOpenId(n.entityId); setPage("inspections"); } if (n.entityType === "ProductFlag") setPage("flags"); if (n.entityType === "Conversation") setPage("messages"); }} className="w-full text-left flex items-start gap-3 px-2 py-2.5" style={{ borderTop: `1px solid ${C.line}`, background: n.readAt ? "transparent" : C.accentSoft }}>
-            <span className="text-xs whitespace-nowrap mt-0.5" style={{ color: C.muted }}>{fmtTime(n.createdAt)}</span>
-            <span className="text-sm flex-1" style={{ fontWeight: n.readAt ? 400 : 500 }}>{n.message}</span>
-            <span className="text-[10px] px-1.5 rounded" style={{ background: C.line, color: C.muted }}>{n.type}</span>
+          <button key={n.id} onClick={() => { markRead(n.id); if (n.entityType === "Inspection" && n.entityId) { setOpenId(n.entityId); setPage("inspections"); } if (n.entityType === "ProductFlag") setPage("flags"); if (n.entityType === "Conversation") setPage("messages"); }} className="w-full text-left flex items-center gap-3 px-2 py-2.5" style={{ borderTop: `1px solid ${C.line}`, background: n.readAt ? "transparent" : C.accentSoft }}>
+            <NotifIcon type={n.type} />
+            <span className="flex-1 min-w-0"><span className="block text-sm" style={{ fontWeight: n.readAt ? 400 : 500 }}>{cleanMsg(n.message)}</span><span className="block text-[11px]" style={{ color: C.muted }}>{fmtTime(n.createdAt)}</span></span>
+            {!n.readAt && <span className="rounded-full flex-shrink-0" style={{ width: 8, height: 8, background: C.accent }} />}
           </button>
         ))}
       </Card>
