@@ -46,7 +46,7 @@ const notifLook = t => { const [I, tone] = NOTIF[t] || [Bell, "info"]; const fg 
 const cleanMsg = m => String(m || "").replace(/^[\p{Extended_Pictographic}\uFE0F\s]+/u, "");
 const NotifIcon = ({ type, size = 32 }) => { const { I, fg, bg } = notifLook(type); return <span className="rounded-full flex items-center justify-center flex-shrink-0" style={{ width: size, height: size, background: bg, color: fg }}><I size={Math.round(size * 0.5)} strokeWidth={2} /></span>; };
 const Dot = ({ on }) => <span className="inline-block rounded-full ml-2 align-middle" style={{ width: 7, height: 7, background: on ? C.ok : C.line }} />;
-const NAV_ICON = { integrations: Link2, lists: ListIcon, analytics: BarChart3, settings: SlidersHorizontal, dashboard: LayoutDashboard, inspections: ClipboardList, flags: Flag, notifications: Bell, categories: FolderTree, problems: ListTree, products: Package, forms: LayoutTemplate, suppliers: Truck, countries: Globe, announcements: Megaphone, messages: MessageSquare, users: Users, catalog: Package, home: Home, chat: MessageSquare, menu: MenuIcon };
+const NAV_ICON = { blocked: LockIcon, integrations: Link2, lists: ListIcon, analytics: BarChart3, settings: SlidersHorizontal, dashboard: LayoutDashboard, inspections: ClipboardList, flags: Flag, notifications: Bell, categories: FolderTree, problems: ListTree, products: Package, forms: LayoutTemplate, suppliers: Truck, countries: Globe, announcements: Megaphone, messages: MessageSquare, users: Users, catalog: Package, home: Home, chat: MessageSquare, menu: MenuIcon };
 const EMPTY_ICON = { "📁": FolderTree, "🌳": ListTree, "📦": Package, "🧩": LayoutTemplate, "📖": BookOpen, "📏": Ruler, "📋": ClipboardList, "🚩": Flag, "🔔": Bell, "📣": Megaphone, "💬": MessageSquare, "🔒": LockIcon };
 
 
@@ -557,6 +557,12 @@ const blockedSummary = s => { const it = (s.integrations || []).find(i => i.purp
 // Sheets repeat rows (same HU twice). One handling unit is one pallet: the first occurrence wins.
 const dedupeByHu = rows => { const seen = new Set(); return rows.filter(r => { const k = String(r.hu || "").replace(/\D/g, "").replace(/^0+/, ""); if (!k || seen.has(k)) return false; seen.add(k); return true; }); };
 const duplicateHuCount = rows => rows.length - dedupeByHu(rows).length;
+// Blocked-pallet work queue (PalletClaim): who took which blocked batch, or flagged it as stacked/unreachable. Keyed by article + location
+// because the blocked sheet has no handling units. Claims live in the shared state, so everyone sees them within a minute.
+const claimKey = b => `${b.article}|${b.location}`;
+const claimOf = (s, b) => (s.palletClaims || {})[claimKey(b)] || null;
+const setClaim = (set, b, claim) => set(x => { const pc = { ...(x.palletClaims || {}) }; if (claim) pc[claimKey(b)] = claim; else delete pc[claimKey(b)]; return { ...x, palletClaims: pc }; });
+const blockedQueue = s => blockedRowsLive(s).map(b => ({ ...b, claim: claimOf(s, b), key: claimKey(b) }));
 const dockRowsLive = s => { const it = (s.integrations || []).find(i => i.purpose === "Dock" && i.rows?.length); if (!it) return CLEAN_START ? [] : SHEET.dock; return dedupeByHu(it.rows.filter(r => !r._errors?.length)).map(r => ({ hu: String(r.hu || "").trim(), article: String(r.article || ""), name: r.name || "", location: r.location || "", priority: r.priority || (r.skippable ? "Skippable" : "Inspection due"), blocking: !!r.blocking, skippable: !!r.skippable, arrived: r.arrived || "", arrivedTime: r.arrivedTime || "", transporter: r.transporter || "", po: r.po || "", cusPerTu: r.cusPerTu ? Number(r.cusPerTu) : null, sortable: !!r.sortable, onDock: 0, inBuffer: 0 })); };
 // Shared: read what the sheet pushed to the server and refresh the matching integration inside the app state.
 // Used by the portal (every 60 s on any page) and by the phone (on open / Sync now), so no device depends on the other.
@@ -831,6 +837,33 @@ const flushState = async (syncer, key, getLocal, setLocal, normalizeFn, onConfli
   } finally { syncer.busy = false; if (syncer.again) { syncer.again = false; flushState(syncer, key, getLocal, setLocal, normalizeFn, onConflictResolved); } }
 };
 
+// ═══════════════════ BLOCKED PALLET QUEUE ROW (shared) ═══════════════════
+function QueueRow({ s, set, user, b, onOpen }) {
+  const c = b.claim; const me = c && c.userId === user.id; const who = c && s.users.find(u => u.id === c.userId);
+  const done = b.status === "Completed"; const stacked = c?.status === "stacked";
+  const col = done ? C.ok : stacked ? C.muted : b.status === "Started" ? C.warn : C.bad;
+  const take = () => setClaim(set, b, { userId: user.id, at: nowISO(), status: "taken" });
+  const stack = () => setClaim(set, b, { userId: user.id, at: nowISO(), status: "stacked" });
+  const release = () => setClaim(set, b, null);
+  const ago = t => { const m = Math.round((Date.now() - new Date(t).getTime()) / 60000); return m < 1 ? "now" : m < 60 ? `${m} min` : `${Math.round(m / 60)} h`; };
+  return (
+    <div className="py-2.5" style={{ borderBottom: `1px solid ${C.line}`, opacity: done ? .5 : stacked ? .7 : 1 }}>
+      <div className="flex items-center gap-2">
+        <span className="inline-block rounded-full flex-shrink-0" style={{ width: 8, height: 8, background: col }} />
+        <button onClick={onOpen} className="text-sm flex-1 truncate font-medium text-left">{b.name || b.article}</button>
+        {who && <span className="flex items-center gap-1 text-[11px]" style={{ color: me ? C.accent : C.muted }}><Avatar user={who} size={18} />{me ? "you" : who.name.split(" ")[0]} · {ago(c.at)}</span>}
+        {stacked && <span className="text-[10px] px-1.5 py-0.5 rounded inline-flex items-center" style={{ background: C.line, color: C.muted }}><Ic i={Layers} s={10} mr={3} />in stack</span>}
+      </div>
+      <p className="text-xs mt-0.5 ml-4" style={{ color: C.muted }}>{b.location} · {b.time}{b.date ? ` · ${b.date}` : ""} · {b.article} · {b.status}</p>
+      {!done && <div className="flex gap-1.5 mt-1.5 ml-4">
+        {!c && <><button onClick={take} className="text-xs px-3 py-1.5 rounded-lg font-semibold" style={{ background: C.ink, color: C.onDark }}>Take</button><button onClick={stack} className="text-xs px-3 py-1.5 rounded-lg inline-flex items-center" style={{ border: `1px solid ${C.line}` }}><Ic i={Layers} s={12} />In stack</button></>}
+        {c && me && <>{stacked ? <button onClick={take} className="text-xs px-3 py-1.5 rounded-lg font-semibold" style={{ background: C.ink, color: C.onDark }}>Reachable now — take</button> : <button onClick={stack} className="text-xs px-3 py-1.5 rounded-lg inline-flex items-center" style={{ border: `1px solid ${C.line}` }}><Ic i={Layers} s={12} />In stack</button>}<button onClick={release} className="text-xs px-3 py-1.5 rounded-lg" style={{ color: C.muted, border: `1px solid ${C.line}` }}>Release</button></>}
+        {c && !me && <>{stacked ? <button onClick={take} className="text-xs px-3 py-1.5 rounded-lg" style={{ border: `1px solid ${C.line}` }}>Reachable now — take</button> : <button onClick={take} className="text-xs px-3 py-1.5 rounded-lg" style={{ color: C.warn, border: `1px solid ${C.line}` }}>Take over</button>}</>}
+      </div>}
+    </div>
+  );
+}
+
 // ═══════════════════ UI: prymitywy ═══════════════════
 function Card({ children, style }) { return <section className="rounded-2xl p-5" style={{ background: C.surface, border: `1px solid ${C.line}`, ...style }}>{children}</section>; }
 function Primary({ children, onClick, disabled, small }) { return <button onClick={onClick} disabled={disabled} className={`${small ? "text-xs px-3" : "text-sm px-4"} font-semibold rounded-xl inline-flex items-center justify-center`} style={{ height: small ? 30 : 38, background: disabled ? C.line : C.accent, color: disabled ? C.muted : C.onDark }}>{children}</button>; }
@@ -852,7 +885,7 @@ function Note({ tone: t = "info", children }) {
 
 // ═══════════════════ SHELL: top bar + sidebar ═══════════════════
 const NAV_HEAD = [
-  { group: null, items: [["dashboard", "🏠", "Dashboard"], ["inspections", "📋", "Inspections"], ["analytics", "📊", "Analytics"], ["flags", "🚩", "Flags"], ["notifications", "🔔", "Notifications"]] },
+  { group: null, items: [["dashboard", "🏠", "Dashboard"], ["inspections", "📋", "Inspections"], ["blocked", "🔒", "Blocked pallets"], ["analytics", "📊", "Analytics"], ["flags", "🚩", "Flags"], ["notifications", "🔔", "Notifications"]] },
   { group: "Catalog", items: [["categories", "📁", "Categories"], ["problems", "🌳", "Problem types"], ["products", "📦", "Products"], ["forms", "🧩", "Forms"]] },
   { group: "Dictionaries", items: [["suppliers", "🚚", "Suppliers"], ["lists", "📋", "Lists"]] },
   { group: "Communication", items: [["announcements", "📣", "Announcements"], ["messages", "💬", "Messages"]] },
@@ -2181,6 +2214,7 @@ function InspectionsPage({ s, set, user, notify, openId, setOpenId, preset, clea
     setOpenId(id); setNewProduct("");
   };
   const finish = ({ anyExceeded, generalFlag, autoAccept }) => {
+    { const p = s.products.find(x => x.id === insp.productId); if (p?.articleId) set(x => { const pc = { ...(x.palletClaims || {}) }; Object.keys(pc).forEach(k => { if (k.startsWith(p.articleId + "|") && pc[k].userId === user.id) delete pc[k]; }); return { ...x, palletClaims: pc }; }); }
     const wasCompleted = insp.status === "Completed";
     patchInsp(insp.id, i => ({ ...i, status: "Completed", completedAt: i.completedAt || nowISO(), lastEditedBy: wasCompleted ? user.id : i.lastEditedBy, lastEditedAt: wasCompleted ? nowISO() : i.lastEditedAt }));
     log(insp.id, wasCompleted ? "Edited completed report" : "Completed", `result: ${insp.result}`);
@@ -2516,6 +2550,28 @@ function NotificationsPage({ s, set, user, setPage, setOpenId }) {
   );
 }
 
+// ═══════════════════ PAGE: Blocked pallets — the shared work queue ═══════════════════
+function BlockedQueuePage({ s, set, user, setSel, setPage }) {
+  const [view, setView] = useState("open");
+  const q = blockedQueue(s); const order = { "Not started": 0, "Started": 1, "Completed": 2 };
+  const list = q.filter(b => view === "all" ? true : view === "mine" ? b.claim?.userId === user.id : b.status !== "Completed").sort((a, b) => (order[a.status] ?? 9) - (order[b.status] ?? 9) || (a.time || "").localeCompare(b.time || ""));
+  const open = q.filter(b => b.status !== "Completed"); const taken = open.filter(b => b.claim && b.claim.status === "taken"); const stacked = open.filter(b => b.claim?.status === "stacked");
+  const sm = blockedSummary(s);
+  return (
+    <div>
+      <h1 className="mb-1">Blocked pallets</h1>
+      <p className="text-sm mb-4" style={{ color: C.muted, maxWidth: 680 }}>Pallets picking is waiting for, from the blocked-pallets sheet. Controllers take them from the queue so two people don't walk to the same pallet; “in stack” marks pallets that can't be reached yet.</p>
+      {!q.length ? <Card><Empty icon="📋" title="No blocked pallets" hint={sm ? "The sheet reports nothing blocked." : "Connect the blocked-pallets sheet in Integrations."} /></Card> : <>
+        <div className="grid gap-3 mb-4" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))" }}>
+          {[["Open", open.length, C.bad], ["Taken", taken.length, C.accent], ["In stack", stacked.length, C.muted], ["Unassigned", open.length - taken.length - stacked.length, C.warn]].map(([l, v, col]) => <div key={l} className="rounded-2xl p-4" style={{ background: C.surface, border: `1px solid ${C.line}`, borderLeft: `3px solid ${col}` }}><p className="text-xs" style={{ color: C.muted }}>{l}</p><p className="text-[26px] leading-tight font-semibold">{v}</p></div>)}
+        </div>
+        <div className="flex gap-1.5 mb-3">{[["open", "Open"], ["mine", "Mine"], ["all", "All incl. done"]].map(([k, l]) => <button key={k} onClick={() => setView(k)} className="text-xs px-3 py-1.5 rounded-full" style={{ background: view === k ? C.ink : "transparent", color: view === k ? C.onDark : C.ink, border: `1px solid ${view === k ? C.ink : C.line}` }}>{l}</button>)}</div>
+        <Card>{list.length === 0 ? <p className="text-xs py-4" style={{ color: C.muted }}>Nothing here.</p> : list.map(b => { const prod = s.products.find(p => p.articleId === b.article); return <QueueRow key={b.key} s={s} set={set} user={user} b={b} onOpen={() => { if (prod) { setSel(prod.id); setPage("products"); } }} />; })}</Card>
+      </>}
+    </div>
+  );
+}
+
 // ═══════════════════ PAGE: Lists (Dictionaries + DictionaryItems) — Head-defined value lists, attached to form fields ═══════════════════
 function ListsPage({ s, set }) {
   const [sel, setSel] = useState(null); const [name, setName] = useState(""); const [item, setItem] = useState("");
@@ -2616,6 +2672,7 @@ const normalize = raw => {
   s.integrations = Array.isArray(s.integrations) ? s.integrations : [];
   { const seed = byId(SEED_USERS()); const placeholders = { "u-head": "Marta K.", "u-anna": "Anna K.", "u-jakub": "Jakub M." }; s.users = (s.users || []).map(u => placeholders[u.id] && u.name === placeholders[u.id] ? { ...u, ...seed[u.id] } : u); }
   s.categoryRules = Array.isArray(s.categoryRules) ? s.categoryRules : [];
+  s.palletClaims = s.palletClaims && typeof s.palletClaims === "object" ? s.palletClaims : {};
   s.settings = settingsOf(s);
   s.inspectionTypes = Array.isArray(s.inspectionTypes) ? s.inspectionTypes : [];
   // Migration: drop the previously seeded types (and their auto-generated templates) when nothing uses them — the Head defines types from scratch.
@@ -2893,6 +2950,7 @@ export default function App() {
       {safePage === "forms" && <FormsPage s={s} set={set} />}
       {safePage === "suppliers" && <DictionaryPage s={s} set={set} listKey="suppliers" title="Suppliers" hint="One global list of all suppliers (Suppliers). Assign to products in Products." placeholder="e.g. El Ciruelo" usageOf={id => s.products.filter(p => (p.supplierIds || []).includes(id)).length} />}
       {safePage === "lists" && <ListsPage s={s} set={set} />}
+      {safePage === "blocked" && <BlockedQueuePage s={s} set={set} user={user} setSel={setSelProduct} setPage={setPage} />}
       {safePage === "inspections" && <InspectionsPage s={s} set={set} user={user} notify={notify} openId={openInspId} setOpenId={setOpenInspId} preset={presetProduct} clearPreset={() => setPresetProduct("")} />}
       {safePage === "catalog" && <CatalogPage s={s} set={set} user={user} notify={notify} onStartInspection={pid => { setPresetProduct(pid); setOpenInspId(null); setPage("inspections"); }} />}
       {safePage === "flags" && <FlagsPage s={s} set={set} user={user} />}
