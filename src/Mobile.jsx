@@ -46,7 +46,7 @@ const notifLook = t => { const [I, tone] = NOTIF[t] || [Bell, "info"]; const fg 
 const cleanMsg = m => String(m || "").replace(/^[\p{Extended_Pictographic}\uFE0F\s]+/u, "");
 const NotifIcon = ({ type, size = 32 }) => { const { I, fg, bg } = notifLook(type); return <span className="rounded-full flex items-center justify-center flex-shrink-0" style={{ width: size, height: size, background: bg, color: fg }}><I size={Math.round(size * 0.5)} strokeWidth={2} /></span>; };
 const Dot = ({ on }) => <span className="inline-block rounded-full ml-2 align-middle" style={{ width: 7, height: 7, background: on ? C.ok : C.line }} />;
-const NAV_ICON = { integrations: Link2, lists: ListIcon, analytics: BarChart3, settings: SlidersHorizontal, dashboard: LayoutDashboard, inspections: ClipboardList, flags: Flag, notifications: Bell, categories: FolderTree, problems: ListTree, products: Package, forms: LayoutTemplate, suppliers: Truck, countries: Globe, announcements: Megaphone, messages: MessageSquare, users: Users, catalog: Package, home: Home, chat: MessageSquare, menu: MenuIcon };
+const NAV_ICON = { blocked: LockIcon, integrations: Link2, lists: ListIcon, analytics: BarChart3, settings: SlidersHorizontal, dashboard: LayoutDashboard, inspections: ClipboardList, flags: Flag, notifications: Bell, categories: FolderTree, problems: ListTree, products: Package, forms: LayoutTemplate, suppliers: Truck, countries: Globe, announcements: Megaphone, messages: MessageSquare, users: Users, catalog: Package, home: Home, chat: MessageSquare, menu: MenuIcon };
 const EMPTY_ICON = { "📁": FolderTree, "🌳": ListTree, "📦": Package, "🧩": LayoutTemplate, "📖": BookOpen, "📏": Ruler, "📋": ClipboardList, "🚩": Flag, "🔔": Bell, "📣": Megaphone, "💬": MessageSquare, "🔒": LockIcon };
 
 
@@ -557,6 +557,12 @@ const blockedSummary = s => { const it = (s.integrations || []).find(i => i.purp
 // Sheets repeat rows (same HU twice). One handling unit is one pallet: the first occurrence wins.
 const dedupeByHu = rows => { const seen = new Set(); return rows.filter(r => { const k = String(r.hu || "").replace(/\D/g, "").replace(/^0+/, ""); if (!k || seen.has(k)) return false; seen.add(k); return true; }); };
 const duplicateHuCount = rows => rows.length - dedupeByHu(rows).length;
+// Blocked-pallet work queue (PalletClaim): who took which blocked batch, or flagged it as stacked/unreachable. Keyed by article + location
+// because the blocked sheet has no handling units. Claims live in the shared state, so everyone sees them within a minute.
+const claimKey = b => `${b.article}|${b.location}`;
+const claimOf = (s, b) => (s.palletClaims || {})[claimKey(b)] || null;
+const setClaim = (set, b, claim) => set(x => { const pc = { ...(x.palletClaims || {}) }; if (claim) pc[claimKey(b)] = claim; else delete pc[claimKey(b)]; return { ...x, palletClaims: pc }; });
+const blockedQueue = s => blockedRowsLive(s).map(b => ({ ...b, claim: claimOf(s, b), key: claimKey(b) }));
 const dockRowsLive = s => { const it = (s.integrations || []).find(i => i.purpose === "Dock" && i.rows?.length); if (!it) return CLEAN_START ? [] : SHEET.dock; return dedupeByHu(it.rows.filter(r => !r._errors?.length)).map(r => ({ hu: String(r.hu || "").trim(), article: String(r.article || ""), name: r.name || "", location: r.location || "", priority: r.priority || (r.skippable ? "Skippable" : "Inspection due"), blocking: !!r.blocking, skippable: !!r.skippable, arrived: r.arrived || "", arrivedTime: r.arrivedTime || "", transporter: r.transporter || "", po: r.po || "", cusPerTu: r.cusPerTu ? Number(r.cusPerTu) : null, sortable: !!r.sortable, onDock: 0, inBuffer: 0 })); };
 // Shared: read what the sheet pushed to the server and refresh the matching integration inside the app state.
 // Used by the portal (every 60 s on any page) and by the phone (on open / Sync now), so no device depends on the other.
@@ -830,6 +836,33 @@ const flushState = async (syncer, key, getLocal, setLocal, normalizeFn, onConfli
     }
   } finally { syncer.busy = false; if (syncer.again) { syncer.again = false; flushState(syncer, key, getLocal, setLocal, normalizeFn, onConflictResolved); } }
 };
+
+// ═══════════════════ BLOCKED PALLET QUEUE ROW (shared) ═══════════════════
+function QueueRow({ s, set, user, b, onOpen }) {
+  const c = b.claim; const me = c && c.userId === user.id; const who = c && s.users.find(u => u.id === c.userId);
+  const done = b.status === "Completed"; const stacked = c?.status === "stacked";
+  const col = done ? C.ok : stacked ? C.muted : b.status === "Started" ? C.warn : C.bad;
+  const take = () => setClaim(set, b, { userId: user.id, at: nowISO(), status: "taken" });
+  const stack = () => setClaim(set, b, { userId: user.id, at: nowISO(), status: "stacked" });
+  const release = () => setClaim(set, b, null);
+  const ago = t => { const m = Math.round((Date.now() - new Date(t).getTime()) / 60000); return m < 1 ? "now" : m < 60 ? `${m} min` : `${Math.round(m / 60)} h`; };
+  return (
+    <div className="py-2.5" style={{ borderBottom: `1px solid ${C.line}`, opacity: done ? .5 : stacked ? .7 : 1 }}>
+      <div className="flex items-center gap-2">
+        <span className="inline-block rounded-full flex-shrink-0" style={{ width: 8, height: 8, background: col }} />
+        <button onClick={onOpen} className="text-sm flex-1 truncate font-medium text-left">{b.name || b.article}</button>
+        {who && <span className="flex items-center gap-1 text-[11px]" style={{ color: me ? C.accent : C.muted }}><Avatar user={who} size={18} />{me ? "you" : who.name.split(" ")[0]} · {ago(c.at)}</span>}
+        {stacked && <span className="text-[10px] px-1.5 py-0.5 rounded inline-flex items-center" style={{ background: C.line, color: C.muted }}><Ic i={Layers} s={10} mr={3} />in stack</span>}
+      </div>
+      <p className="text-xs mt-0.5 ml-4" style={{ color: C.muted }}>{b.location} · {b.time}{b.date ? ` · ${b.date}` : ""} · {b.article} · {b.status}</p>
+      {!done && <div className="flex gap-1.5 mt-1.5 ml-4">
+        {!c && <><button onClick={take} className="text-xs px-3 py-1.5 rounded-lg font-semibold" style={{ background: C.ink, color: C.onDark }}>Take</button><button onClick={stack} className="text-xs px-3 py-1.5 rounded-lg inline-flex items-center" style={{ border: `1px solid ${C.line}` }}><Ic i={Layers} s={12} />In stack</button></>}
+        {c && me && <>{stacked ? <button onClick={take} className="text-xs px-3 py-1.5 rounded-lg font-semibold" style={{ background: C.ink, color: C.onDark }}>Reachable now — take</button> : <button onClick={stack} className="text-xs px-3 py-1.5 rounded-lg inline-flex items-center" style={{ border: `1px solid ${C.line}` }}><Ic i={Layers} s={12} />In stack</button>}<button onClick={release} className="text-xs px-3 py-1.5 rounded-lg" style={{ color: C.muted, border: `1px solid ${C.line}` }}>Release</button></>}
+        {c && !me && <>{stacked ? <button onClick={take} className="text-xs px-3 py-1.5 rounded-lg" style={{ border: `1px solid ${C.line}` }}>Reachable now — take</button> : <button onClick={take} className="text-xs px-3 py-1.5 rounded-lg" style={{ color: C.warn, border: `1px solid ${C.line}` }}>Take over</button>}</>}
+      </div>}
+    </div>
+  );
+}
 
 
 // ═══════════════════ SHARED WITH THE PORTAL (copied 1:1) ═══════════════════
@@ -1287,6 +1320,7 @@ const normalize = raw => {
   s.integrations = Array.isArray(s.integrations) ? s.integrations : [];
   { const seed = byId(SEED_USERS()); const placeholders = { "u-head": "Marta K.", "u-anna": "Anna K.", "u-jakub": "Jakub M." }; s.users = (s.users || []).map(u => placeholders[u.id] && u.name === placeholders[u.id] ? { ...u, ...seed[u.id] } : u); }
   s.categoryRules = Array.isArray(s.categoryRules) ? s.categoryRules : [];
+  s.palletClaims = s.palletClaims && typeof s.palletClaims === "object" ? s.palletClaims : {};
   s.settings = settingsOf(s);
   s.inspectionTypes = Array.isArray(s.inspectionTypes) ? s.inspectionTypes : [];
   // Migration: drop the previously seeded types (and their auto-generated templates) when nothing uses them — the Head defines types from scratch.
@@ -1551,7 +1585,8 @@ function VisualView({ insp, s, go }) {
 }
 
 // ── Dashboard ──
-function MDashboard({ s, user, go, dismissed, setDismissed }) {
+function MDashboard({ s, set, user, go, dismissed, setDismissed }) {
+  const [blockedView, setBlockedView] = useState("open");
   const [tab, setTab] = useState("history");
   const bottomPad = { paddingBottom: 96 };
   const mine = s.inspections.filter(i => i.status !== "Cancelled").sort((a, b) => (b.completedAt || b.startedAt || "").localeCompare(a.completedAt || a.startedAt || ""));
@@ -1579,7 +1614,7 @@ function MDashboard({ s, user, go, dismissed, setDismissed }) {
       ); })()}
       <div className="grid grid-cols-2 gap-2 px-5">
         <div className="rounded-2xl p-3.5" style={{ background: C.bg, border: `1px solid ${C.line}` }}><p className="text-xs" style={{ color: C.muted }}>Done today (team)</p><p className="text-[26px] leading-tight font-semibold mt-0.5">{doneToday}</p></div>
-        {(() => { const bs = blockedSummary(s) || {}; const rows = blockedRowsLive(s); const open = bs.notStarted != null ? (bs.notStarted || 0) + (bs.started || 0) : rows.filter(r => r.status !== "Completed").length; return <div className="rounded-2xl p-3.5" style={{ background: C.bg, border: `1px solid ${C.line}` }}><p className="text-xs" style={{ color: C.muted }}>Blocked pallets</p><p className="text-[26px] leading-tight font-semibold mt-0.5" style={{ color: open ? C.bad : C.ink }}>{open}</p><p className="text-[10px]" style={{ color: C.muted }}>{bs.notStarted != null ? `${bs.notStarted} not started · ${bs.started || 0} started · ${bs.completed || 0} done` : rows.length ? "waiting for QC" : "no blocked-pallets sheet yet"}</p></div>; })()}
+        {(() => { const bs = blockedSummary(s) || {}; const rows = blockedRowsLive(s); const open = bs.notStarted != null ? (bs.notStarted || 0) + (bs.started || 0) : rows.filter(r => r.status !== "Completed").length; return <div className="rounded-2xl p-3.5" style={{ background: C.bg, border: `1px solid ${C.line}` }}><p className="text-xs" style={{ color: C.muted }}>Blocked pallets</p><p className="text-[26px] leading-tight font-semibold mt-0.5" style={{ color: open ? C.bad : C.ink }}>{open}</p><p className="text-[10px]" style={{ color: C.muted }}>{(() => { const mine = blockedQueue(s).filter(b => b.status !== "Completed" && b.claim?.userId === user.id).length; const st = blockedQueue(s).filter(b => b.status !== "Completed" && b.claim?.status === "stacked").length; return rows.length ? `${mine} yours · ${st} in stack` : "no blocked-pallets sheet yet"; })()}</p></div>; })()}
         <div className="rounded-2xl p-3.5" style={{ background: C.bg, border: `1px solid ${C.line}` }}><p className="text-xs" style={{ color: C.muted }}>SKUs on docks<Lock /></p><p className="text-[26px] leading-tight font-semibold mt-0.5">{sheetStats(s).skus}</p><p className="text-[10px]" style={{ color: C.muted }}>{sheetStats(s).expected != null ? `${sheetStats(s).expected} still expected` : "distinct articles"}</p></div>
         <div className="rounded-2xl p-3.5" style={{ background: C.bg, border: `1px solid ${C.line}` }}><p className="text-xs" style={{ color: C.muted }}>Pallets on docks<Lock /></p><p className="text-[26px] leading-tight font-semibold mt-0.5">{sheetStats(s).pallets}</p><p className="text-[10px]" style={{ color: C.muted }}>{sheetStats(s).skippablePallets != null ? `${sheetStats(s).skippablePallets} skippable · ${sheetStats(s).skippableSkus ?? "—"} SKUs` : "in total"}</p></div>
       </div>
@@ -1595,14 +1630,10 @@ function MDashboard({ s, user, go, dismissed, setDismissed }) {
         {tab === "history" && <button onClick={() => go("history")} className="text-xs py-2" style={{ color: C.accent }}>all ›</button>}
       </div>
       <div className="px-5 pt-2">
-        {tab === "blocked" && (() => { const rows = blockedRowsLive(s); const order = { "Not started": 0, "Started": 1, "Completed": 2 }; const sorted = [...rows].sort((x, y) => (order[x.status] ?? 9) - (order[y.status] ?? 9) || (x.time || "").localeCompare(y.time || "")); const col = st => st === "Completed" ? C.ok : st === "Started" ? C.warn : C.bad; return <div>
-          <p className="text-xs py-2" style={{ color: C.muted }}>Pallets picking is waiting for — they stay blocked until QC finishes them. Tap a row to open the product.</p>
-          {sorted.length === 0 && <p className="text-sm py-6 text-center" style={{ color: C.muted }}>Nothing blocked right now.</p>}
-          {sorted.map((b, idx) => { const prod = s.products.find(p => p.articleId === b.article); return (
-            <button key={idx} onClick={() => prod && go("catalog", prod.id)} className="w-full text-left py-2.5" style={{ borderBottom: `1px solid ${C.line}`, opacity: b.status === "Completed" ? .55 : 1 }}>
-              <div className="flex items-center gap-2"><p className="text-sm flex-1 truncate font-medium">{b.name || b.article}</p><span className="text-xs px-2 py-0.5 rounded-full inline-flex items-center gap-1.5" style={{ background: C.surface, border: `1px solid ${C.line}` }}><span className="inline-block rounded-full" style={{ width: 7, height: 7, background: col(b.status) }} />{b.status}</span></div>
-              <p className="text-xs mt-0.5" style={{ color: C.muted }}>{b.location} · {b.time}{b.date ? ` · ${b.date}` : ""} · {b.article}{prod ? "" : " · product not in catalog"}</p>
-            </button>); })}
+        {tab === "blocked" && (() => { const q = blockedQueue(s); const order = { "Not started": 0, "Started": 1, "Completed": 2 }; const list = q.filter(b => blockedView === "mine" ? b.claim?.userId === user.id : blockedView === "all" ? true : b.status !== "Completed").sort((x, y) => (order[x.status] ?? 9) - (order[y.status] ?? 9) || (x.time || "").localeCompare(y.time || "")); return <div>
+          <div className="flex items-center gap-1.5 py-2"><span className="text-xs flex-1" style={{ color: C.muted }}>Take a pallet before you walk to it — others see it's yours.</span>{[["open", "Open"], ["mine", "Mine"], ["all", "All"]].map(([k, l]) => <button key={k} onClick={() => setBlockedView(k)} className="text-[11px] px-2.5 py-1 rounded-full" style={{ background: blockedView === k ? C.ink : "transparent", color: blockedView === k ? C.onDark : C.ink, border: `1px solid ${blockedView === k ? C.ink : C.line}` }}>{l}</button>)}</div>
+          {list.length === 0 && <p className="text-sm py-6 text-center" style={{ color: C.muted }}>{blockedView === "mine" ? "You haven't taken any pallet." : "Nothing blocked right now."}</p>}
+          {list.map(b => { const prod = s.products.find(p => p.articleId === b.article); return <QueueRow key={b.key} s={s} set={set} user={user} b={b} onOpen={() => prod && go("catalog", prod.id)} />; })}
         </div>; })()}
         {tab === "history" && (s.products.length === 0 ? <div className="text-center py-6"><p className="text-sm font-medium mb-1">Nothing to inspect yet</p><p className="text-xs mb-3" style={{ color: C.muted }}>The Head hasn't set up products and forms yet. If you configured them in the portal, import the state here (Menu → Data).</p><button onClick={() => go("menu")} className="text-sm px-4 py-2 rounded-xl" style={{ background: C.ink, color: C.onDark }}>Menu → Data</button></div> : groups.length === 0 ? <p className="text-sm py-6 text-center" style={{ color: C.muted }}>No inspections yet. Start with the plus button.</p> : groups.slice(0, 3).map(g => (
           <div key={g.k}><p className="label-sm mt-3 mb-1" style={{ color: C.muted }}>{g.k}</p>{g.items.map(i => <button key={i.id} onClick={() => go("inspection", i.id)} className="w-full text-left flex items-center gap-2 py-2.5" style={{ borderBottom: `1px solid ${C.line}` }}><div className="flex-1 min-w-0"><p className="text-sm truncate">{s.products.find(p => p.id === i.productId)?.name || `Pallet ${(i.pallets || [])[0] || ""}`}</p><p className="text-xs" style={{ color: C.muted }}>{hhmm(i.completedAt || i.startedAt)}{i.supplier && ` · ${i.supplier}`}{i.controllerId !== user.id && ` · ${s.users.find(u => u.id === i.controllerId)?.name.split(" ")[0]}`}</p></div><ResultPill i={i} s={s} /></button>)}</div>
@@ -2112,7 +2143,8 @@ function MInspection({ s, set, user, inspId, go, notify }) {
   const product = s.products.find(p => p.id === insp.productId);
   const patchInsp = fn => set(x => ({ ...x, inspections: x.inspections.map(i => i.id === insp.id ? (typeof fn === "function" ? fn(i) : { ...i, ...fn }) : i) }));
   const log = (action, details) => patchInsp(i => ({ ...i, audit: [...(i.audit || []), { at: nowISO(), userId: user.id, action, details }] }));
-  const finish = ({ anyExceeded, generalFlag, autoAccept }) => { const was = insp.status === "Completed"; patchInsp(i => ({ ...i, status: "Completed", completedAt: i.completedAt || nowISO(), lastEditedBy: was ? user.id : i.lastEditedBy, lastEditedAt: was ? nowISO() : i.lastEditedAt })); log(was ? "Edited completed report" : "Completed", `result: ${insp.result}`); if (was && insp.controllerId !== user.id) notify("EditedByOther", `${user.name} edited report ${product.name}`, "Inspection", insp.id, insp.controllerId); if (insp.result === "Accepted" && (anyExceeded || generalFlag)) notify("AcceptedDespite", `${product.name}: accepted despite exceeding tolerance (${user.name})`, "Inspection", insp.id); else if (anyExceeded || generalFlag) notify("Exceeded", `${product.name}: tolerance exceeded — ${insp.result}`, "Inspection", insp.id); setEditing(false); go("home"); };
+  const finish = ({ anyExceeded, generalFlag, autoAccept }) => {
+    { const p = s.products.find(x => x.id === insp.productId); if (p?.articleId) set(x => { const pc = { ...(x.palletClaims || {}) }; Object.keys(pc).forEach(k => { if (k.startsWith(p.articleId + "|") && pc[k].userId === user.id) delete pc[k]; }); return { ...x, palletClaims: pc }; }); } const was = insp.status === "Completed"; patchInsp(i => ({ ...i, status: "Completed", completedAt: i.completedAt || nowISO(), lastEditedBy: was ? user.id : i.lastEditedBy, lastEditedAt: was ? nowISO() : i.lastEditedAt })); log(was ? "Edited completed report" : "Completed", `result: ${insp.result}`); if (was && insp.controllerId !== user.id) notify("EditedByOther", `${user.name} edited report ${product.name}`, "Inspection", insp.id, insp.controllerId); if (insp.result === "Accepted" && (anyExceeded || generalFlag)) notify("AcceptedDespite", `${product.name}: accepted despite exceeding tolerance (${user.name})`, "Inspection", insp.id); else if (anyExceeded || generalFlag) notify("Exceeded", `${product.name}: tolerance exceeded — ${insp.result}`, "Inspection", insp.id); setEditing(false); go("home"); };
   const escalate = q => { patchInsp({ status: "PendingReview", question: q, answer: null }); log("Escalation", q); notify("Escalation", `${user.name} asks about ${product.name}: „${q}"`, "Inspection", insp.id); };
   const raiseFlag = text => { set(x => ({ ...x, flags: [...x.flags, { id: uid(), productId: product.id, inspectionId: insp.id, raisedBy: user.id, description: text, status: "Open", createdAt: nowISO() }] })); notify("Flag", `${user.name}: ${product.name} — ${text}`, "ProductFlag", null); };
   const cancel = () => { patchInsp({ status: "Cancelled" }); log("Cancelled"); go("home"); };
@@ -2192,7 +2224,7 @@ export default function App() {
         <button onClick={() => { const p = pendingStart; setPendingStart(null); startInspection(p.pid, p.palletNo, true, p.typeId); }} className="w-full py-3 rounded-xl text-sm font-medium mb-2" style={{ background: C.ink, color: C.onDark }}>Yes, start anyway</button>
         <button onClick={() => setPendingStart(null)} className="w-full py-2.5 text-sm" style={{ color: C.muted }}>No, go back</button>
       </Modal>
-      {page === "home" && <MDashboard s={s} user={user} go={go} dismissed={dismissed} setDismissed={setDismissed} />}
+      {page === "home" && <MDashboard s={s} set={set} user={user} go={go} dismissed={dismissed} setDismissed={setDismissed} />}
       {page === "search" && <MSearch s={s} user={user} go={go} onStart={(pid, palletNo, typeId) => startInspection(pid, palletNo, false, typeId)} setState={set} notify={notify} onVisual={visualInspection} />}
       {page === "scan" && <MScan key={param || "scan"} s={s} user={user} go={go} onStart={(pid, palletNo, typeId) => startInspection(pid, palletNo, false, typeId)} onVisual={visualInspection} onSkip={skipInspection} setState={set} notify={notify} preset={param} />}
       {page === "history" && <MHistory s={s} user={user} go={go} />}
