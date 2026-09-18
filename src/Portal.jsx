@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceArea, ReferenceLine, Legend } from "recharts";
-import { MessageCircle, Link2, List as ListIcon, BarChart3, Printer, SlidersHorizontal, SkipForward, LayoutDashboard, ClipboardList, Flag, Bell, FolderTree, ListTree, Package, LayoutTemplate, Truck, Globe, Megaphone, MessageSquare, Users, Search, Sun, Moon, Database, Home, Menu as MenuIcon, ScanLine, Plus, ChevronLeft, User, Camera, Image as ImageIcon, Paperclip, Send, Star, Pencil, Sparkles, HelpCircle, Download, Lock as LockIcon, AlertTriangle, Inbox, FileText, ShieldAlert, Tag, Layers, BookOpen, Filter, Check, X, Ruler, Boxes } from "lucide-react";
+import { Clock, MessageCircle, Link2, List as ListIcon, BarChart3, Printer, SlidersHorizontal, SkipForward, LayoutDashboard, ClipboardList, Flag, Bell, FolderTree, ListTree, Package, LayoutTemplate, Truck, Globe, Megaphone, MessageSquare, Users, Search, Sun, Moon, Database, Home, Menu as MenuIcon, ScanLine, Plus, ChevronLeft, User, Camera, Image as ImageIcon, Paperclip, Send, Star, Pencil, Sparkles, HelpCircle, Download, Lock as LockIcon, AlertTriangle, Inbox, FileText, ShieldAlert, Tag, Layers, BookOpen, Filter, Check, X, Ruler, Boxes } from "lucide-react";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // QCteam — portal Head of Quality (mini-aplikacja, stan startowy pusty)
@@ -41,7 +41,7 @@ const SearchBox = ({ value, onChange, placeholder, className = "", style = {}, i
   </div>
 );
 // Notification look: one lucide icon per type in a soft circle; legacy messages get their emoji stripped on display.
-const NOTIF = { Exceeded: [AlertTriangle, "bad"], AcceptedDespite: [AlertTriangle, "warn"], Escalation: [HelpCircle, "warn"], Question: [MessageCircle, "info"], Answered: [MessageCircle, "ok"], Flag: [Flag, "warn"], Announcement: [Megaphone, "info"], EditedByOther: [Pencil, "info"] };
+const NOTIF = { Exceeded: [AlertTriangle, "bad"], AcceptedDespite: [AlertTriangle, "warn"], Escalation: [HelpCircle, "warn"], Question: [MessageCircle, "info"], Answered: [MessageCircle, "ok"], Flag: [Flag, "warn"], Announcement: [Megaphone, "info"], EditedByOther: [Pencil, "info"], DeadlineWarning: [Clock, "warn"], DeadlineBreached: [AlertTriangle, "bad"] };
 const notifLook = t => { const [I, tone] = NOTIF[t] || [Bell, "info"]; const fg = tone === "bad" ? C.bad : tone === "warn" ? C.warn : tone === "ok" ? C.ok : C.accent; const bg = tone === "bad" ? C.badBg : tone === "warn" ? C.warnBg : tone === "ok" ? C.okBg : C.accentSoft; return { I, fg, bg }; };
 const cleanMsg = m => String(m || "").replace(/^[\p{Extended_Pictographic}\uFE0F\s]+/u, "");
 const NotifIcon = ({ type, size = 32 }) => { const { I, fg, bg } = notifLook(type); return <span className="rounded-full flex items-center justify-center flex-shrink-0" style={{ width: size, height: size, background: bg, color: fg }}><I size={Math.round(size * 0.5)} strokeWidth={2} /></span>; };
@@ -162,7 +162,7 @@ const legacyTypeId = t => t === "Visual" ? "type-visual" : t === "Skip" ? "type-
 const inspType = (s, insp) => typeById(s, insp.typeId || legacyTypeId(insp.type)) || { id: "type-full", name: "Full", color: "#1F5C3E", autoAccept: false, countsAsInspection: true, reason: "none" };
 const countsAs = (s, insp) => inspType(s, insp).countsAsInspection !== false;
 const isVerdictType = (s, insp) => !inspType(s, insp).autoAccept;
-const settingsOf = s => ({ companyName: "Picnic Technologies", qcEmail: "qc@picnic.nl", ...(s.settings || {}) });
+const settingsOf = s => ({ companyName: "Picnic Technologies", qcEmail: "qc@picnic.nl", rejectionWindowHours: 24, deadlineWarnHours: 6, deadlineWarnHoursRisky: 10, riskyLookbackDays: 14, ...(s.settings || {}) });
 // Policy = the set of allowed inspection types. Product → category chain → types allowed by default. A product always has one.
 const effectivePolicy = (s, product) => {
   const dflt = typesOf(s).filter(t => t.allowedByDefault).map(t => t.id);
@@ -553,6 +553,42 @@ const extractSummary = (header, rows) => {
     for (const [k, re] of Object.entries(SUMMARY_LABELS)) { if (!re.test(t)) continue; if ((k === "skippableSkus" || k === "skippablePallets") && !skippableMode) continue; const val = r.slice(i + 1).map(x => String(x || "").trim()).find(x => /^\d+$/.test(x)); if (val != null && out[k] == null) out[k] = Number(val); } }); });
   return out;
 };
+// Rejection-deadline alerts: a pallet can only be rejected within `rejectionWindowHours` of arrival (Head-configurable,
+// with a shorter/earlier threshold for products rejected recently). Pure read — no side effects; the server is what actually
+// fires notifications (see server/alertlogic.mjs, kept in sync with this function by hand).
+const computeDeadlineAlerts = (s, nowMs = Date.now()) => {
+  const st = settingsOf(s); const out = [];
+  dockRowsLive(s).forEach(r => {
+    if (!r.arrived) return;
+    const covered = s.inspections.some(i => i.status === "Completed" && (i.pallets || []).some(h => samePallet(h, r.hu)));
+    if (covered) return;
+    const arrivalMs = new Date(`${r.arrived}T${r.arrivedTime || "00:00"}:00`).getTime(); if (isNaN(arrivalMs)) return;
+    const deadlineAt = arrivalMs + st.rejectionWindowHours * 3600000; const hoursLeft = (deadlineAt - nowMs) / 3600000;
+    const product = s.products.find(p => p.articleId === r.article);
+    const risky = product ? s.inspections.some(i => i.productId === product.id && i.status === "Completed" && isVerdictType(s, i) && i.result === "Rejected" && i.completedAt && (nowMs - new Date(i.completedAt).getTime()) <= st.riskyLookbackDays * 86400000) : false;
+    const threshold = risky ? st.deadlineWarnHoursRisky : st.deadlineWarnHours;
+    const level = hoursLeft <= 0 ? "breached" : hoursLeft <= threshold ? "warning" : null;
+    if (!level) return;
+    out.push({ key: `hu:${r.hu.replace(/\D/g, "").replace(/^0+/, "")}`, hu: r.hu, article: r.article, name: r.name || product?.name || r.article, location: r.location, arrivalMs, deadlineAt, hoursLeft, risky, level, productId: product?.id || null });
+  });
+  return out.sort((a, b) => a.hoursLeft - b.hoursLeft);
+};
+function DeadlineBanner({ s, alerts, onOpen }) {
+  if (!alerts.length) return null;
+  const worst = alerts[0]; const breached = alerts.filter(a => a.level === "breached").length;
+  return (
+    <div className="rounded-2xl p-4 mb-4" style={{ background: C.badBg, border: `1px solid ${C.bad}` }}>
+      <p className="text-sm font-semibold flex items-center mb-1" style={{ color: C.bad }}><Ic i={AlertTriangle} s={16} />{breached ? `${breached} pallet${breached === 1 ? "" : "s"} past the rejection window` : `${alerts.length} pallet${alerts.length === 1 ? "" : "s"} need inspection before the rejection window closes`}</p>
+      <div className="flex flex-col gap-1 mt-2">
+        {alerts.slice(0, 4).map(a => <button key={a.key} onClick={() => onOpen(a)} className="text-left text-xs px-2 py-1.5 rounded-lg flex items-center gap-2" style={{ background: C.surface }}>
+          <span className="flex-1 truncate"><b>{a.name}</b> · {a.location}{a.risky && <span style={{ color: C.bad }}> · rejected recently</span>}</span>
+          <span className="font-semibold flex-shrink-0" style={{ color: a.level === "breached" ? C.bad : C.warn }}>{a.level === "breached" ? "expired" : `${Math.max(0, Math.round(a.hoursLeft))}h left`}</span>
+        </button>)}
+      </div>
+      {alerts.length > 4 && <p className="text-[11px] mt-1" style={{ color: C.muted }}>+{alerts.length - 4} more</p>}
+    </div>
+  );
+}
 const dockSummary = s => { const it = (s.integrations || []).find(i => i.purpose === "Dock" && i.rows?.length); return it?.summary || null; };
 const blockedRowsLive = s => { const it = (s.integrations || []).find(i => i.purpose === "Blocked" && i.rows?.length); if (!it) return []; const seen = new Set(); return it.rows.filter(r => !r._errors?.length).map(r => ({ article: String(r.article || ""), name: r.name || "", hu: String(r.hu || "").replace(/\D/g, ""), location: r.location || "", zone: r.zone || "", pickLocation: r.pickLocation || "", deadline: r.deadline || "", wmsStatus: r.wmsStatus || "", status: r.status || "", date: r.date || "", time: r.time || "" })).filter(r => { const k = r.hu || `${r.article}|${r.location}`; if (seen.has(k)) return false; seen.add(k); return true; }); };
 const blockedSummary = s => { const it = (s.integrations || []).find(i => i.purpose === "Blocked" && i.rows?.length); return it?.summary || null; };
@@ -616,6 +652,14 @@ function IntegrationsPage({ s, set }) {
           {!it ? <Card><Empty icon="📋" title="No integrations yet" hint="Add the dock sheet first — it feeds the dashboard, the scanner and same-delivery pallets." /></Card> : <>
             <Card style={{ marginBottom: 16 }}>
               <div className="flex items-center gap-2 mb-2"><input value={it.name} onChange={e => patchIt({ name: e.target.value })} className="font-semibold text-sm flex-1" /><span className="text-[11px] px-2 py-0.5 rounded" style={{ background: C.bg, color: C.muted }}>{it.purpose}</span><button onClick={() => { set(x => ({ ...x, integrations: x.integrations.filter(i => i.id !== it.id) })); setSel(null); }} className="text-xs px-2" style={{ color: C.muted }}>delete</button></div>
+              {it.purpose === "Dock" && <div className="rounded-xl p-3 mb-3" style={{ background: C.bg }}>
+                <p className="label-sm mb-1">Rejection deadline alerts</p>
+                <p className="text-xs mb-2" style={{ color: C.muted }}>A pallet can only be rejected within a fixed window after arrival. As that window closes, controllers and the Head get a notification — earlier for products rejected in the last {settingsOf(s).riskyLookbackDays} days.</p>
+                <div className="grid gap-2" style={{ gridTemplateColumns: "1fr 1fr" }}>
+                  {[["rejectionWindowHours", "Reject within (hours of arrival)"], ["deadlineWarnHours", "Warn — hours before the window closes"], ["deadlineWarnHoursRisky", "Warn earlier for recently-rejected products (hours before)"], ["riskyLookbackDays", "“Recently rejected” = within (days)"]].map(([k, l]) => <label key={k} className="text-xs" style={{ color: C.muted }}>{l}<input type="number" min={0} value={settingsOf(s)[k]} onChange={e => set(x => ({ ...x, settings: { ...settingsOf(x), [k]: Math.max(0, Number(e.target.value) || 0) } }))} className="w-full text-sm mt-1" /></label>)}
+                </div>
+                {(() => { const al = computeDeadlineAlerts(s); return al.length ? <p className="text-xs mt-2" style={{ color: C.bad }}>{al.length} pallet{al.length === 1 ? "" : "s"} currently within the warning window.</p> : <p className="text-xs mt-2" style={{ color: C.muted }}>Nothing within the warning window right now.</p>; })()}
+              </div>}
               <p className="label-sm mb-1">Live source (optional)</p>
               <div className="flex gap-1.5 mb-2">{[[false, "Pull from a URL"], [true, "Pushed by the sheet (recommended)"]].map(([m, l]) => <button key={String(m)} onClick={() => patchIt({ pushMode: m })} className="text-xs px-3 py-1.5 rounded-full" style={{ background: !!it.pushMode === m ? C.ink : "transparent", color: !!it.pushMode === m ? C.onDark : C.ink, border: `1px solid ${!!it.pushMode === m ? C.ink : C.line}` }}>{l}</button>)}</div>
               {it.pushMode && <div className="rounded-xl p-3 mb-3" style={{ background: C.bg }}>
@@ -753,7 +797,8 @@ function ComposerExtras({ s, user, pending, setPending, compact }) {
   const addFiles = async () => { setBusy(true); try { const got = await pickFiles(); if (got.length) setPending(p => ({ ...p, attachments: [...(p.attachments || []), ...got] })); } finally { setBusy(false); } };
   const products = s.products.filter(p => p.isActive !== false && (!qq || (p.name + " " + (p.articleId || "")).toLowerCase().includes(qq))).slice(0, 8);
   const inspections = s.inspections.filter(i => i.status !== "Cancelled").sort((a, b) => (b.startedAt || "").localeCompare(a.startedAt || "")).filter(i => { const p = s.products.find(x => x.id === i.productId); return !qq || (p?.name || "").toLowerCase().includes(qq) || (i.pallets || []).some(h => String(h).includes(qq)); }).slice(0, 8);
-  const pallets = dockRowsLive(s).filter(r => !qq || r.hu.includes(qq) || (r.name || "").toLowerCase().includes(qq)).slice(0, 8);
+  const urgentKeys = new Set(computeDeadlineAlerts(s).map(al => al.hu.replace(/\D/g, "").replace(/^0+/, "")));
+  const pallets = dockRowsLive(s).filter(r => !qq || r.hu.includes(qq) || (r.name || "").toLowerCase().includes(qq)).sort((x, y) => (urgentKeys.has(y.hu.replace(/\D/g, "").replace(/^0+/, "")) ? 1 : 0) - (urgentKeys.has(x.hu.replace(/\D/g, "").replace(/^0+/, "")) ? 1 : 0)).slice(0, 8);
   const flags = s.flags.filter(f => f.status === "Open").filter(f => !qq || (f.description || "").toLowerCase().includes(qq)).slice(0, 8);
   const Row = ({ onClick, icon, main, sub, on }) => <button onClick={onClick} className="w-full text-left flex items-center gap-2 px-2 py-1.5 rounded-lg row" style={{ borderTop: `1px solid ${C.line}`, background: on ? C.accentSoft : "transparent" }}><Ic i={icon} s={13} mr={0} /><span className="min-w-0 flex-1"><span className="block text-sm truncate" style={{ color: on ? C.accent : C.ink }}>{main}</span>{sub && <span className="block text-[11px] truncate" style={{ color: C.muted }}>{sub}</span>}</span>{on && <Ic i={Check} s={13} mr={0} />}</button>;
   return (
@@ -939,7 +984,8 @@ function Shell({ page, setPage, children, badge, topRight, users, user, setUser,
 }
 
 // ═══════════════════ STRONA: Dashboard ═══════════════════
-function Dashboard({ s, setPage, seed, user }) {
+function Dashboard({ s, setPage, seed, user, openProduct }) {
+  const alerts = computeDeadlineAlerts(s);
   const globalT = s.templates.find(t => t.scope === "Global");
   const steps = [
     { done: s.categories.length > 0, label: "Create categories", page: "categories", why: "a product must belong to a category" },
@@ -951,6 +997,7 @@ function Dashboard({ s, setPage, seed, user }) {
   return (
     <div>
       <h1 className="mb-1">Welcome, {(user?.firstName || user?.name || "").split(" ")[0]}</h1>
+      <DeadlineBanner s={s} alerts={alerts} onOpen={a => a.productId && openProduct && openProduct(a.productId)} />
       <p className="text-sm mb-5" style={{ color: C.muted }}>{nextStep ? "The system is still empty — four steps to receive the first inspection." : "Configuration complete. Controllers can report."}</p>
       <div className="grid grid-cols-4 gap-3 mb-3">
         {[["Inspections today", s.inspections.filter(i => (i.startedAt || "").slice(0, 10) === new Date().toISOString().slice(0, 10)).length, "inspections"], ["Awaiting Head", s.inspections.filter(i => i.status === "PendingReview").length, "inspections"], ["Open flags", s.flags.filter(f => f.status === "Open").length, "flags"], ["Unread", s.notifications.filter(n => n.userId === "u-head" && !n.readAt).length, "notifications"]].map(([l, v, pg]) => (
@@ -1011,7 +1058,8 @@ function SpecForm({ specs, inherited, onAdd, onRemove, hint, excluded, onExclude
   );
 }
 
-function ControllerDashboard({ s, user, setPage, setOpenId }) {
+function ControllerDashboard({ s, user, setPage, setOpenId, openProduct }) {
+  const alerts = computeDeadlineAlerts(s);
   const mine = s.inspections.filter(i => i.controllerId === user.id).sort((a, b) => (b.startedAt || "").localeCompare(a.startedAt || ""));
   const open = mine.filter(i => ["Draft", "PendingReview"].includes(i.status));
   return (
@@ -2532,7 +2580,7 @@ function FlagsPage({ s, set, user }) {
 }
 
 // ═══════════════════ STRONA: Notifications ═══════════════════
-function NotificationsPage({ s, set, user, setPage, setOpenId }) {
+function NotificationsPage({ s, set, user, setPage, setOpenId, setSelProduct }) {
   const mine = s.notifications.filter(n => n.userId === user.id).sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
   const markRead = id => set(x => ({ ...x, notifications: x.notifications.map(n => n.id === id ? { ...n, readAt: n.readAt || nowISO() } : n) }));
   const markAll = () => set(x => ({ ...x, notifications: x.notifications.map(n => n.userId === user.id && !n.readAt ? { ...n, readAt: nowISO() } : n) }));
@@ -2542,7 +2590,7 @@ function NotificationsPage({ s, set, user, setPage, setOpenId }) {
       <p className="text-sm mb-5" style={{ color: C.muted, maxWidth: 640 }}>One generic table (Notification) fed by: tolerance exceeded, accepted despite exceeding, escalation, answer, flag, editing someone else's report.</p>
       <Card>
         {mine.length === 0 ? <Empty icon="🔔" title="Quiet" hint="Nothing needs your attention." /> : mine.map(n => (
-          <button key={n.id} onClick={() => { markRead(n.id); if (n.entityType === "Inspection" && n.entityId) { setOpenId(n.entityId); setPage("inspections"); } if (n.entityType === "ProductFlag") setPage("flags"); if (n.entityType === "Conversation") setPage("messages"); }} className="w-full text-left flex items-center gap-3 px-2 py-2.5" style={{ borderTop: `1px solid ${C.line}`, background: n.readAt ? "transparent" : C.accentSoft }}>
+          <button key={n.id} onClick={() => { markRead(n.id); if (n.entityType === "Inspection" && n.entityId) { setOpenId(n.entityId); setPage("inspections"); } if (n.entityType === "ProductFlag") setPage("flags"); if (n.entityType === "Conversation") setPage("messages"); if (n.entityType === "Product" && n.entityId) { setSelProduct(n.entityId); setPage("products"); } }} className="w-full text-left flex items-center gap-3 px-2 py-2.5" style={{ borderTop: `1px solid ${C.line}`, background: n.readAt ? "transparent" : C.accentSoft }}>
             <NotifIcon type={n.type} />
             <span className="flex-1 min-w-0"><span className="block text-sm" style={{ fontWeight: n.readAt ? 400 : 500 }}>{cleanMsg(n.message)}</span><span className="block text-[11px]" style={{ color: C.muted }}>{fmtTime(n.createdAt)}</span></span>
             {!n.readAt && <span className="rounded-full flex-shrink-0" style={{ width: 8, height: 8, background: C.accent }} />}
@@ -2915,6 +2963,8 @@ export default function App() {
   useEffect(() => { (async () => { try { if (window.storage) { const r = await window.storage.get(THEME_KEY); if (r?.value === "dark") { applyTheme(true); setDark(true); } } } catch (e) {} })(); }, []);
   const toggleTheme = () => { const d = !dark; applyTheme(d); setDark(d); (async () => { try { if (window.storage) await window.storage.set(THEME_KEY, d ? "dark" : "light"); } catch (e) {} })(); };
   useEffect(() => { if (!loaded) return; const tick = () => refreshPushedIntegrations(() => _S, set); tick(); const id = setInterval(tick, 60000); return () => clearInterval(id); }, [loaded]);
+  // Fast, cheap poll: check the version every ~5s; pull the full state only when it changed and we have nothing unsaved of our own.
+  useEffect(() => { if (!loaded) return; const id = setInterval(async () => { if (!window.storage?.getMeta || syncerRef.current.busy || syncerRef.current.pending.length) return; const v = await window.storage.getMeta(STORAGE_KEY); if (v && v !== syncerRef.current.version) { const r = await window.storage.get(STORAGE_KEY); if (r?.value) { const nx = sortState(normalize(JSON.parse(r.value))); _S = nx; setRaw(nx); syncerRef.current.version = r.version || v; } } }, 5000); return () => clearInterval(id); }, [loaded]);
 
   // Load saved state on start
   useEffect(() => {
@@ -2946,7 +2996,7 @@ export default function App() {
       <BlockingOverlay s={s} set={set} user={user} />
       {dataOpen && <DataPanel s={s} set={set} onClose={() => setDataOpen(false)} />}
       {toastMsg && <div className="fixed left-1/2 -translate-x-1/2 text-sm px-4 py-2 rounded-xl" style={{ top: 12, zIndex: 90, background: C.ink, color: C.onDark, boxShadow: "0 8px 20px rgba(0,0,0,.25)" }}>{toastMsg}</div>}
-      {safePage === "dashboard" && (user.role === "Head" ? <Dashboard s={s} user={user} setPage={setPage} seed={() => set(olaState())} /> : <ControllerDashboard s={s} user={user} setPage={setPage} setOpenId={setOpenInspId} />)}
+      {safePage === "dashboard" && (user.role === "Head" ? <Dashboard s={s} user={user} setPage={setPage} seed={() => set(olaState())} openProduct={id => { setSelProduct(id); setPage("products"); }} /> : <ControllerDashboard s={s} user={user} setPage={setPage} setOpenId={setOpenInspId} />)}
       {safePage === "categories" && <CategoriesPage s={s} set={set} />}
       {safePage === "problems" && <ProblemsPage s={s} set={set} />}
       {safePage === "products" && <ProductsPage s={s} set={set} sel={selProduct} setSel={setSelProduct} presetFilter={productsQuery} clearPreset={() => setProductsQuery("")} />}
@@ -2957,7 +3007,7 @@ export default function App() {
       {safePage === "inspections" && <InspectionsPage s={s} set={set} user={user} notify={notify} openId={openInspId} setOpenId={setOpenInspId} preset={presetProduct} clearPreset={() => setPresetProduct("")} />}
       {safePage === "catalog" && <CatalogPage s={s} set={set} user={user} notify={notify} onStartInspection={pid => { setPresetProduct(pid); setOpenInspId(null); setPage("inspections"); }} />}
       {safePage === "flags" && <FlagsPage s={s} set={set} user={user} />}
-      {safePage === "notifications" && <NotificationsPage s={s} set={set} user={user} setPage={setPage} setOpenId={setOpenInspId} />}
+      {safePage === "notifications" && <NotificationsPage s={s} set={set} user={user} setPage={setPage} setOpenId={setOpenInspId} setSelProduct={setSelProduct} />}
       {safePage === "analytics" && <AnalyticsPage s={s} setPage={setPage} openInspection={id => { setOpenInspId(id); setPage("inspections"); }} />}
       {safePage === "integrations" && <IntegrationsPage s={s} set={set} />}
       {safePage === "settings" && <SettingsPage s={s} set={set} />}
