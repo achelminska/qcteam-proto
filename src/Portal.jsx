@@ -141,11 +141,8 @@ const problemsFor = (s, scope, suppressed) => {
 const scopeTag = (p, s) => p.productId ? `product: ${s.products.find(x => x.id === p.productId)?.name ?? "?"}` : p.categoryId ? `kat. ${s.categories.find(x => x.id === p.categoryId)?.name ?? "?"}` : null;
 // Required inspection level: Full (raport) < Visual (visual is enough) < Skip (can be skipped). Product → category → system setting.
 // Inspection types are Head-defined (InspectionTypes). Behaviour comes from flags, not from the name.
-const SEED_TYPES = () => [
-  { id: "type-full", name: "Full", color: "#1F5C3E", sort: 0, autoAccept: false, countsAsInspection: true, reason: "none", allowedByDefault: true, description: "Report with sample, measurements and problems." },
-  { id: "type-visual", name: "Visual", color: "#3A7BD5", sort: 1, autoAccept: true, countsAsInspection: true, reason: "none", allowedByDefault: true, description: "Pallet, packing date, photos — accepted on finish." },
-  { id: "type-skip", name: "Skip", color: "#8E9C93", sort: 2, autoAccept: true, countsAsInspection: false, reason: "optional", allowedByDefault: false, description: "Accepted without looking — leaves a trace only." },
-];
+// No default inspection types: the Head defines them (Forms → + new type). Legacy ids below only keep old records readable.
+const SEED_TYPES = () => [];
 const SKIP_REASONS = ["no time", "stable product", "same delivery as earlier", "checked at the supplier"];
 const typesOf = s => [...(s.inspectionTypes || [])].sort((a, b) => a.sort - b.sort);
 const typeById = (s, id) => (s.inspectionTypes || []).find(t => t.id === id) || null;
@@ -1755,10 +1752,11 @@ function ControllerPreview({ s, typeId, scope, setScope }) {
 
 function FormsPage({ s, set }) {
   const [scope, setScope] = useState({ kind: "Global" });
-  const types = typesOf(s); const [typeId, setTypeId] = useState(types[0]?.id || "type-full"); const [tab, setTab] = useState("build");
+  const types = typesOf(s); const [typeId, setTypeId] = useState(types[0]?.id || null); const [tab, setTab] = useState("build");
+  useEffect(() => { if (!typeId && types[0]) setTypeId(types[0].id); }, [types.length]);
   const type = typeById(s, typeId) || types[0];
   const patchType = ch => set(x => ({ ...x, inspectionTypes: x.inspectionTypes.map(t => t.id === typeId ? { ...t, ...ch } : t) }));
-  const addType = () => { const id = uid(); set(x => ({ ...x, inspectionTypes: [...x.inspectionTypes, { id, name: "New type", color: "#7A4FA3", sort: x.inspectionTypes.length, autoAccept: false, countsAsInspection: true, reason: "none", allowedByDefault: false, description: "" }] })); setTypeId(id); setTab("type"); };
+  const addType = () => { const id = uid(); const first = !typesOf(s).length; set(x => ({ ...x, inspectionTypes: [...x.inspectionTypes, { id, name: first ? "Full" : "New type", color: first ? "#1F5C3E" : "#7A4FA3", sort: x.inspectionTypes.length, autoAccept: false, countsAsInspection: true, reason: "none", allowedByDefault: first, description: "" }] })); setTypeId(id); setTab("type"); };
   const deleteType = () => { if (s.inspections.some(i => (i.typeId || legacyTypeId(i.type)) === typeId)) return; set(x => ({ ...x, inspectionTypes: x.inspectionTypes.filter(t => t.id !== typeId), templates: x.templates.filter(t => t.typeId !== typeId) })); setTypeId(types.find(t => t.id !== typeId)?.id || "type-full"); setTab("build"); };
   const globalT = s.templates.find(t => t.scope === "Global" && (t.typeId || "type-full") === typeId);
   const own = ownTemplate(s, scope, typeId);
@@ -1776,7 +1774,8 @@ function FormsPage({ s, set }) {
     <div>
       <h1 className="mb-1">Inspection types & forms</h1>
       <p className="text-sm mb-4" style={{ color: C.muted, maxWidth: 680 }}>Every inspection type has its own form, built in layers: global → category → product. Which types a product may use is set on the category or product (inherited).</p>
-      <div className="flex items-center gap-1.5 flex-wrap mb-3">{types.map(t => <button key={t.id} onClick={() => { setTypeId(t.id); setTab("build"); }} className="text-sm px-3.5 py-2 rounded-xl inline-flex items-center gap-2" style={{ background: t.id === typeId ? C.surface : "transparent", border: `1px solid ${t.id === typeId ? C.ink : C.line}`, fontWeight: t.id === typeId ? 600 : 450 }}><span className="inline-block rounded-full" style={{ width: 8, height: 8, background: t.color }} />{t.name}{t.autoAccept && <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ background: C.bg, color: C.muted }}>auto</span>}</button>)}<button onClick={addType} className="text-sm px-3 py-2 rounded-xl" style={{ color: C.accent }}>+ new type</button></div>
+      {!type && <Card style={{ maxWidth: 640 }}><Empty icon="🧩" title="No inspection types yet" hint="Every inspection belongs to a type you define — its name, its form, and how the result is treated (verdict or auto-accept, counted or trace only). Start with the one you do most often." action={<Primary onClick={addType}>Create the first inspection type</Primary>} /></Card>}
+      {type && <><div className="flex items-center gap-1.5 flex-wrap mb-3">{types.map(t => <button key={t.id} onClick={() => { setTypeId(t.id); setTab("build"); }} className="text-sm px-3.5 py-2 rounded-xl inline-flex items-center gap-2" style={{ background: t.id === typeId ? C.surface : "transparent", border: `1px solid ${t.id === typeId ? C.ink : C.line}`, fontWeight: t.id === typeId ? 600 : 450 }}><span className="inline-block rounded-full" style={{ width: 8, height: 8, background: t.color }} />{t.name}{t.autoAccept && <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ background: C.bg, color: C.muted }}>auto</span>}</button>)}<button onClick={addType} className="text-sm px-3 py-2 rounded-xl" style={{ color: C.accent }}>+ new type</button></div>
       <div className="flex items-center gap-1 mb-4" style={{ borderBottom: `1px solid ${C.line}` }}>{[["build", "Build form"], ["preview", "Controller preview"], ["type", "Type settings"]].map(([k, l]) => <button key={k} onClick={() => setTab(k)} className="text-sm px-3 py-2" style={{ borderBottom: `2px solid ${tab === k ? C.accent : "transparent"}`, color: tab === k ? C.ink : C.muted, fontWeight: tab === k ? 600 : 450, marginBottom: -1 }}>{l}</button>)}</div>
       {tab === "type" && (
         <Card style={{ maxWidth: 640 }}>
@@ -1790,8 +1789,8 @@ function FormsPage({ s, set }) {
           <div className="mt-4 flex items-center gap-3"><button onClick={deleteType} disabled={s.inspections.some(i => (i.typeId || legacyTypeId(i.type)) === typeId) || types.length <= 1} className="text-xs px-3 py-1.5 rounded-lg" style={{ border: `1px solid ${C.line}`, color: C.bad }}>Delete type</button><span className="text-[11px]" style={{ color: C.muted }}>{s.inspections.some(i => (i.typeId || legacyTypeId(i.type)) === typeId) ? "Used by existing inspections — cannot be deleted." : "Deletes its form layers too."}</span></div>
         </Card>
       )}
-      {tab === "preview" && <ControllerPreview s={s} typeId={typeId} scope={scope} setScope={setScope} />}
-      <div className="flex gap-4 items-start" style={{ display: tab === "build" ? "flex" : "none" }}>
+      {tab === "preview" && <ControllerPreview s={s} typeId={typeId} scope={scope} setScope={setScope} />}</>}
+      {type && <div className="flex gap-4 items-start" style={{ display: tab === "build" ? "flex" : "none" }}>
         <aside className="w-52 flex-shrink-0">
           <p className="label-sm px-2 mb-1" style={{ color: C.muted }}>Layer</p>
           <button onClick={() => setScope({ kind: "Global" })} className="w-full text-left text-sm px-2.5 py-2 rounded-lg mb-0.5" style={{ background: scope.kind === "Global" ? C.accentSoft : "transparent", color: scope.kind === "Global" ? C.accent : C.ink }}><Ic i={Globe} s={14} />Global<Dot on={!!globalT} /></button>
@@ -1821,7 +1820,7 @@ function FormsPage({ s, set }) {
             </>
           )}
         </div>
-      </div>
+      </div>}
     </div>
   );
 }
@@ -2604,15 +2603,18 @@ const normalize = raw => {
   { const seed = byId(SEED_USERS()); const placeholders = { "u-head": "Marta K.", "u-anna": "Anna K.", "u-jakub": "Jakub M." }; s.users = (s.users || []).map(u => placeholders[u.id] && u.name === placeholders[u.id] ? { ...u, ...seed[u.id] } : u); }
   s.categoryRules = Array.isArray(s.categoryRules) ? s.categoryRules : [];
   s.settings = settingsOf(s);
-  s.inspectionTypes = Array.isArray(s.inspectionTypes) && s.inspectionTypes.length ? s.inspectionTypes : SEED_TYPES();
+  s.inspectionTypes = Array.isArray(s.inspectionTypes) ? s.inspectionTypes : [];
+  // Migration: drop the previously seeded types (and their auto-generated templates) when nothing uses them — the Head defines types from scratch.
+  { const used = new Set((s.inspections || []).map(i => i.typeId || legacyTypeId(i.type)));
+    const seededTpl = t => (t.typeId === "type-visual" || t.typeId === "type-skip") && t.scope === "Global" && (t.modules || []).length === 1 && ["Visual check", "Skip"].includes(t.modules[0]?.name) && (t.problemRefs || []).length === 0;
+    s.templates = (s.templates || []).filter(t => !seededTpl(t));
+    s.inspectionTypes = s.inspectionTypes.filter(t => !(["type-visual", "type-skip"].includes(t.id) && !used.has(t.id)) && !(t.id === "type-full" && !used.has(t.id) && !(s.templates || []).some(x => (x.typeId || "type-full") === "type-full"))); }
   s.templates = (s.templates || []).map(t => ({ ...t, typeId: t.typeId || "type-full" }));
   s.inspections = (s.inspections || []).map(i => ({ ...i, typeId: i.typeId || legacyTypeId(i.type) }));
   const fromEnum = lvl => lvl === "Full" ? ["type-full"] : lvl === "Visual" ? ["type-full", "type-visual"] : lvl === "Skip" ? ["type-full", "type-visual", "type-skip"] : null;
   s.categories = s.categories.map(c => c.inspectionPolicy && !Array.isArray(c.allowedTypeIds) ? { ...c, allowedTypeIds: fromEnum(c.inspectionPolicy), inspectionPolicy: undefined } : c);
   s.products = s.products.map(p => p.inspectionPolicy && !Array.isArray(p.allowedTypeIds) ? { ...p, allowedTypeIds: fromEnum(p.inspectionPolicy), inspectionPolicy: undefined } : p);
-  const mk = (typeId, modName, fields) => { const mid = uid(); return { ...emptyTemplate("Global", { typeId }), modules: [{ id: mid, name: modName, sort: 0 }], fields: fields.map((f, i) => ({ id: uid(), moduleId: mid, sort: i, ...f })) }; };
-  if (typeById(s, "type-visual") && !s.templates.some(t => t.typeId === "type-visual" && t.scope === "Global")) s.templates.push(mk("type-visual", "Visual check", [{ type: "ProductInfo", label: "Product info", required: true }, { type: "Pallet", label: "Pallet numbers", required: true }, { type: "DateCode", label: "Packing date", required: false }, { type: "Photos", label: "Module photos", required: false }]));
-  if (typeById(s, "type-skip") && !s.templates.some(t => t.typeId === "type-skip" && t.scope === "Global")) s.templates.push(mk("type-skip", "Skip", [{ type: "ProductInfo", label: "Product info", required: true }, { type: "Pallet", label: "Pallet numbers", required: true }]));
+
   s.categories = (s.categories || []).map(c => ({ ...c, specs: c.specs || [], varieties: c.varieties || [] }));
   s.problems = (s.problems || []).map(p => ({ ...p, categoryId: p.categoryId || null, productId: p.productId || null }));
   s.categories = s.categories.map(c => ({ ...c, hiddenProblemIds: c.hiddenProblemIds || [] }));
