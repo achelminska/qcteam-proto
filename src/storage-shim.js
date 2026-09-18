@@ -6,7 +6,10 @@ const devPorts = ["5173", "4173"];
 const SERVER = (import.meta.env && import.meta.env.VITE_QC_SERVER) || (devPorts.includes(location.port) ? `${location.protocol === "https:" ? "https" : "http"}://${location.hostname}:${location.protocol === "https:" ? 3002 : 3001}` : location.origin);
 window.__qcServer = SERVER;
 let remote = null; // null = unknown, true/false after the first probe
-async function probe() { if (remote !== null) return remote; try { const r = await fetch(`${SERVER}/storage/__probe`, { method: "GET" }); remote = r.status === 200 || r.status === 404; } catch { remote = false; } console.log(remote ? `QCteam: using shared state at ${SERVER}` : "QCteam: server not reachable, using localStorage"); return remote; }
+// A failed probe is not final: during a deploy the server is away for ~20 s. Re-probe on every call until it answers,
+// and never treat a temporary outage as "this device is the source of truth".
+let lastProbeAt = 0;
+async function probe() { if (remote === true) return true; if (remote === false && Date.now() - lastProbeAt < 5000) return false; lastProbeAt = Date.now(); try { const r = await fetch(`${SERVER}/storage/__probe`, { method: "GET", cache: "no-store" }); remote = r.status === 200 || r.status === 404; } catch { remote = false; } if (remote) console.log(`QCteam: using shared state at ${SERVER}`); else console.log("QCteam: server not reachable right now — will retry"); return remote; }
 // Every device keeps a local copy of what it saved. If the server comes back empty (free hosting restarts wipe its disk),
 // the first device to open the app re-seeds the server from its copy. The sheet re-pushes its own data within minutes anyway.
 const local = { get: k => { try { return localStorage.getItem(k); } catch { return null; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch {} } };
