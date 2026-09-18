@@ -1721,7 +1721,7 @@ function MDashboard({ s, set, user, go, dismissed, setDismissed, onAssign }) {
       <p className="label-sm px-5 mt-3 mb-1" style={{ color: C.muted }}>Dock priorities</p>
       <div className="grid gap-2 px-5" style={{ gridTemplateColumns: `repeat(${Math.max(1, Math.min(4, Object.keys(PRIORITY).filter(k => sheetStats(s).prio(k) > 0).length))}, 1fr)` }}>
         {Object.keys(PRIORITY).filter(k => sheetStats(s).prio(k) > 0).map(k => [k, PRIORITY[k][0], PRIORITY[k][1]]).map(([l, fg, bg]) => (
-          <button key={l} onClick={() => go("priority", l)} className="rounded-xl p-2 text-center" style={{ background: C.bg, border: `1px solid ${C.line}`, borderTop: `2px solid ${fg}` }}><p className="text-xl font-semibold" style={{ color: fg }}>{sheetStats(s).prio(l)}</p><p className="text-[10px] leading-tight" style={{ color: C.muted }}>{l}</p></button>
+          <button key={l} onClick={() => go("priority", l)} className="rounded-2xl py-3 text-center transition-transform active:scale-95" style={{ background: bg, border: "none" }}><p className="text-2xl font-bold tracking-tight" style={{ color: fg }}>{sheetStats(s).prio(l)}</p><p className="text-[10px] font-medium leading-tight mt-0.5" style={{ color: fg, opacity: .75 }}>{l}</p></button>
         ))}
       </div>
       <div className="flex gap-1 mx-5 mt-4" style={{ borderBottom: `1px solid ${C.line}` }}>
@@ -2176,7 +2176,6 @@ function MProfile({ s, set, user, go }) {
       <div className="px-4 pt-4"><div className="flex items-center gap-3 mb-4"><Avatar user={user} size={56} onPick={url => set(x => ({ ...x, users: x.users.map(q => q.id === user.id ? { ...q, photoUrl: url } : q) }))} /><div><p className="font-semibold">{user.name}</p><p className="text-xs" style={{ color: C.muted }}>{user.email} · {user.role === "Head" ? "Head of Quality" : "Controller"}</p></div></div>
         <div className="grid grid-cols-2 gap-2"><Tile l="Today" v={todayN} /><Tile l="This week" v={week} /><Tile l="Total" v={mine.length} /><Tile l="Accepted" v={mine.length ? `${Math.round(acc / mine.length * 100)}%` : "—"} sub={`${acc} of ${mine.length}`} /><Tile l="Avg. active time" v={avg !== null ? `${fmt(avg)} min` : "—"} sub="excl. waiting for the Head" /><Tile l="Traces" v={skips} sub="types that don't count" /></div>
       <p className="label-sm mt-4 mb-1.5">By type</p><div className="grid grid-cols-2 gap-2">{typesOf(s).map(t => { const m = allMine.filter(i => (i.typeId || legacyTypeId(i.type)) === t.id); return <div key={t.id} className="rounded-2xl p-3.5" style={{ background: C.bg, border: `1px solid ${C.line}`, borderTop: `3px solid ${t.color}` }}><p className="text-xs" style={{ color: C.muted }}>{t.name}</p><p className="text-[22px] leading-tight font-semibold">{m.length}</p>{!t.autoAccept && m.length > 0 && <p className="text-[10px]" style={{ color: C.muted }}>{Math.round(m.filter(i => i.result === "Rejected").length / m.length * 100)}% rejected</p>}</div>; })}</div>
-        <p className="text-xs mt-4" style={{ color: C.muted }}>Statistics computed from Inspections (StartedAt/CompletedAt/Result) — no separate table.</p>
       </div>
     </div>
   );
