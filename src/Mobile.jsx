@@ -1725,10 +1725,10 @@ function MScan({ s, user, go, onStart, onVisual, onSkip, setState, notify, prese
             <div className="rounded-xl p-3 mb-2 text-sm" style={{ background: C.surface }}>
               {[["Handling Unit", pallet], ["Article", `${wms.article} · ${wms.name}`], ["Location", wms.location], ["Arrived", `${wms.arrived} ${wms.arrivedTime} · ${wms.transporter}`], ["PO", wms.po || "—"], ["CU per TU (from UOM)", wms.cusPerTu ?? "—"], ["Sortable", wms.sortable ? "yes" : "no"]].map(([k, v]) => <div key={k} className="flex justify-between gap-3 py-1" style={{ borderBottom: `1px solid ${C.line}` }}><span style={{ color: C.muted }}>{k}</span><span className="font-medium text-right">{v}</span></div>)}
             </div>
-            {wmsProduct ? <>
-              <p className="text-xs mb-2" style={{ color: C.muted }}>Product: <b style={{ color: C.ink }}>{wmsProduct.name}</b> — pre-selected. {dockRowsFor(wmsProduct).length > 1 && <span>This product has <b style={{ color: C.ink }}>{dockRowsFor(wmsProduct).length} pallets</b> on the docks in total.</span>}</p>
-              {dockRowsFor(wmsProduct).length > 1 && <DockPresence product={wmsProduct} onPickPallet={pickPalletOfProduct} />}
-            </> : <p className="text-xs mb-2" style={{ color: C.warn }}>Article {wms.article} is not in the catalog — you'll pick the product manually.</p>}
+            {(() => { const sameArt = dockRowsLive(s).filter(r => r.article === wms.article); const others = sameArt.filter(r => !samePallet(r.hu, pallet)); return <>
+              <p className="text-xs mb-2" style={{ color: C.muted }}>{wmsProduct ? <>Product: <b style={{ color: C.ink }}>{wmsProduct.name}</b> — pre-selected.</> : <span style={{ color: C.warn }}>Article {wms.article} has no profile yet — you'll pick the product manually.</span>} <span>This article has <b style={{ color: C.ink }}>{sameArt.length} pallet{sameArt.length === 1 ? "" : "s"}</b> on the docks{others.length ? ` — ${others.length} other${others.length === 1 ? "" : "s"} at ${[...new Set(others.map(r => r.location))].join(", ")}` : ""}.</span></p>
+              {others.length > 0 && <DockPresence product={{ articleId: wms.article, name: wms.name }} onPickPallet={pickPalletOfProduct} />}
+            </>; })()}
             <Actions />
             {draft && <div className="rounded-xl px-3 py-2 mt-2 text-xs" style={{ background: C.warnBg, color: C.warn }}>⏳ {s.users.find(u => u.id === draft.controllerId)?.name} has this pallet in progress ({STATUS[draft.status][0]})</div>}
             <button onClick={() => setMode(null)} className="w-full py-2.5 text-sm mt-1" style={{ color: C.muted }}>Cancel</button>
