@@ -1395,13 +1395,6 @@ const STORAGE_KEY = "qcteam-portal-state-v2-clean"; // clean start: a fresh key,
 const CLEAN_START = true; // no dock mock until the Head maps a sheet in Integrations
 // Ola's state from 15.09.2026 — embedded as initial/sample data
 
-const SearchBox = ({ value, onChange, placeholder, className = "", style = {}, inputClass = "", autoFocus, onKeyDown, size = 15 }) => (
-  <div className={`relative ${className}`} style={style}>
-    <span className="absolute flex items-center justify-center pointer-events-none" style={{ left: 10, top: 0, bottom: 0, width: size, color: C.muted }}><Search size={size} strokeWidth={2} style={{ display: "block" }} /></span>
-    <input autoFocus={autoFocus} value={value} onChange={e => onChange(e.target.value)} onKeyDown={onKeyDown} placeholder={placeholder} className={`w-full text-sm ${inputClass}`} style={{ paddingLeft: size + 18 }} />
-  </div>
-);
-
 const annActive = a => (!a.validTo || a.validTo >= new Date().toISOString().slice(0, 10));
 
 
