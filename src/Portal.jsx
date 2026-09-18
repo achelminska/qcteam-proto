@@ -611,7 +611,9 @@ const dockSummary = s => { const it = (s.integrations || []).find(i => i.purpose
 const blockedRowsLive = s => { const it = (s.integrations || []).find(i => i.purpose === "Blocked" && i.rows?.length); if (!it) return []; const seen = new Set(); return it.rows.filter(r => !r._errors?.length).map(r => ({ article: String(r.article || ""), name: r.name || "", hu: String(r.hu || "").replace(/\D/g, ""), location: r.location || "", zone: r.zone || "", pickLocation: r.pickLocation || "", deadline: r.deadline || "", wmsStatus: r.wmsStatus || "", status: r.status || "", date: r.date || "", time: r.time || "" })).filter(r => { const k = r.hu || `${r.article}|${r.location}`; if (seen.has(k)) return false; seen.add(k); return true; }); };
 const blockedSummary = s => { const it = (s.integrations || []).find(i => i.purpose === "Blocked" && i.rows?.length); return it?.summary || null; };
 // Sheets repeat rows (same HU twice). One handling unit is one pallet: the first occurrence wins.
-const dedupeByHu = rows => { const seen = new Set(); return rows.filter(r => { const k = String(r.hu || "").replace(/\D/g, "").replace(/^0+/, ""); if (!k || seen.has(k)) return false; seen.add(k); return true; }); };
+// One HU = one pallet, first occurrence wins. A row with no HU on the sheet isn't dropped — it gets a fallback key
+// (article + location + arrival time) so it's still counted, just not individually scannable by SSCC.
+const dedupeByHu = rows => { const seen = new Set(); return rows.filter(r => { const norm = String(r.hu || "").replace(/\D/g, "").replace(/^0+/, ""); const k = norm || `noHU:${r.article}|${r.location}|${r.arrivedTime}`; if (seen.has(k)) return false; seen.add(k); return true; }); };
 const duplicateHuCount = rows => rows.length - dedupeByHu(rows).length;
 // Blocked-pallet work queue (PalletClaim): who took which blocked batch, or flagged it as stacked/unreachable. Keyed by article + location
 // because the blocked sheet has no handling units. Claims live in the shared state, so everyone sees them within a minute.
