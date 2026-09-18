@@ -1358,7 +1358,7 @@ const Lock = () => null;
 // Real device (narrow screen or launched from the home screen): full-bleed, safe-area aware, no fake status bar.
 // Wide screen (desktop preview): the phone frame.
 const useRealDevice = () => { const [real, setReal] = useState(() => typeof window !== "undefined" && (window.matchMedia("(max-width: 560px)").matches || window.navigator.standalone === true || window.matchMedia("(display-mode: standalone)").matches)); useEffect(() => { const mq = window.matchMedia("(max-width: 560px)"); const h = () => setReal(mq.matches || window.navigator.standalone === true || window.matchMedia("(display-mode: standalone)").matches); mq.addEventListener ? mq.addEventListener("change", h) : mq.addListener(h); return () => { mq.removeEventListener ? mq.removeEventListener("change", h) : mq.removeListener(h); }; }, []); return real; };
-function Phone({ children, nav, onNav, page, badges, fab, dark, onTheme }) {
+function Phone({ children, nav, onNav, page, badges, fab, dark, onTheme, overlay }) {
   const items = [["home", "🏠", "Dashboard"], ["chat", "💬", "Chat"], ["catalog", "🧺", "Catalog"], ["menu", "☰", "Menu"]];
   const real = useRealDevice();
   const outer = real ? { background: C.surface, minHeight: "100dvh" } : { background: C.frameBg };
@@ -1369,6 +1369,7 @@ function Phone({ children, nav, onNav, page, badges, fab, dark, onTheme }) {
       <div className="relative flex flex-col" style={shell}>
         {!real && <div className="flex items-center justify-between px-6 pt-3 pb-1 text-[11px] font-medium" style={{ color: C.ink }}><span>{new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}</span><span className="flex items-center gap-2"><button onClick={onTheme} title="theme" className="flex">{dark ? <Ic i={Sun} s={13} mr={0} /> : <Ic i={Moon} s={13} mr={0} />}</button>●●● ᯤ ▮</span></div>}
         <div className="flex-1 overflow-y-auto relative" style={{ color: C.ink }}>{children}</div>
+        {overlay}
         {fab && (
           <div className="absolute flex flex-col items-end gap-3" style={{ right: 18, bottom: real ? `calc(${nav ? 78 : 22}px + env(safe-area-inset-bottom))` : (nav ? 78 : 22), zIndex: 30 }}>
             <button onClick={fab.scan} className="w-11 h-11 rounded-full flex items-center justify-center text-lg" style={{ background: C.surface, border: `1px solid ${C.line}`, boxShadow: "0 6px 16px rgba(0,0,0,.15)" }} title="Scan code"><Ic i={ScanLine} s={20} mr={0} /></button>
@@ -1402,8 +1403,8 @@ function MBlocking({ s, set, user }) {
   const a = pending[0];
   const ack = () => set(x => ({ ...x, announcements: x.announcements.map(y => y.id === a.id ? { ...y, acks: { ...(y.acks || {}), [user.id]: nowISO() } } : y) }));
   return (
-    <div className="absolute inset-0 flex items-center justify-center p-5" style={{ background: "rgba(31,42,36,.75)", zIndex: 50 }}>
-      <div className="rounded-2xl p-5 w-full" style={{ background: C.surface }}>
+    <div className="absolute inset-0 flex items-center justify-center p-5" style={{ background: "rgba(31,42,36,.78)", zIndex: 70, paddingTop: "calc(20px + env(safe-area-inset-top))", paddingBottom: "calc(20px + env(safe-area-inset-bottom))" }}>
+      <div className="rounded-2xl p-5 w-full" style={{ background: C.surface, maxHeight: "100%", overflowY: "auto" }}>
         <p className="text-xs font-semibold mb-2" style={{ color: C.bad }}><Ic i={Megaphone} s={13} />Blocking announcement{pending.length > 1 ? ` · 1 of ${pending.length}` : ""}</p>
         <p className="text-lg font-semibold mb-2">{a.title}</p>
         <p className="text-sm mb-4">{a.body}</p>
@@ -2108,8 +2109,7 @@ export default function App() {
   const unreadMsgs = s.conversations.filter(c => c.participantIds.includes(user.id)).reduce((a, c) => a + unreadIn(c, user.id), 0);
   const withNav = !["inspection", "scan", "search"].includes(page);
   return (
-    <Phone nav={withNav} page={navPage} onNav={k => go(k)} badges={{ chat: unreadMsgs }} fab={page === "home" ? { scan: () => go("scan"), add: () => go("search") } : null} dark={dark} onTheme={toggleTheme}>
-      <MBlocking s={s} set={set} user={user} />
+    <Phone overlay={<MBlocking s={s} set={set} user={user} />} nav={withNav} page={navPage} onNav={k => go(k)} badges={{ chat: unreadMsgs }} fab={page === "home" ? { scan: () => go("scan"), add: () => go("search") } : null} dark={dark} onTheme={toggleTheme}>
       {toast && <div className="absolute left-4 right-4 rounded-xl px-3.5 py-2.5 text-sm" style={{ top: 44, zIndex: 60, background: C.ink, color: C.onDark, boxShadow: "0 8px 20px rgba(0,0,0,.25)" }}>{toast}</div>}
       {!online && <div className="absolute left-0 right-0 flex items-center gap-2 px-4 py-2 text-xs font-semibold" style={{ top: 28, zIndex: 55, background: C.warn, color: "#fff" }}><Ic i={AlertTriangle} s={14} mr={0} /><span className="flex-1">No connection — working offline. {pendingSync ? `${pendingSync} change${pendingSync === 1 ? "" : "s"} waiting to sync.` : "Changes will sync when you're back online."} Others can't see what you're working on.</span></div>}
       <Modal open={!!pendingStart}>
