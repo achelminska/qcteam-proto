@@ -68,7 +68,10 @@ const handler = async (req, res) => {
   if (req.method === "PUT") { const chunks = []; req.on("data", c => chunks.push(c)); req.on("end", () => { const body = Buffer.concat(chunks).toString("utf8");
       // Guard: an (almost) empty app state must not overwrite a populated one — a fresh device would otherwise wipe everyone's data.
       if (key === STATE_KEY && store[key] && !req.headers["x-force"]) { const size = v => { try { const j = JSON.parse(v); return (j.categories || []).length + (j.products || []).length + (j.inspections || []).length + (j.integrations || []).length + (j.templates || []).length; } catch { return 0; } }; const incoming = size(body), current = size(store[key]); if (incoming === 0 && current > 0 || incoming < current * 0.5 && current > 20) { console.log(`[state] rejected write: incoming ${incoming} objects vs current ${current}`); res.writeHead(409, { ...cors, "Content-Type": "application/json" }).end(JSON.stringify({ rejected: true, reason: "incoming state is much smaller than the stored one", incoming, current })); return; } }
-      snapshot(key, body); store[key] = body; (store.__meta = store.__meta || {})[key] = Date.now(); save(); res.writeHead(200, cors).end(JSON.stringify({ key })); }); return; }
+      // Optimistic concurrency: If-Match must equal the stored version (updatedAt); otherwise 409 with the current copy so the client can merge.
+      const ifMatch = req.headers["if-match"]; const currentVersion = store.__meta?.[key] ? String(store.__meta[key]) : null;
+      if (ifMatch && currentVersion && ifMatch !== currentVersion && !req.headers["x-force"]) { res.writeHead(409, { ...cors, "Content-Type": "application/json" }); res.end(JSON.stringify({ conflict: true, value: store[key], updatedAt: store.__meta[key] })); return; }
+      snapshot(key, body); store[key] = body; const now = Math.max(Date.now(), (store.__meta?.[key] || 0) + 1); (store.__meta = store.__meta || {})[key] = now; save(); res.writeHead(200, { ...cors, "Content-Type": "application/json" }).end(JSON.stringify({ key, updatedAt: now })); }); return; }
   if (req.method === "DELETE") { delete store[key]; save(); return res.writeHead(200, cors).end(); }
   res.writeHead(405, cors).end();
 };
