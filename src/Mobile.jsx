@@ -763,6 +763,65 @@ function ComposerExtras({ s, user, pending, setPending, compact }) {
   );
 }
 
+// ═══════════════════ LOGIN (prototype: PIN per user, session remembered on the device) ═══════════════════
+// Identification, not security: passwords + JWT arrive with the backend. The Head sets PINs in Users.
+const SESSION_KEY = "qcteam-session-user";
+const readSession = () => { try { return localStorage.getItem(SESSION_KEY); } catch { return null; } };
+const writeSession = id => { try { if (id) localStorage.setItem(SESSION_KEY, id); else localStorage.removeItem(SESSION_KEY); } catch {} };
+function LoginScreen({ s, onLogin, allowRoles, subtitle }) {
+  const [pick, setPick] = useState(null); const [pin, setPin] = useState(""); const [err, setErr] = useState("");
+  const users = (s.users || []).filter(u => u.active !== false && (!allowRoles || allowRoles.includes(u.role)));
+  const submit = u => { if (u.pin && u.pin !== pin) { setErr("Wrong PIN"); setPin(""); return; } writeSession(u.id); onLogin(u.id); };
+  return (
+    <div className="qc min-h-screen flex items-center justify-center p-6" style={{ background: C.bg }}>
+      <style>{GLOBAL_CSS()}</style>
+      <div className="w-full rounded-3xl p-6" style={{ maxWidth: 380, background: C.surface, border: `1px solid ${C.line}` }}>
+        <div className="flex items-center gap-2 mb-1"><div className="w-9 h-9 rounded-xl flex items-center justify-center font-bold" style={{ background: C.ink, color: C.onDark }}>Q</div><div><p className="font-semibold">QCteam</p><p className="text-[11px]" style={{ color: C.muted }}>{subtitle || "Who's inspecting today?"}</p></div></div>
+        {!pick ? (
+          <div className="mt-4">
+            {users.length === 0 && <p className="text-sm" style={{ color: C.muted }}>No accounts yet — the Head creates them in the portal (Users).</p>}
+            {users.map(u => <button key={u.id} onClick={() => { setPick(u); setPin(""); setErr(""); if (!u.pin) submit(u); }} className="w-full flex items-center gap-3 py-3 text-left" style={{ borderBottom: `1px solid ${C.line}` }}><Avatar user={u} size={36} /><span className="flex-1"><span className="block text-sm font-medium">{u.name}</span><span className="block text-[11px]" style={{ color: C.muted }}>{u.role}{u.pin ? " · PIN" : " · no PIN set"}</span></span></button>)}
+          </div>
+        ) : (
+          <div className="mt-4">
+            <div className="flex items-center gap-3 mb-4"><Avatar user={pick} size={40} /><div><p className="text-sm font-medium">{pick.name}</p><p className="text-[11px]" style={{ color: C.muted }}>{pick.role}</p></div><button onClick={() => setPick(null)} className="ml-auto text-xs underline" style={{ color: C.muted }}>not me</button></div>
+            <p className="text-xs mb-2" style={{ color: C.muted }}>Enter your PIN</p>
+            <input autoFocus type="password" inputMode="numeric" pattern="[0-9]*" value={pin} onChange={e => { setPin(e.target.value.replace(/\D/g, "").slice(0, 6)); setErr(""); }} onKeyDown={e => e.key === "Enter" && submit(pick)} className="w-full text-center text-2xl tracking-[0.5em] font-mono" style={{ minHeight: 52 }} placeholder="••••" />
+            {err && <p className="text-xs mt-2" style={{ color: C.bad }}>{err}</p>}
+            <button onClick={() => submit(pick)} disabled={!pin} className="w-full py-3 rounded-xl text-sm font-medium mt-4" style={{ background: pin ? C.ink : C.line, color: pin ? C.onDark : C.muted }}>Sign in</button>
+          </div>
+        )}
+        <p className="text-[10px] mt-5" style={{ color: C.muted }}>Prototype sign-in: identifies who works, it is not a security boundary. Real authentication comes with the backend.</p>
+      </div>
+    </div>
+  );
+}
+// ═══════════════════ OPTIMISTIC CONCURRENCY — several devices, one shared state ═══════════════════
+// Every change is a function "state → state". We save with the version we last saw; if someone else saved first,
+// the server answers 409 with its current state, we re-apply our queued functions on top and save again.
+const createSyncer = () => ({ version: null, pending: [], busy: false, again: false });
+const flushState = async (syncer, key, getLocal, setLocal, normalizeFn, onConflictResolved) => {
+  if (!window.storage?.setVersioned) { try { await window.storage.set(key, JSON.stringify(getLocal())); } catch {} return; }
+  if (syncer.busy) { syncer.again = true; return; }
+  syncer.busy = true;
+  try {
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const fns = syncer.pending.splice(0);
+      const res = await window.storage.setVersioned(key, JSON.stringify(getLocal()), syncer.version);
+      if (!res) break;
+      if (res.rejected) { console.warn("QCteam: server rejected this state as too small — keeping the server's copy"); const r = await window.storage.get(key); if (r?.value) { setLocal(normalizeFn(JSON.parse(r.value))); syncer.version = r.version || null; } break; }
+      if (res.conflict) {
+        let base = normalizeFn(JSON.parse(res.value)); syncer.version = res.version || null;
+        for (const f of fns) { try { base = f(base); } catch (e) { console.warn("QCteam: could not re-apply a change after conflict", e); } }
+        for (const f of syncer.pending.splice(0)) { try { base = f(base); } catch (e) {} }
+        setLocal(base); onConflictResolved && onConflictResolved(fns.length);
+        continue; // save the merged state with the new version
+      }
+      syncer.version = res.version || syncer.version; break;
+    }
+  } finally { syncer.busy = false; if (syncer.again) { syncer.again = false; flushState(syncer, key, getLocal, setLocal, normalizeFn, onConflictResolved); } }
+};
+
 
 // ═══════════════════ SHARED WITH THE PORTAL (copied 1:1) ═══════════════════
 const SHEET = {
@@ -1921,7 +1980,7 @@ function MChat({ s, set, user, go }) {
 }
 
 // ── Menu / profile / notifications / announcements ──
-function MMenu({ s, set, user, go, users, setUser, dark, onTheme, simOffline, onSimOffline, onSync, syncMsg }) {
+function MMenu({ s, set, user, go, users, setUser, onLogout, dark, onTheme, simOffline, onSimOffline, onSync, syncMsg }) {
   const items = user.role === "Head" ? [["profile", User, "Profile and statistics"], ["head-escalations", HelpCircle, "Questions from controllers"], ["head-flags", Flag, "Flags to resolve"], ["head-announce", Megaphone, "New announcement"], ["announcements", Megaphone, "Announcements"], ["notifications", Bell, "Notifications"], ["history", ClipboardList, "Inspection history"]] : [["profile", User, "Profile and statistics"], ["announcements", Megaphone, "Announcements"], ["notifications", Bell, "Notifications"], ["flags", Flag, "My flags"], ["history", ClipboardList, "Inspection history"]];
   const [dataOpen, setDataOpen] = useState(false); const [io, setIo] = useState(""); const [msg, setMsg] = useState("");
   const exportState = async () => { const json = JSON.stringify(s, null, 2); setIo(json); try { await navigator.clipboard.writeText(json); setMsg("Copied."); } catch { setMsg("Copy manually from the field."); } };
@@ -1932,8 +1991,8 @@ function MMenu({ s, set, user, go, users, setUser, dark, onTheme, simOffline, on
       <div className="px-4 pt-2">{items.map(([k, I, l]) => <button key={k} onClick={() => go(k)} className="w-full flex items-center gap-3 py-3.5 text-left" style={{ borderBottom: `1px solid ${C.line}` }}><span className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: C.bg, color: C.accent }}><Ic i={I} s={17} mr={0} /></span><span className="text-sm flex-1">{l}</span><span style={{ color: C.muted }}>›</span></button>)}
         <button onClick={onSimOffline} className="w-full flex items-center gap-3 py-3.5 text-left" style={{ borderBottom: `1px solid ${C.line}` }}><span className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: C.bg, color: simOffline ? C.warn : C.accent }}><Ic i={AlertTriangle} s={17} mr={0} /></span><span className="text-sm flex-1">Simulate no connection<span className="block text-[11px]" style={{ color: C.muted }}>prototype only — shows the offline banner</span></span><span className="w-10 h-6 rounded-full relative" style={{ background: simOffline ? C.warn : C.line }}><span className="absolute top-0.5 w-5 h-5 rounded-full" style={{ background: C.surface, left: simOffline ? 18 : 2, transition: "left .15s" }} /></span></button>
         <button onClick={onTheme} className="w-full flex items-center gap-3 py-3.5 text-left" style={{ borderBottom: `1px solid ${C.line}` }}><span className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: C.bg, color: C.accent }}><Ic i={dark ? Sun : Moon} s={17} mr={0} /></span><span className="text-sm flex-1">{dark ? "Light theme" : "Dark theme"}</span><span className="w-10 h-6 rounded-full relative" style={{ background: dark ? C.accent : C.line }}><span className="absolute top-0.5 w-5 h-5 rounded-full" style={{ background: C.surface, left: dark ? 18 : 2, transition: "left .15s" }} /></span></button>
-        <p className="label-sm mt-5 mb-2" style={{ color: C.muted }}>Signed in (simulation)</p>
-        {users.filter(u => u.active !== false).map(u => <button key={u.id} onClick={() => setUser(u.id)} className="w-full flex items-center gap-3 py-2.5 text-left" style={{ borderBottom: `1px solid ${C.line}` }}><div className="w-8 h-8 rounded-full flex items-center justify-center text-xs" style={{ background: u.id === user.id ? C.accent : C.accentSoft, color: u.id === user.id ? C.onDark : C.accent }}>{u.name.split(" ").map(x => x[0]).join("").slice(0, 2)}</div><span className="text-sm flex-1">{u.name}</span><span className="text-xs" style={{ color: C.muted }}>{u.role === "Head" ? "Head" : "Controller"}</span></button>)}
+        <p className="label-sm mt-5 mb-2" style={{ color: C.muted }}>Signed in</p>
+        <div className="flex items-center gap-3 py-2.5" style={{ borderBottom: `1px solid ${C.line}` }}><Avatar user={user} size={32} /><span className="text-sm flex-1">{user.name}<span className="block text-[11px]" style={{ color: C.muted }}>{user.role}</span></span><button onClick={onLogout} className="text-xs px-3 py-1.5 rounded-lg" style={{ border: `1px solid ${C.line}`, color: C.muted }}>Log out</button></div>
         <p className="label-sm mt-5 mb-2" style={{ color: C.muted }}>Date</p>
         <button onClick={onSync} className="w-full flex items-center gap-3 py-3 text-left" style={{ borderBottom: `1px solid ${C.line}` }}><span className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: C.bg, color: C.accent }}><Ic i={Download} s={17} mr={0} /></span><span className="text-sm flex-1">Sync now<span className="block text-[11px]" style={{ color: C.muted }}>{syncMsg || "pull the latest state from the server"}</span></span></button>
         <button onClick={() => setDataOpen(o => !o)} className="w-full flex items-center gap-3 py-3 text-left" style={{ borderBottom: `1px solid ${C.line}` }}><span className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: C.bg, color: C.accent }}><Ic i={Database} s={17} mr={0} /></span><span className="text-sm flex-1">Export / import state</span><span style={{ color: C.muted }}>{dataOpen ? "▾" : "›"}</span></button>
@@ -2060,10 +2119,11 @@ function MInspection({ s, set, user, inspId, go, notify }) {
 // ═══════════════════ APLIKACJA MOBILNA ═══════════════════
 export default function App() {
   const [s, setRaw] = useState(EMPTY);
-  const set = fn => { setRaw(x => { const nx = sortState(typeof fn === "function" ? fn(x) : fn); _S = nx; return nx; }); if (typeof online !== "undefined" && !online) setPendingSync(n => n + 1); };
+  const set = fn => { const f = typeof fn === "function" ? (x => sortState(fn(x))) : (() => sortState(fn)); syncerRef.current.pending.push(f); setRaw(x => { const nx = f(x); _S = nx; return nx; }); if (typeof online !== "undefined" && !online) setPendingSync(n => n + 1); };
   useEffect(() => { _S = s; }, [s]);
   const [loaded, setLoaded] = useState(false);
-  const [userId, setUserId] = useState("u-anna");
+  const [userId, setUserId] = useState(() => readSession());
+  const syncerRef = useRef(createSyncer());
   const [page, setPage] = useState("home"); const [param, setParam] = useState(null);
   const [dismissed, setDismissed] = useState([]);
   const [toast, setToast] = useState("");
@@ -2075,15 +2135,16 @@ export default function App() {
   useEffect(() => { if (toast) { const id = setTimeout(() => setToast(""), 3500); return () => clearTimeout(id); } }, [toast]);
   const [dark, setDark] = useState(false);
   const [syncMsg, setSyncMsg] = useState("");
-  const pullState = async (announce) => { try { if (!window.storage) return; const r = await window.storage.get(STORAGE_KEY); if (r?.value) { const p = JSON.parse(r.value); if (p && Array.isArray(p.categories)) { setRaw(prev => { const next = sortState(normalize(p)); _S = next; return JSON.stringify(prev) === JSON.stringify(next) ? prev : next; }); } } await refreshPushedIntegrations(() => _S, set, !!announce); if (announce) setSyncMsg(`Synced ${new Date().toLocaleTimeString("en-GB")}`); } catch (e) { if (announce) setSyncMsg("Sync failed: " + (e.message || e)); } };
+  const pullState = async (announce) => { try { if (!window.storage) return; const r = await window.storage.get(STORAGE_KEY); if (r?.version) syncerRef.current.version = r.version; if (r?.value && !syncerRef.current.pending.length) { const p = JSON.parse(r.value); if (p && Array.isArray(p.categories)) { setRaw(prev => { const next = sortState(normalize(p)); _S = next; return JSON.stringify(prev) === JSON.stringify(next) ? prev : next; }); } } await refreshPushedIntegrations(() => _S, set, !!announce); if (announce) setSyncMsg(`Synced ${new Date().toLocaleTimeString("en-GB")}`); } catch (e) { if (announce) setSyncMsg("Sync failed: " + (e.message || e)); } };
   useEffect(() => { if (!loaded) return; refreshPushedIntegrations(() => _S, set); const id = setInterval(() => { if (document.visibilityState === "visible") refreshPushedIntegrations(() => _S, set); }, 120000); return () => clearInterval(id); }, [loaded]);
   useEffect(() => { const h = () => { if (document.visibilityState === "visible") pullState(false); }; document.addEventListener("visibilitychange", h); window.addEventListener("focus", h); window.addEventListener("pageshow", h); return () => { document.removeEventListener("visibilitychange", h); window.removeEventListener("focus", h); window.removeEventListener("pageshow", h); }; }, []);
   useEffect(() => { (async () => { try { if (window.storage) { const r = await window.storage.get(THEME_KEY); if (r?.value === "dark") { applyTheme(true); setDark(true); } } } catch (e) {} })(); }, []);
   const toggleTheme = () => { const d = !dark; applyTheme(d); setDark(d); (async () => { try { if (window.storage) await window.storage.set(THEME_KEY, d ? "dark" : "light"); } catch (e) {} })(); };
-  useEffect(() => { (async () => { try { if (window.storage) { const r = await window.storage.get(STORAGE_KEY); if (r?.value) { const p = JSON.parse(r.value); if (p && Array.isArray(p.categories)) set(normalize(p)); } } } catch (e) {} setLoaded(true); })(); }, []);
-  useEffect(() => { if (!loaded) return; (async () => { try { if (window.storage) await window.storage.set(STORAGE_KEY, JSON.stringify(s)); } catch (e) {} })(); }, [s, loaded]);
+  useEffect(() => { (async () => { try { if (window.storage) { const r = await window.storage.get(STORAGE_KEY); if (r?.version) syncerRef.current.version = r.version; if (r?.value) { const p = JSON.parse(r.value); if (p && Array.isArray(p.categories)) { const nx = sortState(normalize(p)); _S = nx; setRaw(nx); } } } } catch (e) {} setLoaded(true); })(); }, []);
+  useEffect(() => { if (!loaded) return; flushState(syncerRef.current, STORAGE_KEY, () => _S, v => { _S = v; setRaw(v); }, p => sortState(normalize(p)), n => n && setToast(`Merged with changes from another device (${n} of yours re-applied)`)); }, [s, loaded]);
   if (!loaded) return <div className="min-h-screen flex items-center justify-center text-sm" style={{ color: C.muted }}>Loading…</div>;
-  const user = s.users.find(u => u.id === userId) || s.users[0];
+  const user = s.users.find(u => u.id === userId && u.active !== false) || null;
+  if (!user) return <LoginScreen s={s} onLogin={setUserId} />;
   const go = (p, prm = null) => { setPage(p); setParam(prm); };
   const notify = (type, message, entityType, entityId, toUserId) => set(x => { const targets = toUserId ? [toUserId] : x.users.filter(u => u.role === "Head").map(u => u.id); return { ...x, notifications: [...x.notifications, ...targets.map(t => ({ id: uid(), userId: t, type, message, entityType, entityId, createdAt: nowISO(), readAt: null }))] }; });
   const startInspection = (pid, palletNo, force = false, typeId = "type-full") => {
@@ -2124,7 +2185,7 @@ export default function App() {
       {page === "history" && <MHistory s={s} user={user} go={go} />}
       {page === "catalog" && <MCatalog key={param || "catalog"} s={s} user={user} go={go} onStart={(pid, palletNo, typeId) => startInspection(pid, palletNo, false, typeId)} setState={set} notify={notify} onVisual={visualInspection} preset={param} />}
       {page === "chat" && <MChat s={s} set={set} user={user} go={go} />}
-      {page === "menu" && <MMenu s={s} set={set} user={user} go={go} users={s.users} setUser={id => { setUserId(id); go("home"); }} dark={dark} onTheme={toggleTheme} simOffline={simOffline} onSimOffline={() => setSimOffline(o => !o)} onSync={() => pullState(true)} syncMsg={syncMsg} />}
+      {page === "menu" && <MMenu s={s} set={set} user={user} go={go} users={s.users} setUser={id => { setUserId(id); go("home"); }} onLogout={() => { writeSession(null); setUserId(null); }} dark={dark} onTheme={toggleTheme} simOffline={simOffline} onSimOffline={() => setSimOffline(o => !o)} onSync={() => pullState(true)} syncMsg={syncMsg} />}
       {page === "profile" && <MProfile s={s} set={set} user={user} go={go} />}
       {page === "notifications" && <MNotifications s={s} set={set} user={user} go={go} />}
       {page === "announcements" && <MAnnouncements s={s} user={user} go={go} />}
