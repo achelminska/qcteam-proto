@@ -39,20 +39,36 @@ const applyPushToState = (purpose, sheet) => {
     return " → applied to app state";
   } catch (e) { return ` (apply failed: ${e.message})`; }
 };
+// Snapshots of the app state: at most one per 10 minutes on change, last 48 kept. Restorable from the portal (Data → Backups).
+const BACKUP_DIR = STATE_DIR ? path.join(STATE_DIR, "backups") : new URL("./backups/", import.meta.url).pathname;
+let lastSnapAt = 0;
+const snapshot = (key, body) => { try { if (key !== STATE_KEY) return; if (store[key] === body || !store[key]) return; if (Date.now() - lastSnapAt < 10 * 60 * 1000) return; if (!fs.existsSync(BACKUP_DIR)) fs.mkdirSync(BACKUP_DIR, { recursive: true }); const name = `state-${new Date().toISOString().replace(/[:.]/g, "-")}.json`; fs.writeFileSync(path.join(BACKUP_DIR, name), store[key]); lastSnapAt = Date.now(); const files = fs.readdirSync(BACKUP_DIR).filter(f => f.startsWith("state-")).sort(); files.slice(0, Math.max(0, files.length - 48)).forEach(f => fs.unlinkSync(path.join(BACKUP_DIR, f))); } catch (e) { console.log("[backup] failed:", e.message); } };
+const listBackups = () => { try { return fs.readdirSync(BACKUP_DIR).filter(f => f.startsWith("state-")).sort().reverse().map(f => { const st = fs.statSync(path.join(BACKUP_DIR, f)); let n = {}; try { const j = JSON.parse(fs.readFileSync(path.join(BACKUP_DIR, f), "utf8")); n = { categories: (j.categories || []).length, products: (j.products || []).length, inspections: (j.inspections || []).length, integrations: (j.integrations || []).length }; } catch {} return { name: f, at: st.mtime.toISOString(), size: st.size, ...n }; }); } catch { return []; } };
 const handler = async (req, res) => {
+  if (req.url.startsWith("/backups")) {
+    if (req.method === "OPTIONS") return res.writeHead(204, cors).end();
+    const m = /^\/backups\/([^/?]+)(\/restore)?/.exec(req.url);
+    if (!m) { res.writeHead(200, { ...cors, "Content-Type": "application/json" }); return res.end(JSON.stringify(listBackups())); }
+    const file = path.join(BACKUP_DIR, path.basename(m[1])); if (!fs.existsSync(file)) return res.writeHead(404, cors).end();
+    if (m[2] && req.method === "POST") { lastSnapAt = 0; snapshot(STATE_KEY, "__restore__"); store[STATE_KEY] = fs.readFileSync(file, "utf8"); (store.__meta = store.__meta || {})[STATE_KEY] = Date.now(); save(); console.log(`[backup] restored ${m[1]}`); res.writeHead(200, cors).end(JSON.stringify({ ok: true })); return; }
+    res.writeHead(200, { ...cors, "Content-Type": "application/json" }); return fs.createReadStream(file).pipe(res);
+  }
   if (req.method === "OPTIONS") return res.writeHead(204, cors).end();
   // /proxy?url=…  — fetch a public sheet endpoint (Apps Script JSON or published CSV) server-side, so the browser's CORS rules don't apply
   if (req.url.startsWith("/proxy?")) { try { const url = new URL(req.url, "http://x").searchParams.get("url"); if (!/^https:\/\/(script\.google\.com|docs\.google\.com|script\.googleusercontent\.com)\//.test(url || "")) { res.writeHead(400, cors).end("only Google Sheets / Apps Script URLs"); return; } const r = await fetch(url, { redirect: "follow" }); const txt = await r.text(); res.writeHead(r.ok ? 200 : r.status, { ...cors, "Content-Type": r.headers.get("content-type") || "text/plain" }); res.end(txt); } catch (e) { res.writeHead(502, cors).end(String(e.message || e)); } return; }
   // /sheet/<purpose>  — PUSH from Google Apps Script (UrlFetchApp) and PULL by the apps. The sheet pushes {header, rows}; a shared key guards the POST.
   if (req.url.startsWith("/sheet/")) {
     const purpose = req.url.replace(/^\/sheet\//, "").split("?")[0].toLowerCase();
-    if (req.method === "POST") { if (SYNC_KEY && req.headers["x-sync-key"] !== SYNC_KEY) { res.writeHead(401, cors).end("bad X-Sync-Key"); return; } let body = ""; req.on("data", c => body += c); req.on("end", () => { try { const j = JSON.parse(body); if (!Array.isArray(j.header) || !Array.isArray(j.rows)) throw new Error("expected {header, rows}"); store.__sheets = store.__sheets || {}; store.__sheets[purpose] = { header: j.header, rows: j.rows, receivedAt: new Date().toISOString(), from: j.from || "" }; const applied = applyPushToState(purpose, store.__sheets[purpose]); save(); console.log(`[sheet] ${purpose}: ${j.rows.length} rows pushed at ${new Date().toLocaleTimeString()}${applied}`); res.writeHead(200, cors).end(JSON.stringify({ ok: true, rows: j.rows.length })); } catch (e) { res.writeHead(400, cors).end(String(e.message || e)); } }); return; }
+    if (req.method === "POST") { if (SYNC_KEY && req.headers["x-sync-key"] !== SYNC_KEY) { res.writeHead(401, cors).end("bad X-Sync-Key"); return; } const chunks = []; req.on("data", c => chunks.push(c)); req.on("end", () => { const body = Buffer.concat(chunks).toString("utf8"); try { const j = JSON.parse(body); if (!Array.isArray(j.header) || !Array.isArray(j.rows)) throw new Error("expected {header, rows}"); store.__sheets = store.__sheets || {}; store.__sheets[purpose] = { header: j.header, rows: j.rows, receivedAt: new Date().toISOString(), from: j.from || "" }; const applied = applyPushToState(purpose, store.__sheets[purpose]); save(); console.log(`[sheet] ${purpose}: ${j.rows.length} rows pushed at ${new Date().toLocaleTimeString()}${applied}`); res.writeHead(200, cors).end(JSON.stringify({ ok: true, rows: j.rows.length })); } catch (e) { res.writeHead(400, cors).end(String(e.message || e)); } }); return; }
     if (req.method === "GET") { const sh = store.__sheets?.[purpose]; res.writeHead(sh ? 200 : 404, { ...cors, "Content-Type": "application/json" }); return res.end(sh ? JSON.stringify(sh) : ""); }
   }
   const key = decodeURIComponent(req.url.replace(/^\/storage\//, "").split("?")[0]);
   if (!req.url.startsWith("/storage/")) return serveStatic(req, res);
   if (req.method === "GET") { const v = store[key]; res.writeHead(v == null ? 404 : 200, { ...cors, "Content-Type": "application/json" }); return res.end(v == null ? "" : JSON.stringify({ key, value: v, updatedAt: store.__meta?.[key] })); }
-  if (req.method === "PUT") { let body = ""; req.on("data", c => body += c); req.on("end", () => { store[key] = body; (store.__meta = store.__meta || {})[key] = Date.now(); save(); res.writeHead(200, cors).end(JSON.stringify({ key })); }); return; }
+  if (req.method === "PUT") { const chunks = []; req.on("data", c => chunks.push(c)); req.on("end", () => { const body = Buffer.concat(chunks).toString("utf8");
+      // Guard: an (almost) empty app state must not overwrite a populated one — a fresh device would otherwise wipe everyone's data.
+      if (key === STATE_KEY && store[key] && !req.headers["x-force"]) { const size = v => { try { const j = JSON.parse(v); return (j.categories || []).length + (j.products || []).length + (j.inspections || []).length + (j.integrations || []).length + (j.templates || []).length; } catch { return 0; } }; const incoming = size(body), current = size(store[key]); if (incoming === 0 && current > 0 || incoming < current * 0.5 && current > 20) { console.log(`[state] rejected write: incoming ${incoming} objects vs current ${current}`); res.writeHead(409, { ...cors, "Content-Type": "application/json" }).end(JSON.stringify({ rejected: true, reason: "incoming state is much smaller than the stored one", incoming, current })); return; } }
+      snapshot(key, body); store[key] = body; (store.__meta = store.__meta || {})[key] = Date.now(); save(); res.writeHead(200, cors).end(JSON.stringify({ key })); }); return; }
   if (req.method === "DELETE") { delete store[key]; save(); return res.writeHead(200, cors).end(); }
   res.writeHead(405, cors).end();
 };
