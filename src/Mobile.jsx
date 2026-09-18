@@ -827,10 +827,11 @@ const dockRowsForProduct = product => product ? dockRowsLive(_S).filter(r => r.a
 
 const sameDeliveryPallets = (product, insp) => {
   const rows = dockRowsForProduct(product); const mine = (insp.pallets || []).map(x => String(x).trim()).filter(Boolean);
-  const anchorRow = rows.find(r => mine.includes(r.hu));
+  const norm = v => String(v || "").replace(/\D/g, "").replace(/^0+/, ""); const same = (a, b) => { const x = norm(a), y = norm(b); return !!x && !!y && (x === y || x.endsWith(y) || y.endsWith(x)); };
+  const anchorRow = rows.find(r => mine.some(m => same(m, r.hu)));
   // delivery day: from the sheet if the sampled pallet is on it; otherwise assume today's delivery (a fresh arrival); unknown if no pallet entered yet
   const day = anchorRow ? anchorRow.arrived : mine.length ? new Date().toISOString().slice(0, 10) : null;
-  const list = rows.filter(r => !mine.includes(r.hu)).map(r => ({ ...r, sameDay: day ? r.arrived === day : null }));
+  const list = rows.filter(r => !mine.some(m => same(m, r.hu))).map(r => ({ ...r, sameDay: day ? r.arrived === day : null }));
   return Object.assign(list, { basis: anchorRow ? "sheet" : mine.length ? "today" : "none" });
 };
 
@@ -1621,6 +1622,10 @@ function LiveScanner({ onCode }) {
 }
 // Code classification: a pallet number (SSCC) is long (≥14 digits); a product code is an EAN (8/13) or an article ID.
 const isPalletCode = code => /^\d{14,}$/.test(code.trim());
+// GS1-128 pallet labels encode the SSCC behind application identifier "00" (often with more AIs concatenated):
+// "00087205744101641093" → "087205744101641093". Sheets sometimes drop the leading zero, so matching is by suffix.
+const extractSSCC = raw => { const d = String(raw || "").replace(/\D/g, ""); const m = /(?:^|\D)00(\d{18})/.exec(String(raw || "")) || (d.length >= 20 && d.startsWith("00") ? [null, d.slice(2, 20)] : null); if (m) return m[1]; if (d.length >= 18) return d.slice(0, 18); return d; };
+const samePallet = (a, b) => { const x = String(a || "").replace(/\D/g, "").replace(/^0+/, ""), y = String(b || "").replace(/\D/g, "").replace(/^0+/, ""); return !!x && !!y && (x === y || x.endsWith(y) || y.endsWith(x)); };
 const dockRowsFor = product => product ? dockRowsLive(_S).filter(r => r.article === product.articleId) : [];
 function DockPresence({ product, onPickPallet, compact }) {
   const rows = dockRowsFor(product); const [open, setOpen] = useState(false);
@@ -1648,20 +1653,20 @@ function MScan({ s, user, go, onStart, onVisual, onSkip, setState, notify, prese
   const [code, setCode] = useState(preset || ""); const [mode, setMode] = useState(null); const [confirmCollision, setConfirmCollision] = useState(null); const [starting, setStarting] = useState(null);
   const [pallet, setPallet] = useState(""); const [askInspect, setAskInspect] = useState(false);
   const scanned = code.trim();
-  const byPallet = pallet ? s.inspections.filter(i => (i.pallets || []).map(x => String(x).trim()).includes(pallet) && i.status !== "Cancelled") : [];
+  const byPallet = pallet ? s.inspections.filter(i => (i.pallets || []).some(x => samePallet(x, pallet)) && i.status !== "Cancelled") : [];
   const completed = byPallet.find(i => i.status === "Completed"), draft = byPallet.find(i => ["Draft", "PendingReview"].includes(i.status));
   const productByCode = c => s.products.find(p => p.isActive !== false && ((p.articleId && p.articleId === c) || (p.barcode && p.barcode === c)));
   const product = mode === "product" ? productByCode(scanned) : null;
-  const wms = pallet ? dockRowsLive(s).find(r => r.hu === pallet) || null : null;
+  const wms = pallet ? dockRowsLive(s).find(r => samePallet(r.hu, pallet)) || null : null;
   const wmsProduct = wms ? s.products.find(p => p.articleId === wms.article) : null;
   const scan = (given) => {
     const val = (given ?? scanned).trim(); if (given != null) setCode(val); if (!val) return; const scannedNow = val;
-    if (isPalletCode(scannedNow)) { setPallet(scannedNow); setAskInspect(false); const done = s.inspections.find(i => (i.pallets || []).map(x => String(x).trim()).includes(scannedNow) && i.status === "Completed"); setMode(done ? "done" : "pallet"); }
+    if (isPalletCode(scannedNow)) { const sscc = extractSSCC(scannedNow); setPallet(sscc); setAskInspect(false); const done = s.inspections.find(i => (i.pallets || []).some(x => samePallet(x, sscc)) && i.status === "Completed"); setMode(done ? "done" : "pallet"); }
     else if (productByCode(scannedNow)) { setPallet(""); setMode("product"); }
     else setMode("unknown-product");
   };
   const start = (pid, typeId = "type-full") => { if (draft && draft.controllerId !== user.id) { setConfirmCollision({ draft, pid, typeId }); return; } onStart(pid, pallet || null, typeId); };
-  const pickPalletOfProduct = hu => { setCode(hu); setPallet(hu); const done = s.inspections.find(i => (i.pallets || []).includes(hu) && i.status === "Completed"); setMode(done ? "done" : "pallet"); };
+  const pickPalletOfProduct = hu => { setCode(hu); setPallet(hu); const done = s.inspections.find(i => (i.pallets || []).some(x => samePallet(x, hu)) && i.status === "Completed"); setMode(done ? "done" : "pallet"); };
   const Actions = () => { const known = wmsProduct || (completed && s.products.find(p => p.id === completed.productId)); const types = known ? allowedTypes(s, known) : typesOf(s); const pol = known ? effectivePolicy(s, known) : null; return (
     <div className="flex flex-col gap-2 mt-1">
       {types.map((t, idx) => <button key={t.id} onClick={() => setStarting({ kind: t.id })} className="w-full py-3 rounded-xl text-sm font-medium inline-flex items-center justify-center gap-2" style={idx === 0 ? { background: C.ink, color: C.onDark } : { background: C.surface, color: C.ink, border: `1px solid ${C.line}` }}><span className="inline-block rounded-full" style={{ width: 8, height: 8, background: t.color }} />{t.name} inspection</button>)}
@@ -1676,6 +1681,7 @@ function MScan({ s, user, go, onStart, onVisual, onSkip, setState, notify, prese
       <div className="px-4 pt-3">
         <LiveScanner onCode={code => scan(code)} />
         <p className="text-xs mb-1" style={{ color: C.muted }}>Pallet number (SSCC) or product code (EAN / article ID) — the scanner tells them apart by length</p>
+        {pallet && scanned !== pallet && <p className="text-[11px] mb-1" style={{ color: C.muted }}>scanned <span className="font-mono">{scanned}</span> → SSCC <span className="font-mono">{pallet}</span></p>}
         <div className="flex gap-2 mb-3"><input value={code} onChange={e => { setCode(e.target.value); setMode(null); }} onKeyDown={e => e.key === "Enter" && scan()} placeholder="or type the code: 387175210024377766 / 11413643" className="flex-1 text-sm rounded-xl px-3 py-2.5 outline-none font-mono" style={inp} /><button onClick={() => scan()} className="px-3 rounded-xl text-sm" style={{ background: C.accent, color: C.onDark }}>Scan</button></div>
 
         {mode === "unknown-product" && (
