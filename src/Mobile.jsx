@@ -1721,7 +1721,7 @@ function MDashboard({ s, set, user, go, dismissed, setDismissed, onAssign }) {
       <p className="label-sm px-5 mt-3 mb-1" style={{ color: C.muted }}>Dock priorities</p>
       <div className="grid gap-2 px-5" style={{ gridTemplateColumns: `repeat(${Math.max(1, Math.min(4, Object.keys(PRIORITY).filter(k => sheetStats(s).prio(k) > 0).length))}, 1fr)` }}>
         {Object.keys(PRIORITY).filter(k => sheetStats(s).prio(k) > 0).map(k => [k, PRIORITY[k][0], PRIORITY[k][1]]).map(([l, fg, bg]) => (
-          <button key={l} onClick={() => go("priority", l)} className="rounded-2xl py-3 text-center transition-transform active:scale-95" style={{ background: bg, border: "none" }}><p className="text-2xl font-bold tracking-tight" style={{ color: fg }}>{sheetStats(s).prio(l)}</p><p className="text-[10px] font-medium leading-tight mt-0.5" style={{ color: fg, opacity: .75 }}>{l}</p></button>
+          <button key={l} onClick={() => go("priority", l)} className="rounded-2xl py-3 text-center transition-transform active:scale-95" style={{ background: C.bg, border: `1px solid ${C.line}` }}><p className="text-2xl font-bold tracking-tight" style={{ color: fg }}>{sheetStats(s).prio(l)}</p><p className="text-[10px] font-medium leading-tight mt-0.5" style={{ color: C.muted }}>{l}</p></button>
         ))}
       </div>
       <div className="flex gap-1 mx-5 mt-4" style={{ borderBottom: `1px solid ${C.line}` }}>
