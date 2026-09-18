@@ -2,6 +2,8 @@
 // HTTP on :3001 and, if server/cert.pem + server/key.pem exist, HTTPS on :3002 (needed when the app itself runs over HTTPS —
 // browsers block mixed content). Create the cert once:  npm run cert
 import http from "node:http"; import https from "node:https"; import fs from "node:fs"; import os from "node:os"; import path from "node:path";
+import { targetsFor, suggestMappings, applyMapping, detectTable, extractSummary } from "./sheetlogic.mjs";
+const STATE_KEY = "qcteam-portal-state-v2-clean";
 // Static hosting of the built app (dist/) so one service = API + portal + phone app. Any unknown path falls back to index.html.
 const DIST = new URL("../dist/", import.meta.url).pathname;
 const MIME = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css", ".png": "image/png", ".svg": "image/svg+xml", ".webmanifest": "application/manifest+json", ".json": "application/json", ".ico": "image/x-icon", ".woff2": "font/woff2" };
@@ -13,10 +15,30 @@ const serveStatic = (req, res) => {
   fs.createReadStream(file).pipe(res);
 };
 const SYNC_KEY = process.env.QC_SYNC_KEY || "";
-const PORT = Number(process.env.PORT) || 3001, FILE = new URL("./state.json", import.meta.url);
+// STATE_DIR: mount a persistent disk there (e.g. Render Disk at /data) so state survives deploys. Default: next to this file.
+const STATE_DIR = process.env.STATE_DIR || null;
+const PORT = Number(process.env.PORT) || 3001, FILE = STATE_DIR ? path.join(STATE_DIR, "state.json") : new URL("./state.json", import.meta.url);
+if (STATE_DIR && !fs.existsSync(STATE_DIR)) fs.mkdirSync(STATE_DIR, { recursive: true });
 const store = fs.existsSync(FILE) ? JSON.parse(fs.readFileSync(FILE, "utf8")) : {};
+console.log(`state file: ${FILE}`);
 const save = () => fs.writeFileSync(FILE, JSON.stringify(store));
 const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET,PUT,DELETE,OPTIONS", "Access-Control-Allow-Headers": "Content-Type" };
+// Server-side processing: apply the mapping the Head saved in the app state to every push, so the dashboard is current
+// even when nobody has the app open. Mirrors refreshPushedIntegrations in the front-end.
+const applyPushToState = (purpose, sheet) => {
+  try {
+    const raw = store[STATE_KEY]; if (!raw) return " (no app state yet)";
+    const st = JSON.parse(raw); const P = purpose === "dock" ? "Dock" : purpose === "blocked" ? "Blocked" : "Products";
+    const targets = (st.integrations || []).filter(i => i.purpose === P && i.pushMode); if (!targets.length) return ` (no ${P} integration in push mode)`;
+    const tg = targetsFor(P); const j = detectTable({ header: sheet.header, rows: sheet.rows });
+    st.integrations = st.integrations.map(i => { if (!targets.some(t => t.id === i.id)) return i;
+      const mappings = i.mappings?.length && (i.header || []).join("|") === j.header.join("|") ? i.mappings : suggestMappings(j.header, j.rows, tg);
+      const rows = applyMapping({ ...i, mappings }, j.header, j.rows);
+      return { ...i, header: j.header, sample: j.rows, rawHeader: sheet.header, rawRows: sheet.rows, mappings, rows: P !== "Products" ? rows : i.rows, summary: P !== "Products" ? extractSummary(sheet.header, sheet.rows) : i.summary, lastSyncAt: new Date().toISOString(), lastPushAt: sheet.receivedAt, liveStatus: `OK — ${j.rows.length} rows, pushed by the sheet at ${new Date(sheet.receivedAt).toLocaleTimeString("en-GB")} (applied on the server)` }; });
+    store[STATE_KEY] = JSON.stringify(st); (store.__meta = store.__meta || {})[STATE_KEY] = Date.now();
+    return " → applied to app state";
+  } catch (e) { return ` (apply failed: ${e.message})`; }
+};
 const handler = async (req, res) => {
   if (req.method === "OPTIONS") return res.writeHead(204, cors).end();
   // /proxy?url=…  — fetch a public sheet endpoint (Apps Script JSON or published CSV) server-side, so the browser's CORS rules don't apply
@@ -24,7 +46,7 @@ const handler = async (req, res) => {
   // /sheet/<purpose>  — PUSH from Google Apps Script (UrlFetchApp) and PULL by the apps. The sheet pushes {header, rows}; a shared key guards the POST.
   if (req.url.startsWith("/sheet/")) {
     const purpose = req.url.replace(/^\/sheet\//, "").split("?")[0].toLowerCase();
-    if (req.method === "POST") { if (SYNC_KEY && req.headers["x-sync-key"] !== SYNC_KEY) { res.writeHead(401, cors).end("bad X-Sync-Key"); return; } let body = ""; req.on("data", c => body += c); req.on("end", () => { try { const j = JSON.parse(body); if (!Array.isArray(j.header) || !Array.isArray(j.rows)) throw new Error("expected {header, rows}"); store.__sheets = store.__sheets || {}; store.__sheets[purpose] = { header: j.header, rows: j.rows, receivedAt: new Date().toISOString(), from: j.from || "" }; save(); console.log(`[sheet] ${purpose}: ${j.rows.length} rows pushed at ${new Date().toLocaleTimeString()}`); res.writeHead(200, cors).end(JSON.stringify({ ok: true, rows: j.rows.length })); } catch (e) { res.writeHead(400, cors).end(String(e.message || e)); } }); return; }
+    if (req.method === "POST") { if (SYNC_KEY && req.headers["x-sync-key"] !== SYNC_KEY) { res.writeHead(401, cors).end("bad X-Sync-Key"); return; } let body = ""; req.on("data", c => body += c); req.on("end", () => { try { const j = JSON.parse(body); if (!Array.isArray(j.header) || !Array.isArray(j.rows)) throw new Error("expected {header, rows}"); store.__sheets = store.__sheets || {}; store.__sheets[purpose] = { header: j.header, rows: j.rows, receivedAt: new Date().toISOString(), from: j.from || "" }; const applied = applyPushToState(purpose, store.__sheets[purpose]); save(); console.log(`[sheet] ${purpose}: ${j.rows.length} rows pushed at ${new Date().toLocaleTimeString()}${applied}`); res.writeHead(200, cors).end(JSON.stringify({ ok: true, rows: j.rows.length })); } catch (e) { res.writeHead(400, cors).end(String(e.message || e)); } }); return; }
     if (req.method === "GET") { const sh = store.__sheets?.[purpose]; res.writeHead(sh ? 200 : 404, { ...cors, "Content-Type": "application/json" }); return res.end(sh ? JSON.stringify(sh) : ""); }
   }
   const key = decodeURIComponent(req.url.replace(/^\/storage\//, "").split("?")[0]);
