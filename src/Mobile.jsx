@@ -1654,19 +1654,24 @@ function VisualView({ insp, s, go }) {
 // Priority list: everything at this priority, pallets with a recent-rejection history bubbled to the top so a controller
 // knows at a glance which ones are worth extra attention — and why. Tapping a row jumps straight into inspecting it.
 function MPriorityList({ s, user, go, priority }) {
-  const rows = dockRowsLive(s).filter(r => r.priority === priority).map(r => { const product = s.products.find(p => p.articleId === r.article); const hist = recentProblemsFor(s, product?.id); return { ...r, product, hist }; })
-    .sort((a, b) => (b.hist.count > 0) - (a.hist.count > 0) || (a.arrived + a.arrivedTime).localeCompare(b.arrived + b.arrivedTime));
+  const rows = dockRowsLive(s).filter(r => r.priority === priority);
+  const groups = {}; rows.forEach(r => { const k = r.article || r.hu; (groups[k] = groups[k] || { rows: [] }).rows.push(r); });
+  const items = Object.values(groups).map(g => { const first = g.rows[0]; const product = s.products.find(p => p.articleId === first.article); const hist = recentProblemsFor(s, product?.id);
+    const locs = new Set(g.rows.map(r => r.location).filter(Boolean));
+    return { key: first.article || first.hu, name: first.name || product?.name || first.article, count: g.rows.length, hu: first.hu, productId: product?.id || null,
+      location: locs.size <= 1 ? first.location : `${locs.size} locations`, transporter: first.transporter, arrivedTime: first.arrivedTime, blocking: g.rows.some(r => r.blocking), hist };
+  }).sort((a, b) => (b.hist.count > 0) - (a.hist.count > 0) || b.count - a.count);
   return (
     <div className="pb-4">
       <TopBar title={priority} onBack={() => go("home")} />
       <div className="px-4 pt-3">
-        <p className="text-xs mb-3" style={{ color: C.muted }}>{rows.length} pallet{rows.length === 1 ? "" : "s"}. Ones with a recent rejection are listed first — check what tripped them up before. Tap a pallet to start inspecting it.</p>
-        {rows.length === 0 && <p className="text-sm py-8 text-center" style={{ color: C.muted }}>Nothing at this priority right now.</p>}
-        {rows.map(r => (
-          <button key={r.hu} onClick={() => go("scan", r.hu)} className="w-full text-left py-3" style={{ borderBottom: `1px solid ${C.line}` }}>
-            <div className="flex items-center gap-2"><p className="text-sm font-medium flex-1 truncate">{r.name || r.product?.name || r.article}</p>{r.hist.count > 0 && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ background: C.badBg, color: C.bad }}>{r.hist.count} rejected recently</span>}</div>
-            <p className="text-xs mt-0.5" style={{ color: C.muted }}>{r.location} · {r.transporter} · {r.arrivedTime}{r.blocking ? " · needed today" : ""}</p>
-            {r.hist.count > 0 && <p className="text-xs mt-1" style={{ color: C.bad }}>Was rejected for: {r.hist.problems.slice(0, 3).map(p => `${p.name} ×${p.count}`).join(", ")}{r.hist.problems.length > 3 ? "…" : ""} · last {dayLabel(r.hist.lastAt)}</p>}
+        <p className="text-xs mb-3" style={{ color: C.muted }}>{rows.length} pallet{rows.length === 1 ? "" : "s"} · {items.length} SKU{items.length === 1 ? "" : "s"}. Ones with a recent rejection are listed first. Tap to inspect.</p>
+        {items.length === 0 && <p className="text-sm py-8 text-center" style={{ color: C.muted }}>Nothing at this priority right now.</p>}
+        {items.map(it => (
+          <button key={it.key} onClick={() => it.count > 1 ? (it.productId ? go("catalog", it.productId) : go("priority", priority)) : go("scan", it.hu)} className="w-full text-left py-3" style={{ borderBottom: `1px solid ${C.line}` }}>
+            <div className="flex items-center gap-2"><p className="text-sm font-medium flex-1 truncate">{it.name}</p>{it.count > 1 && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ background: C.accentSoft, color: C.accent }}>×{it.count} on docks</span>}{it.hist.count > 0 && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ background: C.badBg, color: C.bad }}>{it.hist.count} rejected recently</span>}</div>
+            <p className="text-xs mt-0.5" style={{ color: C.muted }}>{it.location} · {it.transporter} · {it.arrivedTime}{it.blocking ? " · needed today" : ""}</p>
+            {it.hist.count > 0 && <p className="text-xs mt-1" style={{ color: C.bad }}>Was rejected for: {it.hist.problems.slice(0, 3).map(p => `${p.name} ×${p.count}`).join(", ")}{it.hist.problems.length > 3 ? "…" : ""} · last {dayLabel(it.hist.lastAt)}</p>}
           </button>
         ))}
       </div>
