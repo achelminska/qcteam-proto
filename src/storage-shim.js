@@ -33,6 +33,8 @@ window.storage = {
   },
   // Cheap version check for fast polling (badges etc.) — does not pull the whole state.
   async getMeta(key) { if (!(await probe())) return null; try { const r = await fetch(`${SERVER}/meta/${encodeURIComponent(key)}`, { cache: "no-store" }); const j = await r.json(); return j.updatedAt ? String(j.updatedAt) : null; } catch { return null; } },
+  // Changes when the server process restarts (every deploy) — used to notice a new build is live and offer a refresh.
+  async getBootId() { if (!(await probe())) return null; try { const r = await fetch(`${SERVER}/boot`, { cache: "no-store" }); const j = await r.json(); return j.bootId || null; } catch { return null; } },
   // Versioned save: If-Match with the version we last saw. 409 → {conflict, value, version} (someone saved first) or {rejected} (size guard).
   async setVersioned(key, value, version) {
     local.set(key, value);
