@@ -573,17 +573,22 @@ const computeDeadlineAlerts = (s, nowMs = Date.now()) => {
   });
   return out.sort((a, b) => a.hoursLeft - b.hoursLeft);
 };
-function DeadlineBanner({ s, alerts, onOpen }) {
+function DeadlineBanner({ s, alerts, onOpen, onMessage, openLabel = "Open" }) {
   if (!alerts.length) return null;
-  const worst = alerts[0]; const breached = alerts.filter(a => a.level === "breached").length;
+  const breached = alerts.filter(a => a.level === "breached").length;
   return (
     <div className="rounded-2xl p-4 mb-4" style={{ background: C.badBg, border: `1px solid ${C.bad}` }}>
       <p className="text-sm font-semibold flex items-center mb-1" style={{ color: C.bad }}><Ic i={AlertTriangle} s={16} />{breached ? `${breached} pallet${breached === 1 ? "" : "s"} past the rejection window` : `${alerts.length} pallet${alerts.length === 1 ? "" : "s"} need inspection before the rejection window closes`}</p>
-      <div className="flex flex-col gap-1 mt-2">
-        {alerts.slice(0, 4).map(a => <button key={a.key} onClick={() => onOpen(a)} className="text-left text-xs px-2 py-1.5 rounded-lg flex items-center gap-2" style={{ background: C.surface }}>
-          <span className="flex-1 truncate"><b>{a.name}</b> · {a.location}{a.risky && <span style={{ color: C.bad }}> · rejected recently</span>}</span>
-          <span className="font-semibold flex-shrink-0" style={{ color: a.level === "breached" ? C.bad : C.warn }}>{a.level === "breached" ? "expired" : `${Math.max(0, Math.round(a.hoursLeft))}h left`}</span>
-        </button>)}
+      <div className="flex flex-col gap-1.5 mt-2">
+        {alerts.slice(0, 4).map(a => (
+          <div key={a.key} onClick={() => onOpen(a)} className="rounded-lg px-2 py-1.5 cursor-pointer" style={{ background: C.surface }}>
+            <div className="flex items-center gap-2 mb-1"><span className="flex-1 truncate text-xs"><b>{a.name}</b> · {a.location}{a.risky && <span style={{ color: C.bad }}> · rejected recently</span>}</span><span className="text-xs font-semibold flex-shrink-0" style={{ color: a.level === "breached" ? C.bad : C.warn }}>{a.level === "breached" ? "expired" : `${Math.max(0, Math.round(a.hoursLeft))}h left`}</span></div>
+            <div className="flex gap-1.5">
+              <button onClick={e => { e.stopPropagation(); onOpen(a); }} className="text-[11px] px-2.5 py-1 rounded-lg font-semibold" style={{ background: C.ink, color: C.onDark }}>{openLabel}</button>
+              {onMessage && <button onClick={e => { e.stopPropagation(); onMessage(a); }} className="text-[11px] px-2.5 py-1 rounded-lg inline-flex items-center" style={{ border: `1px solid ${C.line}` }}><Ic i={MessageSquare} s={11} mr={4} />Assign in chat</button>}
+            </div>
+          </div>
+        ))}
       </div>
       {alerts.length > 4 && <p className="text-[11px] mt-1" style={{ color: C.muted }}>+{alerts.length - 4} more</p>}
     </div>
