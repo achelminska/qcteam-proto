@@ -16,6 +16,8 @@ const serveStatic = (req, res) => {
   fs.createReadStream(file).pipe(res);
 };
 const SYNC_KEY = process.env.QC_SYNC_KEY || "";
+// Changes on every process start (every deploy restarts the process). Clients poll it to notice "the server changed under me" and offer a refresh.
+const BOOT_ID = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 // STATE_DIR: mount a persistent disk there (e.g. Render Disk at /data) so state survives deploys. Default: next to this file.
 const STATE_DIR = process.env.STATE_DIR || null;
 const PORT = Number(process.env.PORT) || 3001, FILE = STATE_DIR ? path.join(STATE_DIR, "state.json") : new URL("./state.json", import.meta.url);
@@ -77,6 +79,7 @@ const handler = async (req, res) => {
     if (req.method === "GET") { const sh = store.__sheets?.[purpose]; res.writeHead(sh ? 200 : 404, { ...cors, "Content-Type": "application/json" }); return res.end(sh ? JSON.stringify(sh) : ""); }
   }
   // Cheap poll target: just the version, so the app can check "did anything change?" every few seconds without pulling the whole state.
+  if (req.url === "/boot") { res.writeHead(200, { ...cors, "Content-Type": "application/json" }); return res.end(JSON.stringify({ bootId: BOOT_ID })); }
   if (req.url.startsWith("/meta/")) { const k = decodeURIComponent(req.url.replace(/^\/meta\//, "").split("?")[0]); res.writeHead(200, { ...cors, "Content-Type": "application/json" }); return res.end(JSON.stringify({ updatedAt: store.__meta?.[k] || null })); }
   const key = decodeURIComponent(req.url.replace(/^\/storage\//, "").split("?")[0]);
   if (!req.url.startsWith("/storage/")) return serveStatic(req, res);
