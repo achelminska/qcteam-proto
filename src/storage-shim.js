@@ -7,14 +7,26 @@ const SERVER = (import.meta.env && import.meta.env.VITE_QC_SERVER) || (devPorts.
 window.__qcServer = SERVER;
 let remote = null; // null = unknown, true/false after the first probe
 async function probe() { if (remote !== null) return remote; try { const r = await fetch(`${SERVER}/storage/__probe`, { method: "GET" }); remote = r.status === 200 || r.status === 404; } catch { remote = false; } console.log(remote ? `QCteam: using shared state at ${SERVER}` : "QCteam: server not reachable, using localStorage"); return remote; }
+// Every device keeps a local copy of what it saved. If the server comes back empty (free hosting restarts wipe its disk),
+// the first device to open the app re-seeds the server from its copy. The sheet re-pushes its own data within minutes anyway.
+const local = { get: k => { try { return localStorage.getItem(k); } catch { return null; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch {} } };
 window.storage = {
   async get(key) {
-    if (await probe()) { const r = await fetch(`${SERVER}/storage/${encodeURIComponent(key)}`); if (r.status === 404) return null; const j = await r.json(); return { key, value: j.value }; }
-    const v = localStorage.getItem(key); return v == null ? null : { key, value: v };
+    if (await probe()) {
+      const r = await fetch(`${SERVER}/storage/${encodeURIComponent(key)}`);
+      if (r.status === 404) { const mine = local.get(key); if (mine != null) { console.log("QCteam: server had no state — restoring from this device"); await fetch(`${SERVER}/storage/${encodeURIComponent(key)}`, { method: "PUT", headers: { "Content-Type": "text/plain; charset=utf-8" }, body: mine }); return { key, value: mine }; } return null; }
+      const j = await r.json();
+      const size = v => { try { const o = JSON.parse(v); return (o.categories || []).length + (o.products || []).length + (o.inspections || []).length + (o.integrations || []).length; } catch { return 0; } };
+      const mine = local.get(key);
+      if (mine != null && size(j.value) === 0 && size(mine) > 0) { console.log("QCteam: server state is empty but this device has data — restoring from this device"); await fetch(`${SERVER}/storage/${encodeURIComponent(key)}`, { method: "PUT", headers: { "Content-Type": "text/plain; charset=utf-8", "X-Force": "1" }, body: mine }); return { key, value: mine }; }
+      local.set(key, j.value); return { key, value: j.value };
+    }
+    const v = local.get(key); return v == null ? null : { key, value: v };
   },
   async set(key, value) {
-    if (await probe()) { await fetch(`${SERVER}/storage/${encodeURIComponent(key)}`, { method: "PUT", headers: { "Content-Type": "text/plain" }, body: value }); return { key, value }; }
-    localStorage.setItem(key, value); return { key, value };
+    local.set(key, value);
+    if (await probe()) { const r = await fetch(`${SERVER}/storage/${encodeURIComponent(key)}`, { method: "PUT", headers: { "Content-Type": "text/plain; charset=utf-8" }, body: value }); if (r.status === 409) console.warn("QCteam: server refused to overwrite a larger state with a smaller one — reload to get the server's copy"); }
+    return { key, value };
   },
   async delete(key) { if (await probe()) { await fetch(`${SERVER}/storage/${encodeURIComponent(key)}`, { method: "DELETE" }); return { key, deleted: true }; } localStorage.removeItem(key); return { key, deleted: true }; },
 };
