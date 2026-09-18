@@ -2700,10 +2700,11 @@ const dockRowsForProduct = product => product ? dockRowsLive(_S).filter(r => r.a
 // Pallets of the same product that can be attached to this report: same delivery day only (a different day is a different delivery — possibly different quality).
 const sameDeliveryPallets = (product, insp) => {
   const rows = dockRowsForProduct(product); const mine = (insp.pallets || []).map(x => String(x).trim()).filter(Boolean);
-  const anchorRow = rows.find(r => mine.includes(r.hu));
+  const norm = v => String(v || "").replace(/\D/g, "").replace(/^0+/, ""); const same = (a, b) => { const x = norm(a), y = norm(b); return !!x && !!y && (x === y || x.endsWith(y) || y.endsWith(x)); };
+  const anchorRow = rows.find(r => mine.some(m => same(m, r.hu)));
   // delivery day: from the sheet if the sampled pallet is on it; otherwise assume today's delivery (a fresh arrival); unknown if no pallet entered yet
   const day = anchorRow ? anchorRow.arrived : mine.length ? new Date().toISOString().slice(0, 10) : null;
-  const list = rows.filter(r => !mine.includes(r.hu)).map(r => ({ ...r, sameDay: day ? r.arrived === day : null }));
+  const list = rows.filter(r => !mine.some(m => same(m, r.hu))).map(r => ({ ...r, sameDay: day ? r.arrived === day : null }));
   return Object.assign(list, { basis: anchorRow ? "sheet" : mine.length ? "today" : "none" });
 };
 const STORAGE_KEY = "qcteam-portal-state-v2-clean"; // clean start: a fresh key, so the previous test data stays untouched under v1
