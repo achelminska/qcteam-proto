@@ -1638,6 +1638,29 @@ function VisualView({ insp, s, go }) {
 }
 
 // ── Dashboard ──
+// Priority list: everything at this priority, pallets with a recent-rejection history bubbled to the top so a controller
+// knows at a glance which ones are worth extra attention — and why. Tapping a row jumps straight into inspecting it.
+function MPriorityList({ s, user, go, priority }) {
+  const rows = dockRowsLive(s).filter(r => r.priority === priority).map(r => { const product = s.products.find(p => p.articleId === r.article); const hist = recentProblemsFor(s, product?.id); return { ...r, product, hist }; })
+    .sort((a, b) => (b.hist.count > 0) - (a.hist.count > 0) || (a.arrived + a.arrivedTime).localeCompare(b.arrived + b.arrivedTime));
+  return (
+    <div className="pb-4">
+      <TopBar title={priority} onBack={() => go("home")} />
+      <div className="px-4 pt-3">
+        <p className="text-xs mb-3" style={{ color: C.muted }}>{rows.length} pallet{rows.length === 1 ? "" : "s"}. Ones with a recent rejection are listed first — check what tripped them up before. Tap a pallet to start inspecting it.</p>
+        {rows.length === 0 && <p className="text-sm py-8 text-center" style={{ color: C.muted }}>Nothing at this priority right now.</p>}
+        {rows.map(r => (
+          <button key={r.hu} onClick={() => go("scan", r.hu)} className="w-full text-left py-3" style={{ borderBottom: `1px solid ${C.line}` }}>
+            <div className="flex items-center gap-2"><p className="text-sm font-medium flex-1 truncate">{r.name || r.product?.name || r.article}</p>{r.hist.count > 0 && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ background: C.badBg, color: C.bad }}>{r.hist.count} rejected recently</span>}</div>
+            <p className="text-xs mt-0.5" style={{ color: C.muted }}>{r.location} · {r.transporter} · {r.arrivedTime}{r.blocking ? " · needed today" : ""}</p>
+            {r.hist.count > 0 && <p className="text-xs mt-1" style={{ color: C.bad }}>Was rejected for: {r.hist.problems.slice(0, 3).map(p => `${p.name} ×${p.count}`).join(", ")}{r.hist.problems.length > 3 ? "…" : ""} · last {dayLabel(r.hist.lastAt)}</p>}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function MDashboard({ s, set, user, go, dismissed, setDismissed, onAssign }) {
   const [blockedView, setBlockedView] = useState("open");
   const [tab, setTab] = useState("history");
@@ -1675,7 +1698,7 @@ function MDashboard({ s, set, user, go, dismissed, setDismissed, onAssign }) {
       <p className="label-sm px-5 mt-3 mb-1" style={{ color: C.muted }}>Dock priorities</p>
       <div className="grid gap-2 px-5" style={{ gridTemplateColumns: `repeat(${Math.max(1, Math.min(4, Object.keys(PRIORITY).filter(k => sheetStats(s).prio(k) > 0).length))}, 1fr)` }}>
         {Object.keys(PRIORITY).filter(k => sheetStats(s).prio(k) > 0).map(k => [k, PRIORITY[k][0], PRIORITY[k][1]]).map(([l, fg, bg]) => (
-          <div key={l} className="rounded-xl p-2 text-center" style={{ background: C.bg, border: `1px solid ${C.line}`, borderTop: `2px solid ${fg}` }}><p className="text-xl font-semibold" style={{ color: fg }}>{sheetStats(s).prio(l)}</p><p className="text-[10px] leading-tight" style={{ color: C.muted }}>{l}</p></div>
+          <button key={l} onClick={() => go("priority", l)} className="rounded-xl p-2 text-center" style={{ background: C.bg, border: `1px solid ${C.line}`, borderTop: `2px solid ${fg}` }}><p className="text-xl font-semibold" style={{ color: fg }}>{sheetStats(s).prio(l)}</p><p className="text-[10px] leading-tight" style={{ color: C.muted }}>{l}</p></button>
         ))}
       </div>
       <div className="flex gap-1 mx-5 mt-4" style={{ borderBottom: `1px solid ${C.line}` }}>
@@ -2294,6 +2317,7 @@ export default function App() {
       {page === "search" && <MSearch s={s} user={user} go={go} onStart={(pid, palletNo, typeId) => startInspection(pid, palletNo, false, typeId)} setState={set} notify={notify} onVisual={visualInspection} />}
       {page === "scan" && <MScan key={param || "scan"} s={s} user={user} go={go} onStart={(pid, palletNo, typeId) => startInspection(pid, palletNo, false, typeId)} onVisual={visualInspection} onSkip={skipInspection} setState={set} notify={notify} preset={param} />}
       {page === "history" && <MHistory s={s} user={user} go={go} />}
+      {page === "priority" && <MPriorityList s={s} user={user} go={go} priority={param} />}
       {page === "catalog" && <MCatalog key={param || "catalog"} s={s} user={user} go={go} onStart={(pid, palletNo, typeId) => startInspection(pid, palletNo, false, typeId)} setState={set} notify={notify} onVisual={visualInspection} preset={param} />}
       {page === "chat" && <MChat s={s} set={set} user={user} go={go} initialContext={pendingChatContext} clearInitialContext={() => setPendingChatContext(null)} />}
       {page === "menu" && <MMenu s={s} set={set} user={user} go={go} users={s.users} setUser={id => { setUserId(id); go("home"); }} onLogout={() => { writeSession(null); setUserId(null); }} dark={dark} onTheme={toggleTheme} simOffline={simOffline} onSimOffline={() => setSimOffline(o => !o)} onSync={() => pullState(true)} syncMsg={syncMsg} />}
