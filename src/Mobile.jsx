@@ -502,7 +502,7 @@ const DOCK_TARGETS = [
   ["arrived", "Arrival date", true], ["arrivedTime", "Arrival time", false], ["transporter", "Transporter", false], ["po", "PO ID", false],
   ["cusPerTu", "CU per TU", false], ["sortable", "Sortable", false], ["ignore", "— ignore —", false],
 ];
-const BLOCKED_TARGETS = [["article", "Article ID (from batch / UOM)", true], ["name", "Product name", false], ["location", "Location", false], ["status", "Status (Not started / Started / Completed)", true], ["date", "Date", false], ["time", "Time", false], ["ignore", "— ignore —", false]];
+const BLOCKED_TARGETS = [["article", "Article ID (from batch / UOM)", true], ["name", "Product name", false], ["hu", "Pallet SSCC", false], ["location", "Dock location", false], ["zone", "Reach zone", false], ["pickLocation", "Pick location", false], ["deadline", "Departure deadline", false], ["wmsStatus", "WMS status", false], ["status", "QC status (Not started / Started / Completed)", false], ["date", "Date", false], ["time", "Time", false], ["ignore", "— ignore —", false]];
 const targetsFor = purpose => purpose === "Products" ? PRODUCT_TARGETS : purpose === "Blocked" ? BLOCKED_TARGETS : DOCK_TARGETS;
 const PRODUCT_TARGETS = [["articleId", "Article ID", true], ["name", "Product name", true], ["barcode", "Barcode (EAN)", false], ["cusPerTu", "CU per TU", false], ["piecesPerCu", "Pieces per CU", false], ["weightPerCu", "Weight per CU (g)", false], ["category", "Category name", false], ["ignore", "— ignore —", false]];
 const TRANSFORMS = [
@@ -514,20 +514,22 @@ const TRANSFORMS = [
   ["date_dmy", "date dd-mm-yyyy → ISO", v => { const m = /^(\d{1,2})[-./](\d{1,2})[-./](\d{4})/.exec(String(v).trim()); return m ? `${m[3]}-${m[2].padStart(2, "0")}-${m[1].padStart(2, "0")}` : String(v).trim(); }],
   ["priority", "priority label → canonical", v => { const t = String(v).trim().toLowerCase(); if (!t) return ""; return t.startsWith("inspection due") ? "Inspection due" : t.startsWith("late") ? "Late inspection" : t.startsWith("high risk") ? "High risk" : t.startsWith("high issues") ? "High issues" : t.startsWith("now") ? "Now needed" : String(v).trim(); }],
   ["trim", "trim", v => String(v).trim()],
+  ["date_iso", "ISO date-time → dd-mm-yyyy hh:mm", v => { const d = new Date(String(v).trim()); return isNaN(d) ? String(v).trim() : d.toLocaleString("en-GB", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }); }],
   ["status", "status → Not started / Started / Completed", v => { const t = String(v).trim().toLowerCase(); return t.startsWith("not") ? "Not started" : t.startsWith("start") ? "Started" : t.startsWith("compl") || t.startsWith("done") ? "Completed" : String(v).trim(); }],
 ];
 const transformOf = k => TRANSFORMS.find(t => t[0] === k)?.[2] || (v => v);
-const ALIASES = { hu: ["handlingunit", "hu", "sscc", "pallet", "palletid"], article: ["uomid", "uom", "articleid", "article", "sku", "artikel", "batch"], articleId: ["uomid", "uom", "articleid", "article", "sku", "artikel"], name: ["itemname", "productname", "name", "product", "omschrijving", "item"], location: ["location", "locatie"], priority: ["priorityitem", "priority", "prioriteit"], blocking: ["neededtoday", "urgent"], skippable: ["skippable", "skip"], arrived: ["arrivaldate", "arrival", "date", "datum"], arrivedTime: ["arrivaltime", "time", "tijd"], transporter: ["transporter", "carrier", "vervoerder"], po: ["poid", "po", "order", "ponumber"], cusPerTu: ["cupertu", "cus", "cu"], sortable: ["sortable", "sorteerbaar"], barcode: ["barcode", "ean", "gtin"], piecesPerCu: ["piecespercu", "pieces", "stuks"], weightPerCu: ["weightpercu", "weight", "gewicht"], category: ["category", "categorie"], status: ["status", "state"], date: ["date", "datum"], time: ["time", "tijd"] };
+const ALIASES = { hu: ["handlingunit", "hu", "sscc", "pallet", "palletid"], article: ["uomid", "uom", "articleid", "article", "sku", "artikel", "batch"], articleId: ["uomid", "uom", "articleid", "article", "sku", "artikel"], name: ["itemname", "productname", "name", "product", "omschrijving", "item"], location: ["location", "locatie", "stock", "dock"], priority: ["priorityitem", "priority", "prioriteit"], blocking: ["neededtoday", "urgent"], skippable: ["skippable", "skip"], arrived: ["arrivaldate", "arrival", "date", "datum"], arrivedTime: ["arrivaltime", "time", "tijd"], transporter: ["transporter", "carrier", "vervoerder"], po: ["poid", "po", "order", "ponumber"], cusPerTu: ["cupertu", "cus", "cu"], sortable: ["sortable", "sorteerbaar"], barcode: ["barcode", "ean", "gtin"], piecesPerCu: ["piecespercu", "pieces", "stuks"], weightPerCu: ["weightpercu", "weight", "gewicht"], category: ["category", "categorie"], status: ["qcstatus", "status", "state"], date: ["date", "datum"], time: ["time", "tijd"], zone: ["reachzone", "zone"], pickLocation: ["picklocation", "pick"], deadline: ["departuredeadline", "deadline", "departure"], wmsStatus: ["wmsstatus", "status"] };
 // Two passes over the whole header: exact alias matches first (so "Priority item" beats "Priority score"), then loose matches on targets still free.
 const suggestMappings = (header, rows, targets) => {
   const norm = h => h.toLowerCase().replace(/[^a-z0-9]/g, ""); const free = new Set(targets.map(t => t[0]).filter(k => k !== "ignore")); const out = header.map(h => ({ source: h, target: "ignore", transform: "none", required: false }));
   const assign = (i, k) => { const sample = rows[0]?.[i]; out[i] = { source: header[i], target: k, transform: suggestTransform(k, sample), required: !!targets.find(t => t[0] === k)?.[2] }; free.delete(k); };
   header.forEach((h, i) => { const c = norm(h); for (const k of free) if ((ALIASES[k] || []).some(a => a === c)) { assign(i, k); break; } });
   header.forEach((h, i) => { if (out[i].target !== "ignore") return; const c = norm(h); if (!c) return; for (const k of free) if ((ALIASES[k] || []).some(a => a.length > 2 && c.includes(a))) { assign(i, k); break; } });
+  out.forEach((m, i) => { if (m.target === "status" && free.has("wmsStatus")) { const v = String(rows[0]?.[i] || ""); if (/^[A-Z0-9_]{6,}$/.test(v)) { out[i] = { ...m, target: "wmsStatus", transform: "none", required: false }; free.delete("wmsStatus"); free.add("status"); } } });
   return out;
 };
 const dedupeMappings = ms => { const seen = new Set(); return ms.map(m => { if (m.target === "ignore") return m; if (seen.has(m.target)) return { ...m, target: "ignore", required: false }; seen.add(m.target); return m; }); };
-const suggestTransform = (target, sample) => target === "status" ? "status" : target === "article" || target === "articleId" ? (/^[A-Z]+\d+-\d+$/.test(String(sample || "").trim()) ? "uom_article" : "none") : target === "cusPerTu" ? (/-\d+$/.test(String(sample || "").trim()) ? "uom_cus" : "number") : target === "blocking" || target === "skippable" || target === "sortable" ? "yesno" : target === "arrived" ? "date_dmy" : target === "priority" ? "priority" : "none";
+const suggestTransform = (target, sample) => target === "deadline" ? "date_iso" : target === "status" ? "status" : target === "article" || target === "articleId" ? (/^[A-Z]+\d+-\d+$/.test(String(sample || "").trim()) ? "uom_article" : "none") : target === "cusPerTu" ? (/-\d+$/.test(String(sample || "").trim()) ? "uom_cus" : "number") : target === "blocking" || target === "skippable" || target === "sortable" ? "yesno" : target === "arrived" ? "date_dmy" : target === "priority" ? "priority" : "none";
 // Real sheets have a title row above the header and side panels to the right: find the header row (the one with the most
 // non-empty cells among the first 10, preferring one that contains "Handling Unit"/"UOM"), then cut columns past the header's width.
 const detectTable = ({ header, rows }) => {
@@ -552,17 +554,18 @@ const extractSummary = (header, rows) => {
   return out;
 };
 const dockSummary = s => { const it = (s.integrations || []).find(i => i.purpose === "Dock" && i.rows?.length); return it?.summary || null; };
-const blockedRowsLive = s => { const it = (s.integrations || []).find(i => i.purpose === "Blocked" && i.rows?.length); if (!it) return []; return it.rows.filter(r => !r._errors?.length).map(r => ({ article: String(r.article || ""), name: r.name || "", location: r.location || "", status: r.status || "", date: r.date || "", time: r.time || "" })); };
+const blockedRowsLive = s => { const it = (s.integrations || []).find(i => i.purpose === "Blocked" && i.rows?.length); if (!it) return []; const seen = new Set(); return it.rows.filter(r => !r._errors?.length).map(r => ({ article: String(r.article || ""), name: r.name || "", hu: String(r.hu || "").replace(/\D/g, ""), location: r.location || "", zone: r.zone || "", pickLocation: r.pickLocation || "", deadline: r.deadline || "", wmsStatus: r.wmsStatus || "", status: r.status || "", date: r.date || "", time: r.time || "" })).filter(r => { const k = r.hu || `${r.article}|${r.location}`; if (seen.has(k)) return false; seen.add(k); return true; }); };
 const blockedSummary = s => { const it = (s.integrations || []).find(i => i.purpose === "Blocked" && i.rows?.length); return it?.summary || null; };
 // Sheets repeat rows (same HU twice). One handling unit is one pallet: the first occurrence wins.
 const dedupeByHu = rows => { const seen = new Set(); return rows.filter(r => { const k = String(r.hu || "").replace(/\D/g, "").replace(/^0+/, ""); if (!k || seen.has(k)) return false; seen.add(k); return true; }); };
 const duplicateHuCount = rows => rows.length - dedupeByHu(rows).length;
 // Blocked-pallet work queue (PalletClaim): who took which blocked batch, or flagged it as stacked/unreachable. Keyed by article + location
 // because the blocked sheet has no handling units. Claims live in the shared state, so everyone sees them within a minute.
-const claimKey = b => `${b.article}|${b.location}`;
+const claimKey = b => b.hu ? `hu:${b.hu}` : `${b.article}|${b.location}`;
 const claimOf = (s, b) => (s.palletClaims || {})[claimKey(b)] || null;
 const setClaim = (set, b, claim) => set(x => { const pc = { ...(x.palletClaims || {}) }; if (claim) pc[claimKey(b)] = claim; else delete pc[claimKey(b)]; return { ...x, palletClaims: pc }; });
-const blockedQueue = s => blockedRowsLive(s).map(b => ({ ...b, claim: claimOf(s, b), key: claimKey(b) }));
+// QC status: from the sheet when it has one; otherwise derived from the queue (claim) and finished inspections of that pallet/article.
+const blockedQueue = s => blockedRowsLive(s).map(b => { const claim = claimOf(s, b); let status = b.status; if (!status) { const done = s.inspections.some(i => i.status === "Completed" && ((b.hu && (i.pallets || []).some(h => String(h).replace(/\D/g, "").endsWith(b.hu.replace(/^0+/, "")))) || (!b.hu && (s.products.find(p => p.id === i.productId)?.articleId === b.article) && (i.completedAt || "") > (claim?.at || "1970")))); status = done ? "Completed" : claim?.status === "taken" ? "Started" : "Not started"; } return { ...b, claim, status, key: claimKey(b) }; });
 const dockRowsLive = s => { const it = (s.integrations || []).find(i => i.purpose === "Dock" && i.rows?.length); if (!it) return CLEAN_START ? [] : SHEET.dock; return dedupeByHu(it.rows.filter(r => !r._errors?.length)).map(r => ({ hu: String(r.hu || "").trim(), article: String(r.article || ""), name: r.name || "", location: r.location || "", priority: r.priority || (r.skippable ? "Skippable" : "Inspection due"), blocking: !!r.blocking, skippable: !!r.skippable, arrived: r.arrived || "", arrivedTime: r.arrivedTime || "", transporter: r.transporter || "", po: r.po || "", cusPerTu: r.cusPerTu ? Number(r.cusPerTu) : null, sortable: !!r.sortable, onDock: 0, inBuffer: 0 })); };
 // Shared: read what the sheet pushed to the server and refresh the matching integration inside the app state.
 // Used by the portal (every 60 s on any page) and by the phone (on open / Sync now), so no device depends on the other.
@@ -854,7 +857,7 @@ function QueueRow({ s, set, user, b, onOpen }) {
         {who && <span className="flex items-center gap-1 text-[11px]" style={{ color: me ? C.accent : C.muted }}><Avatar user={who} size={18} />{me ? "you" : who.name.split(" ")[0]} · {ago(c.at)}</span>}
         {stacked && <span className="text-[10px] px-1.5 py-0.5 rounded inline-flex items-center" style={{ background: C.line, color: C.muted }}><Ic i={Layers} s={10} mr={3} />in stack</span>}
       </div>
-      <p className="text-xs mt-0.5 ml-4" style={{ color: C.muted }}>{b.location} · {b.time}{b.date ? ` · ${b.date}` : ""} · {b.article} · {b.status}</p>
+      <p className="text-xs mt-0.5 ml-4" style={{ color: C.muted }}>{[b.location, b.zone && `zone ${b.zone}`, b.pickLocation, b.deadline && `by ${b.deadline}`, b.time && `${b.time}`, b.hu && `HU …${b.hu.slice(-6)}`, b.article, b.status].filter(Boolean).join(" · ")}</p>
       {!done && <div className="flex gap-1.5 mt-1.5 ml-4">
         {!c && <><button onClick={take} className="text-xs px-3 py-1.5 rounded-lg font-semibold" style={{ background: C.ink, color: C.onDark }}>Take</button><button onClick={stack} className="text-xs px-3 py-1.5 rounded-lg inline-flex items-center" style={{ border: `1px solid ${C.line}` }}><Ic i={Layers} s={12} />In stack</button></>}
         {c && me && <>{stacked ? <button onClick={take} className="text-xs px-3 py-1.5 rounded-lg font-semibold" style={{ background: C.ink, color: C.onDark }}>Reachable now — take</button> : <button onClick={stack} className="text-xs px-3 py-1.5 rounded-lg inline-flex items-center" style={{ border: `1px solid ${C.line}` }}><Ic i={Layers} s={12} />In stack</button>}<button onClick={release} className="text-xs px-3 py-1.5 rounded-lg" style={{ color: C.muted, border: `1px solid ${C.line}` }}>Release</button></>}
@@ -1779,6 +1782,7 @@ function MScan({ s, user, go, onStart, onVisual, onSkip, setState, notify, prese
   const productByCode = c => s.products.find(p => p.isActive !== false && ((p.articleId && p.articleId === c) || (p.barcode && p.barcode === c)));
   const product = mode === "product" ? productByCode(scanned) : null;
   const wms = pallet ? dockRowsLive(s).find(r => samePallet(r.hu, pallet)) || null : null;
+  const blockedRow = pallet ? blockedQueue(s).find(b => b.hu && samePallet(b.hu, pallet)) || null : null;
   const wmsProduct = wms ? s.products.find(p => p.articleId === wms.article) : null;
   const scan = (given) => {
     const val = (given ?? scanned).trim(); if (given != null) setCode(val); if (!val) return; const scannedNow = val;
@@ -1850,9 +1854,16 @@ function MScan({ s, user, go, onStart, onVisual, onSkip, setState, notify, prese
           </div>
         )}
 
+        {mode === "pallet" && !wms && blockedRow && (
+          <div className="rounded-2xl p-4 mb-3" style={{ background: C.badBg }}>
+            <p className="text-sm font-medium mb-1 flex items-center" style={{ color: C.bad }}><Ic i={LockIcon} s={14} />Blocked for picking</p>
+            <p className="text-xs mb-2" style={{ color: C.ink }}>{blockedRow.name || blockedRow.article} · {blockedRow.location}{blockedRow.zone ? ` · zone ${blockedRow.zone}` : ""}{blockedRow.deadline ? ` · needed by ${blockedRow.deadline}` : ""}</p>
+            <QueueRow s={s} set={set} user={user} b={blockedRow} onOpen={() => { const p = s.products.find(x => x.articleId === blockedRow.article); if (p) go("catalog", p.id); }} />
+          </div>
+        )}
         {mode === "pallet" && !wms && (
           <div className="rounded-2xl p-4" style={{ background: C.bg }}>
-            <p className="text-sm font-medium mb-1 flex items-center" style={{ color: C.warn }}><Ic i={AlertTriangle} s={14} />Unknown pallet</p>
+            <p className="text-sm font-medium mb-1 flex items-center" style={{ color: C.warn }}><Ic i={AlertTriangle} s={14} />{blockedRow ? "Not on the dock sheet" : "Unknown pallet"}</p>
             <p className="text-xs mb-3" style={{ color: C.muted }}>HU <span className="font-mono">{pallet}</span> is not on the docks and has never been inspected. It may be a fresh arrival not yet in the WMS.</p>
             {!askInspect ? (
               <>
@@ -2144,7 +2155,7 @@ function MInspection({ s, set, user, inspId, go, notify }) {
   const patchInsp = fn => set(x => ({ ...x, inspections: x.inspections.map(i => i.id === insp.id ? (typeof fn === "function" ? fn(i) : { ...i, ...fn }) : i) }));
   const log = (action, details) => patchInsp(i => ({ ...i, audit: [...(i.audit || []), { at: nowISO(), userId: user.id, action, details }] }));
   const finish = ({ anyExceeded, generalFlag, autoAccept }) => {
-    { const p = s.products.find(x => x.id === insp.productId); if (p?.articleId) set(x => { const pc = { ...(x.palletClaims || {}) }; Object.keys(pc).forEach(k => { if (k.startsWith(p.articleId + "|") && pc[k].userId === user.id) delete pc[k]; }); return { ...x, palletClaims: pc }; }); } const was = insp.status === "Completed"; patchInsp(i => ({ ...i, status: "Completed", completedAt: i.completedAt || nowISO(), lastEditedBy: was ? user.id : i.lastEditedBy, lastEditedAt: was ? nowISO() : i.lastEditedAt })); log(was ? "Edited completed report" : "Completed", `result: ${insp.result}`); if (was && insp.controllerId !== user.id) notify("EditedByOther", `${user.name} edited report ${product.name}`, "Inspection", insp.id, insp.controllerId); if (insp.result === "Accepted" && (anyExceeded || generalFlag)) notify("AcceptedDespite", `${product.name}: accepted despite exceeding tolerance (${user.name})`, "Inspection", insp.id); else if (anyExceeded || generalFlag) notify("Exceeded", `${product.name}: tolerance exceeded — ${insp.result}`, "Inspection", insp.id); setEditing(false); go("home"); };
+    { const p = s.products.find(x => x.id === insp.productId); const hus = (insp.pallets || []).map(h => String(h).replace(/\D/g, "").replace(/^0+/, "")).filter(Boolean); set(x => { const pc = { ...(x.palletClaims || {}) }; Object.keys(pc).forEach(k => { const mine = pc[k].userId === user.id; if (!mine) return; if (p?.articleId && k.startsWith(p.articleId + "|")) delete pc[k]; if (k.startsWith("hu:") && hus.some(h => k.slice(3).replace(/^0+/, "") === h)) delete pc[k]; }); return { ...x, palletClaims: pc }; }); } const was = insp.status === "Completed"; patchInsp(i => ({ ...i, status: "Completed", completedAt: i.completedAt || nowISO(), lastEditedBy: was ? user.id : i.lastEditedBy, lastEditedAt: was ? nowISO() : i.lastEditedAt })); log(was ? "Edited completed report" : "Completed", `result: ${insp.result}`); if (was && insp.controllerId !== user.id) notify("EditedByOther", `${user.name} edited report ${product.name}`, "Inspection", insp.id, insp.controllerId); if (insp.result === "Accepted" && (anyExceeded || generalFlag)) notify("AcceptedDespite", `${product.name}: accepted despite exceeding tolerance (${user.name})`, "Inspection", insp.id); else if (anyExceeded || generalFlag) notify("Exceeded", `${product.name}: tolerance exceeded — ${insp.result}`, "Inspection", insp.id); setEditing(false); go("home"); };
   const escalate = q => { patchInsp({ status: "PendingReview", question: q, answer: null }); log("Escalation", q); notify("Escalation", `${user.name} asks about ${product.name}: „${q}"`, "Inspection", insp.id); };
   const raiseFlag = text => { set(x => ({ ...x, flags: [...x.flags, { id: uid(), productId: product.id, inspectionId: insp.id, raisedBy: user.id, description: text, status: "Open", createdAt: nowISO() }] })); notify("Flag", `${user.name}: ${product.name} — ${text}`, "ProductFlag", null); };
   const cancel = () => { patchInsp({ status: "Cancelled" }); log("Cancelled"); go("home"); };
