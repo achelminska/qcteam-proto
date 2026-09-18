@@ -1519,7 +1519,8 @@ const olaState = () => normalize(JSON.parse(JSON.stringify(OLA_STATE)));
 const M = { pad: 18 };
 // One sheet row = one pallet (Handling Unit). "SKU on dock" = distinct articles. Matches the summary block on the sheet itself.
 // Totals come from the sheet's own summary cells when present; per-priority counts come from the rows.
-const sheetStats = s => { const rows = dockRowsLive(s); const sm = dockSummary(s) || {}; const has = k => sm[k] != null; const pallets = has("nonUrgentPallets") || has("urgentPallets") ? (sm.nonUrgentPallets || 0) + (sm.urgentPallets || 0) : rows.length; const skus = has("skus") ? sm.skus : new Set(rows.map(r => r.article)).size; const blocked = has("urgentPallets") ? sm.urgentPallets : rows.filter(r => r.blocking).length; const prio = k => rows.filter(r => r.priority === k).length; return { pallets, skus, blocked, prio, expected: sm.expected, skippableSkus: sm.skippableSkus, skippablePallets: sm.skippablePallets, fromSheet: Object.keys(sm).length > 0 }; };
+const sheetStats = s => { const rows = dockRowsLive(s); const sm = dockSummary(s) || {}; const has = k => sm[k] != null; const pallets = has("nonUrgentPallets") || has("urgentPallets") ? (sm.nonUrgentPallets || 0) + (sm.urgentPallets || 0) : rows.length; const skus = has("skus") ? sm.skus : new Set(rows.map(r => r.article)).size; const blocked = has("urgentPallets") ? sm.urgentPallets : rows.filter(r => r.blocking).length; // "Skippable" is a boolean flag on the sheet, not mutually exclusive with Priority item — count it by the flag, not the label.
+  const prio = k => k === "Skippable" ? rows.filter(r => r.skippable).length : rows.filter(r => r.priority === k).length; return { pallets, skus, blocked, prio, expected: sm.expected, skippableSkus: sm.skippableSkus, skippablePallets: sm.skippablePallets, fromSheet: Object.keys(sm).length > 0 }; };
 const PRIORITY = { "Now needed": [C.bad, C.onDark, true], "High risk": [C.bad, C.badBg, false], "High issues": [C.warn, C.warnBg, false], "Late inspection": [C.warn, C.warnBg, false], "Inspection due": [C.muted, C.line, false], "Skippable": [C.muted, C.line, false] };
 const dayLabel = iso => { if (!iso) return "—"; const d = new Date(iso), t = new Date(); const day = x => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime(); const diff = Math.round((day(t) - day(d)) / 86400000); return diff === 0 ? "Today" : diff === 1 ? "Yesterday" : d.toLocaleDateString("en-GB", { day: "numeric", month: "short" }); };
 const hhmm = iso => { const d = new Date(iso); return isNaN(d) ? "" : d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }); };
@@ -1654,7 +1655,7 @@ function VisualView({ insp, s, go }) {
 // Priority list: everything at this priority, pallets with a recent-rejection history bubbled to the top so a controller
 // knows at a glance which ones are worth extra attention — and why. Tapping a row jumps straight into inspecting it.
 function MPriorityList({ s, user, go, priority }) {
-  const rows = dockRowsLive(s).filter(r => r.priority === priority);
+  const rows = dockRowsLive(s).filter(r => priority === "Skippable" ? r.skippable : r.priority === priority);
   const groups = {}; rows.forEach(r => { const k = r.article || r.hu; (groups[k] = groups[k] || { rows: [] }).rows.push(r); });
   const items = Object.values(groups).map(g => { const first = g.rows[0]; const product = s.products.find(p => p.articleId === first.article); const hist = recentProblemsFor(s, product?.id);
     const locs = new Set(g.rows.map(r => r.location).filter(Boolean));
