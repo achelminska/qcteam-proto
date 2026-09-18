@@ -31,6 +31,8 @@ window.storage = {
     if (await probe()) { const r = await fetch(`${SERVER}/storage/${encodeURIComponent(key)}`, { method: "PUT", headers: { "Content-Type": "text/plain; charset=utf-8" }, body: value }); if (r.status === 409) console.warn("QCteam: server refused to overwrite a larger state with a smaller one — reload to get the server's copy"); }
     return { key, value };
   },
+  // Cheap version check for fast polling (badges etc.) — does not pull the whole state.
+  async getMeta(key) { if (!(await probe())) return null; try { const r = await fetch(`${SERVER}/meta/${encodeURIComponent(key)}`, { cache: "no-store" }); const j = await r.json(); return j.updatedAt ? String(j.updatedAt) : null; } catch { return null; } },
   // Versioned save: If-Match with the version we last saw. 409 → {conflict, value, version} (someone saved first) or {rejected} (size guard).
   async setVersioned(key, value, version) {
     local.set(key, value);
