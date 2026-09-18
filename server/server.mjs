@@ -3,6 +3,7 @@
 // browsers block mixed content). Create the cert once:  npm run cert
 import http from "node:http"; import https from "node:https"; import fs from "node:fs"; import os from "node:os"; import path from "node:path";
 import { targetsFor, suggestMappings, applyMapping, detectTable, extractSummary } from "./sheetlogic.mjs";
+import { applyDeadlineAlerts } from "./alertlogic.mjs";
 const STATE_KEY = "qcteam-portal-state-v2-clean";
 // Static hosting of the built app (dist/) so one service = API + portal + phone app. Any unknown path falls back to index.html.
 const DIST = new URL("../dist/", import.meta.url).pathname;
@@ -25,6 +26,16 @@ const save = () => fs.writeFileSync(FILE, JSON.stringify(store));
 const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET,PUT,DELETE,OPTIONS", "Access-Control-Allow-Headers": "Content-Type" };
 // Server-side processing: apply the mapping the Head saved in the app state to every push, so the dashboard is current
 // even when nobody has the app open. Mirrors refreshPushedIntegrations in the front-end.
+const checkDeadlines = (reason) => {
+  try {
+    const raw = store[STATE_KEY]; if (!raw) return;
+    const st = JSON.parse(raw); const next = applyDeadlineAlerts(st);
+    if (!next) return;
+    store[STATE_KEY] = JSON.stringify(next); (store.__meta = store.__meta || {})[STATE_KEY] = Date.now(); save();
+    const added = (next.notifications || []).length - (st.notifications || []).length;
+    if (added > 0) console.log(`[deadlines] ${reason}: ${added} notification(s) sent`);
+  } catch (e) { console.log("[deadlines] check failed:", e.message); }
+};
 const applyPushToState = (purpose, sheet) => {
   try {
     const raw = store[STATE_KEY]; if (!raw) return " (no app state yet)";
@@ -62,9 +73,11 @@ const handler = async (req, res) => {
     if (req.method === "POST") { if (SYNC_KEY && req.headers["x-sync-key"] !== SYNC_KEY && req.headers["x-secret"] !== SYNC_KEY) { res.writeHead(401, cors).end("bad X-Sync-Key"); return; } const chunks = []; req.on("data", c => chunks.push(c)); req.on("end", () => { const body = Buffer.concat(chunks).toString("utf8"); try { let j = JSON.parse(body);
         // Accept the priority-bot payload too: { rows: [{ articleId, articleName, zone, stock, sscc, ... }] } → header + array rows
         if (Array.isArray(j.rows) && j.rows.length && !Array.isArray(j.rows[0]) && typeof j.rows[0] === "object") { const keys = [...new Set(j.rows.flatMap(r => Object.keys(r)))]; const pretty = { articleId: "Article_id", articleName: "Article_name", zone: "Reach zone", stock: "Stock", sscc: "SSCC", pickLocation: "Pick location", deadline: "Departure_deadline", status: "Status", externalReference: "External_reference" }; j = { header: keys.map(k => pretty[k] || k), rows: j.rows.map(r => keys.map(k => String(r[k] ?? ""))), from: j.from || "priority-bot payload" }; }
-        if (!Array.isArray(j.header) || !Array.isArray(j.rows)) throw new Error("expected {header, rows}"); store.__sheets = store.__sheets || {}; store.__sheets[purpose] = { header: j.header, rows: j.rows, receivedAt: new Date().toISOString(), from: j.from || "" }; const applied = applyPushToState(purpose, store.__sheets[purpose]); save(); console.log(`[sheet] ${purpose}: ${j.rows.length} rows pushed at ${new Date().toLocaleTimeString()}${applied}`); res.writeHead(200, cors).end(JSON.stringify({ ok: true, rows: j.rows.length })); } catch (e) { res.writeHead(400, cors).end(String(e.message || e)); } }); return; }
+        if (!Array.isArray(j.header) || !Array.isArray(j.rows)) throw new Error("expected {header, rows}"); store.__sheets = store.__sheets || {}; store.__sheets[purpose] = { header: j.header, rows: j.rows, receivedAt: new Date().toISOString(), from: j.from || "" }; const applied = applyPushToState(purpose, store.__sheets[purpose]); save(); if (purpose === "dock") checkDeadlines("after dock push"); console.log(`[sheet] ${purpose}: ${j.rows.length} rows pushed at ${new Date().toLocaleTimeString()}${applied}`); res.writeHead(200, cors).end(JSON.stringify({ ok: true, rows: j.rows.length })); } catch (e) { res.writeHead(400, cors).end(String(e.message || e)); } }); return; }
     if (req.method === "GET") { const sh = store.__sheets?.[purpose]; res.writeHead(sh ? 200 : 404, { ...cors, "Content-Type": "application/json" }); return res.end(sh ? JSON.stringify(sh) : ""); }
   }
+  // Cheap poll target: just the version, so the app can check "did anything change?" every few seconds without pulling the whole state.
+  if (req.url.startsWith("/meta/")) { const k = decodeURIComponent(req.url.replace(/^\/meta\//, "").split("?")[0]); res.writeHead(200, { ...cors, "Content-Type": "application/json" }); return res.end(JSON.stringify({ updatedAt: store.__meta?.[k] || null })); }
   const key = decodeURIComponent(req.url.replace(/^\/storage\//, "").split("?")[0]);
   if (!req.url.startsWith("/storage/")) return serveStatic(req, res);
   if (req.method === "GET") { const v = store[key]; res.writeHead(v == null ? 404 : 200, { ...cors, "Content-Type": "application/json" }); return res.end(v == null ? "" : JSON.stringify({ key, value: v, updatedAt: store.__meta?.[key] })); }
@@ -80,6 +93,7 @@ const handler = async (req, res) => {
 };
 const ips = Object.values(os.networkInterfaces()).flat().filter(i => i.family === "IPv4" && !i.internal).map(i => i.address);
 http.createServer(handler).listen(PORT, "0.0.0.0", () => console.log(`QCteam state server  http://localhost:${PORT}   phone: ${ips.map(ip => `http://${ip}:${PORT}`).join(" ")}`));
+setInterval(() => checkDeadlines("timer"), 2 * 60 * 1000);
 const certP = new URL("./cert.pem", import.meta.url), keyP = new URL("./key.pem", import.meta.url);
 if (fs.existsSync(certP) && fs.existsSync(keyP)) https.createServer({ cert: fs.readFileSync(certP), key: fs.readFileSync(keyP) }, handler).listen(PORT + 1, "0.0.0.0", () => console.log(`                     https://localhost:${PORT + 1}  phone: ${ips.map(ip => `https://${ip}:${PORT + 1}`).join(" ")}`));
 else console.log("(no server/cert.pem — HTTPS state server off; run: npm run cert)");
