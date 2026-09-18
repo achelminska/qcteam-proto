@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceArea, ReferenceLine, Legend } from "recharts";
 import { Link2, List as ListIcon, BarChart3, Printer, SlidersHorizontal, SkipForward, LayoutDashboard, ClipboardList, Flag, Bell, FolderTree, ListTree, Package, LayoutTemplate, Truck, Globe, Megaphone, MessageSquare, Users, Search, Sun, Moon, Database, Home, Menu as MenuIcon, ScanLine, Plus, ChevronLeft, User, Camera, Image as ImageIcon, Paperclip, Send, Star, Pencil, Sparkles, HelpCircle, Download, Lock as LockIcon, AlertTriangle, Inbox, FileText, ShieldAlert, Tag, Layers, BookOpen, Filter, Check, X, Ruler, Boxes } from "lucide-react";
 
@@ -763,6 +763,65 @@ function ComposerExtras({ s, user, pending, setPending, compact }) {
   );
 }
 
+// ═══════════════════ LOGIN (prototype: PIN per user, session remembered on the device) ═══════════════════
+// Identification, not security: passwords + JWT arrive with the backend. The Head sets PINs in Users.
+const SESSION_KEY = "qcteam-session-user";
+const readSession = () => { try { return localStorage.getItem(SESSION_KEY); } catch { return null; } };
+const writeSession = id => { try { if (id) localStorage.setItem(SESSION_KEY, id); else localStorage.removeItem(SESSION_KEY); } catch {} };
+function LoginScreen({ s, onLogin, allowRoles, subtitle }) {
+  const [pick, setPick] = useState(null); const [pin, setPin] = useState(""); const [err, setErr] = useState("");
+  const users = (s.users || []).filter(u => u.active !== false && (!allowRoles || allowRoles.includes(u.role)));
+  const submit = u => { if (u.pin && u.pin !== pin) { setErr("Wrong PIN"); setPin(""); return; } writeSession(u.id); onLogin(u.id); };
+  return (
+    <div className="qc min-h-screen flex items-center justify-center p-6" style={{ background: C.bg }}>
+      <style>{GLOBAL_CSS()}</style>
+      <div className="w-full rounded-3xl p-6" style={{ maxWidth: 380, background: C.surface, border: `1px solid ${C.line}` }}>
+        <div className="flex items-center gap-2 mb-1"><div className="w-9 h-9 rounded-xl flex items-center justify-center font-bold" style={{ background: C.ink, color: C.onDark }}>Q</div><div><p className="font-semibold">QCteam</p><p className="text-[11px]" style={{ color: C.muted }}>{subtitle || "Who's inspecting today?"}</p></div></div>
+        {!pick ? (
+          <div className="mt-4">
+            {users.length === 0 && <p className="text-sm" style={{ color: C.muted }}>No accounts yet — the Head creates them in the portal (Users).</p>}
+            {users.map(u => <button key={u.id} onClick={() => { setPick(u); setPin(""); setErr(""); if (!u.pin) submit(u); }} className="w-full flex items-center gap-3 py-3 text-left" style={{ borderBottom: `1px solid ${C.line}` }}><Avatar user={u} size={36} /><span className="flex-1"><span className="block text-sm font-medium">{u.name}</span><span className="block text-[11px]" style={{ color: C.muted }}>{u.role}{u.pin ? " · PIN" : " · no PIN set"}</span></span></button>)}
+          </div>
+        ) : (
+          <div className="mt-4">
+            <div className="flex items-center gap-3 mb-4"><Avatar user={pick} size={40} /><div><p className="text-sm font-medium">{pick.name}</p><p className="text-[11px]" style={{ color: C.muted }}>{pick.role}</p></div><button onClick={() => setPick(null)} className="ml-auto text-xs underline" style={{ color: C.muted }}>not me</button></div>
+            <p className="text-xs mb-2" style={{ color: C.muted }}>Enter your PIN</p>
+            <input autoFocus type="password" inputMode="numeric" pattern="[0-9]*" value={pin} onChange={e => { setPin(e.target.value.replace(/\D/g, "").slice(0, 6)); setErr(""); }} onKeyDown={e => e.key === "Enter" && submit(pick)} className="w-full text-center text-2xl tracking-[0.5em] font-mono" style={{ minHeight: 52 }} placeholder="••••" />
+            {err && <p className="text-xs mt-2" style={{ color: C.bad }}>{err}</p>}
+            <button onClick={() => submit(pick)} disabled={!pin} className="w-full py-3 rounded-xl text-sm font-medium mt-4" style={{ background: pin ? C.ink : C.line, color: pin ? C.onDark : C.muted }}>Sign in</button>
+          </div>
+        )}
+        <p className="text-[10px] mt-5" style={{ color: C.muted }}>Prototype sign-in: identifies who works, it is not a security boundary. Real authentication comes with the backend.</p>
+      </div>
+    </div>
+  );
+}
+// ═══════════════════ OPTIMISTIC CONCURRENCY — several devices, one shared state ═══════════════════
+// Every change is a function "state → state". We save with the version we last saw; if someone else saved first,
+// the server answers 409 with its current state, we re-apply our queued functions on top and save again.
+const createSyncer = () => ({ version: null, pending: [], busy: false, again: false });
+const flushState = async (syncer, key, getLocal, setLocal, normalizeFn, onConflictResolved) => {
+  if (!window.storage?.setVersioned) { try { await window.storage.set(key, JSON.stringify(getLocal())); } catch {} return; }
+  if (syncer.busy) { syncer.again = true; return; }
+  syncer.busy = true;
+  try {
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const fns = syncer.pending.splice(0);
+      const res = await window.storage.setVersioned(key, JSON.stringify(getLocal()), syncer.version);
+      if (!res) break;
+      if (res.rejected) { console.warn("QCteam: server rejected this state as too small — keeping the server's copy"); const r = await window.storage.get(key); if (r?.value) { setLocal(normalizeFn(JSON.parse(r.value))); syncer.version = r.version || null; } break; }
+      if (res.conflict) {
+        let base = normalizeFn(JSON.parse(res.value)); syncer.version = res.version || null;
+        for (const f of fns) { try { base = f(base); } catch (e) { console.warn("QCteam: could not re-apply a change after conflict", e); } }
+        for (const f of syncer.pending.splice(0)) { try { base = f(base); } catch (e) {} }
+        setLocal(base); onConflictResolved && onConflictResolved(fns.length);
+        continue; // save the merged state with the new version
+      }
+      syncer.version = res.version || syncer.version; break;
+    }
+  } finally { syncer.busy = false; if (syncer.again) { syncer.again = false; flushState(syncer, key, getLocal, setLocal, normalizeFn, onConflictResolved); } }
+};
+
 // ═══════════════════ UI: prymitywy ═══════════════════
 function Card({ children, style }) { return <section className="rounded-2xl p-5" style={{ background: C.surface, border: `1px solid ${C.line}`, ...style }}>{children}</section>; }
 function Primary({ children, onClick, disabled, small }) { return <button onClick={onClick} disabled={disabled} className={`${small ? "text-xs px-3" : "text-sm px-4"} font-semibold rounded-xl inline-flex items-center justify-center`} style={{ height: small ? 30 : 38, background: disabled ? C.line : C.accent, color: disabled ? C.muted : C.onDark }}>{children}</button>; }
@@ -794,7 +853,7 @@ const NAV_CONTROLLER = [
   { group: null, items: [["dashboard", "🏠", "Dashboard"], ["inspections", "📋", "Inspections"], ["catalog", "📦", "Products"], ["messages", "💬", "Messages"], ["flags", "🚩", "My flags"], ["notifications", "🔔", "Notifications"]] },
 ];
 
-function Shell({ page, setPage, children, badge, topRight, users, user, setUser, unread, onBell }) {
+function Shell({ page, setPage, children, badge, topRight, users, user, setUser, onLogout, unread, onBell }) {
   const NAV = user.role === "Head" ? NAV_HEAD : NAV_CONTROLLER;
   return (
     <div className="qc min-h-screen" style={{ background: C.bg, color: C.ink }}>
@@ -807,7 +866,7 @@ function Shell({ page, setPage, children, badge, topRight, users, user, setUser,
         <button onClick={onBell} className="relative text-lg" title="notifications"><Ic i={Bell} s={18} mr={0} />{unread > 0 && <span className="absolute -top-1 -right-2 text-[10px] px-1.5 rounded-full" style={{ background: C.bad, color: C.onDark }}>{unread}</span>}</button>
         <div className="flex items-center gap-2">
           <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-medium" style={{ background: C.accentSoft, color: C.accent }}>{user.name.split(" ").map(x => x[0]).join("").slice(0, 2)}</div>
-          <select value={user.id} onChange={e => setUser(e.target.value)} className="text-sm font-medium bg-transparent outline-none" title="switch user (login simulation)">{users.filter(u => u.active !== false).map(u => <option key={u.id} value={u.id}>{u.name} · {u.role === "Head" ? "Head" : "Controller"}</option>)}</select>
+          <span className="text-sm font-medium">{user.name} · {user.role}</span><button onClick={onLogout} className="text-xs px-2 py-1 rounded-lg" style={{ color: C.muted, border: `1px solid ${C.line}` }}>Log out</button>
         </div>
       </div>
       <div className="flex">
@@ -2514,7 +2573,7 @@ function UsersPage({ s, set }) {
       <h1 className="mb-1">Users</h1>
       <p className="text-sm mb-5" style={{ color: C.muted, maxWidth: 640 }}>Accounts are created only by the Admin/Head (no public sign-up). Deactivation instead of deletion — inspection history stays.</p>
       <div className="grid gap-4" style={{ gridTemplateColumns: "1.2fr 1fr" }}>
-        <Card>{s.users.map(u => <div key={u.id} className="flex items-center gap-2 py-2" style={{ borderTop: `1px solid ${C.line}`, opacity: u.active === false ? 0.5 : 1 }}><Avatar user={u} size={30} onPick={url => set(x => ({ ...x, users: x.users.map(q => q.id === u.id ? { ...q, photoUrl: url } : q) }))} /><span className="flex-1 text-sm">{u.name}<span className="text-xs ml-2" style={{ color: C.muted }}>{u.email}</span></span><span className="text-xs px-2 py-0.5 rounded-full" style={{ background: u.role === "Head" ? C.accentSoft : C.line, color: u.role === "Head" ? C.accent : C.muted }}>{u.role === "Head" ? "Head" : "Controller"}</span><button onClick={() => toggle(u.id)} className="text-xs" style={{ color: C.muted }}>{u.active === false ? "activate" : "deactivate"}</button><button className="text-xs" style={{ color: C.muted }} title="sends a reset link (PasswordResetTokens)">reset password</button></div>)}</Card>
+        <Card>{s.users.map(u => <div key={u.id} className="flex items-center gap-2 py-2" style={{ borderTop: `1px solid ${C.line}`, opacity: u.active === false ? 0.5 : 1 }}><Avatar user={u} size={30} onPick={url => set(x => ({ ...x, users: x.users.map(q => q.id === u.id ? { ...q, photoUrl: url } : q) }))} /><span className="flex-1 text-sm">{u.name}<span className="text-xs ml-2" style={{ color: C.muted }}>{u.email}</span></span><input type="password" inputMode="numeric" value={u.pin || ""} onChange={e => set(x => ({ ...x, users: x.users.map(q => q.id === u.id ? { ...q, pin: e.target.value.replace(/\D/g, "").slice(0, 6) } : q) }))} placeholder="PIN" title="Sign-in PIN (4–6 digits). Empty = signs in without a PIN." className="text-xs font-mono" style={{ width: 64, minHeight: 28 }} /><span className="text-xs px-2 py-0.5 rounded-full" style={{ background: u.role === "Head" ? C.accentSoft : C.line, color: u.role === "Head" ? C.accent : C.muted }}>{u.role === "Head" ? "Head" : "Controller"}</span><button onClick={() => toggle(u.id)} className="text-xs" style={{ color: C.muted }}>{u.active === false ? "activate" : "deactivate"}</button><button className="text-xs" style={{ color: C.muted }} title="sends a reset link (PasswordResetTokens)">reset password</button></div>)}</Card>
         <Card>
           <p className="font-medium text-sm mb-3">New account</p>
           <div className="flex gap-1.5 mb-2"><input value={d.firstName || ""} onChange={e => setD(x => ({ ...x, firstName: e.target.value, name: `${e.target.value} ${x.lastName || ""}`.trim() }))} placeholder="first name" className="flex-1 text-sm" /><input value={d.lastName || ""} onChange={e => setD(x => ({ ...x, lastName: e.target.value, name: `${x.firstName || ""} ${e.target.value}`.trim() }))} placeholder="last name" className="flex-1 text-sm" /></div>
@@ -2766,12 +2825,13 @@ function DataPanel({ s, set, onClose }) {
 export default function App() {
   const [page, setPage] = useState("dashboard");
   const [s, setRaw] = useState(EMPTY);
-  const set = fn => setRaw(x => { const nx = sortState(typeof fn === "function" ? fn(x) : fn); _S = nx; return nx; });
+  const set = fn => { const f = typeof fn === "function" ? (x => sortState(fn(x))) : (() => sortState(fn)); syncerRef.current.pending.push(f); setRaw(x => { const nx = f(x); _S = nx; return nx; }); };
   useEffect(() => { _S = s; }, [s]);
   const [selProduct, setSelProduct] = useState(null);
   const [loaded, setLoaded] = useState(false);
   const [dataOpen, setDataOpen] = useState(false);
-  const [userId, setUserId] = useState("u-head");
+  const [userId, setUserId] = useState(() => readSession());
+  const syncerRef = useRef(createSyncer());
   const [openInspId, setOpenInspId] = useState(null);
   const [presetProduct, setPresetProduct] = useState("");
   const [dark, setDark] = useState(false);
@@ -2782,20 +2842,22 @@ export default function App() {
   // Load saved state on start
   useEffect(() => {
     (async () => {
-      try { if (window.storage) { const r = await window.storage.get(STORAGE_KEY); if (r?.value) { const p = JSON.parse(r.value); if (p && Array.isArray(p.categories)) set(normalize(p)); } } } catch (e) { /* no saved state — start empty */ }
+      try { if (window.storage) { const r = await window.storage.get(STORAGE_KEY); if (r?.version) syncerRef.current.version = r.version; if (r?.value) { const p = JSON.parse(r.value); if (p && Array.isArray(p.categories)) set(normalize(p)); } } } catch (e) { /* no saved state — start empty */ }
       setLoaded(true);
     })();
   }, []);
   // Save on every change (only after loading, so as not to overwrite with empty)
   useEffect(() => {
     if (!loaded) return;
-    (async () => { try { if (window.storage) await window.storage.set(STORAGE_KEY, JSON.stringify(s)); } catch (e) { /* storage unavailable */ } })();
+    flushState(syncerRef.current, STORAGE_KEY, () => _S, v => { _S = v; setRaw(v); }, p => sortState(normalize(p)), n => n && setToastMsg && setToastMsg(`Merged with changes from another device (${n} of yours re-applied)`));
   }, [s, loaded]);
 
   const badge = { forms: s.products.filter(p => { const t = resolveTemplate(s, p); return t && t.fields.some(f => (f.problemBelowId || f.problemAboveId) && !f.specId && !p.specs.some(q => (q.name || "").trim().toLowerCase() === ((f.specName || "").trim() || f.label || "").toLowerCase())) && p.specs.length > 0; }).length };
   const dataButton = <><button onClick={toggleTheme} className="text-xs px-2.5 py-1.5 rounded-lg" style={{ background: C.accentSoft, color: C.accent }} title="theme">{dark ? <><Ic i={Sun} s={13} />Light</> : <><Ic i={Moon} s={13} />Dark</>}</button><button onClick={() => setDataOpen(o => !o)} className="text-xs px-2.5 py-1.5 rounded-lg" style={{ background: dataOpen ? C.accent : C.accentSoft, color: dataOpen ? C.onDark : C.accent }}><Ic i={Database} s={13} />Data</button></>;
+  const [toastMsg, setToastMsg] = useState(""); useEffect(() => { if (!toastMsg) return; const t = setTimeout(() => setToastMsg(""), 4000); return () => clearTimeout(t); }, [toastMsg]);
   if (!loaded) return <div className="min-h-screen flex items-center justify-center text-sm" style={{ background: C.bg, color: C.muted }}>Loading…</div>;
-  const user = s.users.find(u => u.id === userId) || s.users[0];
+  const user = s.users.find(u => u.id === userId && u.active !== false) || null;
+  if (!user) return <LoginScreen s={s} allowRoles={["Head"]} onLogin={setUserId} subtitle="Head portal — sign in" />;
   // Notification: to a specific user (toUserId) or to all Heads
   const notify = (type, message, entityType, entityId, toUserId) => set(x => { const targets = toUserId ? [toUserId] : x.users.filter(u => u.role === "Head").map(u => u.id); return { ...x, notifications: [...x.notifications, ...targets.map(uid_ => ({ id: uid(), userId: uid_, type, message, entityType, entityId, createdAt: nowISO(), readAt: null }))] }; });
   const unread = s.notifications.filter(n => n.userId === user.id && !n.readAt).length;
@@ -2803,9 +2865,10 @@ export default function App() {
   const guard = key => user.role === "Head" || NAV_CONTROLLER.some(g => g.items.some(([k]) => k === key));
   const safePage = guard(page) ? page : "dashboard";
   return (
-    <Shell page={safePage} setPage={setPage} badge={{ ...badge, messages: unreadMsgs, notifications: unread, flags: user.role === "Head" ? s.flags.filter(f => f.status === "Open").length : 0, inspections: user.role === "Head" ? s.inspections.filter(i => i.status === "PendingReview").length : 0 }} topRight={dataButton} users={s.users} user={user} setUser={id => { setUserId(id); setPage("dashboard"); setOpenInspId(null); }} unread={unread} onBell={() => setPage("notifications")}>
+    <Shell onLogout={() => { writeSession(null); setUserId(null); }} page={safePage} setPage={setPage} badge={{ ...badge, messages: unreadMsgs, notifications: unread, flags: user.role === "Head" ? s.flags.filter(f => f.status === "Open").length : 0, inspections: user.role === "Head" ? s.inspections.filter(i => i.status === "PendingReview").length : 0 }} topRight={dataButton} users={s.users} user={user} setUser={id => { setUserId(id); setPage("dashboard"); setOpenInspId(null); }} unread={unread} onBell={() => setPage("notifications")}>
       <BlockingOverlay s={s} set={set} user={user} />
       {dataOpen && <DataPanel s={s} set={set} onClose={() => setDataOpen(false)} />}
+      {toastMsg && <div className="fixed left-1/2 -translate-x-1/2 text-sm px-4 py-2 rounded-xl" style={{ top: 12, zIndex: 90, background: C.ink, color: C.onDark, boxShadow: "0 8px 20px rgba(0,0,0,.25)" }}>{toastMsg}</div>}
       {safePage === "dashboard" && (user.role === "Head" ? <Dashboard s={s} setPage={setPage} seed={() => set(olaState())} /> : <ControllerDashboard s={s} user={user} setPage={setPage} setOpenId={setOpenInspId} />)}
       {safePage === "categories" && <CategoriesPage s={s} set={set} />}
       {safePage === "problems" && <ProblemsPage s={s} set={set} />}
