@@ -33,6 +33,13 @@ const THEME_KEY = "qcteam-theme";
 // Icons (lucide) — one size, one stroke width
 const Ic = ({ i: I, s = 15, mr = 6, style }) => <I size={s} strokeWidth={2} style={{ display: "inline-block", verticalAlign: "-3px", marginRight: mr, flexShrink: 0, ...style }} />;
 const Avatar = ({ user, size = 28, onPick }) => { const initials = (user?.name || "?").split(" ").map(x => x[0]).join("").slice(0, 2); const el = user?.photoUrl ? <img src={user.photoUrl} alt="" className="rounded-full object-cover" style={{ width: size, height: size }} /> : <div className="rounded-full flex items-center justify-center font-medium" style={{ width: size, height: size, background: C.accentSoft, color: C.accent, fontSize: size * .4 }}>{initials}</div>; return onPick ? <button onClick={async () => { const { out } = await pickPhotos(); if (out[0]) onPick(out[0].dataUrl); }} title="Users.PhotoUrl — change photo" className="relative">{el}<span className="absolute -bottom-1 -right-1 rounded-full flex items-center justify-center" style={{ width: 16, height: 16, background: C.ink, color: C.onDark }}><Ic i={Camera} s={9} mr={0} /></span></button> : el; };
+// Search input with a properly centred icon (the icon lives inside the input's own box, not the padded container around it).
+const SearchBox = ({ value, onChange, placeholder, className = "", style = {}, inputClass = "", autoFocus, onKeyDown, size = 15 }) => (
+  <div className={`relative ${className}`} style={style}>
+    <span className="absolute flex items-center justify-center pointer-events-none" style={{ left: 10, top: 0, bottom: 0, width: size, color: C.muted }}><Search size={size} strokeWidth={2} style={{ display: "block" }} /></span>
+    <input autoFocus={autoFocus} value={value} onChange={e => onChange(e.target.value)} onKeyDown={onKeyDown} placeholder={placeholder} className={`w-full text-sm ${inputClass}`} style={{ paddingLeft: size + 18 }} />
+  </div>
+);
 const Dot = ({ on }) => <span className="inline-block rounded-full ml-2 align-middle" style={{ width: 7, height: 7, background: on ? C.ok : C.line }} />;
 const NAV_ICON = { integrations: Link2, lists: ListIcon, analytics: BarChart3, settings: SlidersHorizontal, dashboard: LayoutDashboard, inspections: ClipboardList, flags: Flag, notifications: Bell, categories: FolderTree, problems: ListTree, products: Package, forms: LayoutTemplate, suppliers: Truck, countries: Globe, announcements: Megaphone, messages: MessageSquare, users: Users, catalog: Package, home: Home, chat: MessageSquare, menu: MenuIcon };
 const EMPTY_ICON = { "📁": FolderTree, "🌳": ListTree, "📦": Package, "🧩": LayoutTemplate, "📖": BookOpen, "📏": Ruler, "📋": ClipboardList, "🚩": Flag, "🔔": Bell, "📣": Megaphone, "💬": MessageSquare, "🔒": LockIcon };
@@ -1388,6 +1395,13 @@ const STORAGE_KEY = "qcteam-portal-state-v2-clean"; // clean start: a fresh key,
 const CLEAN_START = true; // no dock mock until the Head maps a sheet in Integrations
 // Ola's state from 15.09.2026 — embedded as initial/sample data
 
+const SearchBox = ({ value, onChange, placeholder, className = "", style = {}, inputClass = "", autoFocus, onKeyDown, size = 15 }) => (
+  <div className={`relative ${className}`} style={style}>
+    <span className="absolute flex items-center justify-center pointer-events-none" style={{ left: 10, top: 0, bottom: 0, width: size, color: C.muted }}><Search size={size} strokeWidth={2} style={{ display: "block" }} /></span>
+    <input autoFocus={autoFocus} value={value} onChange={e => onChange(e.target.value)} onKeyDown={onKeyDown} placeholder={placeholder} className={`w-full text-sm ${inputClass}`} style={{ paddingLeft: size + 18 }} />
+  </div>
+);
+
 const annActive = a => (!a.validTo || a.validTo >= new Date().toISOString().slice(0, 10));
 
 
@@ -1853,7 +1867,7 @@ function MHistory({ s, user, go }) {
   return (
     <div className="pb-4 relative" style={{ minHeight: "100%" }}>
       <TopBar title="Inspection history" onBack={() => go("home")} right={<button onClick={() => setOpen(true)} className="text-xs px-3 py-1.5 rounded-full" style={{ border: `1px solid ${active ? C.ink : C.line}`, fontWeight: active ? 500 : 400 }}>Filtry{active ? ` · ${active}` : ""}</button>} />
-      <div className="px-4 pt-3"><input value={q} onChange={e => setQ(e.target.value)} placeholder="Search by product name or ID…" className="w-full text-sm rounded-xl px-3 py-2.5 outline-none" style={{ ...inp, background: C.bg }} /></div>
+      <div className="px-4 pt-3"><SearchBox autoFocus value={q} onChange={setQ} placeholder="Search by product name or ID…" inputClass="rounded-xl py-2.5" /></div>
       <div className="px-4">{groups.length === 0 ? <p className="text-sm py-8 text-center" style={{ color: C.muted }}>Nothing matches.</p> : groups.map(g => <div key={g.k}><p className="label-sm mt-3 mb-1" style={{ color: C.muted }}>{g.k}</p>{g.items.map(i => <button key={i.id} onClick={() => go("inspection", i.id)} className="w-full text-left flex items-center gap-2 py-2.5" style={{ borderBottom: `1px solid ${C.line}` }}><div className="flex-1 min-w-0"><p className="text-sm truncate">{s.products.find(p => p.id === i.productId)?.name || `Pallet ${(i.pallets || [])[0] || ""}`}</p><p className="text-xs" style={{ color: C.muted }}>{hhmm(i.completedAt || i.startedAt)}{i.dateISO && ` · DC ${dateCode(i.dateISO)}`}{i.supplier && ` · ${i.supplier}`} · {s.users.find(u => u.id === i.controllerId)?.name.split(" ")[0]}</p></div><ResultPill i={i} s={s} /></button>)}</div>)}</div>
       <Sheet open={open} onClose={() => setOpen(false)} title="Filters">
         <div className="flex items-center justify-between mb-2"><span className="label-sm" style={{ color: C.muted }}>Date range</span><button onClick={() => setF({ range: "7", result: "", status: "", supplier: "", controller: "", category: "", from: "", to: "", code: "", packFrom: "", packTo: "", type: "" })} className="text-xs" style={{ color: C.accent }}>Clear everything</button></div>
@@ -1914,7 +1928,7 @@ function MCatalog({ s, user, go, onStart, setState, notify, onVisual, preset }) 
   return (
     <div className="pb-4 relative" style={{ minHeight: "100%" }}>
       <TopBar title="Product catalog" right={<button onClick={() => setFOpen(true)} className="text-xs px-3 py-1.5 rounded-full inline-flex items-center" style={{ border: `1px solid ${fCount ? C.ink : C.line}`, fontWeight: fCount ? 600 : 400 }}><Ic i={Filter} s={12} mr={4} />Filtry{fCount ? ` · ${fCount}` : ""}</button>} />
-      <div className="px-4 pt-3 relative"><span className="absolute left-7 top-1/2 flex" style={{ color: C.muted, marginTop: 6 }}><Ic i={Search} s={15} mr={0} /></span><input value={q} onChange={e => setQ(e.target.value)} placeholder="Product, ID, category, supplier, variety…" className="w-full text-sm pl-9" style={{ background: C.bg }} /></div>
+      <div className="px-4 pt-3"><SearchBox value={q} onChange={setQ} placeholder="Product, ID, category, supplier, variety…" inputClass="rounded-xl py-2.5" /></div>
       {qq ? (
         <div className="px-4 pt-3">
           {matchingCats.length > 0 && <><p className="label-sm mb-1.5">Categories</p><div className="flex flex-wrap gap-1.5 mb-4">{matchingCats.map(c => <Chip key={c.id} on={false} onClick={() => { setCat(c.id); setQ(""); }}>{c.name} · {countIn(c.id)}</Chip>)}</div></>}
