@@ -1343,22 +1343,28 @@ const hhmm = iso => { const d = new Date(iso); return isNaN(d) ? "" : d.toLocale
 const ResultPill = ({ i, s }) => { const it = s ? inspType(s, i) : null; const [fg, bg, l] = i.status !== "Completed" ? [STATUS[i.status][1], STATUS[i.status][2], STATUS[i.status][0]] : it && it.autoAccept ? [it.color, C.accentSoft, it.name] : i.result === "Accepted" ? [C.ok, C.okBg, "Accepted"] : i.result === "Rejected" ? [C.bad, C.badBg, "Rejected"] : [STATUS[i.status][1], STATUS[i.status][2], STATUS[i.status][0]]; return <span className="text-xs font-medium px-2.5 py-1 rounded-full whitespace-nowrap inline-flex items-center gap-1.5" style={{ background: C.surface, color: C.ink, border: `1px solid ${C.line}` }}><span className="inline-block rounded-full" style={{ width: 7, height: 7, background: fg }} />{l}</span>; };
 const Lock = () => null;
 
+// Real device (narrow screen or launched from the home screen): full-bleed, safe-area aware, no fake status bar.
+// Wide screen (desktop preview): the phone frame.
+const useRealDevice = () => { const [real, setReal] = useState(() => typeof window !== "undefined" && (window.matchMedia("(max-width: 560px)").matches || window.navigator.standalone === true || window.matchMedia("(display-mode: standalone)").matches)); useEffect(() => { const mq = window.matchMedia("(max-width: 560px)"); const h = () => setReal(mq.matches || window.navigator.standalone === true || window.matchMedia("(display-mode: standalone)").matches); mq.addEventListener ? mq.addEventListener("change", h) : mq.addListener(h); return () => { mq.removeEventListener ? mq.removeEventListener("change", h) : mq.removeListener(h); }; }, []); return real; };
 function Phone({ children, nav, onNav, page, badges, fab, dark, onTheme }) {
   const items = [["home", "🏠", "Dashboard"], ["chat", "💬", "Chat"], ["catalog", "🧺", "Catalog"], ["menu", "☰", "Menu"]];
+  const real = useRealDevice();
+  const outer = real ? { background: C.surface, minHeight: "100dvh" } : { background: C.frameBg };
+  const shell = real ? { width: "100%", height: "100dvh", background: C.surface, paddingTop: "env(safe-area-inset-top)", overscrollBehavior: "none" } : { width: 390, height: 844, background: C.surface, borderRadius: 44, border: `10px solid ${C.ink}`, overflow: "hidden", boxShadow: "0 30px 60px rgba(0,0,0,.28)" };
   return (
-    <div className="qc min-h-screen flex items-start justify-center p-4 md:p-8" style={{ background: C.frameBg }}>
-      <style>{GLOBAL_CSS()}</style>
-      <div className="relative flex flex-col" style={{ width: 390, height: 844, background: C.surface, borderRadius: 44, border: `10px solid ${C.ink}`, overflow: "hidden", boxShadow: "0 30px 60px rgba(0,0,0,.28)" }}>
-        <div className="flex items-center justify-between px-6 pt-3 pb-1 text-[11px] font-medium" style={{ color: C.ink }}><span>{new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}</span><span className="flex items-center gap-2"><button onClick={onTheme} title="theme" className="flex">{dark ? <Ic i={Sun} s={13} mr={0} /> : <Ic i={Moon} s={13} mr={0} />}</button>●●● ᯤ ▮</span></div>
+    <div className={`qc flex items-start justify-center ${real ? "" : "min-h-screen p-4 md:p-8"}`} style={outer}>
+      <style>{GLOBAL_CSS() + (real ? " html,body{overscroll-behavior:none;background:" + C.surface + "} body{position:fixed;inset:0;} " : "")}</style>
+      <div className="relative flex flex-col" style={shell}>
+        {!real && <div className="flex items-center justify-between px-6 pt-3 pb-1 text-[11px] font-medium" style={{ color: C.ink }}><span>{new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}</span><span className="flex items-center gap-2"><button onClick={onTheme} title="theme" className="flex">{dark ? <Ic i={Sun} s={13} mr={0} /> : <Ic i={Moon} s={13} mr={0} />}</button>●●● ᯤ ▮</span></div>}
         <div className="flex-1 overflow-y-auto relative" style={{ color: C.ink }}>{children}</div>
         {fab && (
-          <div className="absolute flex flex-col items-end gap-3" style={{ right: 18, bottom: nav ? 78 : 22, zIndex: 30 }}>
+          <div className="absolute flex flex-col items-end gap-3" style={{ right: 18, bottom: real ? `calc(${nav ? 78 : 22}px + env(safe-area-inset-bottom))` : (nav ? 78 : 22), zIndex: 30 }}>
             <button onClick={fab.scan} className="w-11 h-11 rounded-full flex items-center justify-center text-lg" style={{ background: C.surface, border: `1px solid ${C.line}`, boxShadow: "0 6px 16px rgba(0,0,0,.15)" }} title="Scan code"><Ic i={ScanLine} s={20} mr={0} /></button>
             <button onClick={fab.add} className="w-14 h-14 rounded-full flex items-center justify-center text-2xl" style={{ background: C.ink, color: C.onDark, boxShadow: "0 8px 20px rgba(0,0,0,.25)" }} title="New inspection"><Ic i={Plus} s={26} mr={0} /></button>
           </div>
         )}
         {nav && (
-          <div className="flex justify-around py-2.5" style={{ borderTop: `1px solid ${C.line}`, background: C.surface }}>
+          <div className="flex justify-around pt-2.5" style={{ borderTop: `1px solid ${C.line}`, background: C.surface, paddingBottom: real ? "calc(10px + env(safe-area-inset-bottom))" : 10 }}>
             {items.map(([k, ic, l]) => <button key={k} onClick={() => onNav(k)} className="flex flex-col items-center gap-0.5 relative px-3" style={{ color: page === k ? C.accent : C.muted }}><span className="px-3 rounded-full flex items-center" style={{ background: page === k ? C.accentSoft : "transparent", height: 26 }}><Ic i={NAV_ICON[k]} s={19} mr={0} /></span><span className="text-[10px]" style={{ fontWeight: page === k ? 600 : 500 }}>{l}</span>{badges?.[k] > 0 && <span className="absolute -top-1 right-0 text-[9px] px-1 rounded-full" style={{ background: C.bad, color: C.onDark }}>{badges[k]}</span>}</button>)}
           </div>
         )}
