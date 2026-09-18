@@ -1858,7 +1858,7 @@ function MScan({ s, user, go, onStart, onVisual, onSkip, setState, notify, prese
           <div className="rounded-2xl p-4 mb-3" style={{ background: C.badBg }}>
             <p className="text-sm font-medium mb-1 flex items-center" style={{ color: C.bad }}><Ic i={LockIcon} s={14} />Blocked for picking</p>
             <p className="text-xs mb-2" style={{ color: C.ink }}>{blockedRow.name || blockedRow.article} · {blockedRow.location}{blockedRow.zone ? ` · zone ${blockedRow.zone}` : ""}{blockedRow.deadline ? ` · needed by ${blockedRow.deadline}` : ""}</p>
-            <QueueRow s={s} set={set} user={user} b={blockedRow} onOpen={() => { const p = s.products.find(x => x.articleId === blockedRow.article); if (p) go("catalog", p.id); }} />
+            <QueueRow s={s} set={setState} user={user} b={blockedRow} onOpen={() => { const p = s.products.find(x => x.articleId === blockedRow.article); if (p) go("catalog", p.id); }} />
           </div>
         )}
         {mode === "pallet" && !wms && (
