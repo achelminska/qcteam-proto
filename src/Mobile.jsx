@@ -1633,7 +1633,7 @@ function VisualView({ insp, s, go }) {
 }
 
 // ── Dashboard ──
-function MDashboard({ s, set, user, go, dismissed, setDismissed }) {
+function MDashboard({ s, set, user, go, dismissed, setDismissed, onAssign }) {
   const [blockedView, setBlockedView] = useState("open");
   const [tab, setTab] = useState("history");
   const bottomPad = { paddingBottom: 96 };
@@ -1649,7 +1649,7 @@ function MDashboard({ s, set, user, go, dismissed, setDismissed }) {
         <div><p className="text-xs" style={{ color: C.muted }}>{new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "short" })}</p><p className="text-lg font-semibold">Hi, {user.name.split(" ")[0]}</p></div>
         <div className="flex items-center gap-3"><button onClick={() => go("notifications")} className="relative flex"><Ic i={Bell} s={22} mr={0} />{unread > 0 && <span className="absolute -top-1 -right-2 text-[9px] px-1 rounded-full" style={{ background: C.bad, color: C.onDark }}>{unread}</span>}</button><button onClick={() => go("profile")} className="flex"><Avatar user={user} size={36} /></button></div>
       </div>
-      <div className="px-5"><DeadlineBanner s={s} alerts={computeDeadlineAlerts(s)} onOpen={al => al.productId && go("catalog", al.productId)} /></div>
+      <div className="px-5"><DeadlineBanner s={s} alerts={computeDeadlineAlerts(s)} openLabel={user.role === "Head" ? "Open product" : "Inspect"} onOpen={al => user.role === "Head" ? (al.productId && go("catalog", al.productId)) : go("scan", al.hu)} onMessage={user.role === "Head" ? (al => onAssign(al)) : undefined} /></div>
       {ann && <div className="mx-5 mb-3 rounded-xl px-3.5 py-2.5 flex items-start gap-2.5" style={{ background: C.surface, border: `1px solid ${C.line}`, borderLeft: `3px solid ${C.accent}` }}><span style={{ color: C.accent, marginTop: 2 }}><Ic i={Megaphone} s={14} mr={0} /></span><p className="text-sm flex-1"><b>{ann.title}</b><span style={{ color: C.muted }}> — {ann.body}</span></p><button onClick={() => setDismissed(d => [...d, ann.id])} className="text-sm" style={{ color: C.muted }}>×</button></div>}
       {user.role === "Head" && (() => { const esc = s.inspections.filter(i => i.status === "PendingReview").length, fl = s.flags.filter(f => f.status === "Open").length; return (
         <div className="px-5 mb-3">
@@ -2055,12 +2055,13 @@ function MCatalog({ s, user, go, onStart, setState, notify, onVisual, preset }) 
 }
 
 // ── Chat ──
-function MChat({ s, set, user, go }) {
+function MChat({ s, set, user, go, initialContext, clearInitialContext }) {
   const [open, setOpen] = useState(null); const [text, setText] = useState(""); const [creating, setCreating] = useState(false); const [pick, setPick] = useState([]); const [gname, setGname] = useState("");
   const mine = s.conversations.filter(c => c.participantIds.includes(user.id) && c.isActive !== false).sort((a, b) => ((b.messages?.slice(-1)[0]?.at) || b.createdAt || "").localeCompare((a.messages?.slice(-1)[0]?.at) || a.createdAt || ""));
   const conv = s.conversations.find(c => c.id === open);
   const markRead = id => set(x => ({ ...x, conversations: x.conversations.map(c => c.id === id ? { ...c, lastRead: { ...(c.lastRead || {}), [user.id]: nowISO() } } : c) }));
-  const [pending, setPending] = useState({ attachments: [], contexts: [] });
+  const [pending, setPending] = useState({ attachments: [], contexts: initialContext ? [initialContext] : [] });
+  useEffect(() => { if (initialContext) { setPending(p => ({ ...p, contexts: [...p.contexts.filter(c => !(c.kind === initialContext.kind && c.id === initialContext.id)), initialContext] })); clearInitialContext && clearInitialContext(); } }, [initialContext]);
   const send = () => { if ((!text.trim() && !pending.attachments.length && !pending.contexts.length) || !conv) return; set(x => ({ ...x, conversations: x.conversations.map(c => c.id === conv.id ? { ...c, messages: [...(c.messages || []), { id: uid(), senderId: user.id, text: text.trim(), at: nowISO(), attachments: pending.attachments, contexts: pending.contexts, productId: pending.contexts.find(k => k.kind === "product")?.id || null }], lastRead: { ...(c.lastRead || {}), [user.id]: nowISO() } } : c) })); setText(""); setPending({ attachments: [], contexts: [] }); };
   const openCtx = c => { if (c.kind === "product") go("catalog", c.id); else if (c.kind === "inspection") go("inspection", c.id); else if (c.kind === "pallet") go("scan", c.id); else if (c.kind === "flag") go(user.role === "Head" ? "head-flags" : "flags"); };
   const create = () => { if (!pick.length) return; const isGroup = pick.length > 1 || !!gname.trim(); if (!isGroup) { const ex = s.conversations.find(c => !c.isGroup && c.participantIds.length === 2 && c.participantIds.includes(user.id) && c.participantIds.includes(pick[0])); if (ex) { setOpen(ex.id); markRead(ex.id); setCreating(false); setPick([]); return; } } const id = uid(); set(x => ({ ...x, conversations: [...x.conversations, { id, isGroup, name: isGroup ? (gname.trim() || null) : null, participantIds: [user.id, ...pick], createdBy: user.id, createdAt: nowISO(), messages: [], lastRead: { [user.id]: nowISO() }, isActive: true }] })); setOpen(id); setCreating(false); setPick([]); setGname(""); };
@@ -2226,6 +2227,7 @@ export default function App() {
   const [loaded, setLoaded] = useState(false);
   const [userId, setUserId] = useState(() => readSession());
   const syncerRef = useRef(createSyncer());
+  const [pendingChatContext, setPendingChatContext] = useState(null);
   const [page, setPage] = useState("home"); const [param, setParam] = useState(null);
   const [dismissed, setDismissed] = useState([]);
   const [toast, setToast] = useState("");
@@ -2239,6 +2241,8 @@ export default function App() {
   const [syncMsg, setSyncMsg] = useState("");
   const pullState = async (announce) => { try { if (!window.storage) return; const r = await window.storage.get(STORAGE_KEY); if (r?.version) syncerRef.current.version = r.version; if (r?.value && !syncerRef.current.pending.length) { const p = JSON.parse(r.value); if (p && Array.isArray(p.categories)) { setRaw(prev => { const next = sortState(normalize(p)); _S = next; return JSON.stringify(prev) === JSON.stringify(next) ? prev : next; }); } } await refreshPushedIntegrations(() => _S, set, !!announce); if (announce) setSyncMsg(`Synced ${new Date().toLocaleTimeString("en-GB")}`); } catch (e) { if (announce) setSyncMsg("Sync failed: " + (e.message || e)); } };
   useEffect(() => { if (!loaded) return; refreshPushedIntegrations(() => _S, set); const id = setInterval(() => { if (document.visibilityState === "visible") refreshPushedIntegrations(() => _S, set); }, 120000); return () => clearInterval(id); }, [loaded]);
+  // Fast, cheap poll while the app is open and in the foreground: check the version every ~5s, pull only when it changed and nothing local is unsaved.
+  useEffect(() => { if (!loaded) return; const id = setInterval(async () => { if (document.visibilityState !== "visible" || !window.storage?.getMeta || syncerRef.current.busy || syncerRef.current.pending.length) return; const v = await window.storage.getMeta(STORAGE_KEY); if (v && v !== syncerRef.current.version) pullState(false); }, 5000); return () => clearInterval(id); }, [loaded]);
   useEffect(() => { const h = () => { if (document.visibilityState === "visible") pullState(false); }; document.addEventListener("visibilitychange", h); window.addEventListener("focus", h); window.addEventListener("pageshow", h); return () => { document.removeEventListener("visibilitychange", h); window.removeEventListener("focus", h); window.removeEventListener("pageshow", h); }; }, []);
   useEffect(() => { (async () => { try { if (window.storage) { const r = await window.storage.get(THEME_KEY); if (r?.value === "dark") { applyTheme(true); setDark(true); } } } catch (e) {} })(); }, []);
   const toggleTheme = () => { const d = !dark; applyTheme(d); setDark(d); (async () => { try { if (window.storage) await window.storage.set(THEME_KEY, d ? "dark" : "light"); } catch (e) {} })(); };
@@ -2281,12 +2285,12 @@ export default function App() {
         <button onClick={() => { const p = pendingStart; setPendingStart(null); startInspection(p.pid, p.palletNo, true, p.typeId); }} className="w-full py-3 rounded-xl text-sm font-medium mb-2" style={{ background: C.ink, color: C.onDark }}>Yes, start anyway</button>
         <button onClick={() => setPendingStart(null)} className="w-full py-2.5 text-sm" style={{ color: C.muted }}>No, go back</button>
       </Modal>
-      {page === "home" && <MDashboard s={s} set={set} user={user} go={go} dismissed={dismissed} setDismissed={setDismissed} />}
+      {page === "home" && <MDashboard s={s} set={set} user={user} go={go} dismissed={dismissed} setDismissed={setDismissed} onAssign={al => { setPendingChatContext({ kind: "pallet", id: al.hu, label: `${al.name} · ${al.location}` }); go("chat"); }} />}
       {page === "search" && <MSearch s={s} user={user} go={go} onStart={(pid, palletNo, typeId) => startInspection(pid, palletNo, false, typeId)} setState={set} notify={notify} onVisual={visualInspection} />}
       {page === "scan" && <MScan key={param || "scan"} s={s} user={user} go={go} onStart={(pid, palletNo, typeId) => startInspection(pid, palletNo, false, typeId)} onVisual={visualInspection} onSkip={skipInspection} setState={set} notify={notify} preset={param} />}
       {page === "history" && <MHistory s={s} user={user} go={go} />}
       {page === "catalog" && <MCatalog key={param || "catalog"} s={s} user={user} go={go} onStart={(pid, palletNo, typeId) => startInspection(pid, palletNo, false, typeId)} setState={set} notify={notify} onVisual={visualInspection} preset={param} />}
-      {page === "chat" && <MChat s={s} set={set} user={user} go={go} />}
+      {page === "chat" && <MChat s={s} set={set} user={user} go={go} initialContext={pendingChatContext} clearInitialContext={() => setPendingChatContext(null)} />}
       {page === "menu" && <MMenu s={s} set={set} user={user} go={go} users={s.users} setUser={id => { setUserId(id); go("home"); }} onLogout={() => { writeSession(null); setUserId(null); }} dark={dark} onTheme={toggleTheme} simOffline={simOffline} onSimOffline={() => setSimOffline(o => !o)} onSync={() => pullState(true)} syncMsg={syncMsg} />}
       {page === "profile" && <MProfile s={s} set={set} user={user} go={go} />}
       {page === "notifications" && <MNotifications s={s} set={set} user={user} go={go} />}
