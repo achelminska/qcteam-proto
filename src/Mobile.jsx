@@ -1656,6 +1656,37 @@ function VisualView({ insp, s, go }) {
 // ── Dashboard ──
 // Priority list: everything at this priority, pallets with a recent-rejection history bubbled to the top so a controller
 // knows at a glance which ones are worth extra attention — and why. Tapping a row jumps straight into inspecting it.
+// Focused info screen for one blocked pallet: the fields worth knowing (location, zone, deadline, who has it) and the
+// actions that matter — take / in stack / release — with inspecting as an explicit, separate step, not the default tap.
+function MBlockedInfo({ s, set, user, go, itemKey }) {
+  const b = blockedQueue(s).find(x => x.key === itemKey);
+  if (!b) return <div><TopBar title="Pallet" onBack={() => go("home")} /><div className="px-4 pt-10 text-center"><p className="text-sm" style={{ color: C.muted }}>Not found — it may already be done.</p></div></div>;
+  const product = s.products.find(p => p.articleId === b.article);
+  const c = b.claim; const me = c && c.userId === user.id; const who = c && s.users.find(u => u.id === c.userId); const stacked = c?.status === "stacked"; const done = b.status === "Completed";
+  const take = () => setClaim(set, b, { userId: user.id, at: nowISO(), status: "taken" });
+  const stack = () => setClaim(set, b, { userId: user.id, at: nowISO(), status: "stacked" });
+  const release = () => setClaim(set, b, null);
+  const fields = [["Article", b.article], ["Location", b.location], ["Zone", b.zone], ["Pick location", b.pickLocation], ["Needed by", b.deadline], ["WMS status", b.wmsStatus], b.hu ? ["Pallet", `…${b.hu.slice(-8)}`] : null].filter(x => x && x[1]);
+  return (
+    <div className="pb-4">
+      <TopBar title={b.name || product?.name || b.article} onBack={() => go("home")} />
+      <div className="px-4 pt-3">
+        <div className="flex items-center gap-2 mb-3"><span className="inline-block rounded-full" style={{ width: 9, height: 9, background: done ? C.ok : stacked ? C.muted : C.bad }} /><span className="text-sm font-medium">{done ? "Completed" : b.status}</span>{who && <span className="text-xs ml-auto flex items-center gap-1" style={{ color: me ? C.accent : C.muted }}><Avatar user={who} size={16} />{me ? "you" : who.name.split(" ")[0]}</span>}</div>
+        <div className="rounded-2xl p-3.5 mb-3" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
+          {fields.map(([k, v]) => <div key={k} className="flex justify-between gap-3 py-1.5 text-sm" style={{ borderBottom: `1px solid ${C.line}` }}><span style={{ color: C.muted }}>{k}</span><span className="font-medium text-right">{v}</span></div>)}
+        </div>
+        {!done && <div className="flex gap-2 mb-2">
+          {!c && <><button onClick={take} className="flex-1 py-2.5 rounded-xl text-sm font-semibold" style={{ background: C.ink, color: C.onDark }}>Take</button><button onClick={stack} className="flex-1 py-2.5 rounded-xl text-sm inline-flex items-center justify-center" style={{ border: `1px solid ${C.line}` }}><Ic i={Layers} s={13} />In stack</button></>}
+          {c && me && <><button onClick={stacked ? take : stack} className="flex-1 py-2.5 rounded-xl text-sm font-semibold" style={{ background: C.ink, color: C.onDark }}>{stacked ? "Reachable now — take" : "Mark in stack"}</button><button onClick={release} className="flex-1 py-2.5 rounded-xl text-sm" style={{ border: `1px solid ${C.line}`, color: C.muted }}>Release</button></>}
+          {c && !me && <button onClick={take} className="flex-1 py-2.5 rounded-xl text-sm font-semibold" style={{ background: C.ink, color: C.onDark }}>{stacked ? "Reachable now — take" : "Take over"}</button>}
+        </div>}
+        <button onClick={() => go("scan", b.hu || "")} className="w-full py-3 rounded-xl text-sm font-medium mt-1" style={{ background: C.surface, border: `1px solid ${C.line}` }}>Inspect this pallet</button>
+        {product && <button onClick={() => go("catalog", product.id)} className="w-full py-2.5 text-sm mt-1" style={{ color: C.accent }}>Open product profile</button>}
+      </div>
+    </div>
+  );
+}
+
 function MPriorityList({ s, user, go, priority }) {
   const rows = dockRowsLive(s).filter(r => priority === "Skippable" ? r.skippable : r.priority === priority);
   const groups = {}; rows.forEach(r => { const k = r.article || r.hu; (groups[k] = groups[k] || { rows: [] }).rows.push(r); });
@@ -1737,7 +1768,7 @@ function MDashboard({ s, set, user, go, dismissed, setDismissed, onAssign }) {
         {tab === "blocked" && (() => { const q = blockedQueue(s); const order = { "Not started": 0, "Started": 1, "Completed": 2 }; const list = q.filter(b => blockedView === "mine" ? b.claim?.userId === user.id : blockedView === "all" ? true : b.status !== "Completed").sort((x, y) => (order[x.status] ?? 9) - (order[y.status] ?? 9) || (x.time || "").localeCompare(y.time || "")); return <div>
           <div className="flex items-center gap-1.5 py-2"><span className="text-xs flex-1" style={{ color: C.muted }}>Take a pallet before you walk to it — others see it's yours.</span>{[["open", "Open"], ["mine", "Mine"], ["all", "All"]].map(([k, l]) => <button key={k} onClick={() => setBlockedView(k)} className="text-[11px] px-2.5 py-1 rounded-full" style={{ background: blockedView === k ? C.ink : "transparent", color: blockedView === k ? C.onDark : C.ink, border: `1px solid ${blockedView === k ? C.ink : C.line}` }}>{l}</button>)}</div>
           {list.length === 0 && <p className="text-sm py-6 text-center" style={{ color: C.muted }}>{blockedView === "mine" ? "You haven't taken any pallet." : "Nothing blocked right now."}</p>}
-          {list.map(b => { const prod = s.products.find(p => p.articleId === b.article); return <QueueRow key={b.key} s={s} set={set} user={user} b={b} onOpen={() => prod && go("catalog", prod.id)} />; })}
+          {list.map(b => <QueueRow key={b.key} s={s} set={set} user={user} b={b} onOpen={() => go("blockedInfo", b.key)} />)}
         </div>; })()}
         {tab === "history" && (s.products.length === 0 ? <div className="text-center py-6"><p className="text-sm font-medium mb-1">Nothing to inspect yet</p><p className="text-xs mb-3" style={{ color: C.muted }}>The Head hasn't set up products and forms yet. If you configured them in the portal, import the state here (Menu → Data).</p><button onClick={() => go("menu")} className="text-sm px-4 py-2 rounded-xl" style={{ background: C.ink, color: C.onDark }}>Menu → Data</button></div> : groups.length === 0 ? <p className="text-sm py-6 text-center" style={{ color: C.muted }}>No inspections yet. Start with the plus button.</p> : groups.slice(0, 3).map(g => (
           <div key={g.k}><p className="label-sm mt-3 mb-1" style={{ color: C.muted }}>{g.k}</p>{g.items.map(i => <button key={i.id} onClick={() => go("inspection", i.id)} className="w-full text-left flex items-center gap-2 py-2.5" style={{ borderBottom: `1px solid ${C.line}` }}><div className="flex-1 min-w-0"><p className="text-sm truncate">{s.products.find(p => p.id === i.productId)?.name || `Pallet ${(i.pallets || [])[0] || ""}`}</p><p className="text-xs" style={{ color: C.muted }}>{hhmm(i.completedAt || i.startedAt)}{i.supplier && ` · ${i.supplier}`}{i.controllerId !== user.id && ` · ${s.users.find(u => u.id === i.controllerId)?.name.split(" ")[0]}`}</p></div><ResultPill i={i} s={s} /></button>)}</div>
@@ -1959,7 +1990,7 @@ function MScan({ s, user, go, onStart, onVisual, onSkip, setState, notify, prese
           <div className="rounded-2xl p-4 mb-3" style={{ background: C.badBg }}>
             <p className="text-sm font-medium mb-1 flex items-center" style={{ color: C.bad }}><Ic i={LockIcon} s={14} />Blocked for picking</p>
             <p className="text-xs mb-2" style={{ color: C.ink }}>{blockedRow.name || blockedRow.article} · {blockedRow.location}{blockedRow.zone ? ` · zone ${blockedRow.zone}` : ""}{blockedRow.deadline ? ` · needed by ${blockedRow.deadline}` : ""}</p>
-            <QueueRow s={s} set={setState} user={user} b={blockedRow} onOpen={() => { const p = s.products.find(x => x.articleId === blockedRow.article); if (p) go("catalog", p.id); }} />
+            <QueueRow s={s} set={setState} user={user} b={blockedRow} onOpen={() => go("blockedInfo", blockedRow.key)} />
           </div>
         )}
         {mode === "pallet" && !wms && (
@@ -2351,6 +2382,7 @@ export default function App() {
       {page === "scan" && <MScan key={param || "scan"} s={s} user={user} go={go} onStart={(pid, palletNo, typeId) => startInspection(pid, palletNo, false, typeId)} onVisual={visualInspection} onSkip={skipInspection} setState={set} notify={notify} preset={param} />}
       {page === "history" && <MHistory s={s} user={user} go={go} />}
       {page === "priority" && <MPriorityList s={s} user={user} go={go} priority={param} />}
+      {page === "blockedInfo" && <MBlockedInfo s={s} set={set} user={user} go={go} itemKey={param} />}
       {page === "catalog" && <MCatalog key={param || "catalog"} s={s} user={user} go={go} onStart={(pid, palletNo, typeId) => startInspection(pid, palletNo, false, typeId)} setState={set} notify={notify} onVisual={visualInspection} preset={param} />}
       {page === "chat" && <MChat s={s} set={set} user={user} go={go} initialContext={pendingChatContext} clearInitialContext={() => setPendingChatContext(null)} />}
       {page === "menu" && <MMenu s={s} set={set} user={user} go={go} users={s.users} setUser={id => { setUserId(id); go("home"); }} onLogout={() => { writeSession(null); setUserId(null); }} dark={dark} onTheme={toggleTheme} simOffline={simOffline} onSimOffline={() => setSimOffline(o => !o)} onSync={() => pullState(true)} syncMsg={syncMsg} />}
