@@ -903,7 +903,7 @@ function Shell({ page, setPage, children, badge, topRight, users, user, setUser,
 }
 
 // ═══════════════════ STRONA: Dashboard ═══════════════════
-function Dashboard({ s, setPage, seed }) {
+function Dashboard({ s, setPage, seed, user }) {
   const globalT = s.templates.find(t => t.scope === "Global");
   const steps = [
     { done: s.categories.length > 0, label: "Create categories", page: "categories", why: "a product must belong to a category" },
@@ -914,7 +914,7 @@ function Dashboard({ s, setPage, seed }) {
   const nextStep = steps.find(x => !x.done);
   return (
     <div>
-      <h1 className="mb-1">Welcome, Marta</h1>
+      <h1 className="mb-1">Welcome, {(user?.firstName || user?.name || "").split(" ")[0]}</h1>
       <p className="text-sm mb-5" style={{ color: C.muted }}>{nextStep ? "The system is still empty — four steps to receive the first inspection." : "Configuration complete. Controllers can report."}</p>
       <div className="grid grid-cols-4 gap-3 mb-3">
         {[["Inspections today", s.inspections.filter(i => (i.startedAt || "").slice(0, 10) === new Date().toISOString().slice(0, 10)).length, "inspections"], ["Awaiting Head", s.inspections.filter(i => i.status === "PendingReview").length, "inspections"], ["Open flags", s.flags.filter(f => f.status === "Open").length, "flags"], ["Unread", s.notifications.filter(n => n.userId === "u-head" && !n.readAt).length, "notifications"]].map(([l, v, pg]) => (
@@ -2886,7 +2886,7 @@ export default function App() {
       <BlockingOverlay s={s} set={set} user={user} />
       {dataOpen && <DataPanel s={s} set={set} onClose={() => setDataOpen(false)} />}
       {toastMsg && <div className="fixed left-1/2 -translate-x-1/2 text-sm px-4 py-2 rounded-xl" style={{ top: 12, zIndex: 90, background: C.ink, color: C.onDark, boxShadow: "0 8px 20px rgba(0,0,0,.25)" }}>{toastMsg}</div>}
-      {safePage === "dashboard" && (user.role === "Head" ? <Dashboard s={s} setPage={setPage} seed={() => set(olaState())} /> : <ControllerDashboard s={s} user={user} setPage={setPage} setOpenId={setOpenInspId} />)}
+      {safePage === "dashboard" && (user.role === "Head" ? <Dashboard s={s} user={user} setPage={setPage} seed={() => set(olaState())} /> : <ControllerDashboard s={s} user={user} setPage={setPage} setOpenId={setOpenInspId} />)}
       {safePage === "categories" && <CategoriesPage s={s} set={set} />}
       {safePage === "problems" && <ProblemsPage s={s} set={set} />}
       {safePage === "products" && <ProductsPage s={s} set={set} sel={selProduct} setSel={setSelProduct} presetFilter={productsQuery} clearPreset={() => setProductsQuery("")} />}
