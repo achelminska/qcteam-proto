@@ -1722,8 +1722,9 @@ function MDashboard({ s, set, user, go, dismissed, setDismissed, onAssign }) {
         <div className="rounded-2xl p-3.5" style={{ background: C.bg, border: `1px solid ${C.line}` }}><p className="text-xs" style={{ color: C.muted }}>Pallets on docks<Lock /></p><p className="text-[26px] leading-tight font-semibold mt-0.5">{sheetStats(s).pallets}</p><p className="text-[10px]" style={{ color: C.muted }}>{sheetStats(s).skippablePallets != null ? `${sheetStats(s).skippablePallets} skippable · ${sheetStats(s).skippableSkus ?? "—"} SKUs` : "in total"}</p></div>
       </div>
       <p className="label-sm px-5 mt-3 mb-1" style={{ color: C.muted }}>Dock priorities</p>
-      <div className="grid gap-2 px-5" style={{ gridTemplateColumns: `repeat(${Math.max(1, Math.min(4, Object.keys(PRIORITY).filter(k => sheetStats(s).prio(k) > 0).length))}, 1fr)` }}>
-        {Object.keys(PRIORITY).filter(k => sheetStats(s).prio(k) > 0).map(k => [k, PRIORITY[k][0], PRIORITY[k][1]]).map(([l, fg, bg]) => (
+      {/* Skippable is a boolean flag, not a distinct priority — the "N skippable" figure above already covers it, so it's not a tile here. */}
+      <div className="grid gap-2 px-5" style={{ gridTemplateColumns: `repeat(${Math.max(1, Math.min(4, Object.keys(PRIORITY).filter(k => k !== "Skippable" && sheetStats(s).prio(k) > 0).length))}, 1fr)` }}>
+        {Object.keys(PRIORITY).filter(k => k !== "Skippable" && sheetStats(s).prio(k) > 0).map(k => [k, PRIORITY[k][0], PRIORITY[k][1]]).map(([l, fg, bg]) => (
           <button key={l} onClick={() => go("priority", l)} className="rounded-2xl py-3 text-center transition-transform active:scale-95" style={{ background: C.bg, border: `1px solid ${C.line}` }}><p className="text-2xl font-bold tracking-tight" style={{ color: fg }}>{sheetStats(s).prio(l)}</p><p className="text-[10px] font-medium leading-tight mt-0.5" style={{ color: C.muted }}>{l}</p></button>
         ))}
       </div>
@@ -2281,6 +2282,7 @@ export default function App() {
   const [userId, setUserId] = useState(() => readSession());
   const syncerRef = useRef(createSyncer());
   const [pendingChatContext, setPendingChatContext] = useState(null);
+  const bootIdRef = useRef(null); const [newVersion, setNewVersion] = useState(false);
   const [page, setPage] = useState("home"); const [param, setParam] = useState(null);
   const [dismissed, setDismissed] = useState([]);
   const [toast, setToast] = useState("");
@@ -2297,7 +2299,10 @@ export default function App() {
   // Fast, cheap poll while the app is open and in the foreground: check the version every ~5s, pull only when it changed and nothing local is unsaved.
   // iOS home-screen PWAs sometimes misreport document.visibilityState even while genuinely on screen, so this check
   // doesn't gate on visibility — the cost of an occasional background fetch is negligible for a prototype.
-  useEffect(() => { if (!loaded) return; const id = setInterval(async () => { if (!window.storage?.getMeta || syncerRef.current.busy || syncerRef.current.pending.length) return; const v = await window.storage.getMeta(STORAGE_KEY); if (v && v !== syncerRef.current.version) pullState(false); }, 5000); return () => clearInterval(id); }, [loaded]);
+  useEffect(() => { if (!loaded) return; const id = setInterval(async () => {
+    if (window.storage?.getBootId) { const b = await window.storage.getBootId(); if (b) { if (bootIdRef.current === null) bootIdRef.current = b; else if (b !== bootIdRef.current) setNewVersion(true); } }
+    if (!window.storage?.getMeta || syncerRef.current.busy || syncerRef.current.pending.length) return; const v = await window.storage.getMeta(STORAGE_KEY); if (v && v !== syncerRef.current.version) pullState(false);
+  }, 5000); return () => clearInterval(id); }, [loaded]);
   useEffect(() => { const h = () => { if (document.visibilityState === "visible") pullState(false); }; document.addEventListener("visibilitychange", h); window.addEventListener("focus", h); window.addEventListener("pageshow", h); return () => { document.removeEventListener("visibilitychange", h); window.removeEventListener("focus", h); window.removeEventListener("pageshow", h); }; }, []);
   useEffect(() => { (async () => { try { if (window.storage) { const r = await window.storage.get(THEME_KEY); if (r?.value === "dark") { applyTheme(true); setDark(true); } } } catch (e) {} })(); }, []);
   const toggleTheme = () => { const d = !dark; applyTheme(d); setDark(d); (async () => { try { if (window.storage) await window.storage.set(THEME_KEY, d ? "dark" : "light"); } catch (e) {} })(); };
@@ -2334,6 +2339,7 @@ export default function App() {
     <Phone overlay={<MBlocking s={s} set={set} user={user} />} nav={withNav} page={navPage} onNav={k => go(k)} badges={{ chat: unreadMsgs }} fab={page === "home" ? { scan: () => go("scan"), add: () => go("search") } : null} dark={dark} onTheme={toggleTheme}>
       {toast && <div className="absolute left-4 right-4 rounded-xl px-3.5 py-2.5 text-sm" style={{ top: 44, zIndex: 60, background: C.ink, color: C.onDark, boxShadow: "0 8px 20px rgba(0,0,0,.25)" }}>{toast}</div>}
       {!online && <div className="absolute left-0 right-0 flex items-center gap-2 px-4 py-2 text-xs font-semibold" style={{ top: 28, zIndex: 55, background: C.warn, color: "#fff" }}><Ic i={AlertTriangle} s={14} mr={0} /><span className="flex-1">No connection — working offline. {pendingSync ? `${pendingSync} change${pendingSync === 1 ? "" : "s"} waiting to sync.` : "Changes will sync when you're back online."} Others can't see what you're working on.</span></div>}
+      {newVersion && <div className="absolute left-0 right-0 flex items-center gap-2 px-4 py-2 text-xs font-semibold" style={{ top: !online ? 54 : 28, zIndex: 56, background: C.accent, color: C.onDark }}><span className="flex-1">A new version is live</span><button onClick={() => location.reload()} className="px-2.5 py-1 rounded-lg" style={{ background: C.onDark, color: C.accent }}>Refresh</button></div>}
       <Modal open={!!pendingStart}>
         <p className="font-semibold mb-1">Someone is already on this product</p>
         <p className="text-sm mb-4" style={{ color: C.muted }}>{pendingStart && s.users.find(u => u.id === pendingStart.collision.controllerId)?.name} has an open inspection ({pendingStart && STATUS[pendingStart.collision.status][0]}). Continue anyway?</p>
