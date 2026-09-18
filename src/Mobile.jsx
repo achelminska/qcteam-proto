@@ -1687,6 +1687,33 @@ function MBlockedInfo({ s, set, user, go, itemKey }) {
   );
 }
 
+// Focused info screen for one dock pallet: what matters (location, priority, arrival, recent-rejection history), with
+// inspecting as an explicit next step rather than an automatic one.
+function MPalletInfo({ s, user, go, hu }) {
+  const r = dockRowsLive(s).find(x => samePallet(x.hu, hu));
+  if (!r) return <div><TopBar title="Pallet" onBack={() => go("home")} /><div className="px-4 pt-10 text-center"><p className="text-sm" style={{ color: C.muted }}>Not found — it may already be inspected or off the sheet.</p></div></div>;
+  const product = s.products.find(p => p.articleId === r.article);
+  const hist = recentProblemsFor(s, product?.id);
+  const fields = [["Article", r.article], ["Location", r.location], ["Priority", r.priority], ["Transporter", r.transporter], ["Arrived", [r.arrived, r.arrivedTime].filter(Boolean).join(" ")], r.po && ["PO", r.po], ["Pallet", `…${r.hu.slice(-8)}`]].filter(x => x && x[1]);
+  return (
+    <div className="pb-4">
+      <TopBar title={r.name || product?.name || r.article} onBack={() => go("home")} />
+      <div className="px-4 pt-3">
+        {r.blocking && <div className="rounded-xl px-3 py-2 mb-3 text-xs font-semibold" style={{ background: C.badBg, color: C.bad }}>Needed today — picking is waiting for this pallet.</div>}
+        <div className="rounded-2xl p-3.5 mb-3" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
+          {fields.map(([k, v]) => <div key={k} className="flex justify-between gap-3 py-1.5 text-sm" style={{ borderBottom: `1px solid ${C.line}` }}><span style={{ color: C.muted }}>{k}</span><span className="font-medium text-right">{v}</span></div>)}
+        </div>
+        {hist.count > 0 && <div className="rounded-xl px-3 py-2.5 mb-3" style={{ background: C.badBg }}>
+          <p className="text-xs font-semibold mb-0.5" style={{ color: C.bad }}>{hist.count} rejected recently</p>
+          <p className="text-xs" style={{ color: C.bad }}>{hist.problems.slice(0, 3).map(p => `${p.name} ×${p.count}`).join(", ")}{hist.problems.length > 3 ? "…" : ""} · last {dayLabel(hist.lastAt)}</p>
+        </div>}
+        <button onClick={() => go("scan", r.hu)} className="w-full py-3 rounded-xl text-sm font-medium" style={{ background: C.ink, color: C.onDark }}>Inspect this pallet</button>
+        {product && <button onClick={() => go("catalog", product.id)} className="w-full py-2.5 text-sm mt-2" style={{ color: C.accent }}>Open product profile</button>}
+      </div>
+    </div>
+  );
+}
+
 function MPriorityList({ s, user, go, priority }) {
   const rows = dockRowsLive(s).filter(r => priority === "Skippable" ? r.skippable : r.priority === priority);
   const groups = {}; rows.forEach(r => { const k = r.article || r.hu; (groups[k] = groups[k] || { rows: [] }).rows.push(r); });
@@ -1702,7 +1729,7 @@ function MPriorityList({ s, user, go, priority }) {
         <p className="text-xs mb-3" style={{ color: C.muted }}>{rows.length} pallet{rows.length === 1 ? "" : "s"} · {items.length} SKU{items.length === 1 ? "" : "s"}. Ones with a recent rejection are listed first. Tap to inspect.</p>
         {items.length === 0 && <p className="text-sm py-8 text-center" style={{ color: C.muted }}>Nothing at this priority right now.</p>}
         {items.map(it => (
-          <button key={it.key} onClick={() => it.count > 1 && it.productId ? go("catalog", it.productId) : go("scan", it.hu)} className="w-full text-left py-3 active:opacity-60" style={{ borderBottom: `1px solid ${C.line}` }}>
+          <button key={it.key} onClick={() => it.count > 1 && it.productId ? go("catalog", it.productId) : go("palletInfo", it.hu)} className="w-full text-left py-3 active:opacity-60" style={{ borderBottom: `1px solid ${C.line}` }}>
             <div className="flex items-center gap-2"><p className="text-sm font-medium flex-1 truncate">{it.name}</p>{it.count > 1 && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ background: C.accentSoft, color: C.accent }}>×{it.count} on docks</span>}{it.hist.count > 0 && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ background: C.badBg, color: C.bad }}>{it.hist.count} rejected recently</span>}</div>
             <p className="text-xs mt-0.5" style={{ color: C.muted }}>{it.location} · {it.transporter} · {it.arrivedTime}{it.blocking ? " · needed today" : ""}</p>
             {it.hist.count > 0 && <p className="text-xs mt-1" style={{ color: C.bad }}>Was rejected for: {it.hist.problems.slice(0, 3).map(p => `${p.name} ×${p.count}`).join(", ")}{it.hist.problems.length > 3 ? "…" : ""} · last {dayLabel(it.hist.lastAt)}</p>}
@@ -1819,7 +1846,7 @@ function MProductCard({ s, user, product, onBack, onStart, go, setState, notify,
         <div className="flex gap-3 items-start mb-3">{asPhotoList(product.photos).length ? <img src={asPhotoList(product.photos)[0].dataUrl} alt="" className="w-20 h-20 rounded-xl object-cover flex-shrink-0" /> : <div className="w-20 h-20 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: C.bg, color: C.muted }}><Ic i={ImageIcon} s={28} mr={0} /></div>}<div className="min-w-0"><p className="font-semibold leading-tight">{product.name}</p><p className="text-xs mt-1" style={{ color: C.muted }}>ID {product.articleId || "—"} · {catPath(product.categoryId)}{product.isBio && " · bio"}</p><p className="text-xs" style={{ color: C.muted }}>{product.cusPerTu || "?"} CU/TU · {product.weightPerCu || "?"} g/CU{product.barcode && ` · EAN ${product.barcode}`}</p>{product.consumerAppUrl && <a href={product.consumerAppUrl} className="text-xs underline" style={{ color: C.accent }}>open in the consumer app ↗</a>}<p className="text-[10px] mt-1" style={{ color: C.muted }}>allowed: {allowedTypes(s, product).map(t => t.name).join(", ") || "none"}</p></div></div>
         {asPhotoList(product.photos).length > 1 && <div className="mb-3"><PhotoStrip photos={product.photos} size={56} /></div>}
         {effectiveAttributes(s, product).length > 0 && <div className="flex flex-wrap gap-1.5 mb-3">{effectiveAttributes(s, product).map(a => <span key={a.dictionaryId} className="text-xs px-2.5 py-1 rounded-full" style={{ background: C.bg, border: `1px solid ${C.line}` }}><span style={{ color: C.muted }}>{a.list}:</span> <b>{a.value}</b></span>)}</div>}
-        <DockPresence product={product} onPickPallet={hu => go("scan", hu)} />
+        <DockPresence product={product} onPickPallet={hu => go("palletInfo", hu)} />
         {anns.map(a => <div key={a.id} className="rounded-xl px-3.5 py-2 mb-2 text-sm" style={{ background: C.surface, border: `1px solid ${C.line}`, borderLeft: `3px solid ${C.accent}` }}><b>{a.title}</b><span style={{ color: C.muted }}> — {a.body}</span></div>)}
         {ref && <button onClick={() => go("inspection", ref.id)} className="w-full rounded-xl px-3 py-2 mb-2 text-sm text-left" style={{ background: C.okBg, color: C.ok }}><Ic i={Star} />View reference inspection</button>}
         <p className="label-sm mb-1" style={{ color: C.muted }}>Specs</p>
@@ -2149,7 +2176,7 @@ function MChat({ s, set, user, go, initialContext, clearInitialContext }) {
   const [pending, setPending] = useState({ attachments: [], contexts: initialContext ? [initialContext] : [] });
   useEffect(() => { if (initialContext) { setPending(p => ({ ...p, contexts: [...p.contexts.filter(c => !(c.kind === initialContext.kind && c.id === initialContext.id)), initialContext] })); clearInitialContext && clearInitialContext(); } }, [initialContext]);
   const send = () => { if ((!text.trim() && !pending.attachments.length && !pending.contexts.length) || !conv) return; set(x => ({ ...x, conversations: x.conversations.map(c => c.id === conv.id ? { ...c, messages: [...(c.messages || []), { id: uid(), senderId: user.id, text: text.trim(), at: nowISO(), attachments: pending.attachments, contexts: pending.contexts, productId: pending.contexts.find(k => k.kind === "product")?.id || null }], lastRead: { ...(c.lastRead || {}), [user.id]: nowISO() } } : c) })); setText(""); setPending({ attachments: [], contexts: [] }); };
-  const openCtx = c => { if (c.kind === "product") go("catalog", c.id); else if (c.kind === "inspection") go("inspection", c.id); else if (c.kind === "pallet") go("scan", c.id); else if (c.kind === "flag") go(user.role === "Head" ? "head-flags" : "flags"); };
+  const openCtx = c => { if (c.kind === "product") go("catalog", c.id); else if (c.kind === "inspection") go("inspection", c.id); else if (c.kind === "pallet") go("palletInfo", c.id); else if (c.kind === "flag") go(user.role === "Head" ? "head-flags" : "flags"); };
   const create = () => { if (!pick.length) return; const isGroup = pick.length > 1 || !!gname.trim(); if (!isGroup) { const ex = s.conversations.find(c => !c.isGroup && c.participantIds.length === 2 && c.participantIds.includes(user.id) && c.participantIds.includes(pick[0])); if (ex) { setOpen(ex.id); markRead(ex.id); setCreating(false); setPick([]); return; } } const id = uid(); set(x => ({ ...x, conversations: [...x.conversations, { id, isGroup, name: isGroup ? (gname.trim() || null) : null, participantIds: [user.id, ...pick], createdBy: user.id, createdAt: nowISO(), messages: [], lastRead: { [user.id]: nowISO() }, isActive: true }] })); setOpen(id); setCreating(false); setPick([]); setGname(""); };
   if (conv) return (
     <div className="flex flex-col" style={{ height: "100%" }}>
@@ -2383,6 +2410,7 @@ export default function App() {
       {page === "history" && <MHistory s={s} user={user} go={go} />}
       {page === "priority" && <MPriorityList s={s} user={user} go={go} priority={param} />}
       {page === "blockedInfo" && <MBlockedInfo s={s} set={set} user={user} go={go} itemKey={param} />}
+      {page === "palletInfo" && <MPalletInfo s={s} user={user} go={go} hu={param} />}
       {page === "catalog" && <MCatalog key={param || "catalog"} s={s} user={user} go={go} onStart={(pid, palletNo, typeId) => startInspection(pid, palletNo, false, typeId)} setState={set} notify={notify} onVisual={visualInspection} preset={param} />}
       {page === "chat" && <MChat s={s} set={set} user={user} go={go} initialContext={pendingChatContext} clearInitialContext={() => setPendingChatContext(null)} />}
       {page === "menu" && <MMenu s={s} set={set} user={user} go={go} users={s.users} setUser={id => { setUserId(id); go("home"); }} onLogout={() => { writeSession(null); setUserId(null); }} dark={dark} onTheme={toggleTheme} simOffline={simOffline} onSimOffline={() => setSimOffline(o => !o)} onSync={() => pullState(true)} syncMsg={syncMsg} />}
