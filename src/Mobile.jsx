@@ -141,11 +141,8 @@ const problemsFor = (s, scope, suppressed) => {
 const scopeTag = (p, s) => p.productId ? `product: ${s.products.find(x => x.id === p.productId)?.name ?? "?"}` : p.categoryId ? `kat. ${s.categories.find(x => x.id === p.categoryId)?.name ?? "?"}` : null;
 // Required inspection level: Full (raport) < Visual (visual is enough) < Skip (can be skipped). Product → category → system setting.
 // Inspection types are Head-defined (InspectionTypes). Behaviour comes from flags, not from the name.
-const SEED_TYPES = () => [
-  { id: "type-full", name: "Full", color: "#1F5C3E", sort: 0, autoAccept: false, countsAsInspection: true, reason: "none", allowedByDefault: true, description: "Report with sample, measurements and problems." },
-  { id: "type-visual", name: "Visual", color: "#3A7BD5", sort: 1, autoAccept: true, countsAsInspection: true, reason: "none", allowedByDefault: true, description: "Pallet, packing date, photos — accepted on finish." },
-  { id: "type-skip", name: "Skip", color: "#8E9C93", sort: 2, autoAccept: true, countsAsInspection: false, reason: "optional", allowedByDefault: false, description: "Accepted without looking — leaves a trace only." },
-];
+// No default inspection types: the Head defines them (Forms → + new type). Legacy ids below only keep old records readable.
+const SEED_TYPES = () => [];
 const SKIP_REASONS = ["no time", "stable product", "same delivery as earlier", "checked at the supplier"];
 const typesOf = s => [...(s.inspectionTypes || [])].sort((a, b) => a.sort - b.sort);
 const typeById = (s, id) => (s.inspectionTypes || []).find(t => t.id === id) || null;
@@ -1279,15 +1276,18 @@ const normalize = raw => {
   { const seed = byId(SEED_USERS()); const placeholders = { "u-head": "Marta K.", "u-anna": "Anna K.", "u-jakub": "Jakub M." }; s.users = (s.users || []).map(u => placeholders[u.id] && u.name === placeholders[u.id] ? { ...u, ...seed[u.id] } : u); }
   s.categoryRules = Array.isArray(s.categoryRules) ? s.categoryRules : [];
   s.settings = settingsOf(s);
-  s.inspectionTypes = Array.isArray(s.inspectionTypes) && s.inspectionTypes.length ? s.inspectionTypes : SEED_TYPES();
+  s.inspectionTypes = Array.isArray(s.inspectionTypes) ? s.inspectionTypes : [];
+  // Migration: drop the previously seeded types (and their auto-generated templates) when nothing uses them — the Head defines types from scratch.
+  { const used = new Set((s.inspections || []).map(i => i.typeId || legacyTypeId(i.type)));
+    const seededTpl = t => (t.typeId === "type-visual" || t.typeId === "type-skip") && t.scope === "Global" && (t.modules || []).length === 1 && ["Visual check", "Skip"].includes(t.modules[0]?.name) && (t.problemRefs || []).length === 0;
+    s.templates = (s.templates || []).filter(t => !seededTpl(t));
+    s.inspectionTypes = s.inspectionTypes.filter(t => !(["type-visual", "type-skip"].includes(t.id) && !used.has(t.id)) && !(t.id === "type-full" && !used.has(t.id) && !(s.templates || []).some(x => (x.typeId || "type-full") === "type-full"))); }
   s.templates = (s.templates || []).map(t => ({ ...t, typeId: t.typeId || "type-full" }));
   s.inspections = (s.inspections || []).map(i => ({ ...i, typeId: i.typeId || legacyTypeId(i.type) }));
   const fromEnum = lvl => lvl === "Full" ? ["type-full"] : lvl === "Visual" ? ["type-full", "type-visual"] : lvl === "Skip" ? ["type-full", "type-visual", "type-skip"] : null;
   s.categories = s.categories.map(c => c.inspectionPolicy && !Array.isArray(c.allowedTypeIds) ? { ...c, allowedTypeIds: fromEnum(c.inspectionPolicy), inspectionPolicy: undefined } : c);
   s.products = s.products.map(p => p.inspectionPolicy && !Array.isArray(p.allowedTypeIds) ? { ...p, allowedTypeIds: fromEnum(p.inspectionPolicy), inspectionPolicy: undefined } : p);
-  const mk = (typeId, modName, fields) => { const mid = uid(); return { ...emptyTemplate("Global", { typeId }), modules: [{ id: mid, name: modName, sort: 0 }], fields: fields.map((f, i) => ({ id: uid(), moduleId: mid, sort: i, ...f })) }; };
-  if (typeById(s, "type-visual") && !s.templates.some(t => t.typeId === "type-visual" && t.scope === "Global")) s.templates.push(mk("type-visual", "Visual check", [{ type: "ProductInfo", label: "Product info", required: true }, { type: "Pallet", label: "Pallet numbers", required: true }, { type: "DateCode", label: "Packing date", required: false }, { type: "Photos", label: "Module photos", required: false }]));
-  if (typeById(s, "type-skip") && !s.templates.some(t => t.typeId === "type-skip" && t.scope === "Global")) s.templates.push(mk("type-skip", "Skip", [{ type: "ProductInfo", label: "Product info", required: true }, { type: "Pallet", label: "Pallet numbers", required: true }]));
+
   s.categories = (s.categories || []).map(c => ({ ...c, specs: c.specs || [], varieties: c.varieties || [] }));
   s.problems = (s.problems || []).map(p => ({ ...p, categoryId: p.categoryId || null, productId: p.productId || null }));
   s.categories = s.categories.map(c => ({ ...c, hiddenProblemIds: c.hiddenProblemIds || [] }));
@@ -1651,7 +1651,7 @@ function MProductCard({ s, user, product, onBack, onStart, go, setState, notify,
         {last3.length === 0 ? <p className="text-xs" style={{ color: C.muted }}>none yet</p> : last3.map(i => <button key={i.id} onClick={() => go("inspection", i.id)} className="w-full flex items-center gap-2 py-2 text-left" style={{ borderBottom: `1px solid ${C.line}` }}><span className="text-sm flex-1" style={{ color: C.muted }}>{dayLabel(i.completedAt)}, {hhmm(i.completedAt)}</span><ResultPill i={i} s={s} /></button>)}
         <div className="mt-4 flex flex-col gap-2">
           {allowedTypes(s, product).map((t, idx) => <button key={t.id} onClick={() => onStart(t.id)} className="w-full py-3 rounded-xl text-sm font-medium inline-flex items-center justify-center gap-2" style={idx === 0 ? { background: C.ink, color: C.onDark } : { background: C.surface, color: C.ink, border: `1px solid ${C.line}` }}><span className="inline-block rounded-full" style={{ width: 8, height: 8, background: t.color }} />{t.name} inspection</button>)}
-          {allowedTypes(s, product).length === 0 && <p className="text-[11px] text-center" style={{ color: C.bad }}>No inspection type is allowed for this product ({effectivePolicy(s, product).source}).</p>}
+          {allowedTypes(s, product).length === 0 && <p className="text-[11px] text-center" style={{ color: C.bad }}>{typesOf(s).length ? `No inspection type is allowed for this product (${effectivePolicy(s, product).source}).` : "The Head hasn't defined any inspection types yet (portal → Forms)."}</p>}
           <button onClick={() => setAskOpen(o => !o)} className="w-full py-2.5 rounded-xl text-sm" style={{ background: C.accentSoft, color: C.accent }}><Ic i={MessageSquare} />Ask the Head about this product</button>
           {askOpen && <div className="flex gap-2"><input value={ask} onChange={e => setAsk(e.target.value)} onKeyDown={e => e.key === "Enter" && askHead()} placeholder="e.g. is this calibre OK?" className="flex-1 text-sm rounded-xl px-3 py-2 outline-none" style={inp} /><button onClick={askHead} className="px-3 rounded-xl text-sm" style={{ background: C.accent, color: C.onDark }}>Send</button></div>}
           <button onClick={() => setFlagOpen(o => !o)} className="w-full py-2.5 rounded-xl text-sm" style={{ background: C.warnBg, color: C.warn }}><Ic i={Flag} />Something's off in the profile</button>
@@ -1748,7 +1748,7 @@ function MScan({ s, user, go, onStart, onVisual, onSkip, setState, notify, prese
   const Actions = () => { const known = wmsProduct || (completed && s.products.find(p => p.id === completed.productId)); const types = known ? allowedTypes(s, known) : typesOf(s); const pol = known ? effectivePolicy(s, known) : null; return (
     <div className="flex flex-col gap-2 mt-1">
       {types.map((t, idx) => <button key={t.id} onClick={() => setStarting({ kind: t.id })} className="w-full py-3 rounded-xl text-sm font-medium inline-flex items-center justify-center gap-2" style={idx === 0 ? { background: C.ink, color: C.onDark } : { background: C.surface, color: C.ink, border: `1px solid ${C.line}` }}><span className="inline-block rounded-full" style={{ width: 8, height: 8, background: t.color }} />{t.name} inspection</button>)}
-      {known && types.length === 0 && <p className="text-[11px] text-center" style={{ color: C.bad }}>No inspection type is allowed for this product ({pol.source}).</p>}
+      {known && types.length === 0 && <p className="text-[11px] text-center" style={{ color: C.bad }}>{typesOf(s).length ? `No inspection type is allowed for this product (${pol.source}).` : "The Head hasn't defined any inspection types yet (portal → Forms)."}</p>}
       {!known && <p className="text-[11px] text-center" style={{ color: C.muted }}>Which types are allowed depends on the product you pick.</p>}
     </div>
   ); };
