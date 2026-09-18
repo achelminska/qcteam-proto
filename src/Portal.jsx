@@ -2528,7 +2528,7 @@ function UsersPage({ s, set }) {
 }
 
 // ═══════════════════ APLIKACJA ═══════════════════
-const SEED_USERS = () => [{ id: "u-head", name: "Marta K.", email: "marta@qc.local", role: "Head", active: true }, { id: "u-anna", name: "Anna K.", email: "anna@qc.local", role: "Controller", active: true }, { id: "u-jakub", name: "Jakub M.", email: "jakub@qc.local", role: "Controller", active: true }];
+const SEED_USERS = () => [{ id: "u-head", name: "Aleksandra Chełmińska", firstName: "Aleksandra", lastName: "Chełmińska", email: "aleksandra.chelminska@qc.local", role: "Head", active: true }, { id: "u-anna", name: "Damian Mrówka", firstName: "Damian", lastName: "Mrówka", email: "damian.mrowka@qc.local", role: "Controller", active: true }, { id: "u-jakub", name: "Snizhana Myshkina", firstName: "Snizhana", lastName: "Myshkina", email: "snizhana.myshkina@qc.local", role: "Controller", active: true }];
 const EMPTY = { categories: [], problems: [], products: [], templates: [], suppliers: [], countries: [], users: SEED_USERS(), inspections: [], flags: [], notifications: [], announcements: [], conversations: [], dictionaries: [], inspectionTypes: SEED_TYPES(), settings: { defaultPolicy: "Visual", skipReasonRequired: false } };
 
 // Migration of older exports: product.suppliers as names → global list + supplierIds
@@ -2542,6 +2542,7 @@ const normalize = raw => {
   s.announcements = (Array.isArray(s.announcements) ? s.announcements : []).map(a => a.type ? (({ type, ...r }) => ({ ...r, isBlocking: type === "Blocking", showOnDashboard: type === "General", productId: type === "Product" ? r.productId : null }))(a) : a);
   s.conversations = Array.isArray(s.conversations) ? s.conversations : [];
   s.integrations = Array.isArray(s.integrations) ? s.integrations : [];
+  { const seed = byId(SEED_USERS()); const placeholders = { "u-head": "Marta K.", "u-anna": "Anna K.", "u-jakub": "Jakub M." }; s.users = (s.users || []).map(u => placeholders[u.id] && u.name === placeholders[u.id] ? { ...u, ...seed[u.id] } : u); }
   s.categoryRules = Array.isArray(s.categoryRules) ? s.categoryRules : [];
   s.settings = settingsOf(s);
   s.inspectionTypes = Array.isArray(s.inspectionTypes) && s.inspectionTypes.length ? s.inspectionTypes : SEED_TYPES();
