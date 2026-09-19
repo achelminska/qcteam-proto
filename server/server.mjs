@@ -43,13 +43,23 @@ const applyPushToState = (purpose, sheet) => {
     const raw = store[STATE_KEY]; if (!raw) return " (no app state yet)";
     const st = JSON.parse(raw); const P = purpose === "dock" ? "Dock" : purpose === "blocked" ? "Blocked" : "Products";
     const targets = (st.integrations || []).filter(i => i.purpose === P && i.pushMode); if (!targets.length) return ` (no ${P} integration in push mode)`;
-    const tg = targetsFor(P); const j = detectTable({ header: sheet.header, rows: sheet.rows });
+    const tg = targetsFor(P); let j = detectTable({ header: sheet.header, rows: sheet.rows }); let note = "";
     st.integrations = st.integrations.map(i => { if (!targets.some(t => t.id === i.id)) return i;
-      const mappings = i.mappings?.length && (i.header || []).join("|") === j.header.join("|") ? i.mappings : suggestMappings(j.header, j.rows, tg);
+      const needed = (i.mappings || []).filter(m => m.target && m.target !== "ignore").map(m => m.source);
+      let missing = needed.filter(c => !j.header.includes(c));
+      // The header row is auto-detected. If the pick misses columns the Head mapped, the detector probably grabbed a data row
+      // (side-panel text like "SKU on dock:" can out-score the real header) — try the first rows as header candidates instead.
+      if (needed.length && missing.length) { const all = [sheet.header, ...sheet.rows]; for (let r = 0; r < Math.min(10, all.length); r++) { const h = all[r].map(c => String(c ?? "").trim()); let w = h.findIndex(c => !c); if (w < 0) w = h.length; const hdr = h.slice(0, w); if (!needed.every(c => hdr.includes(c))) continue; j = { header: hdr, rows: all.slice(r + 1).map(x => x.slice(0, w).map(c => String(c ?? "").trim())).filter(x => x.some(Boolean)) }; missing = []; note += ` (header found on row ${r + 1})`; break; } }
+      // Still missing → the sheet's columns really changed (or this push is garbage mid-recalculation). Never wipe the dashboard
+      // with a re-guessed mapping: keep the last good rows + the Head's mapping and say so; the Head re-maps in Integrations.
+      if (needed.length && missing.length) { note += ` (kept last good data: ${missing.length} mapped column(s) missing — ${missing.slice(0, 3).join(", ")})`; return { ...i, rawHeader: sheet.header, rawRows: sheet.rows, lastPushAt: sheet.receivedAt, needsRemap: true, liveStatus: `Sheet columns changed — ${missing.length} mapped column(s) missing (${missing.slice(0, 3).join(", ")}). Keeping the last good data from ${i.lastSyncAt ? new Date(i.lastSyncAt).toLocaleTimeString("en-GB") : "before"}; re-map here to apply new pushes.` }; }
+      const mappings = i.mappings?.length && (i.header || []).join("|") === j.header.join("|") ? i.mappings : (needed.length ? i.mappings : suggestMappings(j.header, j.rows, tg));
       const rows = applyMapping({ ...i, mappings }, j.header, j.rows);
-      return { ...i, header: j.header, sample: j.rows, rawHeader: sheet.header, rawRows: sheet.rows, mappings, rows: P !== "Products" ? rows : i.rows, summary: P !== "Products" ? extractSummary(sheet.header, sheet.rows) : i.summary, lastSyncAt: new Date().toISOString(), lastPushAt: sheet.receivedAt, liveStatus: `OK — ${j.rows.length} rows, pushed by the sheet at ${new Date(sheet.receivedAt).toLocaleTimeString("en-GB")} (applied on the server)` }; });
+      return { ...i, header: j.header, sample: j.rows, rawHeader: sheet.header, rawRows: sheet.rows, mappings, needsRemap: false, rows: P !== "Products" ? rows : i.rows, summary: P !== "Products" ? extractSummary(sheet.header, sheet.rows) : i.summary, lastSyncAt: new Date().toISOString(), lastPushAt: sheet.receivedAt, liveStatus: `OK — ${j.rows.length} rows, pushed by the sheet at ${new Date(sheet.receivedAt).toLocaleTimeString("en-GB")} (applied on the server)` }; });
     store[STATE_KEY] = JSON.stringify(st); (store.__meta = store.__meta || {})[STATE_KEY] = Date.now();
-    return " → applied to app state";
+    // Push log: enough to explain "the tiles vanished at 03:12" after the fact. /sheet/<purpose>/log returns the last 60 entries.
+    try { const it = st.integrations.find(i => targets.some(t => t.id === i.id)); const hist = {}; (it?.rows || []).forEach(r => { const k = r.priority || (r.status ? `status:${r.status}` : "—"); hist[k] = (hist[k] || 0) + 1; }); const errs = (it?.rows || []).filter(r => r._errors?.length).length; (store.__pushlog = store.__pushlog || {})[purpose] = [...(store.__pushlog[purpose] || []).slice(-59), { at: sheet.receivedAt, raw: sheet.rows.length, table: j.rows.length, header: j.header.slice(0, 14), errors: errs, hist, note: note.trim() }]; } catch {}
+    return " → applied to app state" + note;
   } catch (e) { return ` (apply failed: ${e.message})`; }
 };
 // Snapshots of the app state: at most one per 10 minutes on change, last 48 kept. Restorable from the portal (Data → Backups).
@@ -81,6 +91,7 @@ const handler = async (req, res) => {
         // the server on the last non-empty push and the phones kept showing pallets that were long gone.
         else if (Array.isArray(j.rows) && j.rows.length === 0 && !Array.isArray(j.header)) { const prev = store.__sheets?.[purpose]?.header; j = { header: prev && prev.length ? prev : Object.values(pretty), rows: [], from: j.from || "priority-bot payload (empty)" }; }
         if (!Array.isArray(j.header) || !Array.isArray(j.rows)) throw new Error("expected {header, rows}"); store.__sheets = store.__sheets || {}; store.__sheets[purpose] = { header: j.header, rows: j.rows, receivedAt: new Date().toISOString(), from: j.from || "" }; const applied = applyPushToState(purpose, store.__sheets[purpose]); save(); if (purpose === "dock") checkDeadlines("after dock push"); console.log(`[sheet] ${purpose}: ${j.rows.length} rows pushed at ${new Date().toLocaleTimeString()}${applied}`); res.writeHead(200, cors).end(JSON.stringify({ ok: true, rows: j.rows.length })); } catch (e) { res.writeHead(400, cors).end(String(e.message || e)); } }); return; }
+    if (req.method === "GET" && purpose.endsWith("/log")) { res.writeHead(200, { ...cors, "Content-Type": "application/json" }); return res.end(JSON.stringify(store.__pushlog?.[purpose.replace(/\/log$/, "")] || [])); }
     if (req.method === "GET") { const sh = store.__sheets?.[purpose]; res.writeHead(sh ? 200 : 404, { ...cors, "Content-Type": "application/json" }); return res.end(sh ? JSON.stringify(sh) : ""); }
   }
   // Cheap poll target: just the version, so the app can check "did anything change?" every few seconds without pulling the whole state.

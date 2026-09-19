@@ -535,7 +535,7 @@ const suggestTransform = (target, sample) => target === "deadline" ? "date_iso" 
 const detectTable = ({ header, rows }) => {
   const all = [header, ...rows];
   let best = 0, bestScore = -1;
-  all.slice(0, 10).forEach((r, i) => { const cells = r.map(c => String(c).trim()); const filled = cells.filter(Boolean).length; const bonus = cells.some(c => /handling unit|uom|item name|article|sku|ean/i.test(c)) ? 100 : 0; const score = filled + bonus; if (score > bestScore) { bestScore = score; best = i; } });
+  all.slice(0, 10).forEach((r, i) => { const cells = r.map(c => String(c).trim()); const filled = cells.filter(Boolean).length; const bonus = cells.some(c => /handling unit|uom|item name|article|sku|ean/i.test(c) && !/:\s*$/.test(c)) ? 100 : 0; /* side-panel labels ("SKU on dock:") must not make a data row look like the header */ const score = filled + bonus; if (score > bestScore) { bestScore = score; best = i; } });
   const h = all[best].map(c => String(c).trim()); let width = h.findIndex(c => !c); if (width < 0) width = h.length; // the data table is the contiguous run of header cells from the left; side panels come after a gap
   const hdr = h.slice(0, width).map((c, i) => c || `col${i + 1}`);
   const body = all.slice(best + 1).map(r => r.slice(0, width).map(c => String(c ?? "").trim())).filter(r => r.some(Boolean));
@@ -633,9 +633,14 @@ const refreshPushedIntegrations = async (getState, set, force = false) => {
       const r = await fetch(`${window.__qcServer}/sheet/${target.purpose.toLowerCase()}`, { cache: "no-store" }); if (r.status !== 200) continue;
       const raw = await r.json(); if (!force && target.lastPushAt && raw.receivedAt === target.lastPushAt) continue;
       const tg = targetsFor(target.purpose); let j = detectTable({ header: raw.header, rows: raw.rows });
-      const mappings = target.mappings.length && target.header.join("|") === j.header.join("|") ? target.mappings : suggestMappings(j.header, j.rows, tg);
+      // Same guard as the server (applyPushToState): if the auto-detected header lacks columns the Head mapped, try other rows
+      // as the header; if still missing, keep the last good rows + mapping and flag it instead of re-guessing and wiping the dashboard.
+      const needed = (target.mappings || []).filter(m => m.target && m.target !== "ignore").map(m => m.source); let missing = needed.filter(c => !j.header.includes(c));
+      if (needed.length && missing.length) { const all = [raw.header, ...raw.rows]; for (let r = 0; r < Math.min(10, all.length); r++) { const h = all[r].map(c => String(c ?? "").trim()); let w = h.findIndex(c => !c); if (w < 0) w = h.length; const hdr = h.slice(0, w); if (!needed.every(c => hdr.includes(c))) continue; j = { header: hdr, rows: all.slice(r + 1).map(x => x.slice(0, w).map(c => String(c ?? "").trim())).filter(x => x.some(Boolean)) }; missing = []; break; } }
+      if (needed.length && missing.length) { set(x => ({ ...x, integrations: x.integrations.map(i => i.id === target.id ? { ...i, rawHeader: raw.header, rawRows: raw.rows, lastPushAt: raw.receivedAt, needsRemap: true, liveStatus: `Sheet columns changed — ${missing.length} mapped column(s) missing (${missing.slice(0, 3).join(", ")}). Keeping the last good data; re-map here to apply new pushes.` } : i) })); continue; }
+      const mappings = target.mappings.length && target.header.join("|") === j.header.join("|") ? target.mappings : (needed.length ? target.mappings : suggestMappings(j.header, j.rows, tg));
       const next = { ...target, header: j.header, sample: j.rows, mappings }; const rows = applyMapping(next, j.header, j.rows);
-      set(x => ({ ...x, integrations: x.integrations.map(i => i.id === target.id ? { ...i, header: j.header, sample: j.rows, rawHeader: raw.header, rawRows: raw.rows, mappings, rows: target.purpose !== "Products" ? rows : i.rows, summary: target.purpose !== "Products" ? extractSummary(raw.header, raw.rows) : i.summary, lastSyncAt: nowISO(), lastPushAt: raw.receivedAt, liveStatus: `OK — ${j.rows.length} rows, pushed by the sheet at ${new Date(raw.receivedAt).toLocaleTimeString("en-GB")}` } : i) }));
+      set(x => ({ ...x, integrations: x.integrations.map(i => i.id === target.id ? { ...i, header: j.header, sample: j.rows, rawHeader: raw.header, rawRows: raw.rows, mappings, needsRemap: false, rows: target.purpose !== "Products" ? rows : i.rows, summary: target.purpose !== "Products" ? extractSummary(raw.header, raw.rows) : i.summary, lastSyncAt: nowISO(), lastPushAt: raw.receivedAt, liveStatus: `OK — ${j.rows.length} rows, pushed by the sheet at ${new Date(raw.receivedAt).toLocaleTimeString("en-GB")}` } : i) }));
     } catch (e) { /* offline or server down — keep what we have */ }
   }
 };

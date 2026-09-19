@@ -37,7 +37,7 @@ const applyMapping = (integration, header, rows) => rows.map(r => { const out = 
 const detectTable = ({ header, rows }) => {
   const all = [header, ...rows];
   let best = 0, bestScore = -1;
-  all.slice(0, 10).forEach((r, i) => { const cells = r.map(c => String(c).trim()); const filled = cells.filter(Boolean).length; const bonus = cells.some(c => /handling unit|uom|item name|article|sku|ean/i.test(c)) ? 100 : 0; const score = filled + bonus; if (score > bestScore) { bestScore = score; best = i; } });
+  all.slice(0, 10).forEach((r, i) => { const cells = r.map(c => String(c).trim()); const filled = cells.filter(Boolean).length; const bonus = cells.some(c => /handling unit|uom|item name|article|sku|ean/i.test(c) && !/:\s*$/.test(c)) ? 100 : 0; /* side-panel labels ("SKU on dock:") must not make a data row look like the header */ const score = filled + bonus; if (score > bestScore) { bestScore = score; best = i; } });
   const h = all[best].map(c => String(c).trim()); let width = h.findIndex(c => !c); if (width < 0) width = h.length; // the data table is the contiguous run of header cells from the left; side panels come after a gap
   const hdr = h.slice(0, width).map((c, i) => c || `col${i + 1}`);
   const body = all.slice(best + 1).map(r => r.slice(0, width).map(c => String(c ?? "").trim())).filter(r => r.some(Boolean));
