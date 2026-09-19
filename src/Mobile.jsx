@@ -504,7 +504,7 @@ const DOCK_TARGETS = [
 ];
 const BLOCKED_TARGETS = [["article", "Article ID (from batch / UOM)", true], ["name", "Product name", false], ["hu", "Pallet SSCC", false], ["location", "Dock location", false], ["zone", "Reach zone", false], ["pickLocation", "Pick location", false], ["deadline", "Departure deadline", false], ["wmsStatus", "WMS status", false], ["status", "QC status (Not started / Started / Completed)", false], ["date", "Date", false], ["time", "Time", false], ["ignore", "— ignore —", false]];
 const targetsFor = purpose => purpose === "Products" ? PRODUCT_TARGETS : purpose === "Blocked" ? BLOCKED_TARGETS : DOCK_TARGETS;
-const PRODUCT_TARGETS = [["articleId", "Article ID", true], ["name", "Product name", true], ["barcode", "Barcode (EAN)", false], ["cusPerTu", "CU per TU", false], ["piecesPerCu", "Pieces per CU", false], ["weightPerCu", "Weight per CU (g)", false], ["category", "Category name", false], ["ignore", "— ignore —", false]];
+const PRODUCT_TARGETS = [["articleId", "Article ID", true], ["name", "Product name", true], ["barcodeCu", "Barcode CU (consumer pack EAN)", false], ["barcodeTu", "Barcode TU (box / case)", false], ["cusPerTu", "CU per TU", false], ["piecesPerCu", "Pieces per CU", false], ["weightPerCu", "Weight per CU (g)", false], ["category", "Category name", false], ["ignore", "— ignore —", false]];
 const TRANSFORMS = [
   ["none", "as is", v => v],
   ["number", "extract number", v => { const m = String(v).match(/-?\d+(?:[.,]\d+)?/); return m ? m[0].replace(",", ".") : ""; }],
@@ -518,7 +518,7 @@ const TRANSFORMS = [
   ["status", "status → Not started / Started / Completed", v => { const t = String(v).trim().toLowerCase(); return t.startsWith("not") ? "Not started" : t.startsWith("start") ? "Started" : t.startsWith("compl") || t.startsWith("done") ? "Completed" : String(v).trim(); }],
 ];
 const transformOf = k => TRANSFORMS.find(t => t[0] === k)?.[2] || (v => v);
-const ALIASES = { hu: ["handlingunit", "hu", "sscc", "pallet", "palletid"], article: ["uomid", "uom", "articleid", "article", "sku", "artikel", "batch"], articleId: ["uomid", "uom", "articleid", "article", "sku", "artikel"], name: ["itemname", "productname", "name", "product", "omschrijving", "item"], location: ["location", "locatie", "stock", "dock"], priority: ["priorityitem", "priority", "prioriteit"], blocking: ["neededtoday", "urgent"], skippable: ["skippable", "skip"], arrived: ["arrivaldate", "arrival", "date", "datum"], arrivedTime: ["arrivaltime", "time", "tijd"], transporter: ["transporter", "carrier", "vervoerder"], po: ["poid", "po", "order", "ponumber"], cusPerTu: ["cupertu", "cus", "cu"], sortable: ["sortable", "sorteerbaar"], barcode: ["barcode", "ean", "gtin"], piecesPerCu: ["piecespercu", "pieces", "stuks"], weightPerCu: ["weightpercu", "weight", "gewicht"], category: ["category", "categorie"], status: ["qcstatus", "status", "state"], date: ["date", "datum"], time: ["time", "tijd"], zone: ["reachzone", "zone"], pickLocation: ["picklocation", "pick"], deadline: ["departuredeadline", "deadline", "departure"], wmsStatus: ["wmsstatus", "status"] };
+const ALIASES = { hu: ["handlingunit", "hu", "sscc", "pallet", "palletid"], article: ["uomid", "uom", "articleid", "article", "sku", "artikel", "batch"], articleId: ["uomid", "uom", "articleid", "article", "sku", "artikel"], name: ["itemname", "productname", "name", "product", "omschrijving", "item"], location: ["location", "locatie", "stock", "dock"], priority: ["priorityitem", "priority", "prioriteit"], blocking: ["neededtoday", "urgent"], skippable: ["skippable", "skip"], arrived: ["arrivaldate", "arrival", "date", "datum"], arrivedTime: ["arrivaltime", "time", "tijd"], transporter: ["transporter", "carrier", "vervoerder"], po: ["poid", "po", "order", "ponumber"], cusPerTu: ["cupertu", "cus", "cu"], sortable: ["sortable", "sorteerbaar"], barcodeCu: ["barcodecu", "cubarcode", "eancu", "cuean", "consumerbarcode", "barcode", "ean", "gtin"], barcodeTu: ["barcodetu", "tubarcode", "eantu", "tuean", "boxbarcode", "casebarcode", "itf14", "itf", "gtin14", "tradeunitbarcode"], piecesPerCu: ["piecespercu", "pieces", "stuks"], weightPerCu: ["weightpercu", "weight", "gewicht"], category: ["category", "categorie"], status: ["qcstatus", "status", "state"], date: ["date", "datum"], time: ["time", "tijd"], zone: ["reachzone", "zone"], pickLocation: ["picklocation", "pick"], deadline: ["departuredeadline", "deadline", "departure"], wmsStatus: ["wmsstatus", "status"] };
 // Two passes over the whole header: exact alias matches first (so "Priority item" beats "Priority score"), then loose matches on targets still free.
 const suggestMappings = (header, rows, targets) => {
   const norm = h => h.toLowerCase().replace(/[^a-z0-9]/g, ""); const free = new Set(targets.map(t => t[0]).filter(k => k !== "ignore")); const out = header.map(h => ({ source: h, target: "ignore", transform: "none", required: false }));
@@ -663,7 +663,7 @@ function IntegrationsPage({ s, set }) {
   const preview = it && it.header.length ? applyMapping(it, it.header, it.sample) : [];
   const missingRequired = it ? targets.filter(t => t[2] && !it.mappings.some(m => m.target === t[0])) : [];
   const bad = preview.filter(r => r._errors.length).length;
-  const apply = () => { if (!it) return; if (it.purpose === "Dock" || it.purpose === "Blocked") patchIt({ rows: preview, summary: extractSummary(it.rawHeader || it.header, it.rawRows || it.sample), lastSyncAt: nowISO(), lastError: bad ? `${bad} row(s) skipped` : null }); else { const good = preview.filter(r => !r._errors.length); set(x => { let products = [...x.products]; let added = 0, updated = 0; good.forEach(r => { const id = String(r.articleId || "").trim(); if (!id) return; const ex = products.find(p => p.articleId === id); const catId = r.category ? x.categories.find(c => c.name.toLowerCase() === String(r.category).toLowerCase())?.id : undefined; const patch = { name: r.name || ex?.name || id, barcode: r.barcode || ex?.barcode || "", cusPerTu: r.cusPerTu ? String(r.cusPerTu) : ex?.cusPerTu || "", piecesPerCu: r.piecesPerCu ? String(r.piecesPerCu) : ex?.piecesPerCu || "", weightPerCu: r.weightPerCu ? String(r.weightPerCu) : ex?.weightPerCu || "", ...(catId ? { categoryId: catId } : {}) }; if (ex) { products = products.map(p => p.id === ex.id ? { ...p, ...patch } : p); updated++; } else { products.push({ id: uid(), articleId: id, categoryId: catId || (categorySuggestion({ ...x, products }, { name: patch.name })?.conf >= 0.9 ? categorySuggestion({ ...x, products }, { name: patch.name }).categoryId : null), isBio: /\bbio\b/i.test(patch.name), specs: [], supplierIds: [], varieties: [], photos: [], attributes: [], excludedSpecNames: [], isActive: true, ...patch }); added++; } }); return { ...x, products, integrations: x.integrations.map(i => i.id === sel ? { ...i, rows: preview, lastSyncAt: nowISO(), lastError: bad ? `${bad} row(s) skipped` : null, lastResult: `${added} added, ${updated} updated` } : i) }; }); } };
+  const apply = () => { if (!it) return; if (it.purpose === "Dock" || it.purpose === "Blocked") patchIt({ rows: preview, summary: extractSummary(it.rawHeader || it.header, it.rawRows || it.sample), lastSyncAt: nowISO(), lastError: bad ? `${bad} row(s) skipped` : null }); else { const good = preview.filter(r => !r._errors.length); set(x => { let products = [...x.products]; let added = 0, updated = 0; good.forEach(r => { const id = String(r.articleId || "").trim(); if (!id) return; const ex = products.find(p => p.articleId === id); const catId = r.category ? x.categories.find(c => c.name.toLowerCase() === String(r.category).toLowerCase())?.id : undefined; const patch = { name: r.name || ex?.name || id, barcodeCu: r.barcodeCu || ex?.barcodeCu || "", barcodeTu: r.barcodeTu || ex?.barcodeTu || "", cusPerTu: r.cusPerTu ? String(r.cusPerTu) : ex?.cusPerTu || "", piecesPerCu: r.piecesPerCu ? String(r.piecesPerCu) : ex?.piecesPerCu || "", weightPerCu: r.weightPerCu ? String(r.weightPerCu) : ex?.weightPerCu || "", ...(catId ? { categoryId: catId } : {}) }; if (ex) { products = products.map(p => p.id === ex.id ? { ...p, ...patch } : p); updated++; } else { products.push({ id: uid(), articleId: id, categoryId: catId || (categorySuggestion({ ...x, products }, { name: patch.name })?.conf >= 0.9 ? categorySuggestion({ ...x, products }, { name: patch.name }).categoryId : null), isBio: /\bbio\b/i.test(patch.name), specs: [], supplierIds: [], varieties: [], photos: [], attributes: [], excludedSpecNames: [], isActive: true, ...patch }); added++; } }); return { ...x, products, integrations: x.integrations.map(i => i.id === sel ? { ...i, rows: preview, lastSyncAt: nowISO(), lastError: bad ? `${bad} row(s) skipped` : null, lastResult: `${added} added, ${updated} updated` } : i) }; }); } };
   return (
     <div>
       <h1 className="mb-1">Integrations</h1>
@@ -1426,7 +1426,7 @@ const normalize = raw => {
     }
     // Old specifications with a single "target" → minimum (all previous ones were "below = bad")
     const specs = (q.specs || []).map(sp => sp.target !== undefined && sp.min === undefined && sp.max === undefined ? { id: sp.id, name: sp.name, unit: sp.unit, min: sp.target, max: null } : sp);
-    return { ...q, supplierIds: q.supplierIds || [], varieties: q.varieties || [], specs, articleId: q.articleId || "", hiddenProblemIds: q.hiddenProblemIds || [], photos: asPhotoList(q.photos), barcode: q.barcode || "", consumerAppUrl: q.consumerAppUrl || "", isActive: q.isActive !== false, excludedSpecNames: q.excludedSpecNames || [], attributes: q.attributes || [] };
+    return { ...q, supplierIds: q.supplierIds || [], varieties: q.varieties || [], specs, articleId: q.articleId || "", hiddenProblemIds: q.hiddenProblemIds || [], photos: asPhotoList(q.photos), barcodeCu: q.barcodeCu || q.barcode || "", barcodeTu: q.barcodeTu || "", consumerAppUrl: q.consumerAppUrl || "", isActive: q.isActive !== false, excludedSpecNames: q.excludedSpecNames || [], attributes: q.attributes || [] };
   });
   s.templates = (s.templates || []).map(t => ({ ...t, fields: (t.fields || []).map(f => f.problemId !== undefined && f.problemBelowId === undefined ? (({ problemId, ...rest }) => ({ ...rest, problemBelowId: problemId || null, problemAboveId: null }))(f) : f) }));
   return sortState(migrateLayered(s));
@@ -1601,7 +1601,7 @@ function StartModal({ open, kind, s, pallet, presetProductId, onClose, onConfirm
   useEffect(() => { setPid(presetProductId || null); setQ(""); setDate(""); setNote(""); setHu(pallet || ""); setReason(""); }, [open, presetProductId, pallet]);
   if (!open) return null;
   const qq = q.trim().toLowerCase();
-  const list = s.products.filter(p => p.isActive !== false && (!qq || (p.name + " " + (p.articleId || "") + " " + (p.barcode || "")).toLowerCase().includes(qq))).slice(0, 8);
+  const list = s.products.filter(p => p.isActive !== false && (!qq || (p.name + " " + (p.articleId || "") + " " + (p.barcodeCu || "") + " " + (p.barcodeTu || "")).toLowerCase().includes(qq))).slice(0, 8);
   const chosen = s.products.find(p => p.id === pid);
   const isVisual = false, isSkip = false;
   const pol = chosen ? effectivePolicy(s, chosen) : null;
@@ -1619,7 +1619,7 @@ function StartModal({ open, kind, s, pallet, presetProductId, onClose, onConfirm
         <div className="flex items-center gap-2 rounded-xl px-3 py-2 mb-3" style={{ background: C.accentSoft }}><span className="text-sm font-medium flex-1 truncate" style={{ color: C.accent }}>{chosen.name}</span><button onClick={() => setPid(null)} className="text-xs" style={{ color: C.accent }}>change</button></div>
       ) : (
         <div className="mb-3">
-          <input autoFocus value={q} onChange={e => { const v = e.target.value; setQ(v); const hit = s.products.find(p => p.isActive !== false && ((p.barcode && p.barcode === v.trim()) || (p.articleId && p.articleId === v.trim()))); if (hit) setPid(hit.id); }} placeholder="Scan the product code, or search by name…" className="w-full text-sm mb-1.5 font-mono" />
+          <input autoFocus value={q} onChange={e => { const v = e.target.value; setQ(v); const hit = s.products.find(p => p.isActive !== false && (matchesCode(p, v) || (p.articleId && p.articleId === v.trim()))); if (hit) setPid(hit.id); }} placeholder="Scan the product code, or search by name…" className="w-full text-sm mb-1.5 font-mono" />
           <div className="rounded-xl overflow-hidden" style={{ border: `1px solid ${C.line}`, maxHeight: 220, overflowY: "auto" }}>
             {list.map(p => <button key={p.id} onClick={() => setPid(p.id)} className="w-full text-left flex items-center gap-2 px-3 py-2" style={{ borderBottom: `1px solid ${C.line}` }}><span className="text-xs w-16 flex-shrink-0" style={{ color: C.muted }}>{p.articleId || "—"}</span><span className="text-sm truncate">{p.name}</span></button>)}
             {list.length === 0 && <p className="text-xs px-3 py-3" style={{ color: C.muted }}>Nothing matches. The product isn't in the catalog — tell the Head.</p>}
@@ -1850,7 +1850,7 @@ function MDashboard({ s, set, user, go, dismissed, setDismissed, onAssign }) {
 // ── Wyszukiwarka produktu → karta → start ──
 function MSearch({ s, user, go, onStart, setState, notify, onVisual }) {
   const [q, setQ] = useState(""); const [sel, setSel] = useState(null);
-  const list = s.products.filter(p => p.isActive !== false && (!q || (p.name + " " + (p.articleId || "") + " " + (p.barcode || "")).toLowerCase().includes(q.toLowerCase())));
+  const list = s.products.filter(p => p.isActive !== false && (!q || (p.name + " " + (p.articleId || "") + " " + (p.barcodeCu || "") + " " + (p.barcodeTu || "")).toLowerCase().includes(q.toLowerCase())));
   const product = s.products.find(p => p.id === sel);
   if (product) return <MProductCard s={s} user={user} product={product} onBack={() => setSel(null)} onStart={typeId => onStart(product.id, null, typeId)} go={go} setState={setState} notify={notify} onVisual={onVisual} />;
   return (
@@ -1885,7 +1885,7 @@ function MProductCard({ s, user, product, onBack, onStart, go, setState, notify,
     <div className="pb-4">
       <TopBar title="Product" onBack={onBack} />
       <div className="px-4 pt-3">
-        <div className="flex gap-3 items-start mb-3">{asPhotoList(product.photos).length ? <img src={asPhotoList(product.photos)[0].dataUrl} alt="" className="w-20 h-20 rounded-xl object-cover flex-shrink-0" /> : <div className="w-20 h-20 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: C.bg, color: C.muted }}><Ic i={ImageIcon} s={28} mr={0} /></div>}<div className="min-w-0"><p className="font-semibold leading-tight">{product.name}</p><p className="text-xs mt-1" style={{ color: C.muted }}>ID {product.articleId || "—"} · {catPath(product.categoryId)}{product.isBio && " · bio"}</p><p className="text-xs" style={{ color: C.muted }}>{product.cusPerTu || "?"} CU/TU · {product.weightPerCu || "?"} g/CU{product.barcode && ` · EAN ${product.barcode}`}</p>{product.consumerAppUrl && <a href={product.consumerAppUrl} className="text-xs underline" style={{ color: C.accent }}>open in the consumer app ↗</a>}<p className="text-[10px] mt-1" style={{ color: C.muted }}>allowed: {allowedTypes(s, product).map(t => t.name).join(", ") || "none"}</p></div></div>
+        <div className="flex gap-3 items-start mb-3">{asPhotoList(product.photos).length ? <img src={asPhotoList(product.photos)[0].dataUrl} alt="" className="w-20 h-20 rounded-xl object-cover flex-shrink-0" /> : <div className="w-20 h-20 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: C.bg, color: C.muted }}><Ic i={ImageIcon} s={28} mr={0} /></div>}<div className="min-w-0"><p className="font-semibold leading-tight">{product.name}</p><p className="text-xs mt-1" style={{ color: C.muted }}>ID {product.articleId || "—"} · {catPath(product.categoryId)}{product.isBio && " · bio"}</p><p className="text-xs" style={{ color: C.muted }}>{product.cusPerTu || "?"} CU/TU · {product.weightPerCu || "?"} g/CU{product.barcodeCu && ` · CU ${product.barcodeCu}`}{product.barcodeTu && ` · TU ${product.barcodeTu}`}</p>{product.consumerAppUrl && <a href={product.consumerAppUrl} className="text-xs underline" style={{ color: C.accent }}>open in the consumer app ↗</a>}<p className="text-[10px] mt-1" style={{ color: C.muted }}>allowed: {allowedTypes(s, product).map(t => t.name).join(", ") || "none"}</p></div></div>
         {asPhotoList(product.photos).length > 1 && <div className="mb-3"><PhotoStrip photos={product.photos} size={56} /></div>}
         {effectiveAttributes(s, product).length > 0 && <div className="flex flex-wrap gap-1.5 mb-3">{effectiveAttributes(s, product).map(a => <span key={a.dictionaryId} className="text-xs px-2.5 py-1 rounded-full" style={{ background: C.bg, border: `1px solid ${C.line}` }}><span style={{ color: C.muted }}>{a.list}:</span> <b>{a.value}</b></span>)}</div>}
         <DockPresence product={product} onPickPallet={hu => go("palletInfo", hu)} />
@@ -1980,7 +1980,7 @@ function MScan({ s, user, go, onStart, onVisual, onSkip, setState, notify, prese
   const scanned = code.trim();
   const byPallet = pallet ? s.inspections.filter(i => (i.pallets || []).some(x => samePallet(x, pallet)) && i.status !== "Cancelled") : [];
   const completed = byPallet.find(i => i.status === "Completed"), draft = byPallet.find(i => ["Draft", "PendingReview"].includes(i.status));
-  const productByCode = c => s.products.find(p => p.isActive !== false && ((p.articleId && p.articleId === c) || (p.barcode && p.barcode === c)));
+  const productByCode = c => s.products.find(p => p.isActive !== false && matchesCode(p, c));
   const product = mode === "product" ? productByCode(scanned) : null;
   const wms = pallet ? dockRowsLive(s).find(r => samePallet(r.hu, pallet)) || null : null;
   const blockedRow = pallet ? blockedQueue(s).find(b => b.hu && samePallet(b.hu, pallet)) || null : null;
@@ -2021,6 +2021,7 @@ function MScan({ s, user, go, onStart, onVisual, onSkip, setState, notify, prese
 
         {mode === "product" && product && (
           <div>
+            {(() => { const k = codeKind(product, scanned); return k && k !== "article" && <p className="text-xs mb-2 px-1" style={{ color: C.muted }}>Scanned the <b style={{ color: C.ink }}>{k === "TU" ? "TU barcode (box / case)" : "CU barcode (consumer pack)"}</b> · {scanned}</p>; })()}
             <DockPresence product={product} onPickPallet={pickPalletOfProduct} />
             <MProductCard s={s} user={user} product={product} onBack={() => setMode(null)} onStart={typeId => start(product.id, typeId)} go={go} setState={setState} notify={notify} onVisual={onVisual} />
           </div>
@@ -2137,6 +2138,11 @@ function MHistory({ s, user, go }) {
 }
 
 // ── Catalog (baza wiedzy): kategorie → produkty, wyszukiwanie po wszystkim, filtry, recently inspected ──
+// A product carries up to two barcodes — CU (consumer pack) and TU (box/case); every product has at least one.
+// codeKind tells the controller which one they just scanned.
+const productCodes = p => [["article", p.articleId], ["CU", p.barcodeCu], ["TU", p.barcodeTu]].filter(([, v]) => v && String(v).trim());
+const codeKind = (p, c) => (productCodes(p).find(([, v]) => String(v).trim() === String(c).trim()) || [null])[0];
+const matchesCode = (p, c) => !!codeKind(p, c);
 function MCatalog({ s, user, go, onStart, setState, notify, onVisual, preset }) {
   const [q, setQ] = useState(""); const [sel, setSel] = useState(preset || null); const [cat, setCat] = useState(null); const [fOpen, setFOpen] = useState(false);
   const [f, setF] = useState({ bio: "", supplier: "", flagged: false, reference: false, sort: "name" });
@@ -2146,7 +2152,7 @@ function MCatalog({ s, user, go, onStart, setState, notify, onVisual, preset }) 
   const catOf = id => s.categories.find(c => c.id === id);
   const catChain = id => { const out = []; let c = catOf(id); while (c) { out.unshift(c); c = c.parentId ? catOf(c.parentId) : null; } return out; };
   const lastInsp = pid => s.inspections.filter(i => i.productId === pid && i.status === "Completed").sort((a, b) => (b.completedAt || "").localeCompare(a.completedAt || ""))[0];
-  const haystack = p => [p.name, p.articleId, p.barcode, ...catChain(p.categoryId).map(c => c.name), ...(p.supplierIds || []).map(supName), ...effectiveVarieties(s, p).map(v => v.name)].join(" ").toLowerCase();
+  const haystack = p => [p.name, p.articleId, p.barcodeCu, p.barcodeTu, ...catChain(p.categoryId).map(c => c.name), ...(p.supplierIds || []).map(supName), ...effectiveVarieties(s, p).map(v => v.name)].join(" ").toLowerCase();
   const qq = q.trim().toLowerCase();
   const inCat = p => !cat || catChain(p.categoryId).some(c => c.id === cat);
   const passF = p => (!f.bio || (f.bio === "bio" ? p.isBio : !p.isBio)) && (!f.supplier || (p.supplierIds || []).includes(f.supplier) || (p.supplierIds || []).length === 0 && false) && (!f.flagged || s.flags.some(x => x.productId === p.id && x.status === "Open")) && (!f.reference || s.inspections.some(i => i.productId === p.id && i.isReference));
