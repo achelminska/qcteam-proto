@@ -1669,8 +1669,9 @@ function MBlockedInfo({ s, set, user, go, itemKey }) {
   const fields = [["Article", b.article], ["Location", b.location], ["Zone", b.zone], ["Pick location", b.pickLocation], ["Needed by", b.deadline], ["WMS status", b.wmsStatus], b.hu ? ["Pallet", `…${b.hu.slice(-8)}`] : null].filter(x => x && x[1]);
   return (
     <div className="pb-4">
-      <TopBar title={b.name || product?.name || b.article} onBack={() => go("home")} />
+      <TopBar title="Blocked pallet" onBack={() => go("home")} />
       <div className="px-4 pt-3">
+        <MProductHeader s={s} product={product} article={b.article} name={b.name} go={go} />
         <div className="flex items-center gap-2 mb-3"><span className="inline-block rounded-full" style={{ width: 9, height: 9, background: done ? C.ok : stacked ? C.muted : C.bad }} /><span className="text-sm font-medium">{done ? "Completed" : b.status}</span>{who && <span className="text-xs ml-auto flex items-center gap-1" style={{ color: me ? C.accent : C.muted }}><Avatar user={who} size={16} />{me ? "you" : who.name.split(" ")[0]}</span>}</div>
         <div className="rounded-2xl p-3.5 mb-3" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
           {fields.map(([k, v]) => <div key={k} className="flex justify-between gap-3 py-1.5 text-sm" style={{ borderBottom: `1px solid ${C.line}` }}><span style={{ color: C.muted }}>{k}</span><span className="font-medium text-right">{v}</span></div>)}
@@ -1681,9 +1682,30 @@ function MBlockedInfo({ s, set, user, go, itemKey }) {
           {c && !me && <button onClick={take} className="flex-1 py-2.5 rounded-xl text-sm font-semibold" style={{ background: C.ink, color: C.onDark }}>{stacked ? "Reachable now — take" : "Take over"}</button>}
         </div>}
         <button onClick={() => go("scan", b.hu || "")} className="w-full py-3 rounded-xl text-sm font-medium mt-1" style={{ background: C.surface, border: `1px solid ${C.line}` }}>Inspect this pallet</button>
-        {product && <button onClick={() => go("catalog", product.id)} className="w-full py-2.5 text-sm mt-1" style={{ color: C.accent }}>Open product profile</button>}
       </div>
     </div>
+  );
+}
+
+// Product-first header for pallet screens: what the controller is looking at (photo, name, basics, key attributes, recent
+// rejections) before the pallet's own numbers. Tapping it opens the profile. Falls back to a "no profile yet" strip.
+function MProductHeader({ s, product, article, name, go }) {
+  if (!product) return <div className="rounded-2xl px-3.5 py-3 mb-3" style={{ background: C.warnBg }}><p className="text-sm font-semibold leading-tight">{name || article}</p><p className="text-xs mt-0.5" style={{ color: C.warn }}>Article {article} has no product profile yet.</p></div>;
+  const photos = asPhotoList(product.photos); const attrs = effectiveAttributes(s, product).slice(0, 4); const hist = recentProblemsFor(s, product.id);
+  return (
+    <button onClick={() => go("catalog", product.id)} className="w-full text-left rounded-2xl p-3.5 mb-3 active:opacity-70" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
+      <div className="flex gap-3 items-start">
+        {photos.length ? <img src={photos[0].dataUrl} alt="" className="w-20 h-20 rounded-xl object-cover flex-shrink-0" /> : <div className="w-20 h-20 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: C.surface, color: C.muted }}><Ic i={ImageIcon} s={28} mr={0} /></div>}
+        <div className="min-w-0 flex-1">
+          <p className="font-semibold leading-tight">{product.name}</p>
+          <p className="text-xs mt-1" style={{ color: C.muted }}>ID {product.articleId || "—"} · {catPath(product.categoryId)}{product.isBio && " · bio"}</p>
+          <p className="text-xs" style={{ color: C.muted }}>{product.cusPerTu || "?"} CU/TU · {product.weightPerCu || "?"} g/CU</p>
+          <p className="text-xs mt-1 underline" style={{ color: C.accent }}>Open product profile</p>
+        </div>
+      </div>
+      {attrs.length > 0 && <div className="flex flex-wrap gap-1.5 mt-2.5">{attrs.map(a => <span key={a.dictionaryId} className="text-xs px-2.5 py-1 rounded-full" style={{ background: C.surface, border: `1px solid ${C.line}` }}><span style={{ color: C.muted }}>{a.list}:</span> <b>{a.value}</b></span>)}</div>}
+      {hist.count > 0 && <div className="rounded-xl px-3 py-2 mt-2.5" style={{ background: C.badBg }}><p className="text-xs font-semibold" style={{ color: C.bad }}>{hist.count} rejected recently · last {dayLabel(hist.lastAt)}</p><p className="text-xs" style={{ color: C.bad }}>{hist.problems.slice(0, 3).map(p => `${p.name} ×${p.count}`).join(", ")}{hist.problems.length > 3 ? "…" : ""}</p></div>}
+    </button>
   );
 }
 
@@ -1693,22 +1715,18 @@ function MPalletInfo({ s, user, go, hu }) {
   const r = dockRowsLive(s).find(x => samePallet(x.hu, hu));
   if (!r) return <div><TopBar title="Pallet" onBack={() => go("home")} /><div className="px-4 pt-10 text-center"><p className="text-sm" style={{ color: C.muted }}>Not found — it may already be inspected or off the sheet.</p></div></div>;
   const product = s.products.find(p => p.articleId === r.article);
-  const hist = recentProblemsFor(s, product?.id);
   const fields = [["Article", r.article], ["Location", r.location], ["Priority", r.priority], ["Transporter", r.transporter], ["Arrived", [r.arrived, r.arrivedTime].filter(Boolean).join(" ")], r.po && ["PO", r.po], ["Pallet", `…${r.hu.slice(-8)}`]].filter(x => x && x[1]);
   return (
     <div className="pb-4">
-      <TopBar title={r.name || product?.name || r.article} onBack={() => go("home")} />
+      <TopBar title="Pallet on dock" onBack={() => go("home")} />
       <div className="px-4 pt-3">
+        <MProductHeader s={s} product={product} article={r.article} name={r.name} go={go} />
         {r.blocking && <div className="rounded-xl px-3 py-2 mb-3 text-xs font-semibold" style={{ background: C.badBg, color: C.bad }}>Needed today — picking is waiting for this pallet.</div>}
+        <p className="label-sm mb-1" style={{ color: C.muted }}>This pallet</p>
         <div className="rounded-2xl p-3.5 mb-3" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
           {fields.map(([k, v]) => <div key={k} className="flex justify-between gap-3 py-1.5 text-sm" style={{ borderBottom: `1px solid ${C.line}` }}><span style={{ color: C.muted }}>{k}</span><span className="font-medium text-right">{v}</span></div>)}
         </div>
-        {hist.count > 0 && <div className="rounded-xl px-3 py-2.5 mb-3" style={{ background: C.badBg }}>
-          <p className="text-xs font-semibold mb-0.5" style={{ color: C.bad }}>{hist.count} rejected recently</p>
-          <p className="text-xs" style={{ color: C.bad }}>{hist.problems.slice(0, 3).map(p => `${p.name} ×${p.count}`).join(", ")}{hist.problems.length > 3 ? "…" : ""} · last {dayLabel(hist.lastAt)}</p>
-        </div>}
         <button onClick={() => go("scan", r.hu)} className="w-full py-3 rounded-xl text-sm font-medium" style={{ background: C.ink, color: C.onDark }}>Inspect this pallet</button>
-        {product && <button onClick={() => go("catalog", product.id)} className="w-full py-2.5 text-sm mt-2" style={{ color: C.accent }}>Open product profile</button>}
       </div>
     </div>
   );
@@ -2011,23 +2029,23 @@ function MScan({ s, user, go, onStart, onVisual, onSkip, setState, notify, prese
           </div>
         )}
 
-        {mode === "pallet" && wms && (
+        {mode === "pallet" && wms && (<>
+          <MProductHeader s={s} product={wmsProduct} article={wms.article} name={wms.name} go={go} />
           <div className="rounded-2xl p-4" style={{ background: C.bg }}>
             <div className="flex items-center justify-between mb-2"><span className="text-sm font-medium inline-flex items-center" style={{ color: C.ok }}><Ic i={Check} s={14} />Pallet on dock</span><P label={wms.priority} /></div>
             {wms.blocking && <div className="rounded-xl px-3 py-2 mb-2 text-xs" style={{ background: C.badBg, color: C.bad }}>Needed today — picking is waiting for this pallet.</div>}
             <div className="rounded-xl p-3 mb-2 text-sm" style={{ background: C.surface }}>
-              {[["Handling Unit", pallet], ["Article", `${wms.article} · ${wms.name}`], ["Location", wms.location], ["Arrived", `${wms.arrived} ${wms.arrivedTime} · ${wms.transporter}`], ["PO", wms.po || "—"], ["CU per TU (from UOM)", wms.cusPerTu ?? "—"], ["Sortable", wms.sortable ? "yes" : "no"]].map(([k, v]) => <div key={k} className="flex justify-between gap-3 py-1" style={{ borderBottom: `1px solid ${C.line}` }}><span style={{ color: C.muted }}>{k}</span><span className="font-medium text-right">{v}</span></div>)}
+              {[["Handling Unit", pallet], ["Article", wms.article], ["Location", wms.location], ["Arrived", `${wms.arrived} ${wms.arrivedTime} · ${wms.transporter}`], ["PO", wms.po || "—"], ["CU per TU (from UOM)", wms.cusPerTu ?? "—"], ["Sortable", wms.sortable ? "yes" : "no"]].map(([k, v]) => <div key={k} className="flex justify-between gap-3 py-1" style={{ borderBottom: `1px solid ${C.line}` }}><span style={{ color: C.muted }}>{k}</span><span className="font-medium text-right">{v}</span></div>)}
             </div>
-            {wmsProduct && <button onClick={() => go("catalog", wmsProduct.id)} className="w-full py-2.5 rounded-xl text-sm mb-2 inline-flex items-center justify-center" style={{ background: C.surface, border: `1px solid ${C.line}` }}><Ic i={Package} s={14} />Open product profile</button>}
             {(() => { const sameArt = dockRowsLive(s).filter(r => r.article === wms.article); const others = sameArt.filter(r => !samePallet(r.hu, pallet)); return <>
-              <p className="text-xs mb-2" style={{ color: C.muted }}>{wmsProduct ? <>Product: <button onClick={() => go("catalog", wmsProduct.id)} className="font-semibold underline" style={{ color: C.accent }}>{wmsProduct.name}</button> — pre-selected.</> : <span style={{ color: C.warn }}>Article {wms.article} has no profile yet — you'll pick the product manually.</span>} <span>This article has <b style={{ color: C.ink }}>{sameArt.length} pallet{sameArt.length === 1 ? "" : "s"}</b> on the docks{others.length ? ` — ${others.length} other${others.length === 1 ? "" : "s"} at ${[...new Set(others.map(r => r.location))].join(", ")}` : ""}.</span></p>
+              <p className="text-xs mb-2" style={{ color: C.muted }}>{wmsProduct ? <>Product pre-selected.</> : <span style={{ color: C.warn }}>No profile — you'll pick the product manually.</span>} <span>This article has <b style={{ color: C.ink }}>{sameArt.length} pallet{sameArt.length === 1 ? "" : "s"}</b> on the docks{others.length ? ` — ${others.length} other${others.length === 1 ? "" : "s"} at ${[...new Set(others.map(r => r.location))].join(", ")}` : ""}.</span></p>
               {others.length > 0 && <DockPresence product={{ articleId: wms.article, name: wms.name }} onPickPallet={pickPalletOfProduct} />}
             </>; })()}
             <Actions />
             {draft && <div className="rounded-xl px-3 py-2 mt-2 text-xs" style={{ background: C.warnBg, color: C.warn }}>⏳ {s.users.find(u => u.id === draft.controllerId)?.name} has this pallet in progress ({STATUS[draft.status][0]})</div>}
             <button onClick={() => setMode(null)} className="w-full py-2.5 text-sm mt-1" style={{ color: C.muted }}>Cancel</button>
           </div>
-        )}
+        </>)}
 
         {mode === "pallet" && !wms && blockedRow && (
           <div className="rounded-2xl p-4 mb-3" style={{ background: C.badBg }}>
