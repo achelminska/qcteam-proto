@@ -1045,8 +1045,8 @@ const floorStats = s => {
 };
 const agoShort = t => { if (!t) return "—"; const m = Math.round((Date.now() - new Date(t).getTime()) / 60000); return m < 1 ? "now" : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : fmtTime(t); };
 
-function Dashboard({ s, setPage, seed, user, openProduct, onAssign }) {
-  const [prioSel, setPrioSel] = useState(null);
+function Dashboard({ s, setPage, seed, user, openProduct, onAssign, set }) {
+  const [prioSel, setPrioSel] = useState(null); const [blSel, setBlSel] = useState(null);
   const f = floorStats(s);
   const globalT = s.templates.find(t => t.scope === "Global");
   const steps = [
@@ -1083,14 +1083,15 @@ function Dashboard({ s, setPage, seed, user, openProduct, onAssign }) {
       </Card>}
 
       <p className="label-sm mt-4 mb-1.5" style={{ color: C.muted }}>Blocked pallets</p>
-      <div className="grid gap-3 mb-4" style={{ gridTemplateColumns: "repeat(6, 1fr)" }}>
-        <Tile label="Open" value={f.bl.open} color={C.bad} onClick={() => setPage("blocked")} />
-        <Tile label="Unassigned" value={f.bl.unassigned} color={C.warn} onClick={() => setPage("blocked")} />
-        <Tile label="Taken" value={f.bl.taken} color={C.accent} onClick={() => setPage("blocked")} />
-        <Tile label="In stack" value={f.bl.stacked} color={C.muted} onClick={() => setPage("blocked")} />
-        <Tile label="Lost" value={f.bl.lost + Math.max(0, f.lostOpen - f.bl.lost)} sub="all lists" color={C.muted} onClick={() => setPage("lost")} />
-        <Tile label="Done" value={f.bl.done} sub="blocked, completed" color={C.ok} onClick={() => setPage("blocked")} />
+      <div className="grid gap-3 mb-3" style={{ gridTemplateColumns: "repeat(6, 1fr)" }}>
+        {[["open", "Open", f.bl.open, C.bad], ["unassigned", "Unassigned", f.bl.unassigned, C.warn], ["taken", "Taken", f.bl.taken, C.accent], ["stacked", "In stack", f.bl.stacked, C.muted], ["lost", "Lost", f.bl.lost, C.muted], ["done", "Done", f.bl.done, C.ok]].map(([k, l, v, col]) => <Tile key={k} label={l} value={v} color={col} onClick={() => setBlSel(blSel === k ? null : k)} active={blSel === k} />)}
       </div>
+      {blSel && (() => { const q = blockedQueue(s); const pick = { open: b => b.status !== "Completed" && !b.lost, unassigned: b => b.status !== "Completed" && !b.lost && !b.claim, taken: b => b.status !== "Completed" && !b.lost && b.claim?.status === "taken", stacked: b => b.status !== "Completed" && !b.lost && b.claim?.status === "stacked", lost: b => !!b.lost && b.status !== "Completed", done: b => b.status === "Completed" }[blSel]; const order = { "Not started": 0, "Started": 1, "Completed": 2 }; const list = q.filter(pick).sort((a, b) => (order[a.status] ?? 9) - (order[b.status] ?? 9) || (a.time || "").localeCompare(b.time || "")); const label = { open: "Open", unassigned: "Unassigned", taken: "Taken", stacked: "In stack", lost: "Lost", done: "Done" }[blSel]; return (
+        <Card style={{ marginBottom: 12 }}>
+          <div className="flex items-center gap-2 mb-1"><p className="font-medium text-sm flex-1">{label} · {list.length} pallet{list.length === 1 ? "" : "s"}</p><button onClick={() => setPage(blSel === "lost" ? "lost" : "blocked")} className="text-xs underline" style={{ color: C.accent }}>full page</button><button onClick={() => setBlSel(null)} className="text-xs ml-2" style={{ color: C.muted }}>close</button></div>
+          {list.length === 0 ? <p className="text-xs py-3" style={{ color: C.muted }}>Nothing here.</p> : list.map(b => { const prod = s.products.find(p => p.articleId === b.article); return <QueueRow key={b.key} s={s} set={set} user={user} b={b} onOpen={() => prod && openProduct(prod.id)} />; })}
+        </Card>); })()}
+      {f.lostOpen > f.bl.lost && <p className="text-[11px] mb-3" style={{ color: C.muted }}>{f.lostOpen - f.bl.lost} more lost on the dock lists — see <button onClick={() => setPage("lost")} className="underline" style={{ color: C.accent }}>Lost pallets</button>.</p>}
 
       <p className="label-sm mt-4 mb-1.5" style={{ color: C.muted }}>Team · {f.doneToday} inspection{f.doneToday === 1 ? "" : "s"} done today</p>
       <Card style={{ marginBottom: 16 }}>
@@ -3151,7 +3152,7 @@ export default function App() {
       {dataOpen && <DataPanel s={s} set={set} onClose={() => setDataOpen(false)} />}
       {toastMsg && <div className="fixed left-1/2 -translate-x-1/2 text-sm px-4 py-2 rounded-xl" style={{ top: 12, zIndex: 90, background: C.ink, color: C.onDark, boxShadow: "0 8px 20px rgba(0,0,0,.25)" }}>{toastMsg}</div>}
       {newVersion && <div className="fixed left-1/2 -translate-x-1/2 flex items-center gap-3 text-sm px-4 py-2.5 rounded-xl" style={{ top: 12, zIndex: 91, background: C.accent, color: C.onDark, boxShadow: "0 8px 20px rgba(0,0,0,.3)" }}>A new version is live<button onClick={() => location.reload()} className="px-2.5 py-1 rounded-lg font-semibold" style={{ background: C.onDark, color: C.accent }}>Refresh</button></div>}
-      {safePage === "dashboard" && (user.role === "Head" ? <Dashboard s={s} user={user} setPage={setPage} seed={() => set(olaState())} openProduct={id => { setSelProduct(id); setPage("products"); }} onAssign={a => { setPendingChatContext({ kind: "pallet", id: a.hu, label: `${a.name} · ${a.location}` }); setPage("messages"); }} /> : <ControllerDashboard s={s} user={user} setPage={setPage} setOpenId={setOpenInspId} />)}
+      {safePage === "dashboard" && (user.role === "Head" ? <Dashboard s={s} user={user} set={set} setPage={setPage} seed={() => set(olaState())} openProduct={id => { setSelProduct(id); setPage("products"); }} onAssign={a => { setPendingChatContext({ kind: "pallet", id: a.hu, label: `${a.name} · ${a.location}` }); setPage("messages"); }} /> : <ControllerDashboard s={s} user={user} setPage={setPage} setOpenId={setOpenInspId} />)}
       {safePage === "categories" && <CategoriesPage s={s} set={set} />}
       {safePage === "problems" && <ProblemsPage s={s} set={set} />}
       {safePage === "products" && <ProductsPage s={s} set={set} sel={selProduct} setSel={setSelProduct} presetFilter={productsQuery} clearPreset={() => setProductsQuery("")} />}
