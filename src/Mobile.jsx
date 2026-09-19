@@ -580,15 +580,12 @@ function DeadlineBanner({ s, alerts, onOpen, onMessage, openLabel = "Open" }) {
     <div className="rounded-2xl p-4 mb-4" style={{ background: C.badBg, border: `1px solid ${C.bad}` }}>
       <p className="text-sm font-semibold flex items-center mb-1" style={{ color: C.bad }}><Ic i={AlertTriangle} s={16} />{breached ? `${breached} pallet${breached === 1 ? "" : "s"} past the rejection window` : `${alerts.length} pallet${alerts.length === 1 ? "" : "s"} need inspection before the rejection window closes`}</p>
       <div className="flex flex-col gap-1.5 mt-2">
-        {alerts.slice(0, 4).map(a => (
-          <div key={a.key} onClick={() => onOpen(a)} className="rounded-lg px-2 py-1.5 cursor-pointer" style={{ background: C.surface }}>
-            <div className="flex items-center gap-2 mb-1"><span className="flex-1 truncate text-xs"><b>{a.name}</b> · {a.location}{a.risky && <span style={{ color: C.bad }}> · rejected recently</span>}</span><span className="text-xs font-semibold flex-shrink-0" style={{ color: a.level === "breached" ? C.bad : C.warn }}>{a.level === "breached" ? "expired" : `${Math.max(0, Math.round(a.hoursLeft))}h left`}</span></div>
-            <div className="flex gap-1.5">
-              <button onClick={e => { e.stopPropagation(); onOpen(a); }} className="text-[11px] px-2.5 py-1 rounded-lg font-semibold" style={{ background: C.ink, color: C.onDark }}>{openLabel}</button>
-              {onMessage && <button onClick={e => { e.stopPropagation(); onMessage(a); }} className="text-[11px] px-2.5 py-1 rounded-lg inline-flex items-center" style={{ border: `1px solid ${C.line}` }}><Ic i={MessageSquare} s={11} mr={4} />Assign in chat</button>}
-            </div>
-          </div>
-        ))}
+        {alerts.slice(0, 4).map(a => { const c = claimOf(s, a); const who = c && s.users.find(u => u.id === c.userId); return (
+          <button key={a.key} onClick={() => onOpen(a)} className="w-full text-left rounded-lg px-2.5 py-2 active:opacity-70" style={{ background: C.surface }}>
+            <div className="flex items-center gap-2"><span className="flex-1 truncate text-xs"><b>{a.name}</b> · {a.location}</span><span className="text-xs font-semibold flex-shrink-0" style={{ color: a.level === "breached" ? C.bad : C.warn }}>{a.level === "breached" ? "expired" : `${Math.max(0, Math.round(a.hoursLeft))}h left`}</span></div>
+            {(a.risky || who || onMessage) && <div className="flex items-center gap-2 mt-0.5 text-[11px]">{a.risky && <span style={{ color: C.bad }}>rejected recently</span>}{who && <span className="flex items-center gap-1" style={{ color: C.muted }}><Avatar user={who} size={14} />{who.name.split(" ")[0]}{c.status === "stacked" ? " · in stack" : ""}</span>}{onMessage && <span onClick={e => { e.stopPropagation(); onMessage(a); }} className="ml-auto underline" style={{ color: C.accent }}>assign in chat</span>}</div>}
+          </button>
+        ); })}
       </div>
       {alerts.length > 4 && <p className="text-[11px] mt-1" style={{ color: C.muted }}>+{alerts.length - 4} more</p>}
     </div>
@@ -1751,7 +1748,7 @@ function MProductHeader({ s, product, article, name, go }) {
 
 // Focused info screen for one dock pallet: what matters (location, priority, arrival, recent-rejection history), with
 // inspecting as an explicit next step rather than an automatic one.
-function MPalletInfo({ s, set, user, go, hu }) {
+function MPalletInfo({ s, set, user, go, hu, onAssign }) {
   const r = dockRowsLive(s).find(x => samePallet(x.hu, hu));
   if (!r) return <div><TopBar title="Pallet" onBack={() => go("home")} /><div className="px-4 pt-10 text-center"><p className="text-sm" style={{ color: C.muted }}>Not found — it may already be inspected or off the sheet.</p></div></div>;
   const product = s.products.find(p => p.articleId === r.article);
@@ -1762,7 +1759,19 @@ function MPalletInfo({ s, set, user, go, hu }) {
       <div className="px-4 pt-3">
         <MProductHeader s={s} product={product} article={r.article} name={r.name} go={go} />
         {lostOf(s, r) && <MLostControls s={s} set={set} user={user} row={r} />}
+        {(() => { const al = computeDeadlineAlerts(s).find(a => samePallet(a.hu, r.hu)); if (!al) return null; return <div className="rounded-xl px-3 py-2 mb-3" style={{ background: C.badBg }}><p className="text-xs font-semibold flex items-center" style={{ color: C.bad }}><Ic i={AlertTriangle} s={13} />{al.level === "breached" ? "Rejection window expired" : `Rejection window closes in ${Math.max(0, Math.round(al.hoursLeft))} h`}</p><p className="text-[11px]" style={{ color: C.bad }}>{al.level === "breached" ? "Rejecting is no longer possible — inspect anyway and note it." : `Arrived ${r.arrived} ${r.arrivedTime}${al.risky ? " · this product was rejected recently, so it's flagged early" : ""}.`}</p></div>; })()}
         {r.blocking && !lostOf(s, r) && <div className="rounded-xl px-3 py-2 mb-3 text-xs font-semibold" style={{ background: C.badBg, color: C.bad }}>Needed today — picking is waiting for this pallet.</div>}
+        {!lostOf(s, r) && (() => { const c = claimOf(s, r); const me = c && c.userId === user.id; const who = c && s.users.find(u => u.id === c.userId); const stacked = c?.status === "stacked";
+          const take = () => setClaim(set, r, { userId: user.id, at: nowISO(), status: "taken" }); const stack = () => setClaim(set, r, { userId: user.id, at: nowISO(), status: "stacked" }); const release = () => setClaim(set, r, null);
+          return <div className="rounded-2xl px-3.5 py-3 mb-3" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
+            <div className="flex items-center gap-2 mb-2"><p className="text-xs flex-1" style={{ color: C.muted }}>{who ? <span className="flex items-center gap-1"><Avatar user={who} size={16} /><b style={{ color: me ? C.accent : C.ink }}>{me ? "You have" : `${who.name.split(" ")[0]} has`}</b> this pallet{stacked ? " · in stack, not reachable yet" : ""}</span> : "Nobody has this pallet yet — take it before you walk over."}</p></div>
+            <div className="flex gap-2">
+              {!c && <><button onClick={take} className="flex-1 py-2.5 rounded-xl text-sm font-semibold" style={{ background: C.ink, color: C.onDark }}>Take</button><button onClick={stack} className="flex-1 py-2.5 rounded-xl text-sm inline-flex items-center justify-center" style={{ border: `1px solid ${C.line}` }}><Ic i={Layers} s={13} />In stack</button></>}
+              {c && me && <><button onClick={stacked ? take : stack} className="flex-1 py-2.5 rounded-xl text-sm font-semibold" style={{ background: C.ink, color: C.onDark }}>{stacked ? "Reachable now — take" : "Mark in stack"}</button><button onClick={release} className="flex-1 py-2.5 rounded-xl text-sm" style={{ border: `1px solid ${C.line}`, color: C.muted }}>Release</button></>}
+              {c && !me && <button onClick={take} className="flex-1 py-2.5 rounded-xl text-sm font-semibold" style={{ background: C.ink, color: C.onDark }}>{stacked ? "Reachable now — take" : "Take over"}</button>}
+            </div>
+            {user.role === "Head" && onAssign && <button onClick={() => onAssign(r)} className="w-full py-2 text-xs mt-1 inline-flex items-center justify-center" style={{ color: C.accent }}><Ic i={MessageSquare} s={12} />Assign to someone in chat</button>}
+          </div>; })()}
         <p className="label-sm mb-1" style={{ color: C.muted }}>This pallet</p>
         <div className="rounded-2xl p-3.5 mb-3" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
           {fields.map(([k, v]) => <div key={k} className="flex justify-between gap-3 py-1.5 text-sm" style={{ borderBottom: `1px solid ${C.line}` }}><span style={{ color: C.muted }}>{k}</span><span className="font-medium text-right">{v}</span></div>)}
@@ -1785,7 +1794,8 @@ function MPriorityList({ s, user, go, priority }) {
   const itemsFor = dayRows => { const groups = {}; dayRows.forEach(r => { const k = r.article || r.hu; (groups[k] = groups[k] || { rows: [] }).rows.push(r); });
     return Object.values(groups).map(g => { const first = g.rows[0]; const product = s.products.find(p => p.articleId === first.article); const hist = recentProblemsFor(s, product?.id);
       const locs = new Set(g.rows.map(r => r.location).filter(Boolean)); const earliest = [...g.rows].sort((x, y) => (x.arrivedTime || "99").localeCompare(y.arrivedTime || "99"))[0];
-      return { key: first.article || first.hu, name: first.name || product?.name || first.article, count: g.rows.length, hu: earliest.hu, productId: product?.id || null,
+      const cl = g.rows.length === 1 ? claimOf(s, first) : null; const holder = cl && s.users.find(u => u.id === cl.userId);
+      return { key: first.article || first.hu, name: first.name || product?.name || first.article, count: g.rows.length, hu: earliest.hu, productId: product?.id || null, holder, stacked: cl?.status === "stacked",
         location: locs.size <= 1 ? first.location : `${locs.size} locations`, transporter: earliest.transporter, arrivedTime: earliest.arrivedTime, blocking: g.rows.some(r => r.blocking), hist };
     // recent rejections first, then chronological by arrival time (oldest on top) — a ×N group counts as its earliest pallet
     }).sort((a, b) => (b.hist.count > 0) - (a.hist.count > 0) || (a.arrivedTime || "99").localeCompare(b.arrivedTime || "99")); };
@@ -1806,7 +1816,7 @@ function MPriorityList({ s, user, go, priority }) {
             </div>
             {items.map(it => (
               <button key={it.key} onClick={() => it.count > 1 && it.productId ? go("catalog", it.productId) : go("palletInfo", it.hu)} className="w-full text-left py-3 active:opacity-60" style={{ borderBottom: `1px solid ${C.line}` }}>
-                <div className="flex items-center gap-2"><p className="text-sm font-medium flex-1 truncate">{it.name}</p>{it.count > 1 && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ background: C.accentSoft, color: C.accent }}>×{it.count} on docks</span>}{it.hist.count > 0 && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ background: C.badBg, color: C.bad }}>{it.hist.count} rejected recently</span>}</div>
+                <div className="flex items-center gap-2"><p className="text-sm font-medium flex-1 truncate">{it.name}</p>{it.count > 1 && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ background: C.accentSoft, color: C.accent }}>×{it.count} on docks</span>}{it.hist.count > 0 && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ background: C.badBg, color: C.bad }}>{it.hist.count} rejected recently</span>}{it.holder && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0 inline-flex items-center gap-1" style={{ background: C.bg, color: it.holder.id === user.id ? C.accent : C.muted, border: `1px solid ${C.line}` }}><Avatar user={it.holder} size={12} />{it.holder.id === user.id ? "you" : it.holder.name.split(" ")[0]}{it.stacked ? " · stack" : ""}</span>}</div>
                 <p className="text-xs mt-0.5" style={{ color: C.muted }}>{it.location} · {it.transporter} · {it.arrivedTime}{it.blocking ? " · needed today" : ""}</p>
                 {it.hist.count > 0 && <p className="text-xs mt-1" style={{ color: C.bad }}>Was rejected for: {it.hist.problems.slice(0, 3).map(p => `${p.name} ×${p.count}`).join(", ")}{it.hist.problems.length > 3 ? "…" : ""} · last {dayLabel(it.hist.lastAt)}</p>}
               </button>
@@ -1846,7 +1856,7 @@ function MDashboard({ s, set, user, go, dismissed, setDismissed, onAssign }) {
           {fr.map(f => { const stale = now - new Date(f.at).getTime() > 10 * 60000; return <span key={f.purpose} className="text-[11px] flex items-center gap-1" style={{ color: stale ? C.warn : C.muted }}><Ic i={stale ? AlertTriangle : Clock} s={11} mr={0} />{f.purpose === "Dock" ? "Dock data" : "Blocked pallets"} · {ago(f.at)}</span>; })}
         </div>
       ); })()}
-      <div className="px-5"><DeadlineBanner s={s} alerts={computeDeadlineAlerts(s)} openLabel={user.role === "Head" ? "Open product" : "Inspect"} onOpen={al => user.role === "Head" ? (al.productId && go("catalog", al.productId)) : go("scan", al.hu)} onMessage={user.role === "Head" ? (al => onAssign(al)) : undefined} /></div>
+      <div className="px-5"><DeadlineBanner s={s} alerts={computeDeadlineAlerts(s)} onOpen={al => go("palletInfo", al.hu)} /></div>
       {ann && <div className="mx-5 mb-3 rounded-xl px-3.5 py-2.5 flex items-start gap-2.5" style={{ background: C.surface, border: `1px solid ${C.line}`, borderLeft: `3px solid ${C.accent}` }}><span style={{ color: C.accent, marginTop: 2 }}><Ic i={Megaphone} s={14} mr={0} /></span><p className="text-sm flex-1"><b>{ann.title}</b><span style={{ color: C.muted }}> — {ann.body}</span></p><button onClick={() => setDismissed(d => [...d, ann.id])} className="text-sm" style={{ color: C.muted }}>×</button></div>}
       {user.role === "Head" && (() => { const esc = s.inspections.filter(i => i.status === "PendingReview").length, fl = s.flags.filter(f => f.status === "Open").length; return (
         <div className="px-5 mb-3">
@@ -2505,7 +2515,7 @@ export default function App() {
       {page === "history" && <MHistory s={s} user={user} go={go} />}
       {page === "priority" && <MPriorityList s={s} user={user} go={go} priority={param} />}
       {page === "blockedInfo" && <MBlockedInfo s={s} set={set} user={user} go={go} itemKey={param} />}
-      {page === "palletInfo" && <MPalletInfo s={s} set={set} user={user} go={go} hu={param} />}
+      {page === "palletInfo" && <MPalletInfo s={s} set={set} user={user} go={go} hu={param} onAssign={r => { setPendingChatContext({ kind: "pallet", id: r.hu, label: `${r.name || r.article} · ${r.location}` }); go("chat"); }} />}
       {page === "catalog" && <MCatalog key={param || "catalog"} s={s} user={user} go={go} onStart={(pid, palletNo, typeId) => startInspection(pid, palletNo, false, typeId)} setState={set} notify={notify} onVisual={visualInspection} preset={param} />}
       {page === "chat" && <MChat s={s} set={set} user={user} go={go} initialContext={pendingChatContext} clearInitialContext={() => setPendingChatContext(null)} />}
       {page === "menu" && <MMenu s={s} set={set} user={user} go={go} users={s.users} setUser={id => { setUserId(id); go("home"); }} onLogout={() => { writeSession(null); setUserId(null); }} dark={dark} onTheme={toggleTheme} simOffline={simOffline} onSimOffline={() => setSimOffline(o => !o)} onSync={() => pullState(true)} syncMsg={syncMsg} />}
