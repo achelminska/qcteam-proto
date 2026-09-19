@@ -1716,25 +1716,41 @@ function MPalletInfo({ s, user, go, hu }) {
 
 function MPriorityList({ s, user, go, priority }) {
   const rows = dockRowsLive(s).filter(r => priority === "Skippable" ? r.skippable : r.priority === priority);
-  const groups = {}; rows.forEach(r => { const k = r.article || r.hu; (groups[k] = groups[k] || { rows: [] }).rows.push(r); });
-  const items = Object.values(groups).map(g => { const first = g.rows[0]; const product = s.products.find(p => p.articleId === first.article); const hist = recentProblemsFor(s, product?.id);
-    const locs = new Set(g.rows.map(r => r.location).filter(Boolean));
-    return { key: first.article || first.hu, name: first.name || product?.name || first.article, count: g.rows.length, hu: first.hu, productId: product?.id || null,
-      location: locs.size <= 1 ? first.location : `${locs.size} locations`, transporter: first.transporter, arrivedTime: first.arrivedTime, blocking: g.rows.some(r => r.blocking), hist };
-  }).sort((a, b) => (b.hist.count > 0) - (a.hist.count > 0) || b.count - a.count);
+  // Sections by arrival day, oldest first — the 24h rejection window makes the oldest pallets the urgent ones. Inside a day the
+  // same SKU collapses into one row (×N) and anything with a recent rejection floats to the top.
+  const dayKey = r => /^\d{4}-\d{2}-\d{2}/.test(r.arrived || "") ? r.arrived.slice(0, 10) : "";
+  const byDay = {}; rows.forEach(r => { const d = dayKey(r); (byDay[d] = byDay[d] || []).push(r); });
+  const days = Object.keys(byDay).sort((a, b) => (a === "" ? 1 : b === "" ? -1 : a.localeCompare(b)));
+  const itemsFor = dayRows => { const groups = {}; dayRows.forEach(r => { const k = r.article || r.hu; (groups[k] = groups[k] || { rows: [] }).rows.push(r); });
+    return Object.values(groups).map(g => { const first = g.rows[0]; const product = s.products.find(p => p.articleId === first.article); const hist = recentProblemsFor(s, product?.id);
+      const locs = new Set(g.rows.map(r => r.location).filter(Boolean)); const earliest = [...g.rows].sort((x, y) => (x.arrivedTime || "99").localeCompare(y.arrivedTime || "99"))[0];
+      return { key: first.article || first.hu, name: first.name || product?.name || first.article, count: g.rows.length, hu: earliest.hu, productId: product?.id || null,
+        location: locs.size <= 1 ? first.location : `${locs.size} locations`, transporter: earliest.transporter, arrivedTime: earliest.arrivedTime, blocking: g.rows.some(r => r.blocking), hist };
+    // recent rejections first, then chronological by arrival time (oldest on top) — a ×N group counts as its earliest pallet
+    }).sort((a, b) => (b.hist.count > 0) - (a.hist.count > 0) || (a.arrivedTime || "99").localeCompare(b.arrivedTime || "99")); };
+  const dayTitle = d => { if (!d) return "Arrival date unknown"; const label = dayLabel(d + "T12:00:00"); const full = new Date(d + "T12:00:00").toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" }); return label === "Today" || label === "Yesterday" ? `${label} · ${full}` : full; };
+  const ageDays = d => d ? Math.round((new Date().setHours(12, 0, 0, 0) - new Date(d + "T12:00:00").getTime()) / 86400000) : 0;
+  const skus = new Set(rows.map(r => r.article || r.hu)).size;
   return (
     <div className="pb-4">
       <TopBar title={priority} onBack={() => go("home")} />
       <div className="px-4 pt-3">
-        <p className="text-xs mb-3" style={{ color: C.muted }}>{rows.length} pallet{rows.length === 1 ? "" : "s"} · {items.length} SKU{items.length === 1 ? "" : "s"}. Ones with a recent rejection are listed first. Tap to inspect.</p>
-        {items.length === 0 && <p className="text-sm py-8 text-center" style={{ color: C.muted }}>Nothing at this priority right now.</p>}
-        {items.map(it => (
-          <button key={it.key} onClick={() => it.count > 1 && it.productId ? go("catalog", it.productId) : go("palletInfo", it.hu)} className="w-full text-left py-3 active:opacity-60" style={{ borderBottom: `1px solid ${C.line}` }}>
-            <div className="flex items-center gap-2"><p className="text-sm font-medium flex-1 truncate">{it.name}</p>{it.count > 1 && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ background: C.accentSoft, color: C.accent }}>×{it.count} on docks</span>}{it.hist.count > 0 && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ background: C.badBg, color: C.bad }}>{it.hist.count} rejected recently</span>}</div>
-            <p className="text-xs mt-0.5" style={{ color: C.muted }}>{it.location} · {it.transporter} · {it.arrivedTime}{it.blocking ? " · needed today" : ""}</p>
-            {it.hist.count > 0 && <p className="text-xs mt-1" style={{ color: C.bad }}>Was rejected for: {it.hist.problems.slice(0, 3).map(p => `${p.name} ×${p.count}`).join(", ")}{it.hist.problems.length > 3 ? "…" : ""} · last {dayLabel(it.hist.lastAt)}</p>}
-          </button>
-        ))}
+        <p className="text-xs mb-1" style={{ color: C.muted }}>{rows.length} pallet{rows.length === 1 ? "" : "s"} · {skus} SKU{skus === 1 ? "" : "s"} · oldest arrivals first</p>
+        {rows.length === 0 && <p className="text-sm py-8 text-center" style={{ color: C.muted }}>Nothing at this priority right now.</p>}
+        {days.map(d => { const items = itemsFor(byDay[d]); const n = byDay[d].length; const old = ageDays(d) >= 1; return (
+          <div key={d || "none"} className="mt-3">
+            <div className="flex items-center gap-2 py-1.5 sticky top-0" style={{ background: C.surface }}>
+              <p className="text-xs font-semibold flex-1" style={{ color: old && d ? C.bad : C.ink }}>{dayTitle(d)}</p>
+              <span className="text-[10px] px-1.5 py-0.5 rounded-full" style={{ background: old && d ? C.badBg : C.bg, color: old && d ? C.bad : C.muted, border: old && d ? "none" : `1px solid ${C.line}` }}>{n} pallet{n === 1 ? "" : "s"}{old && d ? ` · ${ageDays(d)}d on dock` : ""}</span>
+            </div>
+            {items.map(it => (
+              <button key={it.key} onClick={() => it.count > 1 && it.productId ? go("catalog", it.productId) : go("palletInfo", it.hu)} className="w-full text-left py-3 active:opacity-60" style={{ borderBottom: `1px solid ${C.line}` }}>
+                <div className="flex items-center gap-2"><p className="text-sm font-medium flex-1 truncate">{it.name}</p>{it.count > 1 && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ background: C.accentSoft, color: C.accent }}>×{it.count} on docks</span>}{it.hist.count > 0 && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ background: C.badBg, color: C.bad }}>{it.hist.count} rejected recently</span>}</div>
+                <p className="text-xs mt-0.5" style={{ color: C.muted }}>{it.location} · {it.transporter} · {it.arrivedTime}{it.blocking ? " · needed today" : ""}</p>
+                {it.hist.count > 0 && <p className="text-xs mt-1" style={{ color: C.bad }}>Was rejected for: {it.hist.problems.slice(0, 3).map(p => `${p.name} ×${p.count}`).join(", ")}{it.hist.problems.length > 3 ? "…" : ""} · last {dayLabel(it.hist.lastAt)}</p>}
+              </button>
+            ))}
+          </div>); })}
       </div>
     </div>
   );
