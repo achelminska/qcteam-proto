@@ -41,7 +41,7 @@ const SearchBox = ({ value, onChange, placeholder, className = "", style = {}, i
   </div>
 );
 // Notification look: one lucide icon per type in a soft circle; legacy messages get their emoji stripped on display.
-const NOTIF = { Exceeded: [AlertTriangle, "bad"], AcceptedDespite: [AlertTriangle, "warn"], Escalation: [HelpCircle, "warn"], Question: [MessageCircle, "info"], Answered: [MessageCircle, "ok"], Flag: [Flag, "warn"], Announcement: [Megaphone, "info"], EditedByOther: [Pencil, "info"], DeadlineWarning: [Clock, "warn"], DeadlineBreached: [AlertTriangle, "bad"] };
+const NOTIF = { Exceeded: [AlertTriangle, "bad"], AcceptedDespite: [AlertTriangle, "warn"], Escalation: [HelpCircle, "warn"], Question: [MessageCircle, "info"], Answered: [MessageCircle, "ok"], Flag: [Flag, "warn"], Announcement: [Megaphone, "info"], EditedByOther: [Pencil, "info"], DeadlineWarning: [Clock, "warn"], DeadlineBreached: [AlertTriangle, "bad"], Lost: [Search, "warn"], Found: [Check, "ok"] };
 const notifLook = t => { const [I, tone] = NOTIF[t] || [Bell, "info"]; const fg = tone === "bad" ? C.bad : tone === "warn" ? C.warn : tone === "ok" ? C.ok : C.accent; const bg = tone === "bad" ? C.badBg : tone === "warn" ? C.warnBg : tone === "ok" ? C.okBg : C.accentSoft; return { I, fg, bg }; };
 const cleanMsg = m => String(m || "").replace(/^[\p{Extended_Pictographic}\uFE0F\s]+/u, "");
 const NotifIcon = ({ type, size = 32 }) => { const { I, fg, bg } = notifLook(type); return <span className="rounded-full flex items-center justify-center flex-shrink-0" style={{ width: size, height: size, background: bg, color: fg }}><I size={Math.round(size * 0.5)} strokeWidth={2} /></span>; };
@@ -561,7 +561,7 @@ const computeDeadlineAlerts = (s, nowMs = Date.now()) => {
   dockRowsLive(s).forEach(r => {
     if (!r.arrived) return;
     const covered = s.inspections.some(i => i.status === "Completed" && (i.pallets || []).some(h => samePallet(h, r.hu)));
-    if (covered) return;
+    if (covered || lostOf(s, r)) return;
     const arrivalMs = new Date(`${r.arrived}T${r.arrivedTime || "00:00"}:00`).getTime(); if (isNaN(arrivalMs)) return;
     const deadlineAt = arrivalMs + st.rejectionWindowHours * 3600000; const hoursLeft = (deadlineAt - nowMs) / 3600000;
     const product = s.products.find(p => p.articleId === r.article);
@@ -620,8 +620,16 @@ const duplicateHuCount = rows => rows.length - dedupeByHu(rows).length;
 const claimKey = b => b.hu ? `hu:${b.hu}` : `${b.article}|${b.location}`;
 const claimOf = (s, b) => (s.palletClaims || {})[claimKey(b)] || null;
 const setClaim = (set, b, claim) => set(x => { const pc = { ...(x.palletClaims || {}) }; if (claim) pc[claimKey(b)] = claim; else delete pc[claimKey(b)]; return { ...x, palletClaims: pc }; });
+// Lost pallets: someone moved it without scanning and nobody can find it. QC can't act until it turns up, so it stays in
+// every list — dimmed, with a "lost" tag — and drops out of the deadline alerts and the big numbers. Internal for now;
+// markLost() is the single place to hook an outbound message (SV / WMS) later.
+const lostKey = b => { const n = String(b.hu || "").replace(/\D/g, "").replace(/^0+/, ""); return n ? `hu:${n}` : `${b.article}|${b.location}`; };
+const lostOf = (s, b) => { const m = (s.lostPallets || {})[lostKey(b)]; if (!m) return null; const found = b.hu && (s.inspections || []).some(i => i.status === "Completed" && (i.completedAt || "") > m.at && (i.pallets || []).some(h => samePallet(h, b.hu))); return found ? null : m; };
+const notifyHeads = (x, type, message, entityType, entityId, exceptUserId) => ({ ...x, notifications: [...(x.notifications || []), ...x.users.filter(u => u.role === "Head" && u.id !== exceptUserId).map(u => ({ id: uid(), userId: u.id, type, message, entityType, entityId, createdAt: nowISO(), readAt: null }))] });
+const markLost = (set, b, user, note = "") => set(x => { const lp = { ...(x.lostPallets || {}) }; lp[lostKey(b)] = { byUserId: user.id, at: nowISO(), note: String(note || "").trim(), hu: b.hu || "", article: b.article || "", name: b.name || "", location: b.location || "" }; const pc = { ...(x.palletClaims || {}) }; delete pc[claimKey(b)]; return notifyHeads({ ...x, lostPallets: lp, palletClaims: pc }, "Lost", `${b.name || b.article} (${b.location || "?"}${b.hu ? `, HU …${String(b.hu).slice(-6)}` : ""}) marked lost by ${user.name.split(" ")[0]}${note ? ` — ${note}` : ""}`, "pallet", b.hu || lostKey(b), user.id); });
+const markFound = (set, b, user) => set(x => { const lp = { ...(x.lostPallets || {}) }; if (!lp[lostKey(b)]) return x; delete lp[lostKey(b)]; return notifyHeads({ ...x, lostPallets: lp }, "Found", `${b.name || b.article} (${b.location || "?"}) found again by ${user.name.split(" ")[0]}`, "pallet", b.hu || lostKey(b), user.id); });
 // QC status: from the sheet when it has one; otherwise derived from the queue (claim) and finished inspections of that pallet/article.
-const blockedQueue = s => blockedRowsLive(s).map(b => { const claim = claimOf(s, b); let status = b.status; if (!status) { const done = s.inspections.some(i => i.status === "Completed" && ((b.hu && (i.pallets || []).some(h => String(h).replace(/\D/g, "").endsWith(b.hu.replace(/^0+/, "")))) || (!b.hu && (s.products.find(p => p.id === i.productId)?.articleId === b.article) && (i.completedAt || "") > (claim?.at || "1970")))); status = done ? "Completed" : claim?.status === "taken" ? "Started" : "Not started"; } return { ...b, claim, status, key: claimKey(b) }; });
+const blockedQueue = s => blockedRowsLive(s).map(b => { const claim = claimOf(s, b); let status = b.status; if (!status) { const done = s.inspections.some(i => i.status === "Completed" && ((b.hu && (i.pallets || []).some(h => String(h).replace(/\D/g, "").endsWith(b.hu.replace(/^0+/, "")))) || (!b.hu && (s.products.find(p => p.id === i.productId)?.articleId === b.article) && (i.completedAt || "") > (claim?.at || "1970")))); status = done ? "Completed" : claim?.status === "taken" ? "Started" : "Not started"; } return { ...b, claim, status, key: claimKey(b), lost: lostOf(s, b) }; });
 const dockRowsLive = s => { const it = (s.integrations || []).find(i => i.purpose === "Dock" && i.rows?.length); if (!it) return CLEAN_START ? [] : SHEET.dock; return dedupeByHu(it.rows.filter(r => !r._errors?.length)).map(r => ({ hu: String(r.hu || "").trim(), article: String(r.article || ""), name: r.name || "", location: r.location || "", priority: r.priority || (r.skippable ? "Skippable" : "Inspection due"), blocking: !!r.blocking, skippable: !!r.skippable, arrived: r.arrived || "", arrivedTime: r.arrivedTime || "", transporter: r.transporter || "", po: r.po || "", cusPerTu: r.cusPerTu ? Number(r.cusPerTu) : null, sortable: !!r.sortable, onDock: 0, inBuffer: 0 })); };
 // Shared: read what the sheet pushed to the server and refresh the matching integration inside the app state.
 // Used by the portal (every 60 s on any page) and by the phone (on open / Sync now), so no device depends on the other.
@@ -913,22 +921,24 @@ const flushState = async (syncer, key, getLocal, setLocal, normalizeFn, onConfli
 // ═══════════════════ BLOCKED PALLET QUEUE ROW (shared) ═══════════════════
 function QueueRow({ s, set, user, b, onOpen }) {
   const c = b.claim; const me = c && c.userId === user.id; const who = c && s.users.find(u => u.id === c.userId);
-  const done = b.status === "Completed"; const stacked = c?.status === "stacked";
-  const col = done ? C.ok : stacked ? C.muted : b.status === "Started" ? C.warn : C.bad;
+  const done = b.status === "Completed"; const stacked = c?.status === "stacked"; const lost = b.lost; const lostBy = lost && s.users.find(u => u.id === lost.byUserId);
+  const col = done ? C.ok : lost ? C.line : stacked ? C.muted : b.status === "Started" ? C.warn : C.bad;
   const take = () => setClaim(set, b, { userId: user.id, at: nowISO(), status: "taken" });
   const stack = () => setClaim(set, b, { userId: user.id, at: nowISO(), status: "stacked" });
   const release = () => setClaim(set, b, null);
   const ago = t => { const m = Math.round((Date.now() - new Date(t).getTime()) / 60000); return m < 1 ? "now" : m < 60 ? `${m} min` : `${Math.round(m / 60)} h`; };
   return (
-    <div className="py-2.5" style={{ borderBottom: `1px solid ${C.line}`, opacity: done ? .5 : stacked ? .7 : 1 }}>
+    <div className="py-2.5" style={{ borderBottom: `1px solid ${C.line}`, opacity: done ? .5 : lost ? .45 : stacked ? .7 : 1 }}>
       <div className="flex items-center gap-2">
         <span className="inline-block rounded-full flex-shrink-0" style={{ width: 8, height: 8, background: col }} />
         <button onClick={onOpen} className="text-sm flex-1 truncate font-medium text-left">{b.name || b.article}</button>
         {who && <span className="flex items-center gap-1 text-[11px]" style={{ color: me ? C.accent : C.muted }}><Avatar user={who} size={18} />{me ? "you" : who.name.split(" ")[0]} · {ago(c.at)}</span>}
-        {stacked && <span className="text-[10px] px-1.5 py-0.5 rounded inline-flex items-center" style={{ background: C.line, color: C.muted }}><Ic i={Layers} s={10} mr={3} />in stack</span>}
+        {stacked && !lost && <span className="text-[10px] px-1.5 py-0.5 rounded inline-flex items-center" style={{ background: C.line, color: C.muted }}><Ic i={Layers} s={10} mr={3} />in stack</span>}
+        {lost && <span className="text-[10px] px-1.5 py-0.5 rounded inline-flex items-center" style={{ background: C.line, color: C.muted }}><Ic i={Search} s={10} mr={3} />lost · {lostBy ? lostBy.name.split(" ")[0] : "?"} · {ago(lost.at)}</span>}
       </div>
       <p className="text-xs mt-0.5 ml-4" style={{ color: C.muted }}>{[b.location, b.zone && `zone ${b.zone}`, b.pickLocation, b.deadline && `by ${b.deadline}`, b.time && `${b.time}`, b.hu && `HU …${b.hu.slice(-6)}`, b.article, b.status].filter(Boolean).join(" · ")}</p>
-      {!done && <div className="flex gap-1.5 mt-1.5 ml-4">
+      {lost && !done && <div className="flex gap-1.5 mt-1.5 ml-4"><button onClick={() => markFound(set, b, user)} className="text-xs px-3 py-1.5 rounded-lg font-semibold" style={{ background: C.ink, color: C.onDark }}>Found — back in queue</button>{lost.note && <span className="text-[11px] self-center" style={{ color: C.muted }}>{lost.note}</span>}</div>}
+      {!done && !lost && <div className="flex gap-1.5 mt-1.5 ml-4">
         {!c && <><button onClick={take} className="text-xs px-3 py-1.5 rounded-lg font-semibold" style={{ background: C.ink, color: C.onDark }}>Take</button><button onClick={stack} className="text-xs px-3 py-1.5 rounded-lg inline-flex items-center" style={{ border: `1px solid ${C.line}` }}><Ic i={Layers} s={12} />In stack</button></>}
         {c && me && <>{stacked ? <button onClick={take} className="text-xs px-3 py-1.5 rounded-lg font-semibold" style={{ background: C.ink, color: C.onDark }}>Reachable now — take</button> : <button onClick={stack} className="text-xs px-3 py-1.5 rounded-lg inline-flex items-center" style={{ border: `1px solid ${C.line}` }}><Ic i={Layers} s={12} />In stack</button>}<button onClick={release} className="text-xs px-3 py-1.5 rounded-lg" style={{ color: C.muted, border: `1px solid ${C.line}` }}>Release</button></>}
         {c && !me && <>{stacked ? <button onClick={take} className="text-xs px-3 py-1.5 rounded-lg" style={{ border: `1px solid ${C.line}` }}>Reachable now — take</button> : <button onClick={take} className="text-xs px-3 py-1.5 rounded-lg" style={{ color: C.warn, border: `1px solid ${C.line}` }}>Take over</button>}</>}
@@ -1526,8 +1536,8 @@ const olaState = () => normalize(JSON.parse(JSON.stringify(OLA_STATE)));
 const M = { pad: 18 };
 // One sheet row = one pallet (Handling Unit). "SKU on dock" = distinct articles. Matches the summary block on the sheet itself.
 // Totals come from the sheet's own summary cells when present; per-priority counts come from the rows.
-const sheetStats = s => { const rows = dockRowsLive(s); const sm = dockSummary(s) || {}; const has = k => sm[k] != null; const pallets = has("nonUrgentPallets") || has("urgentPallets") ? (sm.nonUrgentPallets || 0) + (sm.urgentPallets || 0) : rows.length; const skus = has("skus") ? sm.skus : new Set(rows.map(r => r.article)).size; const blocked = has("urgentPallets") ? sm.urgentPallets : rows.filter(r => r.blocking).length; // "Skippable" is a boolean flag on the sheet, not mutually exclusive with Priority item — count it by the flag, not the label.
-  const prio = k => k === "Skippable" ? rows.filter(r => r.skippable).length : rows.filter(r => r.priority === k).length; return { pallets, skus, blocked, prio, expected: sm.expected, skippableSkus: sm.skippableSkus, skippablePallets: sm.skippablePallets, fromSheet: Object.keys(sm).length > 0 }; };
+const sheetStats = s => { const rows = dockRowsLive(s).filter(r => !lostOf(s, r)); const lost = dockRowsLive(s).length - rows.length; const sm = dockSummary(s) || {}; const has = k => sm[k] != null; const pallets = has("nonUrgentPallets") || has("urgentPallets") ? (sm.nonUrgentPallets || 0) + (sm.urgentPallets || 0) : rows.length; const skus = has("skus") ? sm.skus : new Set(rows.map(r => r.article)).size; const blocked = has("urgentPallets") ? sm.urgentPallets : rows.filter(r => r.blocking).length; // "Skippable" is a boolean flag on the sheet, not mutually exclusive with Priority item — count it by the flag, not the label.
+  const prio = k => k === "Skippable" ? rows.filter(r => r.skippable).length : rows.filter(r => r.priority === k).length; return { pallets, skus, blocked, prio, lost, expected: sm.expected, skippableSkus: sm.skippableSkus, skippablePallets: sm.skippablePallets, fromSheet: Object.keys(sm).length > 0 }; };
 const PRIORITY = { "Now needed": [C.bad, C.onDark, true], "High risk": [C.bad, C.badBg, false], "High issues": [C.warn, C.warnBg, false], "Late inspection": [C.warn, C.warnBg, false], "Inspection due": [C.muted, C.line, false], "Skippable": [C.muted, C.line, false] };
 const dayLabel = iso => { if (!iso) return "—"; const d = new Date(iso), t = new Date(); const day = x => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime(); const diff = Math.round((day(t) - day(d)) / 86400000); return diff === 0 ? "Today" : diff === 1 ? "Yesterday" : d.toLocaleDateString("en-GB", { day: "numeric", month: "short" }); };
 const hhmm = iso => { const d = new Date(iso); return isNaN(d) ? "" : d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }); };
@@ -1677,17 +1687,42 @@ function MBlockedInfo({ s, set, user, go, itemKey }) {
       <TopBar title="Blocked pallet" onBack={() => go("home")} />
       <div className="px-4 pt-3">
         <MProductHeader s={s} product={product} article={b.article} name={b.name} go={go} />
+        {b.lost && <MLostControls s={s} set={set} user={user} row={b} />}
         <div className="flex items-center gap-2 mb-3"><span className="inline-block rounded-full" style={{ width: 9, height: 9, background: done ? C.ok : stacked ? C.muted : C.bad }} /><span className="text-sm font-medium">{done ? "Completed" : b.status}</span>{who && <span className="text-xs ml-auto flex items-center gap-1" style={{ color: me ? C.accent : C.muted }}><Avatar user={who} size={16} />{me ? "you" : who.name.split(" ")[0]}</span>}</div>
         <div className="rounded-2xl p-3.5 mb-3" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
           {fields.map(([k, v]) => <div key={k} className="flex justify-between gap-3 py-1.5 text-sm" style={{ borderBottom: `1px solid ${C.line}` }}><span style={{ color: C.muted }}>{k}</span><span className="font-medium text-right">{v}</span></div>)}
         </div>
-        {!done && <div className="flex gap-2 mb-2">
+        {!done && !b.lost && <div className="flex gap-2 mb-2">
           {!c && <><button onClick={take} className="flex-1 py-2.5 rounded-xl text-sm font-semibold" style={{ background: C.ink, color: C.onDark }}>Take</button><button onClick={stack} className="flex-1 py-2.5 rounded-xl text-sm inline-flex items-center justify-center" style={{ border: `1px solid ${C.line}` }}><Ic i={Layers} s={13} />In stack</button></>}
           {c && me && <><button onClick={stacked ? take : stack} className="flex-1 py-2.5 rounded-xl text-sm font-semibold" style={{ background: C.ink, color: C.onDark }}>{stacked ? "Reachable now — take" : "Mark in stack"}</button><button onClick={release} className="flex-1 py-2.5 rounded-xl text-sm" style={{ border: `1px solid ${C.line}`, color: C.muted }}>Release</button></>}
           {c && !me && <button onClick={take} className="flex-1 py-2.5 rounded-xl text-sm font-semibold" style={{ background: C.ink, color: C.onDark }}>{stacked ? "Reachable now — take" : "Take over"}</button>}
         </div>}
         <button onClick={() => go("scan", b.hu || "")} className="w-full py-3 rounded-xl text-sm font-medium mt-1" style={{ background: C.surface, border: `1px solid ${C.line}` }}>Inspect this pallet</button>
+        {!done && !b.lost && <MLostControls s={s} set={set} user={user} row={b} />}
       </div>
+    </div>
+  );
+}
+
+// "Lost" controls for a pallet screen: a dimmed banner with Found when it's marked, a quiet "Can't find it?" otherwise.
+function MLostControls({ s, set, user, row }) {
+  const [ask, setAsk] = useState(false); const [note, setNote] = useState("");
+  const lost = lostOf(s, row); const by = lost && s.users.find(u => u.id === lost.byUserId);
+  if (lost) return (
+    <div className="rounded-2xl px-3.5 py-3 mb-3" style={{ background: C.bg, border: `1px dashed ${C.line}` }}>
+      <p className="text-sm font-semibold flex items-center" style={{ color: C.muted }}><Ic i={Search} s={14} />Marked lost · {by ? by.name.split(" ")[0] : "?"} · {dayLabel(lost.at)}, {hhmm(lost.at)}</p>
+      {lost.note && <p className="text-xs mt-0.5" style={{ color: C.muted }}>{lost.note}</p>}
+      <p className="text-xs mt-1" style={{ color: C.muted }}>No alerts for it until it turns up. Scanning it or finishing an inspection also marks it found.</p>
+      <button onClick={() => markFound(set, row, user)} className="mt-2 text-xs px-3 py-1.5 rounded-lg font-semibold" style={{ background: C.ink, color: C.onDark }}>Found — it's back</button>
+    </div>
+  );
+  if (!ask) return <button onClick={() => setAsk(true)} className="w-full py-2 text-xs mt-1" style={{ color: C.muted }}>Can't find this pallet? Mark it lost</button>;
+  return (
+    <div className="rounded-2xl px-3.5 py-3 mt-2" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
+      <p className="text-sm font-medium mb-1">Mark as lost</p>
+      <p className="text-xs mb-2" style={{ color: C.muted }}>It stays in the lists, dimmed, and stops raising alerts. The Head gets a note.</p>
+      <input value={note} onChange={e => setNote(e.target.value)} placeholder="where did you look? (optional)" className="w-full text-sm rounded-xl px-3 py-2 mb-2 outline-none" style={{ background: C.surface, border: `1px solid ${C.line}` }} />
+      <div className="flex gap-2"><button onClick={() => { markLost(set, row, user, note); setAsk(false); }} className="flex-1 py-2 rounded-xl text-sm font-semibold" style={{ background: C.ink, color: C.onDark }}>Mark lost</button><button onClick={() => setAsk(false)} className="flex-1 py-2 rounded-xl text-sm" style={{ border: `1px solid ${C.line}` }}>Cancel</button></div>
     </div>
   );
 }
@@ -1716,7 +1751,7 @@ function MProductHeader({ s, product, article, name, go }) {
 
 // Focused info screen for one dock pallet: what matters (location, priority, arrival, recent-rejection history), with
 // inspecting as an explicit next step rather than an automatic one.
-function MPalletInfo({ s, user, go, hu }) {
+function MPalletInfo({ s, set, user, go, hu }) {
   const r = dockRowsLive(s).find(x => samePallet(x.hu, hu));
   if (!r) return <div><TopBar title="Pallet" onBack={() => go("home")} /><div className="px-4 pt-10 text-center"><p className="text-sm" style={{ color: C.muted }}>Not found — it may already be inspected or off the sheet.</p></div></div>;
   const product = s.products.find(p => p.articleId === r.article);
@@ -1726,19 +1761,22 @@ function MPalletInfo({ s, user, go, hu }) {
       <TopBar title="Pallet on dock" onBack={() => go("home")} />
       <div className="px-4 pt-3">
         <MProductHeader s={s} product={product} article={r.article} name={r.name} go={go} />
-        {r.blocking && <div className="rounded-xl px-3 py-2 mb-3 text-xs font-semibold" style={{ background: C.badBg, color: C.bad }}>Needed today — picking is waiting for this pallet.</div>}
+        {lostOf(s, r) && <MLostControls s={s} set={set} user={user} row={r} />}
+        {r.blocking && !lostOf(s, r) && <div className="rounded-xl px-3 py-2 mb-3 text-xs font-semibold" style={{ background: C.badBg, color: C.bad }}>Needed today — picking is waiting for this pallet.</div>}
         <p className="label-sm mb-1" style={{ color: C.muted }}>This pallet</p>
         <div className="rounded-2xl p-3.5 mb-3" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
           {fields.map(([k, v]) => <div key={k} className="flex justify-between gap-3 py-1.5 text-sm" style={{ borderBottom: `1px solid ${C.line}` }}><span style={{ color: C.muted }}>{k}</span><span className="font-medium text-right">{v}</span></div>)}
         </div>
-        <button onClick={() => go("scan", r.hu)} className="w-full py-3 rounded-xl text-sm font-medium" style={{ background: C.ink, color: C.onDark }}>Inspect this pallet</button>
+        <button onClick={() => go("scan", r.hu)} className="w-full py-3 rounded-xl text-sm font-medium" style={lostOf(s, r) ? { background: C.surface, border: `1px solid ${C.line}` } : { background: C.ink, color: C.onDark }}>Inspect this pallet</button>
+        {!lostOf(s, r) && <MLostControls s={s} set={set} user={user} row={r} />}
       </div>
     </div>
   );
 }
 
 function MPriorityList({ s, user, go, priority }) {
-  const rows = dockRowsLive(s).filter(r => priority === "Skippable" ? r.skippable : r.priority === priority);
+  const allRows = dockRowsLive(s).filter(r => priority === "Skippable" ? r.skippable : r.priority === priority);
+  const lostRows = allRows.filter(r => lostOf(s, r)); const rows = allRows.filter(r => !lostOf(s, r));
   // Sections by arrival day, oldest first — the 24h rejection window makes the oldest pallets the urgent ones. Inside a day the
   // same SKU collapses into one row (×N) and anything with a recent rejection floats to the top.
   const dayKey = r => /^\d{4}-\d{2}-\d{2}/.test(r.arrived || "") ? r.arrived.slice(0, 10) : "";
@@ -1759,7 +1797,7 @@ function MPriorityList({ s, user, go, priority }) {
       <TopBar title={priority} onBack={() => go("home")} />
       <div className="px-4 pt-3">
         <p className="text-xs mb-1" style={{ color: C.muted }}>{rows.length} pallet{rows.length === 1 ? "" : "s"} · {skus} SKU{skus === 1 ? "" : "s"} · oldest arrivals first</p>
-        {rows.length === 0 && <p className="text-sm py-8 text-center" style={{ color: C.muted }}>Nothing at this priority right now.</p>}
+        {rows.length === 0 && <p className="text-sm py-8 text-center" style={{ color: C.muted }}>{lostRows.length ? "Nothing findable at this priority — only lost pallets below." : "Nothing at this priority right now."}</p>}
         {days.map(d => { const items = itemsFor(byDay[d]); const n = byDay[d].length; const old = ageDays(d) >= 1; return (
           <div key={d || "none"} className="mt-3">
             <div className="flex items-center gap-2 py-1.5 sticky top-0" style={{ background: C.surface }}>
@@ -1774,6 +1812,14 @@ function MPriorityList({ s, user, go, priority }) {
               </button>
             ))}
           </div>); })}
+        {lostRows.length > 0 && <div className="mt-4" style={{ opacity: .55 }}>
+          <div className="flex items-center gap-2 py-1.5"><p className="text-xs font-semibold flex-1 flex items-center" style={{ color: C.muted }}><Ic i={Search} s={12} />Lost — not findable right now</p><span className="text-[10px] px-1.5 py-0.5 rounded-full" style={{ background: C.bg, color: C.muted, border: `1px solid ${C.line}` }}>{lostRows.length}</span></div>
+          {lostRows.map(r => { const m = lostOf(s, r); const by = s.users.find(u => u.id === m.byUserId); return (
+            <button key={r.hu} onClick={() => go("palletInfo", r.hu)} className="w-full text-left py-3 active:opacity-60" style={{ borderBottom: `1px solid ${C.line}` }}>
+              <p className="text-sm font-medium truncate">{r.name || r.article}</p>
+              <p className="text-xs mt-0.5" style={{ color: C.muted }}>last seen {r.location} · {r.arrivedTime} · lost by {by ? by.name.split(" ")[0] : "?"} {dayLabel(m.at)}{m.note ? ` · ${m.note}` : ""}</p>
+            </button>); })}
+        </div>}
       </div>
     </div>
   );
@@ -1814,7 +1860,7 @@ function MDashboard({ s, set, user, go, dismissed, setDismissed, onAssign }) {
       ); })()}
       <div className="grid grid-cols-2 gap-2 px-5">
         <div className="rounded-2xl p-3.5" style={{ background: C.bg, border: `1px solid ${C.line}` }}><p className="text-xs" style={{ color: C.muted }}>Done today (team)</p><p className="text-[26px] leading-tight font-semibold mt-0.5">{doneToday}</p></div>
-        {(() => { const bs = blockedSummary(s) || {}; const rows = blockedRowsLive(s); const open = bs.notStarted != null ? (bs.notStarted || 0) + (bs.started || 0) : rows.filter(r => r.status !== "Completed").length; return <div className="rounded-2xl p-3.5" style={{ background: C.bg, border: `1px solid ${C.line}` }}><p className="text-xs" style={{ color: C.muted }}>Blocked pallets</p><p className="text-[26px] leading-tight font-semibold mt-0.5" style={{ color: open ? C.bad : C.ink }}>{open}</p><p className="text-[10px]" style={{ color: C.muted }}>{(() => { const mine = blockedQueue(s).filter(b => b.status !== "Completed" && b.claim?.userId === user.id).length; const st = blockedQueue(s).filter(b => b.status !== "Completed" && b.claim?.status === "stacked").length; return rows.length ? `${mine} yours · ${st} in stack` : "no blocked-pallets sheet yet"; })()}</p></div>; })()}
+        {(() => { const bs = blockedSummary(s) || {}; const rows = blockedRowsLive(s); const lostN = blockedQueue(s).filter(b => b.lost && b.status !== "Completed").length; const open = Math.max(0, (bs.notStarted != null ? (bs.notStarted || 0) + (bs.started || 0) : rows.filter(r => r.status !== "Completed").length) - lostN); return <div className="rounded-2xl p-3.5" style={{ background: C.bg, border: `1px solid ${C.line}` }}><p className="text-xs" style={{ color: C.muted }}>Blocked pallets</p><p className="text-[26px] leading-tight font-semibold mt-0.5" style={{ color: open ? C.bad : C.ink }}>{open}</p><p className="text-[10px]" style={{ color: C.muted }}>{(() => { const mine = blockedQueue(s).filter(b => b.status !== "Completed" && b.claim?.userId === user.id).length; const st = blockedQueue(s).filter(b => b.status !== "Completed" && b.claim?.status === "stacked").length; return rows.length ? `${mine} yours · ${st} in stack${lostN ? ` · ${lostN} lost` : ""}` : "no blocked-pallets sheet yet"; })()}</p></div>; })()}
         <div className="rounded-2xl p-3.5" style={{ background: C.bg, border: `1px solid ${C.line}` }}><p className="text-xs" style={{ color: C.muted }}>SKUs on docks<Lock /></p><p className="text-[26px] leading-tight font-semibold mt-0.5">{sheetStats(s).skus}</p><p className="text-[10px]" style={{ color: C.muted }}>{sheetStats(s).expected != null ? `${sheetStats(s).expected} still expected` : "distinct articles"}</p></div>
         <div className="rounded-2xl p-3.5" style={{ background: C.bg, border: `1px solid ${C.line}` }}><p className="text-xs" style={{ color: C.muted }}>Pallets on docks<Lock /></p><p className="text-[26px] leading-tight font-semibold mt-0.5">{sheetStats(s).pallets}</p><p className="text-[10px]" style={{ color: C.muted }}>{sheetStats(s).skippablePallets != null ? `${sheetStats(s).skippablePallets} skippable · ${sheetStats(s).skippableSkus ?? "—"} SKUs` : "in total"}</p></div>
       </div>
@@ -1827,6 +1873,7 @@ function MDashboard({ s, set, user, go, dismissed, setDismissed, onAssign }) {
           <button key={l} onClick={() => go("priority", l)} className="rounded-2xl py-3 text-center transition-transform active:scale-95" style={{ background: C.bg, border: `1px solid ${C.line}`, opacity: n ? 1 : 0.55 }}><p className="text-2xl font-bold tracking-tight" style={{ color: n ? fg : C.muted }}>{n}</p><p className="text-[10px] font-medium leading-tight mt-0.5" style={{ color: C.muted }}>{l}</p></button>
         ); })}
       </div>
+      {sheetStats(s).lost > 0 && <p className="text-[11px] px-5 mt-1.5" style={{ color: C.muted }}>{sheetStats(s).lost} pallet{sheetStats(s).lost === 1 ? "" : "s"} marked lost — not counted above, listed at the bottom of each priority.</p>}
       {dockRowsLive(s).length === 0 && <p className="text-[11px] px-5 mt-1.5" style={{ color: C.warn }}>{(s.integrations || []).some(i => i.purpose === "Dock" && i.needsRemap) ? "Dock sheet columns changed — the Head needs to re-map it in the portal." : (s.integrations || []).some(i => i.purpose === "Dock" && i.pushMode) ? "The last push from the dock sheet had no usable rows — showing zeros until the next one." : "No dock sheet connected yet."}</p>}
       <div className="flex gap-1 mx-5 mt-4" style={{ borderBottom: `1px solid ${C.line}` }}>
         {[["history", "History"], ["blocked", "Blocked pallets"]].map(([k, l]) => <button key={k} onClick={() => setTab(k)} className="px-1 py-2 text-sm" style={{ marginRight: 14, borderBottom: tab === k ? `2px solid ${C.ink}` : "2px solid transparent", color: tab === k ? C.ink : C.muted, fontWeight: tab === k ? 500 : 400 }}>{l}</button>)}
@@ -1834,7 +1881,7 @@ function MDashboard({ s, set, user, go, dismissed, setDismissed, onAssign }) {
         {tab === "history" && <button onClick={() => go("history")} className="text-xs py-2" style={{ color: C.accent }}>all ›</button>}
       </div>
       <div className="px-5 pt-2">
-        {tab === "blocked" && (() => { const q = blockedQueue(s); const order = { "Not started": 0, "Started": 1, "Completed": 2 }; const list = q.filter(b => blockedView === "mine" ? b.claim?.userId === user.id : blockedView === "all" ? true : b.status !== "Completed").sort((x, y) => (order[x.status] ?? 9) - (order[y.status] ?? 9) || (x.time || "").localeCompare(y.time || "")); return <div>
+        {tab === "blocked" && (() => { const q = blockedQueue(s); const order = { "Not started": 0, "Started": 1, "Completed": 2 }; const list = q.filter(b => blockedView === "mine" ? b.claim?.userId === user.id : blockedView === "all" ? true : b.status !== "Completed").sort((x, y) => (!!x.lost - !!y.lost) || (order[x.status] ?? 9) - (order[y.status] ?? 9) || (x.time || "").localeCompare(y.time || "")); return <div>
           <div className="flex items-center gap-1.5 py-2"><span className="text-xs flex-1" style={{ color: C.muted }}>Take a pallet before you walk to it — others see it's yours.</span>{[["open", "Open"], ["mine", "Mine"], ["all", "All"]].map(([k, l]) => <button key={k} onClick={() => setBlockedView(k)} className="text-[11px] px-2.5 py-1 rounded-full" style={{ background: blockedView === k ? C.ink : "transparent", color: blockedView === k ? C.onDark : C.ink, border: `1px solid ${blockedView === k ? C.ink : C.line}` }}>{l}</button>)}</div>
           {list.length === 0 && <p className="text-sm py-6 text-center" style={{ color: C.muted }}>{blockedView === "mine" ? "You haven't taken any pallet." : "Nothing blocked right now."}</p>}
           {list.map(b => <QueueRow key={b.key} s={s} set={set} user={user} b={b} onOpen={() => go("blockedInfo", b.key)} />)}
@@ -1987,7 +2034,7 @@ function MScan({ s, user, go, onStart, onVisual, onSkip, setState, notify, prese
   const wmsProduct = wms ? s.products.find(p => p.articleId === wms.article) : null;
   const scan = (given) => {
     const val = (given ?? scanned).trim(); if (given != null) setCode(val); if (!val) return; const scannedNow = val;
-    if (isPalletCode(scannedNow)) { const sscc = extractSSCC(scannedNow); setPallet(sscc); setAskInspect(false); const done = s.inspections.find(i => (i.pallets || []).some(x => samePallet(x, sscc)) && i.status === "Completed"); setMode(done ? "done" : "pallet"); }
+    if (isPalletCode(scannedNow)) { const sscc = extractSSCC(scannedNow); setPallet(sscc); setAskInspect(false); const lostRow = dockRowsLive(s).find(r => samePallet(r.hu, sscc)) || blockedRowsLive(s).find(r => samePallet(r.hu, sscc)); if (lostRow && lostOf(s, lostRow)) markFound(setState, lostRow, user); const done = s.inspections.find(i => (i.pallets || []).some(x => samePallet(x, sscc)) && i.status === "Completed"); setMode(done ? "done" : "pallet"); }
     else if (productByCode(scannedNow)) { setPallet(""); setMode("product"); }
     else setMode("unknown-product");
   };
@@ -2458,7 +2505,7 @@ export default function App() {
       {page === "history" && <MHistory s={s} user={user} go={go} />}
       {page === "priority" && <MPriorityList s={s} user={user} go={go} priority={param} />}
       {page === "blockedInfo" && <MBlockedInfo s={s} set={set} user={user} go={go} itemKey={param} />}
-      {page === "palletInfo" && <MPalletInfo s={s} user={user} go={go} hu={param} />}
+      {page === "palletInfo" && <MPalletInfo s={s} set={set} user={user} go={go} hu={param} />}
       {page === "catalog" && <MCatalog key={param || "catalog"} s={s} user={user} go={go} onStart={(pid, palletNo, typeId) => startInspection(pid, palletNo, false, typeId)} setState={set} notify={notify} onVisual={visualInspection} preset={param} />}
       {page === "chat" && <MChat s={s} set={set} user={user} go={go} initialContext={pendingChatContext} clearInitialContext={() => setPendingChatContext(null)} />}
       {page === "menu" && <MMenu s={s} set={set} user={user} go={go} users={s.users} setUser={id => { setUserId(id); go("home"); }} onLogout={() => { writeSession(null); setUserId(null); }} dark={dark} onTheme={toggleTheme} simOffline={simOffline} onSimOffline={() => setSimOffline(o => !o)} onSync={() => pullState(true)} syncMsg={syncMsg} />}

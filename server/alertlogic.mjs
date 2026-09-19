@@ -20,6 +20,8 @@ export function computeDeadlineAlerts(s, nowMs = Date.now()) {
     if (!r.arrived) continue;
     const covered = (s.inspections || []).some(i => i.status === "Completed" && (i.pallets || []).some(h => samePallet(h, r.hu)));
     if (covered) continue;
+    // marked lost (lostPallets, keyed hu:<normalized>) and not seen since → no alert; twin of lostOf() in Portal.jsx
+    const lostMark = (s.lostPallets || {})[`hu:${norm(r.hu)}`]; if (lostMark && !(s.inspections || []).some(i => i.status === "Completed" && (i.completedAt || "") > lostMark.at && (i.pallets || []).some(h => samePallet(h, r.hu)))) continue;
     const arrivalMs = new Date(`${r.arrived}T${r.arrivedTime || "00:00"}:00`).getTime();
     if (isNaN(arrivalMs)) continue;
     const deadlineAt = arrivalMs + st.rejectionWindowHours * 3600000;
