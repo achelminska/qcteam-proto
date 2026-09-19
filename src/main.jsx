@@ -1,4 +1,5 @@
 import "./storage-shim.js";
+import "./index.css";
 // Barcode decoder for browsers without a native BarcodeDetector (Safari): ZXing reads frames from the camera preview
 import * as ZXingBrowser from "@zxing/browser";
 window.ZXingBrowser = ZXingBrowser;

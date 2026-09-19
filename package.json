@@ -11,16 +11,19 @@
     "cert": "openssl req -x509 -newkey rsa:2048 -nodes -keyout server/key.pem -out server/cert.pem -days 365 -subj /CN=qcteam-local"
   },
   "dependencies": {
+    "@zxing/browser": "^0.1.5",
+    "@zxing/library": "^0.21.3",
     "lucide-react": "^0.383.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "recharts": "^2.12.7",
-    "@zxing/browser": "^0.1.5",
-    "@zxing/library": "^0.21.3"
+    "recharts": "^2.12.7"
   },
   "devDependencies": {
+    "@vitejs/plugin-basic-ssl": "^1.1.0",
     "@vitejs/plugin-react": "^4.3.1",
-    "vite": "^5.4.0",
-    "@vitejs/plugin-basic-ssl": "^1.1.0"
+    "autoprefixer": "^10.6.1",
+    "postcss": "^8.5.28",
+    "tailwindcss": "^3.4.19",
+    "vite": "^5.4.0"
   }
 }
