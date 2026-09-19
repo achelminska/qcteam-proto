@@ -1709,16 +1709,14 @@ function MLostControls({ s, set, user, row }) {
     <div className="rounded-2xl px-3.5 py-3 mb-3" style={{ background: C.bg, border: `1px dashed ${C.line}` }}>
       <p className="text-sm font-semibold flex items-center" style={{ color: C.muted }}><Ic i={Search} s={14} />Marked lost · {by ? by.name.split(" ")[0] : "?"} · {dayLabel(lost.at)}, {hhmm(lost.at)}</p>
       {lost.note && <p className="text-xs mt-0.5" style={{ color: C.muted }}>{lost.note}</p>}
-      <p className="text-xs mt-1" style={{ color: C.muted }}>No alerts for it until it turns up. Scanning it or finishing an inspection also marks it found.</p>
       <button onClick={() => markFound(set, row, user)} className="mt-2 text-xs px-3 py-1.5 rounded-lg font-semibold" style={{ background: C.ink, color: C.onDark }}>Found — it's back</button>
     </div>
   );
-  if (!ask) return <button onClick={() => setAsk(true)} className="w-full py-2 text-xs mt-1" style={{ color: C.muted }}>Can't find this pallet? Mark it lost</button>;
+  if (!ask) return <button onClick={() => setAsk(true)} className="w-full py-2 text-xs mt-1" style={{ color: C.muted }}>Not on the docks? Mark it lost</button>;
   return (
     <div className="rounded-2xl px-3.5 py-3 mt-2" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
       <p className="text-sm font-medium mb-1">Mark as lost</p>
-      <p className="text-xs mb-2" style={{ color: C.muted }}>It stays in the lists, dimmed, and stops raising alerts. The Head gets a note.</p>
-      <input value={note} onChange={e => setNote(e.target.value)} placeholder="where did you look? (optional)" className="w-full text-sm rounded-xl px-3 py-2 mb-2 outline-none" style={{ background: C.surface, border: `1px solid ${C.line}` }} />
+      <input value={note} onChange={e => setNote(e.target.value)} placeholder="note (optional)" className="w-full text-sm rounded-xl px-3 py-2 mb-2 outline-none" style={{ background: C.surface, border: `1px solid ${C.line}` }} />
       <div className="flex gap-2"><button onClick={() => { markLost(set, row, user, note); setAsk(false); }} className="flex-1 py-2 rounded-xl text-sm font-semibold" style={{ background: C.ink, color: C.onDark }}>Mark lost</button><button onClick={() => setAsk(false)} className="flex-1 py-2 rounded-xl text-sm" style={{ border: `1px solid ${C.line}` }}>Cancel</button></div>
     </div>
   );

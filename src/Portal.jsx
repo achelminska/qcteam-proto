@@ -46,7 +46,7 @@ const notifLook = t => { const [I, tone] = NOTIF[t] || [Bell, "info"]; const fg 
 const cleanMsg = m => String(m || "").replace(/^[\p{Extended_Pictographic}\uFE0F\s]+/u, "");
 const NotifIcon = ({ type, size = 32 }) => { const { I, fg, bg } = notifLook(type); return <span className="rounded-full flex items-center justify-center flex-shrink-0" style={{ width: size, height: size, background: bg, color: fg }}><I size={Math.round(size * 0.5)} strokeWidth={2} /></span>; };
 const Dot = ({ on }) => <span className="inline-block rounded-full ml-2 align-middle" style={{ width: 7, height: 7, background: on ? C.ok : C.line }} />;
-const NAV_ICON = { blocked: LockIcon, integrations: Link2, lists: ListIcon, analytics: BarChart3, settings: SlidersHorizontal, dashboard: LayoutDashboard, inspections: ClipboardList, flags: Flag, notifications: Bell, categories: FolderTree, problems: ListTree, products: Package, forms: LayoutTemplate, suppliers: Truck, countries: Globe, announcements: Megaphone, messages: MessageSquare, users: Users, catalog: Package, home: Home, chat: MessageSquare, menu: MenuIcon };
+const NAV_ICON = { blocked: LockIcon, lost: Search, integrations: Link2, lists: ListIcon, analytics: BarChart3, settings: SlidersHorizontal, dashboard: LayoutDashboard, inspections: ClipboardList, flags: Flag, notifications: Bell, categories: FolderTree, problems: ListTree, products: Package, forms: LayoutTemplate, suppliers: Truck, countries: Globe, announcements: Megaphone, messages: MessageSquare, users: Users, catalog: Package, home: Home, chat: MessageSquare, menu: MenuIcon };
 const EMPTY_ICON = { "📁": FolderTree, "🌳": ListTree, "📦": Package, "🧩": LayoutTemplate, "📖": BookOpen, "📏": Ruler, "📋": ClipboardList, "🚩": Flag, "🔔": Bell, "📣": Megaphone, "💬": MessageSquare, "🔒": LockIcon };
 
 
@@ -965,7 +965,7 @@ function Note({ tone: t = "info", children }) {
 
 // ═══════════════════ SHELL: top bar + sidebar ═══════════════════
 const NAV_HEAD = [
-  { group: null, items: [["dashboard", "🏠", "Dashboard"], ["inspections", "📋", "Inspections"], ["blocked", "🔒", "Blocked pallets"], ["analytics", "📊", "Analytics"], ["flags", "🚩", "Flags"], ["notifications", "🔔", "Notifications"]] },
+  { group: null, items: [["dashboard", "🏠", "Dashboard"], ["inspections", "📋", "Inspections"], ["blocked", "🔒", "Blocked pallets"], ["lost", "🔍", "Lost pallets"], ["analytics", "📊", "Analytics"], ["flags", "🚩", "Flags"], ["notifications", "🔔", "Notifications"]] },
   { group: "Catalog", items: [["categories", "📁", "Categories"], ["problems", "🌳", "Problem types"], ["products", "📦", "Products"], ["forms", "🧩", "Forms"]] },
   { group: "Dictionaries", items: [["suppliers", "🚚", "Suppliers"], ["lists", "📋", "Lists"]] },
   { group: "Communication", items: [["announcements", "📣", "Announcements"], ["messages", "💬", "Messages"]] },
@@ -2644,6 +2644,42 @@ function NotificationsPage({ s, set, user, setPage, setOpenId, setSelProduct }) 
 }
 
 // ═══════════════════ PAGE: Blocked pallets — the shared work queue ═══════════════════
+// Lost pallets: the hand-off list for whoever hunts them down (not QC). Everything marked lost, by whom and when, plus
+// whether the sheet still lists it. Found here or on the phone clears it; a completed inspection on the pallet clears it too.
+function LostPalletsPage({ s, set, user, setSel, setPage }) {
+  const rows = [...dockRowsLive(s).map(r => ({ ...r, kind: "dock" })), ...blockedRowsLive(s).map(r => ({ ...r, kind: "blocked" }))];
+  const marks = Object.entries(s.lostPallets || {}).map(([key, m]) => { const row = rows.find(r => lostKey(r) === key) || null; const live = row ? lostOf(s, row) : m; const by = s.users.find(u => u.id === m.byUserId); const product = s.products.find(p => p.articleId === (row?.article || m.article)); return { key, m, row, by, product, cleared: !live, name: row?.name || m.name || product?.name || m.article, article: row?.article || m.article, hu: row?.hu || m.hu, location: row?.location || m.location }; })
+    .sort((a, b) => (a.cleared - b.cleared) || (b.m.at || "").localeCompare(a.m.at || ""));
+  const open = marks.filter(x => !x.cleared);
+  const forget = key => set(x => { const lp = { ...(x.lostPallets || {}) }; delete lp[key]; return { ...x, lostPallets: lp }; });
+  return (
+    <div>
+      <h1 className="mb-1">Lost pallets</h1>
+      <p className="text-sm mb-4" style={{ color: C.muted, maxWidth: 680 }}>Pallets a controller couldn't find on the docks — moved without a scan. QC stops chasing them; this is the list for whoever does. Marked ones stay in the app, dimmed, and raise no alerts.</p>
+      {!marks.length ? <Card><Empty icon="🔍" title="Nothing marked lost" hint="Controllers mark a pallet lost from its screen on the phone." /></Card> : <Card>
+        <table className="w-full text-sm" style={{ borderCollapse: "collapse" }}>
+          <thead><tr style={{ color: C.muted }} className="text-xs text-left">{["Product", "Article", "HU", "Last seen", "List", "Marked by", "When", "Note", ""].map(h => <th key={h} className="py-2 pr-3 font-medium" style={{ borderBottom: `1px solid ${C.line}` }}>{h}</th>)}</tr></thead>
+          <tbody>
+            {marks.map(x => (
+              <tr key={x.key} style={{ opacity: x.cleared ? .5 : 1, borderBottom: `1px solid ${C.line}` }}>
+                <td className="py-2 pr-3">{x.product ? <button onClick={() => { setSel(x.product.id); setPage("products"); }} className="underline text-left" style={{ color: C.accent }}>{x.name}</button> : x.name}</td>
+                <td className="py-2 pr-3 font-mono text-xs">{x.article}</td>
+                <td className="py-2 pr-3 font-mono text-xs">{x.hu ? `…${String(x.hu).slice(-8)}` : "—"}</td>
+                <td className="py-2 pr-3">{x.location || "—"}</td>
+                <td className="py-2 pr-3 text-xs" style={{ color: C.muted }}>{x.row ? (x.row.kind === "blocked" ? "blocked sheet" : "dock sheet") : "off the sheets"}</td>
+                <td className="py-2 pr-3">{x.by ? <span className="inline-flex items-center gap-1.5"><Avatar user={x.by} size={18} />{x.by.name}</span> : "?"}</td>
+                <td className="py-2 pr-3 text-xs">{dayLabel(x.m.at)}, {hhmm(x.m.at)}</td>
+                <td className="py-2 pr-3 text-xs" style={{ color: C.muted }}>{x.m.note || ""}</td>
+                <td className="py-2 text-right whitespace-nowrap">{x.cleared ? <span className="text-xs" style={{ color: C.ok }}>found</span> : x.row ? <button onClick={() => markFound(set, x.row, user)} className="text-xs px-2.5 py-1 rounded-lg" style={{ border: `1px solid ${C.line}` }}>Found</button> : <button onClick={() => forget(x.key)} className="text-xs px-2.5 py-1 rounded-lg" style={{ border: `1px solid ${C.line}`, color: C.muted }}>Clear</button>}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {open.length > 0 && <p className="text-[11px] mt-3" style={{ color: C.muted }}>{open.length} still lost. Print or share this page with whoever tracks them; an outbound message (SV / WMS) can be hooked to markLost() later.</p>}
+      </Card>}
+    </div>
+  );
+}
 function BlockedQueuePage({ s, set, user, setSel, setPage }) {
   const [view, setView] = useState("open");
   const q = blockedQueue(s); const order = { "Not started": 0, "Started": 1, "Completed": 2 };
@@ -3052,6 +3088,7 @@ export default function App() {
       {safePage === "suppliers" && <DictionaryPage s={s} set={set} listKey="suppliers" title="Suppliers" hint="One global list of all suppliers (Suppliers). Assign to products in Products." placeholder="e.g. El Ciruelo" usageOf={id => s.products.filter(p => (p.supplierIds || []).includes(id)).length} />}
       {safePage === "lists" && <ListsPage s={s} set={set} />}
       {safePage === "blocked" && <BlockedQueuePage s={s} set={set} user={user} setSel={setSelProduct} setPage={setPage} />}
+      {safePage === "lost" && <LostPalletsPage s={s} set={set} user={user} setSel={setSelProduct} setPage={setPage} />}
       {safePage === "inspections" && <InspectionsPage s={s} set={set} user={user} notify={notify} openId={openInspId} setOpenId={setOpenInspId} preset={presetProduct} clearPreset={() => setPresetProduct("")} />}
       {safePage === "catalog" && <CatalogPage s={s} set={set} user={user} notify={notify} onStartInspection={pid => { setPresetProduct(pid); setOpenInspId(null); setPage("inspections"); }} />}
       {safePage === "flags" && <FlagsPage s={s} set={set} user={user} />}
