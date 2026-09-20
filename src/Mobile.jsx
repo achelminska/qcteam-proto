@@ -573,21 +573,25 @@ const computeDeadlineAlerts = (s, nowMs = Date.now()) => {
   });
   return out.sort((a, b) => a.hoursLeft - b.hoursLeft);
 };
-function DeadlineBanner({ s, alerts, onOpen, onMessage, openLabel = "Open" }) {
+// Countdown tiles for pallets whose rejection window is closing: one tile per pallet, ticking, gone the moment the pallet
+// is inspected (or marked lost). Tap → the pallet screen. No notifications — this IS the alert.
+const fmtLeft = ms => { if (ms <= 0) return "EXPIRED"; const m = Math.floor(ms / 60000); return m >= 60 ? `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, "0")}m` : `${m}m`; };
+function DeadlineBanner({ s, alerts, onOpen, onMessage, now = Date.now() }) {
   if (!alerts.length) return null;
   const breached = alerts.filter(a => a.level === "breached").length;
   return (
-    <div className="rounded-2xl p-4 mb-4" style={{ background: C.badBg, border: `1px solid ${C.bad}` }}>
-      <p className="text-sm font-semibold flex items-center mb-1" style={{ color: C.bad }}><Ic i={AlertTriangle} s={16} />{breached ? `${breached} pallet${breached === 1 ? "" : "s"} past the rejection window` : `${alerts.length} pallet${alerts.length === 1 ? "" : "s"} need inspection before the rejection window closes`}</p>
-      <div className="flex flex-col gap-1.5 mt-2">
-        {alerts.slice(0, 4).map(a => { const c = claimOf(s, a); const who = c && s.users.find(u => u.id === c.userId); return (
-          <button key={a.key} onClick={() => onOpen(a)} className="w-full text-left rounded-lg px-2.5 py-2 active:opacity-70" style={{ background: C.surface }}>
-            <div className="flex items-center gap-2"><span className="flex-1 truncate text-xs"><b>{a.name}</b> · {a.location}</span><span className="text-xs font-semibold flex-shrink-0" style={{ color: a.level === "breached" ? C.bad : C.warn }}>{a.level === "breached" ? "expired" : `${Math.max(0, Math.round(a.hoursLeft))}h left`}</span></div>
-            {(a.risky || who || onMessage) && <div className="flex items-center gap-2 mt-0.5 text-[11px]">{a.risky && <span style={{ color: C.bad }}>rejected recently</span>}{who && <span className="flex items-center gap-1" style={{ color: C.muted }}><Avatar user={who} size={14} />{who.name.split(" ")[0]}{c.status === "stacked" ? " · in stack" : ""}</span>}{onMessage && <span onClick={e => { e.stopPropagation(); onMessage(a); }} className="ml-auto underline" style={{ color: C.accent }}>assign in chat</span>}</div>}
+    <div className="mb-4">
+      <div className="flex items-center gap-2 mb-1.5"><p className="text-xs font-semibold flex items-center" style={{ color: C.bad }}><Ic i={Clock} s={13} />Rejection window closing · {alerts.length}{breached ? ` · ${breached} expired` : ""}</p></div>
+      <div className="flex gap-2 overflow-x-auto pb-1" style={{ scrollbarWidth: "thin", WebkitOverflowScrolling: "touch" }}>
+        {alerts.map(a => { const left = a.deadlineAt - now; const urgent = left <= 3600000; const c = claimOf(s, a); const who = c && s.users.find(u => u.id === c.userId); return (
+          <button key={a.key} onClick={() => onOpen(a)} className="text-left rounded-2xl px-3 py-2.5 flex-shrink-0 active:opacity-70" style={{ width: 150, background: left <= 0 ? C.bad : urgent ? C.badBg : C.warnBg, color: left <= 0 ? C.onDark : C.ink, border: `1px solid ${left <= 0 ? C.bad : urgent ? C.bad : C.warn}` }}>
+            <p className="text-lg font-bold tracking-tight leading-none" style={{ color: left <= 0 ? C.onDark : urgent ? C.bad : C.warn, fontVariantNumeric: "tabular-nums" }}>{fmtLeft(left)}</p>
+            <p className="text-xs font-medium mt-1.5 truncate">{a.name}</p>
+            <p className="text-[11px] truncate" style={{ opacity: .75 }}>{a.location}{a.risky ? " · rejected recently" : ""}</p>
+            <div className="flex items-center gap-1 mt-1 text-[10px]" style={{ opacity: .85, minHeight: 14 }}>{who && <><Avatar user={who} size={12} />{who.name.split(" ")[0]}{c.status === "stacked" ? " · stack" : ""}</>}{onMessage && <span onClick={e => { e.stopPropagation(); onMessage(a); }} className="ml-auto underline">assign</span>}</div>
           </button>
         ); })}
       </div>
-      {alerts.length > 4 && <p className="text-[11px] mt-1" style={{ color: C.muted }}>+{alerts.length - 4} more</p>}
     </div>
   );
 }
@@ -1836,6 +1840,7 @@ function MPriorityList({ s, user, go, priority }) {
 }
 
 function MDashboard({ s, set, user, go, dismissed, setDismissed, onAssign }) {
+  const [now, setNow] = useState(Date.now()); useEffect(() => { const id = setInterval(() => setNow(Date.now()), 30000); return () => clearInterval(id); }, []);
   const [blockedView, setBlockedView] = useState("open");
   const [tab, setTab] = useState("history");
   const bottomPad = { paddingBottom: 96 };
@@ -1856,7 +1861,7 @@ function MDashboard({ s, set, user, go, dismissed, setDismissed, onAssign }) {
           {fr.map(f => { const stale = now - new Date(f.at).getTime() > 10 * 60000; return <span key={f.purpose} className="text-[11px] flex items-center gap-1" style={{ color: stale ? C.warn : C.muted }}><Ic i={stale ? AlertTriangle : Clock} s={11} mr={0} />{f.purpose === "Dock" ? "Dock data" : "Blocked pallets"} · {ago(f.at)}</span>; })}
         </div>
       ); })()}
-      <div className="px-5"><DeadlineBanner s={s} alerts={computeDeadlineAlerts(s)} onOpen={al => go("palletInfo", al.hu)} /></div>
+      <div className="px-5"><DeadlineBanner s={s} alerts={computeDeadlineAlerts(s, now)} now={now} onOpen={al => go("palletInfo", al.hu)} /></div>
       {ann && <div className="mx-5 mb-3 rounded-xl px-3.5 py-2.5 flex items-start gap-2.5" style={{ background: C.surface, border: `1px solid ${C.line}`, borderLeft: `3px solid ${C.accent}` }}><span style={{ color: C.accent, marginTop: 2 }}><Ic i={Megaphone} s={14} mr={0} /></span><p className="text-sm flex-1"><b>{ann.title}</b><span style={{ color: C.muted }}> — {ann.body}</span></p><button onClick={() => setDismissed(d => [...d, ann.id])} className="text-sm" style={{ color: C.muted }}>×</button></div>}
       {user.role === "Head" && (() => { const esc = s.inspections.filter(i => i.status === "PendingReview").length, fl = s.flags.filter(f => f.status === "Open").length; return (
         <div className="px-5 mb-3">

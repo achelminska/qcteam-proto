@@ -37,23 +37,12 @@ export function computeDeadlineAlerts(s, nowMs = Date.now()) {
 }
 
 // Mutates nothing; returns a new state object if anything changed (new/escalated alerts, or stale entries to clear), else null.
-// Notifies every active Controller and Head — once per level per pallet (warning, then again on breach), not every tick.
+// No notifications any more: the closing window is shown live on the dashboards (countdown tiles that disappear when the
+// pallet is inspected). A notification for something already on screen was noise — one pallet fanned out to every
+// controller and the Head, twice. This only sweeps the ones already sent.
 export function applyDeadlineAlerts(s) {
-  const alerts = computeDeadlineAlerts(s);
-  const known = s.deadlineAlerts || {};
-  const nextKnown = {}; const newNotifs = []; const nowISO = new Date().toISOString();
-  const targets = (s.users || []).filter(u => u.active !== false && (u.role === "Head" || u.role === "Controller"));
-  for (const a of alerts) {
-    const already = known[a.key];
-    nextKnown[a.key] = { level: a.level, at: already?.level === a.level ? already.at : nowISO };
-    if (already?.level === a.level) continue;
-    const msg = a.level === "breached"
-      ? `${a.name} at ${a.location}: past the rejection window — it can no longer be rejected.`
-      : `${a.name} at ${a.location}: ${Math.max(0, Math.round(a.hoursLeft))}h left to inspect before the rejection window closes${a.risky ? " — rejected recently, treat as urgent" : ""}.`;
-    for (const u of targets) newNotifs.push({ id: Math.random().toString(36).slice(2, 10), userId: u.id, type: a.level === "breached" ? "DeadlineBreached" : "DeadlineWarning", message: msg, entityType: "Product", entityId: a.productId, createdAt: nowISO, readAt: null });
-  }
-  const clearedSome = Object.keys(known).some(k => !nextKnown[k]);
-  const sameCount = Object.keys(known).length === Object.keys(nextKnown).length;
-  if (newNotifs.length === 0 && !clearedSome && sameCount) return null;
-  return { ...s, deadlineAlerts: nextKnown, notifications: [...(s.notifications || []), ...newNotifs] };
+  const junk = n => n.type === "DeadlineWarning" || n.type === "DeadlineBreached";
+  const notifications = (s.notifications || []).filter(n => !junk(n));
+  if (notifications.length === (s.notifications || []).length && !s.deadlineAlerts) return null;
+  const { deadlineAlerts, ...rest } = s; return { ...rest, notifications };
 }

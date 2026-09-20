@@ -573,21 +573,25 @@ const computeDeadlineAlerts = (s, nowMs = Date.now()) => {
   });
   return out.sort((a, b) => a.hoursLeft - b.hoursLeft);
 };
-function DeadlineBanner({ s, alerts, onOpen, onMessage, openLabel = "Open" }) {
+// Countdown tiles for pallets whose rejection window is closing: one tile per pallet, ticking, gone the moment the pallet
+// is inspected (or marked lost). Tap → the pallet screen. No notifications — this IS the alert.
+const fmtLeft = ms => { if (ms <= 0) return "EXPIRED"; const m = Math.floor(ms / 60000); return m >= 60 ? `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, "0")}m` : `${m}m`; };
+function DeadlineBanner({ s, alerts, onOpen, onMessage, now = Date.now() }) {
   if (!alerts.length) return null;
   const breached = alerts.filter(a => a.level === "breached").length;
   return (
-    <div className="rounded-2xl p-4 mb-4" style={{ background: C.badBg, border: `1px solid ${C.bad}` }}>
-      <p className="text-sm font-semibold flex items-center mb-1" style={{ color: C.bad }}><Ic i={AlertTriangle} s={16} />{breached ? `${breached} pallet${breached === 1 ? "" : "s"} past the rejection window` : `${alerts.length} pallet${alerts.length === 1 ? "" : "s"} need inspection before the rejection window closes`}</p>
-      <div className="flex flex-col gap-1.5 mt-2">
-        {alerts.slice(0, 4).map(a => { const c = claimOf(s, a); const who = c && s.users.find(u => u.id === c.userId); return (
-          <button key={a.key} onClick={() => onOpen(a)} className="w-full text-left rounded-lg px-2.5 py-2 active:opacity-70" style={{ background: C.surface }}>
-            <div className="flex items-center gap-2"><span className="flex-1 truncate text-xs"><b>{a.name}</b> · {a.location}</span><span className="text-xs font-semibold flex-shrink-0" style={{ color: a.level === "breached" ? C.bad : C.warn }}>{a.level === "breached" ? "expired" : `${Math.max(0, Math.round(a.hoursLeft))}h left`}</span></div>
-            {(a.risky || who || onMessage) && <div className="flex items-center gap-2 mt-0.5 text-[11px]">{a.risky && <span style={{ color: C.bad }}>rejected recently</span>}{who && <span className="flex items-center gap-1" style={{ color: C.muted }}><Avatar user={who} size={14} />{who.name.split(" ")[0]}{c.status === "stacked" ? " · in stack" : ""}</span>}{onMessage && <span onClick={e => { e.stopPropagation(); onMessage(a); }} className="ml-auto underline" style={{ color: C.accent }}>assign in chat</span>}</div>}
+    <div className="mb-4">
+      <div className="flex items-center gap-2 mb-1.5"><p className="text-xs font-semibold flex items-center" style={{ color: C.bad }}><Ic i={Clock} s={13} />Rejection window closing · {alerts.length}{breached ? ` · ${breached} expired` : ""}</p></div>
+      <div className="flex gap-2 overflow-x-auto pb-1" style={{ scrollbarWidth: "thin", WebkitOverflowScrolling: "touch" }}>
+        {alerts.map(a => { const left = a.deadlineAt - now; const urgent = left <= 3600000; const c = claimOf(s, a); const who = c && s.users.find(u => u.id === c.userId); return (
+          <button key={a.key} onClick={() => onOpen(a)} className="text-left rounded-2xl px-3 py-2.5 flex-shrink-0 active:opacity-70" style={{ width: 150, background: left <= 0 ? C.bad : urgent ? C.badBg : C.warnBg, color: left <= 0 ? C.onDark : C.ink, border: `1px solid ${left <= 0 ? C.bad : urgent ? C.bad : C.warn}` }}>
+            <p className="text-lg font-bold tracking-tight leading-none" style={{ color: left <= 0 ? C.onDark : urgent ? C.bad : C.warn, fontVariantNumeric: "tabular-nums" }}>{fmtLeft(left)}</p>
+            <p className="text-xs font-medium mt-1.5 truncate">{a.name}</p>
+            <p className="text-[11px] truncate" style={{ opacity: .75 }}>{a.location}{a.risky ? " · rejected recently" : ""}</p>
+            <div className="flex items-center gap-1 mt-1 text-[10px]" style={{ opacity: .85, minHeight: 14 }}>{who && <><Avatar user={who} size={12} />{who.name.split(" ")[0]}{c.status === "stacked" ? " · stack" : ""}</>}{onMessage && <span onClick={e => { e.stopPropagation(); onMessage(a); }} className="ml-auto underline">assign</span>}</div>
           </button>
         ); })}
       </div>
-      {alerts.length > 4 && <p className="text-[11px] mt-1" style={{ color: C.muted }}>+{alerts.length - 4} more</p>}
     </div>
   );
 }
@@ -687,8 +691,8 @@ function IntegrationsPage({ s, set }) {
             <Card style={{ marginBottom: 16 }}>
               <div className="flex items-center gap-2 mb-2"><input value={it.name} onChange={e => patchIt({ name: e.target.value })} className="font-semibold text-sm flex-1" /><span className="text-[11px] px-2 py-0.5 rounded" style={{ background: C.bg, color: C.muted }}>{it.purpose}</span><button onClick={() => { set(x => ({ ...x, integrations: x.integrations.filter(i => i.id !== it.id) })); setSel(null); }} className="text-xs px-2" style={{ color: C.muted }}>delete</button></div>
               {it.purpose === "Dock" && <div className="rounded-xl p-3 mb-3" style={{ background: C.bg }}>
-                <p className="label-sm mb-1">Rejection deadline alerts</p>
-                <p className="text-xs mb-2" style={{ color: C.muted }}>A pallet can only be rejected within a fixed window after arrival. As that window closes, controllers and the Head get a notification — earlier for products rejected in the last {settingsOf(s).riskyLookbackDays} days.</p>
+                <p className="label-sm mb-1">Rejection window</p>
+                <p className="text-xs mb-2" style={{ color: C.muted }}>A pallet can only be rejected within a fixed window after arrival. As it closes, the pallet shows up as a countdown tile on every dashboard until it is inspected — earlier for products rejected in the last {settingsOf(s).riskyLookbackDays} days.</p>
                 <div className="grid gap-2" style={{ gridTemplateColumns: "1fr 1fr" }}>
                   {[["rejectionWindowHours", "Reject within (hours of arrival)"], ["deadlineWarnHours", "Warn — hours before the window closes"], ["deadlineWarnHoursRisky", "Warn earlier for recently-rejected products (hours before)"], ["riskyLookbackDays", "“Recently rejected” = within (days)"]].map(([k, l]) => <label key={k} className="text-xs" style={{ color: C.muted }}>{l}<input type="number" min={0} value={settingsOf(s)[k]} onChange={e => set(x => ({ ...x, settings: { ...settingsOf(x), [k]: Math.max(0, Number(e.target.value) || 0) } }))} className="w-full text-sm mt-1" /></label>)}
                 </div>
@@ -1023,8 +1027,7 @@ function Shell({ page, setPage, children, badge, topRight, users, user, setUser,
 // What the floor looks like right now, for the Head in the office: docks by priority, the blocked queue by state, who has
 // what, lost pallets, and how fresh the sheets are. Same numbers the phones show — one source (the shared state).
 const PRIO_ORDER = ["Now needed", "High risk", "High issues", "Late inspection", "Inspection due"];
-const floorStats = s => {
-  const now = Date.now(); const today = new Date().toISOString().slice(0, 10);
+const floorStats = (s, now = Date.now()) => { const today = new Date().toISOString().slice(0, 10);
   const dockAll = dockRowsLive(s); const dock = dockAll.filter(r => !lostOf(s, r)); const dockLost = dockAll.length - dock.length;
   const prio = Object.fromEntries(PRIO_ORDER.map(k => [k, dock.filter(r => r.priority === k).length]));
   const skippable = dock.filter(r => r.skippable).length; const blocking = dock.filter(r => r.blocking).length;
@@ -1047,7 +1050,8 @@ const agoShort = t => { if (!t) return "—"; const m = Math.round((Date.now() -
 
 function Dashboard({ s, setPage, seed, user, openProduct, onAssign, set }) {
   const [prioSel, setPrioSel] = useState(null); const [blSel, setBlSel] = useState(null);
-  const f = floorStats(s);
+  const [now, setNow] = useState(Date.now()); useEffect(() => { const id = setInterval(() => setNow(Date.now()), 30000); return () => clearInterval(id); }, []);
+  const f = floorStats(s, now);
   const globalT = s.templates.find(t => t.scope === "Global");
   const steps = [
     { done: s.categories.length > 0, label: "Create categories", page: "categories", why: "a product must belong to a category" },
@@ -1062,7 +1066,7 @@ function Dashboard({ s, setPage, seed, user, openProduct, onAssign, set }) {
   return (
     <div>
       <div className="flex items-baseline gap-3 mb-1"><h1>Floor now</h1><span className="text-xs" style={{ color: C.muted }}>{f.fresh.length ? f.fresh.map(x => `${x.purpose === "Dock" ? "dock" : "blocked"} sheet ${agoShort(x.at)}`).join(" · ") : "no sheets connected"}</span></div>
-      <DeadlineBanner s={s} alerts={f.alerts} onOpen={a => a.productId && openProduct && openProduct(a.productId)} onMessage={onAssign} />
+      <DeadlineBanner s={s} alerts={f.alerts} now={now} onOpen={a => a.productId && openProduct && openProduct(a.productId)} onMessage={onAssign} />
 
       <p className="label-sm mt-2 mb-1.5" style={{ color: C.muted }}>Docks · {f.dock.length} pallets · {f.skus} SKUs{f.blocking ? ` · ${f.blocking} needed today` : ""}{f.skippable ? ` · ${f.skippable} skippable` : ""}{f.dockLost ? ` · ${f.dockLost} lost` : ""}</p>
       <div className="grid gap-3 mb-3" style={{ gridTemplateColumns: "repeat(5, 1fr)" }}>

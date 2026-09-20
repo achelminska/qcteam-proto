@@ -122,7 +122,7 @@ const handler = async (req, res) => {
 };
 const ips = Object.values(os.networkInterfaces()).flat().filter(i => i.family === "IPv4" && !i.internal).map(i => i.address);
 http.createServer(handler).listen(PORT, "0.0.0.0", () => console.log(`QCteam state server  http://localhost:${PORT}   phone: ${ips.map(ip => `http://${ip}:${PORT}`).join(" ")}`));
-setInterval(() => checkDeadlines("timer"), 2 * 60 * 1000);
+checkDeadlines("boot"); // one-time sweep of old deadline notifications; the countdown tiles need no timer
 const certP = new URL("./cert.pem", import.meta.url), keyP = new URL("./key.pem", import.meta.url);
 if (fs.existsSync(certP) && fs.existsSync(keyP)) https.createServer({ cert: fs.readFileSync(certP), key: fs.readFileSync(keyP) }, handler).listen(PORT + 1, "0.0.0.0", () => console.log(`                     https://localhost:${PORT + 1}  phone: ${ips.map(ip => `https://${ip}:${PORT + 1}`).join(" ")}`));
 else console.log("(no server/cert.pem — HTTPS state server off; run: npm run cert)");
