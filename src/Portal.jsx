@@ -1613,6 +1613,11 @@ function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset }) {
   const visibleUnassigned = visible.filter(p => !p.categoryId);
   const assignVisible = () => { if (!bulkCat) return; const ids = new Set(visibleUnassigned.map(p => p.id)); set(x => ({ ...x, products: x.products.map(p => ids.has(p.id) ? { ...p, categoryId: bulkCat } : p) })); };
   const patchP = p => set(x => ({ ...x, products: x.products.map(q => q.id === product.id ? { ...q, ...p } : q) }));
+  // Delete: always asks. History (inspections, flags) is never deleted with the product — it just loses the product name.
+  const [confirmDel, setConfirmDel] = useState(false);
+  const refsOf = pr => ({ inspections: s.inspections.filter(i => i.productId === pr.id).length, flags: (s.flags || []).filter(f => f.productId === pr.id).length, announcements: (s.announcements || []).filter(a => a.productId === pr.id).length });
+  const deleteProduct = pr => { set(x => ({ ...x, products: x.products.filter(q => q.id !== pr.id), announcements: (x.announcements || []).filter(a => a.productId !== pr.id), templates: (x.templates || []).filter(t => !(t.scope === "Product" && t.productId === pr.id)) })); setConfirmDel(false); setSel(null); };
+  useEffect(() => { setConfirmDel(false); }, [sel]);
   const removeSpec = id => set(x => ({ ...x, products: x.products.map(p => p.id === product.id ? { ...p, specs: p.specs.filter(q => q.id !== id) } : p), templates: x.templates.map(t => ({ ...t, fields: t.fields.map(f => f.specId === id ? { ...f, specId: null } : f) })) }));
   const toggleSup = id => patchP({ supplierIds: (product.supplierIds || []).includes(id) ? product.supplierIds.filter(x => x !== id) : [...(product.supplierIds || []), id] });
   const addVar = () => { if (!product || !varName.trim()) return; patchP({ varieties: [...(product.varieties || []), { id: uid(), name: varName.trim() }] }); setVarName(""); };
@@ -1686,7 +1691,13 @@ function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset }) {
         <div>
           {product && (
             <Card style={{ marginBottom: 16 }}>
-              <p className="font-medium text-sm mb-3">Profile: {product.name}</p>
+              <div className="flex items-center gap-2 mb-3"><p className="font-medium text-sm flex-1">Profile: {product.name}</p><button onClick={() => setConfirmDel(true)} className="text-xs px-2.5 py-1 rounded-lg" style={{ color: C.bad, border: `1px solid ${C.line}` }}>Delete</button></div>
+              {confirmDel && (() => { const r = refsOf(product); const any = r.inspections + r.flags + r.announcements; return (
+                <div className="rounded-xl p-3 mb-3" style={{ background: C.badBg, border: `1px solid ${C.bad}` }}>
+                  <p className="text-sm font-semibold mb-1" style={{ color: C.bad }}>Delete “{product.name}”?</p>
+                  <p className="text-xs mb-2" style={{ color: C.ink }}>{any ? <>It has <b>{r.inspections} inspection{r.inspections === 1 ? "" : "s"}</b>, {r.flags} flag{r.flags === 1 ? "" : "s"} and {r.announcements} announcement{r.announcements === 1 ? "" : "s"}. Inspections and flags are kept for history but lose the product name; announcements are removed. If the product is just no longer stocked, <b>deactivating</b> keeps everything intact.</> : "Nothing else references it. This cannot be undone."}</p>
+                  <div className="flex gap-2"><button onClick={() => deleteProduct(product)} className="text-xs px-3 py-1.5 rounded-lg font-semibold" style={{ background: C.bad, color: C.onDark }}>Delete permanently</button>{any > 0 && product.isActive !== false && <button onClick={() => { patchP({ isActive: false }); setConfirmDel(false); }} className="text-xs px-3 py-1.5 rounded-lg" style={{ border: `1px solid ${C.line}` }}>Deactivate instead</button>}<button onClick={() => setConfirmDel(false)} className="text-xs px-3 py-1.5 rounded-lg" style={{ color: C.muted }}>Cancel</button></div>
+                </div>); })()}
               <div className="flex gap-1.5 mb-2">
                 <input value={product.articleId || ""} onChange={e => patchP({ articleId: e.target.value })} placeholder="article ID" className="w-28 text-sm rounded px-2 py-1.5 outline-none" style={{ ...inp, borderColor: product.articleId ? C.line : C.warn }} />
                 <input value={product.name} onChange={e => patchP({ name: e.target.value })} className="flex-1 text-sm rounded px-2 py-1.5 outline-none" style={inp} />
