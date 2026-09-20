@@ -1580,6 +1580,8 @@ function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset }) {
   const [filter, setFilter] = useState(""); const [importOpen, setImportOpen] = useState(false); const [importText, setImportText] = useState(""); const [importMsg, setImportMsg] = useState("");
   useEffect(() => { if (presetFilter) { setFilter(presetFilter); clearPreset && clearPreset(); } }, [presetFilter]);
   const [supQ, setSupQ] = useState("");
+  const [tab, setTab] = useState("profile"); const [newOpen, setNewOpen] = useState(false);
+  useEffect(() => { setTab("profile"); }, [sel]);
   const [varName, setVarName] = useState(""); const [varOpen, setVarOpen] = useState(false);
   const product = s.products.find(p => p.id === sel);
   const catPath = id => { const c = s.categories.find(x => x.id === id); if (!c) return "—"; const p = c.parentId && s.categories.find(x => x.id === c.parentId); return p ? `${p.name} › ${c.name}` : c.name; };
@@ -1624,142 +1626,154 @@ function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset }) {
   const removeVar = id => patchP({ varieties: (product.varieties || []).filter(v => v.id !== id) });
   const allSup = s.suppliers || [];
   const visibleSup = allSup.filter(x => x.name.toLowerCase().includes(supQ.toLowerCase()));
+  const Field = ({ label, hint, children, className = "" }) => <label className={`block ${className}`}><span className="block text-xs font-medium mb-1" style={{ color: C.ink }}>{label}</span>{children}{hint && <span className="block text-[11px] mt-1" style={{ color: C.muted }}>{hint}</span>}</label>;
+  const Input = props => <input {...props} className={`w-full text-sm rounded-lg px-2.5 py-2 outline-none ${props.className || ""}`} style={{ ...inp, ...(props.style || {}) }} />;
+  const thumb = pr => { const ph = asPhotoList(pr.photos)[0]; return ph ? <img src={ph.dataUrl} alt="" className="rounded-lg object-cover flex-shrink-0" style={{ width: 36, height: 36 }} /> : <span className="rounded-lg flex items-center justify-center flex-shrink-0" style={{ width: 36, height: 36, background: C.bg, color: C.muted }}><Ic i={Package} s={16} mr={0} /></span>; };
+  const tabs = product ? [["profile", "Profile"], ["photos", `Photos${asPhotoList(product.photos).length ? ` · ${asPhotoList(product.photos).length}` : ""}`], ["specs", `Specifications${effectiveSpecs(s, product).length ? ` · ${effectiveSpecs(s, product).length}` : ""}`], ["attrs", `Properties${effectiveAttributes(s, product).length ? ` · ${effectiveAttributes(s, product).length}` : ""}`], ["supply", `Suppliers${(product.supplierIds || []).length ? ` · ${(product.supplierIds || []).length}` : ""}`], ["policy", "Inspection types"]] : [];
+  const missing = product ? [!product.articleId && "article ID", !product.barcodeCu && !product.barcodeTu && "barcode", !product.categoryId && "category", !asPhotoList(product.photos).length && "photo"].filter(Boolean) : [];
   return (
     <div>
-      <h1 className="mb-1">Products</h1>
-      <p className="text-sm mb-5" style={{ color: C.muted, maxWidth: 640 }}>Profile: name, category, bio, default sample conversions. Specifications and supplier assignment — after selecting a product.</p>
-      <div className="grid gap-4" style={{ gridTemplateColumns: "1fr 1fr" }}>
-        <div>
-          <Card style={{ marginBottom: 16 }}>
-            <p className="font-medium text-sm mb-3">New product</p>
-            <div className="flex gap-1.5 mb-2"><input value={d.articleId} onChange={e => setD(x => ({ ...x, articleId: e.target.value }))} placeholder="article ID" className="w-28 text-sm rounded px-2 py-1.5 outline-none" style={inp} /><input value={d.name} onChange={e => setD(x => ({ ...x, name: e.target.value }))} placeholder="e.g. Elstar apple 1kg" className="flex-1 text-sm rounded px-2 py-1.5 outline-none" style={inp} /></div>
-            <select value={d.categoryId} onChange={e => setD(x => ({ ...x, categoryId: e.target.value }))} className="w-full text-sm rounded px-2 py-1.5 outline-none mb-2" style={inp}>
-              <option value="">— category —</option>
-              {s.categories.map(c => <option key={c.id} value={c.id}>{catPath(c.id)}</option>)}
-            </select>
-            <label className="flex items-center justify-between text-sm mb-1 cursor-pointer"><span>Bio</span><input type="checkbox" checked={d.isBio} onChange={e => setD(x => ({ ...x, isBio: e.target.checked }))} /></label>
-            <p className="text-xs mb-1" style={{ color: C.muted }}>Default sample conversions (optional)</p>
-            <div className="grid grid-cols-3 gap-1.5 mb-3">
-              <input type="number" value={d.cusPerTu} onChange={e => setD(x => ({ ...x, cusPerTu: e.target.value }))} placeholder="CU/TU" className="text-xs rounded px-2 py-1.5 outline-none" style={inp} />
-              <input type="number" value={d.piecesPerCu} onChange={e => setD(x => ({ ...x, piecesPerCu: e.target.value }))} placeholder="pcs/CU" className="text-xs rounded px-2 py-1.5 outline-none" style={inp} />
-              <input type="number" value={d.weightPerCu} onChange={e => setD(x => ({ ...x, weightPerCu: e.target.value }))} placeholder="g/CU" className="text-xs rounded px-2 py-1.5 outline-none" style={inp} />
-            </div>
-            <Primary onClick={add} disabled={s.categories.length === 0}>{s.categories.length === 0 ? "Add a category first" : "Create product"}</Primary>
-          </Card>
-          <Card>
-            <div className="flex items-center gap-2 mb-2">
-<SearchBox value={filter} onChange={setFilter} placeholder="search by name or ID…" className="flex-1" inputClass="rounded" size={13} />
-              <button onClick={() => setImportOpen(o => !o)} className="text-xs px-2.5 py-1.5 rounded-lg" style={{ background: importOpen ? C.accent : C.accentSoft, color: importOpen ? C.onDark : C.accent }}><Ic i={Download} s={13} />Import</button>
-            </div>
-            {importOpen && (
-              <div className="rounded-lg p-3 mb-3" style={{ background: C.bg, border: `1px dashed ${C.line}` }}>
-                <p className="text-xs mb-2" style={{ color: C.muted }}>Paste rows from the sheet (tab-separated). Takes only the <b>article ID</b> (1st column) and the <b>name</b> (2nd). Other columns are ignored. Duplikaty po ID — pomijane.</p>
-                <textarea value={importText} onChange={e => setImportText(e.target.value)} rows={5} placeholder={"90006058\tMerkloos Blauwe bessen 125 gram"} className="w-full text-xs rounded px-2 py-1.5 outline-none font-mono mb-2" style={inp} />
-                <div className="flex items-center gap-2"><Primary small onClick={runImport}>Import</Primary>{importMsg && <span className="text-xs" style={{ color: C.accent }}>{importMsg}</span>}</div>
-              </div>
-            )}
-            <div className="flex flex-wrap gap-1.5 mb-2">
-              {[["", "All"], ...(unassigned ? [["none", "No category"]] : []), ...roots.map(c => [c.id, c.name])].map(([id, l]) => { const n = countIn(id); const on = catSel === id; return <button key={id || "all"} onClick={() => setCatSel(id)} className="text-xs px-2.5 py-1 rounded-full" style={{ background: on ? C.ink : "transparent", color: on ? C.onDark : id === "none" ? C.warn : C.ink, border: `1px solid ${on ? C.ink : C.line}` }}>{l} · {n}</button>; })}
-            </div>
-            {catSel && catSel !== "none" && children(catSel).length > 0 && <div className="flex flex-wrap gap-1.5 mb-2 pl-2">{children(catSel).map(c => { const on = catSel === c.id; return <button key={c.id} onClick={() => setCatSel(c.id)} className="text-[11px] px-2 py-0.5 rounded-full" style={{ background: C.bg, border: `1px solid ${C.line}` }}>{c.name} · {countIn(c.id)}</button>; })}</div>}
-            {catSel && catSel !== "none" && s.categories.find(c => c.id === catSel)?.parentId && <p className="text-[11px] mb-2 pl-2" style={{ color: C.muted }}>{catPath(catSel)} · <button onClick={() => setCatSel(s.categories.find(c => c.id === catSel).parentId)} className="underline">back to {s.categories.find(c => c.id === s.categories.find(x => x.id === catSel).parentId)?.name}</button></p>}
-            <div className="flex items-center gap-2 mb-3 text-xs" style={{ color: C.muted }}>
-              <span>{visible.length} of {s.products.length}</span>
-              <label className="flex items-center gap-1 cursor-pointer ml-2"><input type="checkbox" checked={onlyBio} onChange={e => setOnlyBio(e.target.checked)} />bio only</label>
-              <label className="flex items-center gap-1 cursor-pointer"><input type="checkbox" checked={showInactive} onChange={e => setShowInactive(e.target.checked)} />show inactive</label>
-              <select value={sortBy} onChange={e => setSortBy(e.target.value)} className="ml-auto text-xs rounded px-1.5 py-1 outline-none" style={inp}><option value="az">A–Z</option><option value="id">by article ID</option><option value="cat">by category</option></select>
-            </div>
-            {unassigned > 0 && <Note tone="warn">{unassigned} products without a category — without it they inherit only the global template and have no category specs. Use the suggestions below, or filter the list and assign in bulk.</Note>}
-            {unassigned > 0 && <CategorySuggestPanel s={s} set={set} products={s.products.filter(p => !p.categoryId)} />}
-            {visibleUnassigned.length > 0 && (
-              <div className="flex items-center gap-2 mb-2 rounded-lg p-2" style={{ background: C.accentSoft }}>
-                <span className="text-xs" style={{ color: C.accent }}>{visibleUnassigned.length} visible without category →</span>
-                <select value={bulkCat} onChange={e => setBulkCat(e.target.value)} className="text-xs rounded px-1.5 py-1 outline-none flex-1" style={inp}><option value="">— assign to —</option>{s.categories.map(c => <option key={c.id} value={c.id}>{catPath(c.id)}</option>)}</select>
-                <Primary small onClick={assignVisible} disabled={!bulkCat}>Assign</Primary>
-              </div>
-            )}
-            {s.products.length === 0 ? <Empty icon="📦" title="No products" hint="Add manually or import a list from the sheet." /> : visible.map(p => (
-              <div key={p.id} className="flex items-center gap-2 px-2 py-1.5 rounded-lg mb-0.5" style={{ background: sel === p.id ? C.accentSoft : "transparent" }}>
-                <button onClick={() => setSel(p.id)} className="flex-1 text-left text-sm min-w-0 truncate" style={{ color: sel === p.id ? C.accent : C.ink }}>{p.articleId && <span className="text-xs mr-1.5" style={{ color: C.muted }}>{p.articleId}</span>}{p.name}{p.isBio && <span className="text-xs ml-1" style={{ color: C.ok }}>bio</span>}</button>
-                {p.categoryId ? <span className="text-xs whitespace-nowrap" style={{ color: C.muted }}>{catPath(p.categoryId)}</span>
-                  : <select value="" onChange={e => setCategory(p.id, e.target.value)} className="text-xs rounded px-1 py-0.5 outline-none" style={{ ...inp, borderColor: C.warn }}><option value="">— category —</option>{s.categories.map(c => <option key={c.id} value={c.id}>{catPath(c.id)}</option>)}</select>}
-              </div>
-            ))}
-            {visible.length === 0 && s.products.length > 0 && <p className="text-xs" style={{ color: C.muted }}>Nothing matches the filter.</p>}
-          </Card>
+      <div className="flex items-end gap-3 mb-4">
+        <div className="flex-1"><h1>Products</h1><p className="text-sm mt-0.5" style={{ color: C.muted }}>{s.products.length} product{s.products.length === 1 ? "" : "s"}{unassigned ? ` · ${unassigned} without category` : ""} · changes save automatically</p></div>
+        <button onClick={() => { setImportOpen(o => !o); setNewOpen(false); }} className="text-sm px-3 py-2 rounded-xl inline-flex items-center" style={{ background: importOpen ? C.ink : C.surface, color: importOpen ? C.onDark : C.ink, border: `1px solid ${importOpen ? C.ink : C.line}` }}><Ic i={Download} s={14} />Import list</button>
+        <Primary onClick={() => { setNewOpen(o => !o); setImportOpen(false); }}><Ic i={Plus} s={14} />New product</Primary>
+      </div>
+
+      {newOpen && <Card style={{ marginBottom: 16 }}>
+        <p className="font-medium text-sm mb-3">New product</p>
+        <div className="grid gap-3" style={{ gridTemplateColumns: "2fr 1fr 1fr" }}>
+          <Field label="Name *"><Input autoFocus value={d.name} onChange={e => setD(x => ({ ...x, name: e.target.value }))} placeholder="Merkloos Elstar appels 4 stuks" /></Field>
+          <Field label="Article ID"><Input value={d.articleId} onChange={e => setD(x => ({ ...x, articleId: e.target.value }))} placeholder="90006122" className="font-mono" /></Field>
+          <Field label="Category *"><select value={d.categoryId} onChange={e => setD(x => ({ ...x, categoryId: e.target.value }))} className="w-full text-sm rounded-lg px-2 py-2 outline-none" style={inp}><option value="">—</option>{s.categories.map(c => <option key={c.id} value={c.id}>{catPath(c.id)}</option>)}</select></Field>
         </div>
-        <div>
-          {product && (
-            <Card style={{ marginBottom: 16 }}>
-              <div className="flex items-center gap-2 mb-3"><p className="font-medium text-sm flex-1">Profile: {product.name}</p><button onClick={() => setConfirmDel(true)} className="text-xs px-2.5 py-1 rounded-lg" style={{ color: C.bad, border: `1px solid ${C.line}` }}>Delete</button></div>
+        <div className="grid gap-3 mt-3" style={{ gridTemplateColumns: "1fr 1fr 1fr 1fr" }}>
+          <Field label="CU per TU"><Input type="number" value={d.cusPerTu} onChange={e => setD(x => ({ ...x, cusPerTu: e.target.value }))} /></Field>
+          <Field label="Pieces per CU"><Input type="number" value={d.piecesPerCu} onChange={e => setD(x => ({ ...x, piecesPerCu: e.target.value }))} /></Field>
+          <Field label="Weight per CU (g)"><Input type="number" value={d.weightPerCu} onChange={e => setD(x => ({ ...x, weightPerCu: e.target.value }))} /></Field>
+          <label className="flex items-center gap-2 text-sm cursor-pointer mt-5"><input type="checkbox" checked={d.isBio} onChange={e => setD(x => ({ ...x, isBio: e.target.checked }))} />Bio</label>
+        </div>
+        <div className="flex gap-2 mt-4"><Primary onClick={() => { add(); setNewOpen(false); }} disabled={!d.name.trim() || !d.categoryId}>Create product</Primary><button onClick={() => setNewOpen(false)} className="text-sm px-3" style={{ color: C.muted }}>Cancel</button></div>
+      </Card>}
+
+      {importOpen && <Card style={{ marginBottom: 16 }}>
+        <p className="font-medium text-sm mb-1">Import a product list</p>
+        <p className="text-xs mb-2" style={{ color: C.muted }}>Paste rows from a sheet: <b>article ID</b> in the first column, <b>name</b> in the second (tab-separated). Existing IDs are skipped. For more columns (barcodes, CU/TU, category) use Integrations → product profiles sheet.</p>
+        <textarea value={importText} onChange={e => setImportText(e.target.value)} rows={6} placeholder={"90006058\tMerkloos Blauwe bessen 125 gram"} className="w-full text-xs rounded-lg px-2.5 py-2 outline-none font-mono mb-2" style={inp} />
+        <div className="flex items-center gap-2"><Primary small onClick={runImport} disabled={!importText.trim()}>Import</Primary><button onClick={() => setImportOpen(false)} className="text-xs px-2" style={{ color: C.muted }}>Close</button>{importMsg && <span className="text-xs" style={{ color: C.accent }}>{importMsg}</span>}</div>
+      </Card>}
+
+      <div className="grid gap-4 items-start" style={{ gridTemplateColumns: "380px minmax(0, 1fr)" }}>
+        <Card style={{ padding: 12, minWidth: 0 }}>
+          <SearchBox value={filter} onChange={setFilter} placeholder="Search name or article ID" className="mb-2" inputClass="rounded-lg" size={13} />
+          <div className="flex flex-wrap gap-1.5 mb-2">
+            {[["", "All"], ...(unassigned ? [["none", "No category"]] : []), ...roots.map(c => [c.id, c.name])].map(([id, l]) => { const n = countIn(id); const on = catSel === id; return <button key={id || "all"} onClick={() => setCatSel(id)} className="text-xs px-2.5 py-1 rounded-full" style={{ background: on ? C.ink : "transparent", color: on ? C.onDark : id === "none" ? C.warn : C.ink, border: `1px solid ${on ? C.ink : C.line}` }}>{l} · {n}</button>; })}
+          </div>
+          {catSel && catSel !== "none" && children(catSel).length > 0 && <div className="flex flex-wrap gap-1.5 mb-2 pl-1">{children(catSel).map(c => <button key={c.id} onClick={() => setCatSel(c.id)} className="text-[11px] px-2 py-0.5 rounded-full" style={{ background: C.bg, border: `1px solid ${C.line}` }}>{c.name} · {countIn(c.id)}</button>)}</div>}
+          {catSel && catSel !== "none" && s.categories.find(c => c.id === catSel)?.parentId && <p className="text-[11px] mb-2 pl-1" style={{ color: C.muted }}>{catPath(catSel)} · <button onClick={() => setCatSel(s.categories.find(c => c.id === catSel).parentId)} className="underline">up</button></p>}
+          <div className="flex items-center gap-2 mb-2 text-xs" style={{ color: C.muted }}>
+            <span>{visible.length} of {s.products.length}</span>
+            <label className="flex items-center gap-1 cursor-pointer ml-1"><input type="checkbox" checked={onlyBio} onChange={e => setOnlyBio(e.target.checked)} />bio</label>
+            <label className="flex items-center gap-1 cursor-pointer"><input type="checkbox" checked={showInactive} onChange={e => setShowInactive(e.target.checked)} />inactive</label>
+            <select value={sortBy} onChange={e => setSortBy(e.target.value)} className="ml-auto text-xs rounded px-1.5 py-1 outline-none" style={inp}><option value="az">A–Z</option><option value="id">by ID</option><option value="cat">by category</option></select>
+          </div>
+          {unassigned > 0 && catSel !== "none" && <button onClick={() => setCatSel("none")} className="w-full text-left text-xs rounded-lg px-2.5 py-2 mb-2" style={{ background: C.warnBg, color: C.warn }}>{unassigned} product{unassigned === 1 ? "" : "s"} without a category — they get no category specs. Show them →</button>}
+          {catSel === "none" && unassigned > 0 && <CategorySuggestPanel s={s} set={set} products={s.products.filter(p => !p.categoryId)} />}
+          {visibleUnassigned.length > 0 && (
+            <div className="flex items-center gap-2 mb-2 rounded-lg p-2" style={{ background: C.accentSoft }}>
+              <span className="text-xs whitespace-nowrap" style={{ color: C.accent }}>{visibleUnassigned.length} shown →</span>
+              <select value={bulkCat} onChange={e => setBulkCat(e.target.value)} className="text-xs rounded px-1.5 py-1 outline-none flex-1 min-w-0" style={inp}><option value="">assign category…</option>{s.categories.map(c => <option key={c.id} value={c.id}>{catPath(c.id)}</option>)}</select>
+              <Primary small onClick={assignVisible} disabled={!bulkCat}>Assign</Primary>
+            </div>
+          )}
+          <div style={{ maxHeight: "calc(100vh - 360px)", overflowY: "auto" }}>
+            {s.products.length === 0 ? <Empty icon="📦" title="No products yet" hint="Create one, import a list, or map a product sheet in Integrations." /> : visible.length === 0 ? <p className="text-xs py-6 text-center" style={{ color: C.muted }}>Nothing matches.</p> : visible.map(p => (
+              <button key={p.id} onClick={() => setSel(p.id)} className="w-full flex items-center gap-2.5 px-2 py-1.5 rounded-lg mb-0.5 text-left" style={{ background: sel === p.id ? C.accentSoft : "transparent", opacity: p.isActive === false ? .55 : 1 }}>
+                {thumb(p)}
+                <span className="flex-1 min-w-0"><span className="block text-sm truncate" style={{ color: sel === p.id ? C.accent : C.ink, fontWeight: sel === p.id ? 600 : 400 }}>{p.name}</span><span className="block text-[11px] truncate" style={{ color: C.muted }}>{p.articleId || "no ID"} · {p.categoryId ? catPath(p.categoryId) : <span style={{ color: C.warn }}>no category</span>}</span></span>
+                {p.isBio && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ background: C.okBg, color: C.ok }}>bio</span>}
+                {p.isActive === false && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ background: C.line, color: C.muted }}>inactive</span>}
+              </button>
+            ))}
+          </div>
+        </Card>
+
+        <div className="min-w-0">
+          {!product ? <Card><Empty icon="📦" title="Select a product" hint="Its profile, photos, specifications, suppliers and inspection types open here." /></Card> : (
+            <Card style={{ padding: 0, overflow: "hidden" }}>
+              <div className="flex items-start gap-4 px-5 pt-5 pb-4">
+                {asPhotoList(product.photos)[0] ? <img src={asPhotoList(product.photos)[0].dataUrl} alt="" className="rounded-xl object-cover flex-shrink-0" style={{ width: 72, height: 72 }} /> : <button onClick={() => setTab("photos")} className="rounded-xl flex items-center justify-center flex-shrink-0" style={{ width: 72, height: 72, background: C.bg, color: C.muted, border: `1px dashed ${C.line}` }}><Ic i={ImageIcon} s={22} mr={0} /></button>}
+                <div className="flex-1 min-w-0">
+                  <h2 className="truncate">{product.name}</h2>
+                  <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                    <span className="text-[11px] px-2 py-0.5 rounded-full font-mono" style={{ background: C.bg, border: `1px solid ${C.line}` }}>{product.articleId || "no ID"}</span>
+                    <span className="text-[11px] px-2 py-0.5 rounded-full" style={{ background: C.bg, border: `1px solid ${C.line}`, color: product.categoryId ? C.ink : C.warn }}>{product.categoryId ? catPath(product.categoryId) : "no category"}</span>
+                    {product.isBio && <span className="text-[11px] px-2 py-0.5 rounded-full" style={{ background: C.okBg, color: C.ok }}>bio</span>}
+                    {product.isActive === false && <span className="text-[11px] px-2 py-0.5 rounded-full" style={{ background: C.line, color: C.muted }}>inactive</span>}
+                    {missing.length > 0 && <span className="text-[11px]" style={{ color: C.warn }}>· missing: {missing.join(", ")}</span>}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <button onClick={() => patchP({ isActive: product.isActive === false })} className="text-xs px-3 py-1.5 rounded-lg" style={{ border: `1px solid ${C.line}` }}>{product.isActive === false ? "Activate" : "Deactivate"}</button>
+                  <button onClick={() => setConfirmDel(true)} className="text-xs px-3 py-1.5 rounded-lg" style={{ color: C.bad, border: `1px solid ${C.line}` }}>Delete</button>
+                </div>
+              </div>
               {confirmDel && (() => { const r = refsOf(product); const any = r.inspections + r.flags + r.announcements; return (
-                <div className="rounded-xl p-3 mb-3" style={{ background: C.badBg, border: `1px solid ${C.bad}` }}>
+                <div className="mx-5 mb-4 rounded-xl p-3" style={{ background: C.badBg, border: `1px solid ${C.bad}` }}>
                   <p className="text-sm font-semibold mb-1" style={{ color: C.bad }}>Delete “{product.name}”?</p>
                   <p className="text-xs mb-2" style={{ color: C.ink }}>{any ? <>It has <b>{r.inspections} inspection{r.inspections === 1 ? "" : "s"}</b>, {r.flags} flag{r.flags === 1 ? "" : "s"} and {r.announcements} announcement{r.announcements === 1 ? "" : "s"}. Inspections and flags are kept for history but lose the product name; announcements are removed. If the product is just no longer stocked, <b>deactivating</b> keeps everything intact.</> : "Nothing else references it. This cannot be undone."}</p>
                   <div className="flex gap-2"><button onClick={() => deleteProduct(product)} className="text-xs px-3 py-1.5 rounded-lg font-semibold" style={{ background: C.bad, color: C.onDark }}>Delete permanently</button>{any > 0 && product.isActive !== false && <button onClick={() => { patchP({ isActive: false }); setConfirmDel(false); }} className="text-xs px-3 py-1.5 rounded-lg" style={{ border: `1px solid ${C.line}` }}>Deactivate instead</button>}<button onClick={() => setConfirmDel(false)} className="text-xs px-3 py-1.5 rounded-lg" style={{ color: C.muted }}>Cancel</button></div>
                 </div>); })()}
-              <div className="flex gap-1.5 mb-2">
-                <input value={product.articleId || ""} onChange={e => patchP({ articleId: e.target.value })} placeholder="article ID" className="w-28 text-sm rounded px-2 py-1.5 outline-none" style={{ ...inp, borderColor: product.articleId ? C.line : C.warn }} />
-                <input value={product.name} onChange={e => patchP({ name: e.target.value })} className="flex-1 text-sm rounded px-2 py-1.5 outline-none" style={inp} />
+              <div className="flex gap-1 px-5 overflow-x-auto" style={{ borderBottom: `1px solid ${C.line}` }}>
+                {tabs.map(([k, l]) => <button key={k} onClick={() => setTab(k)} className="text-sm px-3 py-2.5 -mb-px whitespace-nowrap" style={{ color: tab === k ? C.ink : C.muted, fontWeight: tab === k ? 600 : 400, borderBottom: `2px solid ${tab === k ? C.ink : "transparent"}` }}>{l}</button>)}
               </div>
-              <div className="flex gap-1.5 mb-2">
-                <input value={product.barcodeCu || ""} onChange={e => patchP({ barcodeCu: e.target.value })} placeholder="barcode CU (consumer pack)" title="Products.BarcodeCU — EAN on the consumer pack; the scanner matches it" className="flex-1 text-sm font-mono rounded px-2 py-1.5 outline-none" style={{ ...inp, borderColor: product.barcodeCu || product.barcodeTu ? C.line : C.warn }} />
-                <input value={product.barcodeTu || ""} onChange={e => patchP({ barcodeTu: e.target.value })} placeholder="barcode TU (box / case)" title="Products.BarcodeTU — code on the trade unit (box/case); the scanner matches it too" className="flex-1 text-sm font-mono rounded px-2 py-1.5 outline-none" style={{ ...inp, borderColor: product.barcodeCu || product.barcodeTu ? C.line : C.warn }} />
+              <div className="px-5 py-5">
+                {tab === "profile" && <div className="grid gap-4" style={{ gridTemplateColumns: "1fr 1fr", maxWidth: 720 }}>
+                  <Field label="Name" className="col-span-2"><Input value={product.name} onChange={e => patchP({ name: e.target.value })} /></Field>
+                  <Field label="Article ID" hint="Matches the dock sheet and imports."><Input value={product.articleId || ""} onChange={e => patchP({ articleId: e.target.value })} className="font-mono" style={{ borderColor: product.articleId ? C.line : C.warn }} /></Field>
+                  <Field label="Category"><select value={product.categoryId || ""} onChange={e => patchP({ categoryId: e.target.value || null })} className="w-full text-sm rounded-lg px-2 py-2 outline-none" style={{ ...inp, borderColor: product.categoryId ? C.line : C.warn }}><option value="">—</option>{s.categories.map(c => <option key={c.id} value={c.id}>{catPath(c.id)}</option>)}</select></Field>
+                  <Field label="Barcode CU (consumer pack)" hint={!product.barcodeCu && !product.barcodeTu ? "At least one barcode — the scanner matches on it." : undefined}><Input value={product.barcodeCu || ""} onChange={e => patchP({ barcodeCu: e.target.value })} className="font-mono" style={{ borderColor: product.barcodeCu || product.barcodeTu ? C.line : C.warn }} /></Field>
+                  <Field label="Barcode TU (box / case)"><Input value={product.barcodeTu || ""} onChange={e => patchP({ barcodeTu: e.target.value })} className="font-mono" style={{ borderColor: product.barcodeCu || product.barcodeTu ? C.line : C.warn }} /></Field>
+                  <div className="grid gap-4 col-span-2" style={{ gridTemplateColumns: "1fr 1fr 1fr" }}>
+                    <Field label="CU per TU"><Input type="number" value={product.cusPerTu || ""} onChange={e => patchP({ cusPerTu: e.target.value })} /></Field>
+                    <Field label="Pieces per CU"><Input type="number" value={product.piecesPerCu || ""} onChange={e => patchP({ piecesPerCu: e.target.value })} /></Field>
+                    <Field label="Weight per CU (g)"><Input type="number" value={product.weightPerCu || ""} onChange={e => patchP({ weightPerCu: e.target.value })} /></Field>
+                  </div>
+                  <Field label="Consumer app link" hint="Opens on the phone only." className="col-span-2"><Input value={product.consumerAppUrl || ""} onChange={e => patchP({ consumerAppUrl: e.target.value })} placeholder="https://…" /></Field>
+                  <label className="flex items-center gap-2 text-sm cursor-pointer"><input type="checkbox" checked={!!product.isBio} onChange={e => patchP({ isBio: e.target.checked })} />Bio</label>
+                </div>}
+                {tab === "photos" && <div style={{ maxWidth: 720 }}>
+                  <p className="text-xs mb-3" style={{ color: C.muted }}>The first photo is the product's picture on the phone. Controllers compare the pallet to it.</p>
+                  <PhotoStrip photos={product.photos} onAdd={got => patchP({ photos: [...asPhotoList(product.photos), ...got] })} onRemove={id => patchP({ photos: asPhotoList(product.photos).filter(x => x.id !== id) })} />
+                </div>}
+                {tab === "specs" && <div style={{ maxWidth: 720 }}>
+                  <SpecForm sctx={s} specs={product.specs} inherited={effectiveSpecs(s, product).filter(q => q.source !== "product")} onAdd={q => patchP({ specs: [...product.specs, q] })} onRemove={removeSpec} excluded={product.excludedSpecNames || []} onExclude={n => patchP({ excludedSpecNames: [...(product.excludedSpecNames || []), n] })} onRestore={n => patchP({ excludedSpecNames: (product.excludedSpecNames || []).filter(x => x !== n) })} hint="Own specifications override inherited ones of the same name. Most belong on the category — only exceptions here." />
+                </div>}
+                {tab === "attrs" && <div style={{ maxWidth: 720 }}>
+                  <AttributeForm s={s} own={product.attributes || []} inherited={effectiveAttributes(s, product).filter(a => a.source !== "product")} onSet={a => patchP({ attributes: [...(product.attributes || []).filter(x => x.dictionaryId !== a.dictionaryId), a] })} onRemove={did => patchP({ attributes: (product.attributes || []).filter(x => x.dictionaryId !== did) })} hint="Values from Lists. Own values override the category's; they pre-fill form fields bound to the same list." />
+                </div>}
+                {tab === "supply" && <div className="grid gap-6" style={{ gridTemplateColumns: "1fr 1fr", maxWidth: 800 }}>
+                  <div>
+                    <p className="text-sm font-medium mb-1">Suppliers</p>
+                    <p className="text-xs mb-2" style={{ color: C.muted }}>Narrows the choice during inspection. None assigned = all suppliers offered.</p>
+                    {allSup.length === 0 ? <p className="text-xs" style={{ color: C.warn }}>The supplier list is empty — add them in Dictionaries → Suppliers.</p> : <>
+                      {(product.supplierIds || []).length > 0 && <div className="flex flex-wrap gap-1.5 mb-2">{product.supplierIds.map(id => { const sup = allSup.find(x => x.id === id); return sup && <span key={id} className="text-xs px-2 py-1 rounded-full flex items-center gap-1" style={{ background: C.accentSoft, color: C.accent }}>{sup.name}<button onClick={() => toggleSup(id)} style={{ color: C.accent }}>×</button></span>; })}</div>}
+                      <Input value={supQ} onChange={e => setSupQ(e.target.value)} placeholder="Search suppliers" className="mb-1.5" />
+                      <div className="rounded-lg overflow-hidden" style={{ border: `1px solid ${C.line}`, maxHeight: 220, overflowY: "auto" }}>{visibleSup.map(x => <label key={x.id} className="flex items-center gap-2 text-sm px-2.5 py-1.5 cursor-pointer" style={{ borderTop: `1px solid ${C.line}` }}><input type="checkbox" checked={(product.supplierIds || []).includes(x.id)} onChange={() => toggleSup(x.id)} />{x.name}</label>)}</div>
+                    </>}
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium mb-1">Varieties</p>
+                    <p className="text-xs mb-2" style={{ color: C.muted }}>Own varieties add to the category's.</p>
+                    <div className="flex gap-1.5 mb-2"><Input value={varName} onChange={e => setVarName(e.target.value)} onKeyDown={e => e.key === "Enter" && addVar()} placeholder="e.g. Duke" /><Primary small onClick={addVar} disabled={!varName.trim()}>Add</Primary></div>
+                    {(product.varieties || []).map(v => <div key={v.id} className="flex items-center gap-2 text-sm py-1.5" style={{ borderTop: `1px solid ${C.line}` }}><span className="flex-1">{v.name}</span><button onClick={() => removeVar(v.id)} className="text-xs px-1" style={{ color: C.muted }}>×</button></div>)}
+                    {effectiveVarieties(s, product).filter(v => v.source !== "product").length > 0 && <><p className="label-sm mt-3 mb-1" style={{ color: C.muted }}>inherited</p>{effectiveVarieties(s, product).filter(v => v.source !== "product").map(v => <div key={v.id} className="text-sm py-1.5" style={{ borderTop: `1px solid ${C.line}`, opacity: .65 }}>{v.name} <span className="text-xs" style={{ color: C.muted }}>· {v.source}</span></div>)}</>}
+                  </div>
+                </div>}
+                {tab === "policy" && <div style={{ maxWidth: 720 }}>
+                  <p className="text-xs mb-3" style={{ color: C.muted }}>Which inspection types a controller can start on this product. Inherited from the category / type settings unless overridden here.</p>
+                  <PolicyEditor s={s} own={Array.isArray(product.allowedTypeIds) ? product.allowedTypeIds : null} inherited={effectivePolicy(s, { ...product, allowedTypeIds: undefined }).typeIds} inheritedSource={effectivePolicy(s, { ...product, allowedTypeIds: undefined }).source} onChange={v => patchP({ allowedTypeIds: v })} />
+                </div>}
               </div>
-              {!product.barcodeCu && !product.barcodeTu && <p className="text-[11px] mb-2" style={{ color: C.warn }}>At least one barcode is needed — CU or TU — otherwise the scanner can only match this product by article ID.</p>}
-              <div className="flex gap-1.5 mb-2">
-                <input value={product.consumerAppUrl || ""} onChange={e => patchP({ consumerAppUrl: e.target.value })} placeholder="consumer app link (deeplink)" title="Products.ConsumerAppUrl — opens only on the phone" className="flex-1 text-sm" />
-              </div>
-              <select value={product.categoryId || ""} onChange={e => patchP({ categoryId: e.target.value || null })} className="w-full text-sm rounded px-2 py-1.5 outline-none mb-2" style={inp}>
-                <option value="">— category —</option>{s.categories.map(c => <option key={c.id} value={c.id}>{catPath(c.id)}</option>)}
-              </select>
-              <label className="flex items-center justify-between text-sm mb-2 cursor-pointer"><span>Bio</span><input type="checkbox" checked={!!product.isBio} onChange={e => patchP({ isBio: e.target.checked })} /></label>
-              <p className="text-xs mb-1" style={{ color: C.muted }}>Allowed inspection types</p>
-              <div className="mb-3"><PolicyEditor s={s} own={Array.isArray(product.allowedTypeIds) ? product.allowedTypeIds : null} inherited={effectivePolicy(s, { ...product, allowedTypeIds: undefined }).typeIds} inheritedSource={effectivePolicy(s, { ...product, allowedTypeIds: undefined }).source} onChange={v => patchP({ allowedTypeIds: v })} /></div>
-              <label className="flex items-center justify-between text-sm mb-2 cursor-pointer"><span>Active<span className="block text-[11px]" style={{ color: C.muted }}>Products.IsActive — inactive products disappear from the catalog and start lists; history stays.</span></span><input type="checkbox" checked={product.isActive !== false} onChange={e => patchP({ isActive: e.target.checked })} /></label>
-              <p className="text-xs mb-1" style={{ color: C.muted }}>Default sample conversions</p>
-              <div className="grid grid-cols-3 gap-1.5">
-                <input type="number" value={product.cusPerTu || ""} onChange={e => patchP({ cusPerTu: e.target.value })} placeholder="CU/TU" className="text-xs rounded px-2 py-1.5 outline-none" style={inp} />
-                <input type="number" value={product.piecesPerCu || ""} onChange={e => patchP({ piecesPerCu: e.target.value })} placeholder="pcs/CU" className="text-xs rounded px-2 py-1.5 outline-none" style={inp} />
-                <input type="number" value={product.weightPerCu || ""} onChange={e => patchP({ weightPerCu: e.target.value })} placeholder="g/CU" className="text-xs rounded px-2 py-1.5 outline-none" style={inp} />
-              </div>
-              {!product.articleId && <p className="text-xs mt-2" style={{ color: C.warn }}>No article ID — without it the sheet import won't match this product.</p>}
-              <p className="text-xs mt-3 mb-1" style={{ color: C.muted }}>Reference photos (ProductPhotos) — the controller sees them in the catalog</p>
-              <PhotoStrip photos={product.photos} onAdd={got => patchP({ photos: [...asPhotoList(product.photos), ...got] })} onRemove={id => patchP({ photos: asPhotoList(product.photos).filter(x => x.id !== id) })} />
-            </Card>
-          )}
-          <Card style={{ marginBottom: 16 }}>
-            {!product ? <Empty icon="📏" title="Specifications" hint="Select a product from the list to add specifications with unit and target." /> : (
-              <>
-                <p className="font-medium text-sm mb-1">Attributes from lists: {product.name}</p>
-                <AttributeForm s={s} own={product.attributes || []} inherited={effectiveAttributes(s, product).filter(a => a.source !== "product")} onSet={a => patchP({ attributes: [...(product.attributes || []).filter(x => x.dictionaryId !== a.dictionaryId), a] })} onRemove={did => patchP({ attributes: (product.attributes || []).filter(x => x.dictionaryId !== did) })} hint="Own values override the category's. Pre-filled in form fields bound to the same list — the controller can still change them on the dock." />
-                <p className="font-medium text-sm mb-1 mt-5">Specifications: {product.name}</p>
-                <SpecForm sctx={s} specs={product.specs} inherited={effectiveSpecs(s, product).filter(q => q.source !== "product")} onAdd={q => patchP({ specs: [...product.specs, q] })} onRemove={removeSpec} excluded={product.excludedSpecNames || []} onExclude={n => patchP({ excludedSpecNames: [...(product.excludedSpecNames || []), n] })} onRestore={n => patchP({ excludedSpecNames: (product.excludedSpecNames || []).filter(x => x !== n) })}
-                  hint="Own specifications override inherited ones of the same name. Most should live on the category — only exceptions here." />
-              </>
-            )}
-          </Card>
-          {product && !(product.varieties || []).length && !varOpen && <button onClick={() => setVarOpen(true)} className="text-xs mb-4" style={{ color: C.accent }}>+ add product-specific varieties (optional)</button>}
-          {product && ((product.varieties || []).length > 0 || varOpen) && (
-            <Card style={{ marginBottom: 16 }}>
-              <p className="font-medium text-sm mb-1">Varieties: {product.name}</p>
-              <p className="text-xs mb-3" style={{ color: C.muted }}>The product's own varieties — added to those inherited from the category. Most should live on the category.</p>
-              <div className="flex gap-1.5 mb-2"><input value={varName} onChange={e => setVarName(e.target.value)} onKeyDown={e => e.key === "Enter" && addVar()} placeholder="e.g. Duke" className="flex-1 text-sm rounded px-2 py-1.5 outline-none" style={inp} /><Primary small onClick={addVar}>+</Primary></div>
-              {(product.varieties || []).length === 0 ? <p className="text-xs" style={{ color: C.muted }}>None of its own.</p> : (product.varieties || []).map(v => <div key={v.id} className="flex items-center gap-2 text-sm py-1.5" style={{ borderTop: `1px solid ${C.line}` }}><span className="flex-1">{v.name}</span><button onClick={() => removeVar(v.id)} className="text-xs px-1" style={{ color: C.muted }}>×</button></div>)}
-              {effectiveVarieties(s, product).filter(v => v.source !== "product").length > 0 && <><p className="label-sm mt-3 mb-1" style={{ color: C.muted }}>inherited</p>{effectiveVarieties(s, product).filter(v => v.source !== "product").map(v => <div key={v.id} className="text-sm py-1.5" style={{ borderTop: `1px solid ${C.line}`, opacity: 0.65 }}>{v.name} <span className="text-xs" style={{ color: C.muted }}>· {v.source}</span></div>)}</>}
-            </Card>
-          )}
-          {product && (
-            <Card>
-              <p className="font-medium text-sm mb-1">Suppliers: {product.name}</p>
-              <p className="text-xs mb-3" style={{ color: C.muted }}>Assign from the global list (ProductSuppliers) to narrow the choice during inspection. Without assignment the controller sees all suppliers.</p>
-              {allSup.length === 0 ? <p className="text-xs" style={{ color: C.warn }}>The supplier list is empty — add them in Dictionaries → Suppliers.</p> : (
-                <>
-                  {(product.supplierIds || []).length > 0 && <div className="flex flex-wrap gap-1.5 mb-2">{product.supplierIds.map(id => { const sup = allSup.find(x => x.id === id); return sup && <span key={id} className="text-xs px-2 py-1 rounded-full flex items-center gap-1" style={{ background: C.accentSoft, color: C.accent }}>{sup.name}<button onClick={() => toggleSup(id)} className="text-xs" style={{ color: C.accent }}>×</button></span>; })}</div>}
-                  <input value={supQ} onChange={e => setSupQ(e.target.value)} placeholder="search supplier…" className="w-full text-xs rounded px-2 py-1.5 outline-none mb-1.5" style={inp} />
-                  <div className="rounded-lg overflow-hidden" style={{ border: `1px solid ${C.line}`, maxHeight: 160, overflowY: "auto" }}>{visibleSup.map(x => <label key={x.id} className="flex items-center gap-2 text-sm px-2 py-1.5 cursor-pointer" style={{ borderTop: `1px solid ${C.line}` }}><input type="checkbox" checked={(product.supplierIds || []).includes(x.id)} onChange={() => toggleSup(x.id)} />{x.name}</label>)}</div>
-                </>
-              )}
             </Card>
           )}
         </div>
@@ -1768,7 +1782,6 @@ function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset }) {
   );
 }
 
-// ═══════════════════ STRONA: Forms (budowniczy) ═══════════════════
 function FieldEditor({ f, onPatch, onRemove, onMove, problems, specs, specsHint, dictionaries, sctxForNames }) {
   const arrows = <><button onClick={() => onMove(-1)} className="text-xs px-1" style={{ color: C.muted }} title="up">↑</button><button onClick={() => onMove(1)} className="text-xs px-1" style={{ color: C.muted }} title="down">↓</button></>;
   const leaves = problems.filter(p => isLeaf(problems, p.id));
