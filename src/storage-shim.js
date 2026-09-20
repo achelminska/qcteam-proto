@@ -32,7 +32,7 @@ window.storage = {
     return { key, value };
   },
   // Cheap version check for fast polling (badges etc.) — does not pull the whole state.
-  async getMeta(key) { if (!(await probe())) return null; try { const r = await fetch(`${SERVER}/meta/${encodeURIComponent(key)}`, { cache: "no-store" }); const j = await r.json(); return j.updatedAt ? String(j.updatedAt) : null; } catch { return null; } },
+  async getMeta(key) { if (!(await probe())) return null; try { const r = await fetch(`${SERVER}/meta/${encodeURIComponent(key)}`, { cache: "no-store" }); const j = await r.json(); if (j.sheets) window.__qcSheetFresh = j.sheets; return j.updatedAt ? String(j.updatedAt) : null; } catch { return null; } },
   // Changes when the server process restarts (every deploy) — used to notice a new build is live and offer a refresh.
   async getBootId() { if (!(await probe())) return null; try { const r = await fetch(`${SERVER}/boot`, { cache: "no-store" }); const j = await r.json(); return j.bootId || null; } catch { return null; } },
   // Versioned save: If-Match with the version we last saw. 409 → {conflict, value, version} (someone saved first) or {rejected} (size guard).
@@ -45,7 +45,5 @@ window.storage = {
   },
   async delete(key) { if (await probe()) { await fetch(`${SERVER}/storage/${encodeURIComponent(key)}`, { method: "DELETE" }); return { key, deleted: true }; } localStorage.removeItem(key); return { key, deleted: true }; },
 };
-// Live refresh: when the other device saves, pull the new state (poll every 3 s; the apps re-read on reload).
-// The prototypes load state once on start, so a simple approach is to reload the page when the server's copy is newer.
-let lastSeen = null;
-setInterval(async () => { if (!(await probe())) return; try { const r = await fetch(`${SERVER}/storage/qcteam-portal-state-v2-clean`); if (r.status !== 200) return; const j = await r.json(); if (lastSeen && j.updatedAt && j.updatedAt > lastSeen && !document.hasFocus()) location.reload(); lastSeen = j.updatedAt || lastSeen; } catch {} }, 3000);
+// (The old 3-second full-state poll that lived here is gone: it downloaded the whole state 28,800 times a day per open tab.
+// The apps poll /meta — a few bytes — and pull the state only when its version changed.)

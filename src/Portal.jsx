@@ -603,7 +603,7 @@ const recentProblemsFor = (s, productId, nowMs = Date.now(), days = 14) => {
   return { count: insps.length, problems, lastAt };
 };
 // "How fresh is this?" — the sheet's own last-push time (not when this device last synced), so a stalled trigger shows up.
-const sheetFreshness = s => (s.integrations || []).filter(i => (i.purpose === "Dock" || i.purpose === "Blocked") && i.lastPushAt).map(i => ({ purpose: i.purpose, at: i.lastPushAt }));
+const sheetFreshness = s => { const live = (typeof window !== "undefined" && window.__qcSheetFresh) || {}; return (s.integrations || []).filter(i => (i.purpose === "Dock" || i.purpose === "Blocked") && (i.lastPushAt || live[i.purpose.toLowerCase()])).map(i => { const a = i.lastPushAt || "", b = live[i.purpose.toLowerCase()] || ""; return { purpose: i.purpose, at: a > b ? a : b }; }); };
 const dockSummary = s => { const it = (s.integrations || []).find(i => i.purpose === "Dock" && i.rows?.length); return it?.summary || null; };
 const blockedRowsLive = s => { const it = (s.integrations || []).find(i => i.purpose === "Blocked" && i.rows?.length); if (!it) return []; const seen = new Set(); return it.rows.filter(r => !r._errors?.length).map(r => ({ article: String(r.article || ""), name: r.name || "", hu: String(r.hu || "").replace(/\D/g, ""), location: r.location || "", zone: r.zone || "", pickLocation: r.pickLocation || "", deadline: r.deadline || "", wmsStatus: r.wmsStatus || "", status: r.status || "", date: r.date || "", time: r.time || "" })).filter(r => { const k = r.hu || `${r.article}|${r.location}`; if (seen.has(k)) return false; seen.add(k); return true; }); };
 const blockedSummary = s => { const it = (s.integrations || []).find(i => i.purpose === "Blocked" && i.rows?.length); return it?.summary || null; };
@@ -3130,7 +3130,7 @@ export default function App() {
   }, []);
   // Save on every change (only after loading, so as not to overwrite with empty)
   useEffect(() => {
-    if (!loaded) return;
+    if (!loaded || !syncerRef.current.pending.length) return; // a state that just came from the server has nothing to send back
     flushState(syncerRef.current, STORAGE_KEY, () => _S, v => { _S = v; setRaw(v); }, p => sortState(normalize(p)), n => n && setToastMsg && setToastMsg(`Merged with changes from another device (${n} of yours re-applied)`));
   }, [s, loaded]);
 

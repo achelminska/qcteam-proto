@@ -1,7 +1,7 @@
 // QCteam local state server — one file, no dependencies. Run: node server/server.mjs
 // HTTP on :3001 and, if server/cert.pem + server/key.pem exist, HTTPS on :3002 (needed when the app itself runs over HTTPS —
 // browsers block mixed content). Create the cert once:  npm run cert
-import http from "node:http"; import https from "node:https"; import fs from "node:fs"; import os from "node:os"; import path from "node:path";
+import http from "node:http"; import https from "node:https"; import fs from "node:fs"; import os from "node:os"; import path from "node:path"; import zlib from "node:zlib";
 import { targetsFor, suggestMappings, applyMapping, detectTable, extractSummary } from "./sheetlogic.mjs";
 import { applyDeadlineAlerts } from "./alertlogic.mjs";
 const STATE_KEY = "qcteam-portal-state-v2-clean";
@@ -25,7 +25,9 @@ if (STATE_DIR && !fs.existsSync(STATE_DIR)) fs.mkdirSync(STATE_DIR, { recursive:
 const store = fs.existsSync(FILE) ? JSON.parse(fs.readFileSync(FILE, "utf8")) : {};
 console.log(`state file: ${FILE}`);
 const save = () => fs.writeFileSync(FILE, JSON.stringify(store));
-const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET,PUT,DELETE,OPTIONS", "Access-Control-Allow-Headers": "Content-Type" };
+const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET,PUT,DELETE,OPTIONS", "Access-Control-Allow-Headers": "Content-Type,If-Match,X-Force,X-Sync-Key" };
+// Bandwidth: the state and the sheet dumps are text — gzip them when the client accepts it (Render's plan meters egress).
+const sendJson = (req, res, status, body) => { const txt = typeof body === "string" ? body : JSON.stringify(body); const h = { ...cors, "Content-Type": "application/json", "Cache-Control": "no-store" }; if (txt.length > 1024 && /\bgzip\b/.test(req.headers["accept-encoding"] || "")) { h["Content-Encoding"] = "gzip"; res.writeHead(status, h); res.end(zlib.gzipSync(txt)); } else { res.writeHead(status, h); res.end(txt); } };
 // Server-side processing: apply the mapping the Head saved in the app state to every push, so the dashboard is current
 // even when nobody has the app open. Mirrors refreshPushedIntegrations in the front-end.
 const checkDeadlines = (reason) => {
@@ -60,7 +62,10 @@ const applyPushToState = (purpose, sheet) => {
       const bad = rows.filter(r => r._errors?.length).length, prev = i.rows || [], prevBad = prev.filter(r => r._errors?.length).length;
       if (rows.length >= 5 && bad / rows.length >= 0.5 && prev.length >= 5 && prevBad / prev.length < 0.2) { const top = {}; rows.forEach(r => (r._errors || []).forEach(e => { top[e] = (top[e] || 0) + 1; })); const why = Object.entries(top).sort((a, b) => b[1] - a[1]).slice(0, 2).map(([e, n]) => `${e} ×${n}`).join(", "); note += ` (kept last good data: ${bad}/${rows.length} rows unusable — ${why})`; return { ...i, rawHeader: sheet.header, rawRows: sheet.rows, lastPushAt: sheet.receivedAt, liveStatus: `Push at ${new Date(sheet.receivedAt).toLocaleTimeString("en-GB")}: ${bad} of ${rows.length} rows had no usable value (${why}) — the sheet was probably recalculating. Keeping the last good data from ${i.lastSyncAt ? new Date(i.lastSyncAt).toLocaleTimeString("en-GB") : "before"}.` }; }
       return { ...i, header: j.header, sample: j.rows, rawHeader: sheet.header, rawRows: sheet.rows, mappings, needsRemap: false, rows: P !== "Products" ? rows : i.rows, summary: P !== "Products" ? extractSummary(sheet.header, sheet.rows) : i.summary, lastSyncAt: new Date().toISOString(), lastPushAt: sheet.receivedAt, liveStatus: `OK — ${j.rows.length} rows, pushed by the sheet at ${new Date(sheet.receivedAt).toLocaleTimeString("en-GB")} (applied on the server)` }; });
-    store[STATE_KEY] = JSON.stringify(st); (store.__meta = store.__meta || {})[STATE_KEY] = Date.now();
+    // Same rows, same summary as before → nothing for the phones to re-download. Freshness travels via /meta instead.
+    const gist = it => JSON.stringify([it.rows, it.summary, it.header, it.mappings, it.needsRemap]);
+    const before = JSON.parse(raw).integrations, unchanged = st.integrations.every((it, k) => !targets.some(t => t.id === it.id) || gist(it) === gist(before[k]));
+    if (unchanged) { note += " (no change)"; } else { store[STATE_KEY] = JSON.stringify(st); (store.__meta = store.__meta || {})[STATE_KEY] = Date.now(); }
     // Push log: enough to explain "the tiles vanished at 03:12" after the fact. /sheet/<purpose>/log returns the last 60 entries.
     try { const it = st.integrations.find(i => targets.some(t => t.id === i.id)); const hist = {}; (it?.rows || []).forEach(r => { const k = r.priority || (r.status ? `status:${r.status}` : "—"); hist[k] = (hist[k] || 0) + 1; }); const errs = (it?.rows || []).filter(r => r._errors?.length).length; (store.__pushlog = store.__pushlog || {})[purpose] = [...(store.__pushlog[purpose] || []).slice(-59), { at: sheet.receivedAt, raw: sheet.rows.length, table: j.rows.length, header: j.header.slice(0, 14), errors: errs, hist, note: note.trim() }]; } catch {}
     return " → applied to app state" + note;
@@ -96,20 +101,21 @@ const handler = async (req, res) => {
         else if (Array.isArray(j.rows) && j.rows.length === 0 && !Array.isArray(j.header)) { const prev = store.__sheets?.[purpose]?.header; j = { header: prev && prev.length ? prev : Object.values(pretty), rows: [], from: j.from || "priority-bot payload (empty)" }; }
         if (!Array.isArray(j.header) || !Array.isArray(j.rows)) throw new Error("expected {header, rows}"); store.__sheets = store.__sheets || {}; store.__sheets[purpose] = { header: j.header, rows: j.rows, receivedAt: new Date().toISOString(), from: j.from || "" }; const applied = applyPushToState(purpose, store.__sheets[purpose]); save(); if (purpose === "dock") checkDeadlines("after dock push"); console.log(`[sheet] ${purpose}: ${j.rows.length} rows pushed at ${new Date().toLocaleTimeString()}${applied}`); res.writeHead(200, cors).end(JSON.stringify({ ok: true, rows: j.rows.length })); } catch (e) { res.writeHead(400, cors).end(String(e.message || e)); } }); return; }
     if (req.method === "GET" && purpose.endsWith("/log")) { res.writeHead(200, { ...cors, "Content-Type": "application/json" }); return res.end(JSON.stringify(store.__pushlog?.[purpose.replace(/\/log$/, "")] || [])); }
-    if (req.method === "GET") { const sh = store.__sheets?.[purpose]; res.writeHead(sh ? 200 : 404, { ...cors, "Content-Type": "application/json" }); return res.end(sh ? JSON.stringify(sh) : ""); }
+    if (req.method === "GET") { const sh = store.__sheets?.[purpose]; if (!sh) { res.writeHead(404, cors); return res.end(""); } return sendJson(req, res, 200, sh); }
   }
   // Cheap poll target: just the version, so the app can check "did anything change?" every few seconds without pulling the whole state.
   if (req.url === "/boot") { res.writeHead(200, { ...cors, "Content-Type": "application/json" }); return res.end(JSON.stringify({ bootId: BOOT_ID })); }
-  if (req.url.startsWith("/meta/")) { const k = decodeURIComponent(req.url.replace(/^\/meta\//, "").split("?")[0]); res.writeHead(200, { ...cors, "Content-Type": "application/json" }); return res.end(JSON.stringify({ updatedAt: store.__meta?.[k] || null })); }
+  if (req.url.startsWith("/meta/")) { const k = decodeURIComponent(req.url.replace(/^\/meta\//, "").split("?")[0]); const sheets = Object.fromEntries(Object.entries(store.__sheets || {}).map(([p, v]) => [p, v.receivedAt])); res.writeHead(200, { ...cors, "Content-Type": "application/json", "Cache-Control": "no-store" }); return res.end(JSON.stringify({ updatedAt: store.__meta?.[k] || null, sheets, bytes: (store[k] || "").length })); }
   const key = decodeURIComponent(req.url.replace(/^\/storage\//, "").split("?")[0]);
   if (!req.url.startsWith("/storage/")) return serveStatic(req, res);
-  if (req.method === "GET") { const v = store[key]; res.writeHead(v == null ? 404 : 200, { ...cors, "Content-Type": "application/json" }); return res.end(v == null ? "" : JSON.stringify({ key, value: v, updatedAt: store.__meta?.[key] })); }
+  if (req.method === "GET") { const v = store[key]; if (v == null) { res.writeHead(404, cors); return res.end(""); } return sendJson(req, res, 200, { key, value: v, updatedAt: store.__meta?.[key] }); }
   if (req.method === "PUT") { const chunks = []; req.on("data", c => chunks.push(c)); req.on("end", () => { const body = Buffer.concat(chunks).toString("utf8");
       // Guard: an (almost) empty app state must not overwrite a populated one — a fresh device would otherwise wipe everyone's data.
       if (key === STATE_KEY && store[key] && !req.headers["x-force"]) { const size = v => { try { const j = JSON.parse(v); return (j.categories || []).length + (j.products || []).length + (j.inspections || []).length + (j.integrations || []).length + (j.templates || []).length; } catch { return 0; } }; const incoming = size(body), current = size(store[key]); if (incoming === 0 && current > 0 || incoming < current * 0.5 && current > 20) { console.log(`[state] rejected write: incoming ${incoming} objects vs current ${current}`); res.writeHead(409, { ...cors, "Content-Type": "application/json" }).end(JSON.stringify({ rejected: true, reason: "incoming state is much smaller than the stored one", incoming, current })); return; } }
       // Optimistic concurrency: If-Match must equal the stored version (updatedAt); otherwise 409 with the current copy so the client can merge.
       const ifMatch = req.headers["if-match"]; const currentVersion = store.__meta?.[key] ? String(store.__meta[key]) : null;
       if (ifMatch && currentVersion && ifMatch !== currentVersion && !req.headers["x-force"]) { res.writeHead(409, { ...cors, "Content-Type": "application/json" }); res.end(JSON.stringify({ conflict: true, value: store[key], updatedAt: store.__meta[key] })); return; }
+      if (store[key] === body) { res.writeHead(200, { ...cors, "Content-Type": "application/json" }).end(JSON.stringify({ key, updatedAt: store.__meta?.[key] || null, unchanged: true })); return; }
       snapshot(key, body); store[key] = body; const now = Math.max(Date.now(), (store.__meta?.[key] || 0) + 1); (store.__meta = store.__meta || {})[key] = now; save(); res.writeHead(200, { ...cors, "Content-Type": "application/json" }).end(JSON.stringify({ key, updatedAt: now })); }); return; }
   if (req.method === "DELETE") { delete store[key]; save(); return res.writeHead(200, cors).end(); }
   res.writeHead(405, cors).end();
