@@ -1626,9 +1626,10 @@ function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset }) {
   const removeVar = id => patchP({ varieties: (product.varieties || []).filter(v => v.id !== id) });
   const allSup = s.suppliers || [];
   const visibleSup = allSup.filter(x => x.name.toLowerCase().includes(supQ.toLowerCase()));
-  const Field = ({ label, hint, children, className = "" }) => <label className={`block ${className}`}><span className="block text-xs font-medium mb-1" style={{ color: C.ink }}>{label}</span>{children}{hint && <span className="block text-[11px] mt-1" style={{ color: C.muted }}>{hint}</span>}</label>;
-  const Input = props => <input {...props} className={`w-full text-sm rounded-lg px-2.5 py-2 outline-none ${props.className || ""}`} style={{ ...inp, ...(props.style || {}) }} />;
-  const thumb = pr => { const ph = asPhotoList(pr.photos)[0]; return ph ? <img src={ph.dataUrl} alt="" className="rounded-lg object-cover flex-shrink-0" style={{ width: 36, height: 36 }} /> : <span className="rounded-lg flex items-center justify-center flex-shrink-0" style={{ width: 36, height: 36, background: C.bg, color: C.muted }}><Ic i={Package} s={16} mr={0} /></span>; };
+  const Field = ({ label, hint, children, className = "" }) => <label className={`block min-w-0 ${className}`}><span className="block text-[11px] font-medium mb-1" style={{ color: C.muted, letterSpacing: ".01em" }}>{label}</span>{children}{hint && <span className="block text-[11px] mt-1" style={{ color: C.muted }}>{hint}</span>}</label>;
+  const Input = props => <input {...props} className={`w-full text-[13px] rounded-md px-2 outline-none ${props.className || ""}`} style={{ ...inp, height: 32, ...(props.style || {}) }} />;
+  const Group = ({ title, children, cols = 3 }) => <div className="mb-4"><p className="text-[11px] font-semibold uppercase mb-2" style={{ color: C.muted, letterSpacing: ".06em" }}>{title}</p><div className="grid gap-x-3 gap-y-3" style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}>{children}</div></div>;
+  const thumb = pr => { const ph = asPhotoList(pr.photos)[0]; return ph ? <img src={ph.dataUrl} alt="" className="rounded-md object-cover flex-shrink-0" style={{ width: 30, height: 30 }} /> : <span className="rounded-md flex items-center justify-center flex-shrink-0" style={{ width: 30, height: 30, background: C.bg, color: C.muted }}><Ic i={Package} s={14} mr={0} /></span>; };
   const tabs = product ? [["profile", "Profile"], ["photos", `Photos${asPhotoList(product.photos).length ? ` · ${asPhotoList(product.photos).length}` : ""}`], ["specs", `Specifications${effectiveSpecs(s, product).length ? ` · ${effectiveSpecs(s, product).length}` : ""}`], ["attrs", `Properties${effectiveAttributes(s, product).length ? ` · ${effectiveAttributes(s, product).length}` : ""}`], ["supply", `Suppliers${(product.supplierIds || []).length ? ` · ${(product.supplierIds || []).length}` : ""}`], ["policy", "Inspection types"]] : [];
   const missing = product ? [!product.articleId && "article ID", !product.barcodeCu && !product.barcodeTu && "barcode", !product.categoryId && "category", !asPhotoList(product.photos).length && "photo"].filter(Boolean) : [];
   return (
@@ -1644,7 +1645,7 @@ function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset }) {
         <div className="grid gap-3" style={{ gridTemplateColumns: "2fr 1fr 1fr" }}>
           <Field label="Name *"><Input autoFocus value={d.name} onChange={e => setD(x => ({ ...x, name: e.target.value }))} placeholder="Merkloos Elstar appels 4 stuks" /></Field>
           <Field label="Article ID"><Input value={d.articleId} onChange={e => setD(x => ({ ...x, articleId: e.target.value }))} placeholder="90006122" className="font-mono" /></Field>
-          <Field label="Category *"><select value={d.categoryId} onChange={e => setD(x => ({ ...x, categoryId: e.target.value }))} className="w-full text-sm rounded-lg px-2 py-2 outline-none" style={inp}><option value="">—</option>{s.categories.map(c => <option key={c.id} value={c.id}>{catPath(c.id)}</option>)}</select></Field>
+          <Field label="Category *"><select value={d.categoryId} onChange={e => setD(x => ({ ...x, categoryId: e.target.value }))} className="w-full text-[13px] rounded-md px-1.5 outline-none" style={{ ...inp, height: 32 }}><option value="">—</option>{s.categories.map(c => <option key={c.id} value={c.id}>{catPath(c.id)}</option>)}</select></Field>
         </div>
         <div className="grid gap-3 mt-3" style={{ gridTemplateColumns: "1fr 1fr 1fr 1fr" }}>
           <Field label="CU per TU"><Input type="number" value={d.cusPerTu} onChange={e => setD(x => ({ ...x, cusPerTu: e.target.value }))} /></Field>
@@ -1687,9 +1688,9 @@ function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset }) {
           )}
           <div style={{ maxHeight: "calc(100vh - 360px)", overflowY: "auto" }}>
             {s.products.length === 0 ? <Empty icon="📦" title="No products yet" hint="Create one, import a list, or map a product sheet in Integrations." /> : visible.length === 0 ? <p className="text-xs py-6 text-center" style={{ color: C.muted }}>Nothing matches.</p> : visible.map(p => (
-              <button key={p.id} onClick={() => setSel(p.id)} className="w-full flex items-center gap-2.5 px-2 py-1.5 rounded-lg mb-0.5 text-left" style={{ background: sel === p.id ? C.accentSoft : "transparent", opacity: p.isActive === false ? .55 : 1 }}>
+              <button key={p.id} onClick={() => setSel(p.id)} className="w-full flex items-center gap-2 px-2 py-1 rounded-md text-left" style={{ background: sel === p.id ? C.accentSoft : "transparent", opacity: p.isActive === false ? .55 : 1 }}>
                 {thumb(p)}
-                <span className="flex-1 min-w-0"><span className="block text-sm truncate" style={{ color: sel === p.id ? C.accent : C.ink, fontWeight: sel === p.id ? 600 : 400 }}>{p.name}</span><span className="block text-[11px] truncate" style={{ color: C.muted }}>{p.articleId || "no ID"} · {p.categoryId ? catPath(p.categoryId) : <span style={{ color: C.warn }}>no category</span>}</span></span>
+                <span className="flex-1 min-w-0"><span className="block text-[13px] truncate" style={{ color: sel === p.id ? C.accent : C.ink, fontWeight: sel === p.id ? 600 : 400 }}>{p.name}</span><span className="block text-[11px] truncate" style={{ color: C.muted }}>{p.articleId || "no ID"} · {p.categoryId ? catPath(p.categoryId) : <span style={{ color: C.warn }}>no category</span>}</span></span>
                 {p.isBio && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ background: C.okBg, color: C.ok }}>bio</span>}
                 {p.isActive === false && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ background: C.line, color: C.muted }}>inactive</span>}
               </button>
@@ -1700,11 +1701,11 @@ function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset }) {
         <div className="min-w-0">
           {!product ? <Card><Empty icon="📦" title="Select a product" hint="Its profile, photos, specifications, suppliers and inspection types open here." /></Card> : (
             <Card style={{ padding: 0, overflow: "hidden" }}>
-              <div className="flex items-start gap-4 px-5 pt-5 pb-4">
-                {asPhotoList(product.photos)[0] ? <img src={asPhotoList(product.photos)[0].dataUrl} alt="" className="rounded-xl object-cover flex-shrink-0" style={{ width: 72, height: 72 }} /> : <button onClick={() => setTab("photos")} className="rounded-xl flex items-center justify-center flex-shrink-0" style={{ width: 72, height: 72, background: C.bg, color: C.muted, border: `1px dashed ${C.line}` }}><Ic i={ImageIcon} s={22} mr={0} /></button>}
+              <div className="flex items-center gap-3 px-4 pt-4 pb-3">
+                {asPhotoList(product.photos)[0] ? <img src={asPhotoList(product.photos)[0].dataUrl} alt="" className="rounded-lg object-cover flex-shrink-0" style={{ width: 52, height: 52 }} /> : <button onClick={() => setTab("photos")} className="rounded-lg flex items-center justify-center flex-shrink-0" style={{ width: 52, height: 52, background: C.bg, color: C.muted, border: `1px dashed ${C.line}` }}><Ic i={ImageIcon} s={18} mr={0} /></button>}
                 <div className="flex-1 min-w-0">
-                  <h2 className="truncate">{product.name}</h2>
-                  <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                  <h2 className="truncate" style={{ fontSize: 16 }}>{product.name}</h2>
+                  <div className="flex flex-wrap items-center gap-1.5 mt-1">
                     <span className="text-[11px] px-2 py-0.5 rounded-full font-mono" style={{ background: C.bg, border: `1px solid ${C.line}` }}>{product.articleId || "no ID"}</span>
                     <span className="text-[11px] px-2 py-0.5 rounded-full" style={{ background: C.bg, border: `1px solid ${C.line}`, color: product.categoryId ? C.ink : C.warn }}>{product.categoryId ? catPath(product.categoryId) : "no category"}</span>
                     {product.isBio && <span className="text-[11px] px-2 py-0.5 rounded-full" style={{ background: C.okBg, color: C.ok }}>bio</span>}
@@ -1712,9 +1713,9 @@ function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset }) {
                     {missing.length > 0 && <span className="text-[11px]" style={{ color: C.warn }}>· missing: {missing.join(", ")}</span>}
                   </div>
                 </div>
-                <div className="flex items-center gap-2 flex-shrink-0">
-                  <button onClick={() => patchP({ isActive: product.isActive === false })} className="text-xs px-3 py-1.5 rounded-lg" style={{ border: `1px solid ${C.line}` }}>{product.isActive === false ? "Activate" : "Deactivate"}</button>
-                  <button onClick={() => setConfirmDel(true)} className="text-xs px-3 py-1.5 rounded-lg" style={{ color: C.bad, border: `1px solid ${C.line}` }}>Delete</button>
+                <div className="flex items-center gap-1.5 flex-shrink-0">
+                  <button onClick={() => patchP({ isActive: product.isActive === false })} className="text-xs px-2.5 py-1 rounded-md" style={{ border: `1px solid ${C.line}` }}>{product.isActive === false ? "Activate" : "Deactivate"}</button>
+                  <button onClick={() => setConfirmDel(true)} className="text-xs px-2.5 py-1 rounded-md" style={{ color: C.bad, border: `1px solid ${C.line}` }}>Delete</button>
                 </div>
               </div>
               {confirmDel && (() => { const r = refsOf(product); const any = r.inspections + r.flags + r.announcements; return (
@@ -1723,23 +1724,28 @@ function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset }) {
                   <p className="text-xs mb-2" style={{ color: C.ink }}>{any ? <>It has <b>{r.inspections} inspection{r.inspections === 1 ? "" : "s"}</b>, {r.flags} flag{r.flags === 1 ? "" : "s"} and {r.announcements} announcement{r.announcements === 1 ? "" : "s"}. Inspections and flags are kept for history but lose the product name; announcements are removed. If the product is just no longer stocked, <b>deactivating</b> keeps everything intact.</> : "Nothing else references it. This cannot be undone."}</p>
                   <div className="flex gap-2"><button onClick={() => deleteProduct(product)} className="text-xs px-3 py-1.5 rounded-lg font-semibold" style={{ background: C.bad, color: C.onDark }}>Delete permanently</button>{any > 0 && product.isActive !== false && <button onClick={() => { patchP({ isActive: false }); setConfirmDel(false); }} className="text-xs px-3 py-1.5 rounded-lg" style={{ border: `1px solid ${C.line}` }}>Deactivate instead</button>}<button onClick={() => setConfirmDel(false)} className="text-xs px-3 py-1.5 rounded-lg" style={{ color: C.muted }}>Cancel</button></div>
                 </div>); })()}
-              <div className="flex gap-1 px-5 overflow-x-auto" style={{ borderBottom: `1px solid ${C.line}` }}>
-                {tabs.map(([k, l]) => <button key={k} onClick={() => setTab(k)} className="text-sm px-3 py-2.5 -mb-px whitespace-nowrap" style={{ color: tab === k ? C.ink : C.muted, fontWeight: tab === k ? 600 : 400, borderBottom: `2px solid ${tab === k ? C.ink : "transparent"}` }}>{l}</button>)}
+              <div className="flex gap-0.5 px-4 overflow-x-auto" style={{ borderBottom: `1px solid ${C.line}` }}>
+                {tabs.map(([k, l]) => <button key={k} onClick={() => setTab(k)} className="text-[13px] px-2.5 py-2 -mb-px whitespace-nowrap" style={{ color: tab === k ? C.ink : C.muted, fontWeight: tab === k ? 600 : 400, borderBottom: `2px solid ${tab === k ? C.ink : "transparent"}` }}>{l}</button>)}
               </div>
-              <div className="px-5 py-5">
-                {tab === "profile" && <div className="grid gap-4" style={{ gridTemplateColumns: "1fr 1fr", maxWidth: 720 }}>
-                  <Field label="Name" className="col-span-2"><Input value={product.name} onChange={e => patchP({ name: e.target.value })} /></Field>
-                  <Field label="Article ID" hint="Matches the dock sheet and imports."><Input value={product.articleId || ""} onChange={e => patchP({ articleId: e.target.value })} className="font-mono" style={{ borderColor: product.articleId ? C.line : C.warn }} /></Field>
-                  <Field label="Category"><select value={product.categoryId || ""} onChange={e => patchP({ categoryId: e.target.value || null })} className="w-full text-sm rounded-lg px-2 py-2 outline-none" style={{ ...inp, borderColor: product.categoryId ? C.line : C.warn }}><option value="">—</option>{s.categories.map(c => <option key={c.id} value={c.id}>{catPath(c.id)}</option>)}</select></Field>
-                  <Field label="Barcode CU (consumer pack)" hint={!product.barcodeCu && !product.barcodeTu ? "At least one barcode — the scanner matches on it." : undefined}><Input value={product.barcodeCu || ""} onChange={e => patchP({ barcodeCu: e.target.value })} className="font-mono" style={{ borderColor: product.barcodeCu || product.barcodeTu ? C.line : C.warn }} /></Field>
-                  <Field label="Barcode TU (box / case)"><Input value={product.barcodeTu || ""} onChange={e => patchP({ barcodeTu: e.target.value })} className="font-mono" style={{ borderColor: product.barcodeCu || product.barcodeTu ? C.line : C.warn }} /></Field>
-                  <div className="grid gap-4 col-span-2" style={{ gridTemplateColumns: "1fr 1fr 1fr" }}>
+              <div className="px-4 py-4">
+                {tab === "profile" && <div style={{ maxWidth: 760 }}>
+                  <Group title="Identity" cols={6}>
+                    <Field label="Name" className="col-span-4"><Input value={product.name} onChange={e => patchP({ name: e.target.value })} /></Field>
+                    <Field label="Article ID"><Input value={product.articleId || ""} onChange={e => patchP({ articleId: e.target.value })} className="font-mono" style={{ borderColor: product.articleId ? C.line : C.warn }} /></Field>
+                    <Field label="Bio"><button onClick={() => patchP({ isBio: !product.isBio })} className="w-full text-[13px] rounded-md" style={{ height: 32, border: `1px solid ${product.isBio ? C.ok : C.line}`, background: product.isBio ? C.okBg : C.surface, color: product.isBio ? C.ok : C.muted }}>{product.isBio ? "bio" : "no"}</button></Field>
+                    <Field label="Category" className="col-span-3"><select value={product.categoryId || ""} onChange={e => patchP({ categoryId: e.target.value || null })} className="w-full text-[13px] rounded-md px-1.5 outline-none" style={{ ...inp, height: 32, borderColor: product.categoryId ? C.line : C.warn }}><option value="">—</option>{s.categories.map(c => <option key={c.id} value={c.id}>{catPath(c.id)}</option>)}</select></Field>
+                    <Field label="Consumer app link" className="col-span-3"><Input value={product.consumerAppUrl || ""} onChange={e => patchP({ consumerAppUrl: e.target.value })} placeholder="https://…" /></Field>
+                  </Group>
+                  <Group title="Codes" cols={2}>
+                    <Field label="Barcode CU · consumer pack"><Input value={product.barcodeCu || ""} onChange={e => patchP({ barcodeCu: e.target.value })} className="font-mono" style={{ borderColor: product.barcodeCu || product.barcodeTu ? C.line : C.warn }} /></Field>
+                    <Field label="Barcode TU · box / case"><Input value={product.barcodeTu || ""} onChange={e => patchP({ barcodeTu: e.target.value })} className="font-mono" style={{ borderColor: product.barcodeCu || product.barcodeTu ? C.line : C.warn }} /></Field>
+                    {!product.barcodeCu && !product.barcodeTu && <p className="text-[11px] col-span-2 -mt-1" style={{ color: C.warn }}>At least one barcode — the scanner matches on it.</p>}
+                  </Group>
+                  <Group title="Packaging" cols={3}>
                     <Field label="CU per TU"><Input type="number" value={product.cusPerTu || ""} onChange={e => patchP({ cusPerTu: e.target.value })} /></Field>
                     <Field label="Pieces per CU"><Input type="number" value={product.piecesPerCu || ""} onChange={e => patchP({ piecesPerCu: e.target.value })} /></Field>
-                    <Field label="Weight per CU (g)"><Input type="number" value={product.weightPerCu || ""} onChange={e => patchP({ weightPerCu: e.target.value })} /></Field>
-                  </div>
-                  <Field label="Consumer app link" hint="Opens on the phone only." className="col-span-2"><Input value={product.consumerAppUrl || ""} onChange={e => patchP({ consumerAppUrl: e.target.value })} placeholder="https://…" /></Field>
-                  <label className="flex items-center gap-2 text-sm cursor-pointer"><input type="checkbox" checked={!!product.isBio} onChange={e => patchP({ isBio: e.target.checked })} />Bio</label>
+                    <Field label="Weight per CU · g"><Input type="number" value={product.weightPerCu || ""} onChange={e => patchP({ weightPerCu: e.target.value })} /></Field>
+                  </Group>
                 </div>}
                 {tab === "photos" && <div style={{ maxWidth: 720 }}>
                   <p className="text-xs mb-3" style={{ color: C.muted }}>The first photo is the product's picture on the phone. Controllers compare the pallet to it.</p>
