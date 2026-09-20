@@ -1600,7 +1600,14 @@ function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset }) {
     setImportText("");
   };
   const setCategory = (pid, cid) => set(x => ({ ...x, products: x.products.map(p => p.id === pid ? { ...p, categoryId: cid || null } : p) }));
-  const visible = s.products.filter(p => !filter || (p.name + " " + (p.articleId || "")).toLowerCase().includes(filter.toLowerCase()));
+  // Browse: category chips (a parent includes its children), bio / inactive toggles, sort. The bulk-assign below works on
+  // whatever is visible, so "No category" + a search term + Assign is the fast way through a fresh import.
+  const [catSel, setCatSel] = useState(""); const [onlyBio, setOnlyBio] = useState(false); const [showInactive, setShowInactive] = useState(false); const [sortBy, setSortBy] = useState("az");
+  const inCat = (p, cid) => cid === "none" ? !p.categoryId : cid ? (p.categoryId === cid || s.categories.some(c => c.id === p.categoryId && c.parentId === cid)) : true;
+  const roots = s.categories.filter(c => !c.parentId); const children = pid => s.categories.filter(c => c.parentId === pid);
+  const countIn = cid => s.products.filter(p => inCat(p, cid) && (showInactive || p.isActive !== false)).length;
+  const visible = s.products.filter(p => (showInactive || p.isActive !== false) && inCat(p, catSel) && (!onlyBio || p.isBio) && (!filter || (p.name + " " + (p.articleId || "")).toLowerCase().includes(filter.toLowerCase())))
+    .sort((a, b) => sortBy === "az" ? a.name.localeCompare(b.name) : sortBy === "id" ? String(a.articleId || "").localeCompare(String(b.articleId || "")) : sortBy === "cat" ? catPath(a.categoryId).localeCompare(catPath(b.categoryId)) || a.name.localeCompare(b.name) : 0);
   const unassigned = s.products.filter(p => !p.categoryId).length;
   const [bulkCat, setBulkCat] = useState("");
   const visibleUnassigned = visible.filter(p => !p.categoryId);
@@ -1646,6 +1653,17 @@ function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset }) {
                 <div className="flex items-center gap-2"><Primary small onClick={runImport}>Import</Primary>{importMsg && <span className="text-xs" style={{ color: C.accent }}>{importMsg}</span>}</div>
               </div>
             )}
+            <div className="flex flex-wrap gap-1.5 mb-2">
+              {[["", "All"], ...(unassigned ? [["none", "No category"]] : []), ...roots.map(c => [c.id, c.name])].map(([id, l]) => { const n = countIn(id); const on = catSel === id; return <button key={id || "all"} onClick={() => setCatSel(id)} className="text-xs px-2.5 py-1 rounded-full" style={{ background: on ? C.ink : "transparent", color: on ? C.onDark : id === "none" ? C.warn : C.ink, border: `1px solid ${on ? C.ink : C.line}` }}>{l} · {n}</button>; })}
+            </div>
+            {catSel && catSel !== "none" && children(catSel).length > 0 && <div className="flex flex-wrap gap-1.5 mb-2 pl-2">{children(catSel).map(c => { const on = catSel === c.id; return <button key={c.id} onClick={() => setCatSel(c.id)} className="text-[11px] px-2 py-0.5 rounded-full" style={{ background: C.bg, border: `1px solid ${C.line}` }}>{c.name} · {countIn(c.id)}</button>; })}</div>}
+            {catSel && catSel !== "none" && s.categories.find(c => c.id === catSel)?.parentId && <p className="text-[11px] mb-2 pl-2" style={{ color: C.muted }}>{catPath(catSel)} · <button onClick={() => setCatSel(s.categories.find(c => c.id === catSel).parentId)} className="underline">back to {s.categories.find(c => c.id === s.categories.find(x => x.id === catSel).parentId)?.name}</button></p>}
+            <div className="flex items-center gap-2 mb-3 text-xs" style={{ color: C.muted }}>
+              <span>{visible.length} of {s.products.length}</span>
+              <label className="flex items-center gap-1 cursor-pointer ml-2"><input type="checkbox" checked={onlyBio} onChange={e => setOnlyBio(e.target.checked)} />bio only</label>
+              <label className="flex items-center gap-1 cursor-pointer"><input type="checkbox" checked={showInactive} onChange={e => setShowInactive(e.target.checked)} />show inactive</label>
+              <select value={sortBy} onChange={e => setSortBy(e.target.value)} className="ml-auto text-xs rounded px-1.5 py-1 outline-none" style={inp}><option value="az">A–Z</option><option value="id">by article ID</option><option value="cat">by category</option></select>
+            </div>
             {unassigned > 0 && <Note tone="warn">{unassigned} products without a category — without it they inherit only the global template and have no category specs. Use the suggestions below, or filter the list and assign in bulk.</Note>}
             {unassigned > 0 && <CategorySuggestPanel s={s} set={set} products={s.products.filter(p => !p.categoryId)} />}
             {visibleUnassigned.length > 0 && (
