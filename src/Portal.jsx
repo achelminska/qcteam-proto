@@ -1614,6 +1614,8 @@ function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset }) {
   const [bulkCat, setBulkCat] = useState("");
   const visibleUnassigned = visible.filter(p => !p.categoryId);
   const assignVisible = () => { if (!bulkCat) return; const ids = new Set(visibleUnassigned.map(p => p.id)); set(x => ({ ...x, products: x.products.map(p => ids.has(p.id) ? { ...p, categoryId: bulkCat } : p) })); };
+  // Keep a product open at all times: pick the first visible one on load and whenever filters drop the current pick out of view.
+  useEffect(() => { if (visible.length > 0 && !visible.some(p => p.id === sel)) setSel(visible[0].id); }, [catSel, filter, onlyBio, showInactive, s.products.length]);
   const patchP = p => set(x => ({ ...x, products: x.products.map(q => q.id === product.id ? { ...q, ...p } : q) }));
   // Delete: always asks. History (inspections, flags) is never deleted with the product — it just loses the product name.
   const [confirmDel, setConfirmDel] = useState(false);
@@ -1663,19 +1665,23 @@ function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset }) {
         <div className="flex items-center gap-2"><Primary small onClick={runImport} disabled={!importText.trim()}>Import</Primary><button onClick={() => setImportOpen(false)} className="text-xs px-2" style={{ color: C.muted }}>Close</button>{importMsg && <span className="text-xs" style={{ color: C.accent }}>{importMsg}</span>}</div>
       </Card>}
 
-      <div className="grid gap-4 items-start" style={{ gridTemplateColumns: "380px minmax(0, 1fr)" }}>
+      <div className="grid gap-4 items-start grid-cols-1 lg:grid-cols-[340px_minmax(0,1fr)]">
         <Card style={{ padding: 12, minWidth: 0 }}>
           <SearchBox value={filter} onChange={setFilter} placeholder="Search name or article ID" className="mb-2" inputClass="rounded-lg" size={13} />
-          <div className="flex flex-wrap gap-1.5 mb-2">
-            {[["", "All"], ...(unassigned ? [["none", "No category"]] : []), ...roots.map(c => [c.id, c.name])].map(([id, l]) => { const n = countIn(id); const on = catSel === id; return <button key={id || "all"} onClick={() => setCatSel(id)} className="text-xs px-2.5 py-1 rounded-full" style={{ background: on ? C.ink : "transparent", color: on ? C.onDark : id === "none" ? C.warn : C.ink, border: `1px solid ${on ? C.ink : C.line}` }}>{l} · {n}</button>; })}
+          <div className="flex items-center gap-1.5 mb-2">
+            <select value={catSel} onChange={e => setCatSel(e.target.value)} className="flex-1 min-w-0 text-[13px] rounded-md px-2 outline-none" style={{ ...inp, height: 32 }}>
+              <option value="">All categories · {countIn("")}</option>
+              {unassigned > 0 && <option value="none">No category · {countIn("none")}</option>}
+              {roots.map(c => <option key={c.id} value={c.id}>{c.name} · {countIn(c.id)}</option>)}
+            </select>
+            <select value={sortBy} onChange={e => setSortBy(e.target.value)} className="text-[13px] rounded-md px-1.5 outline-none flex-shrink-0" style={{ ...inp, height: 32, width: 92 }}><option value="az">A–Z</option><option value="id">by ID</option><option value="cat">by cat.</option></select>
           </div>
-          {catSel && catSel !== "none" && children(catSel).length > 0 && <div className="flex flex-wrap gap-1.5 mb-2 pl-1">{children(catSel).map(c => <button key={c.id} onClick={() => setCatSel(c.id)} className="text-[11px] px-2 py-0.5 rounded-full" style={{ background: C.bg, border: `1px solid ${C.line}` }}>{c.name} · {countIn(c.id)}</button>)}</div>}
-          {catSel && catSel !== "none" && s.categories.find(c => c.id === catSel)?.parentId && <p className="text-[11px] mb-2 pl-1" style={{ color: C.muted }}>{catPath(catSel)} · <button onClick={() => setCatSel(s.categories.find(c => c.id === catSel).parentId)} className="underline">up</button></p>}
+          {catSel && catSel !== "none" && children(catSel).length > 0 && <div className="flex flex-wrap gap-1.5 mb-2" style={{ maxHeight: 64, overflowY: "auto" }}>{children(catSel).map(c => <button key={c.id} onClick={() => setCatSel(c.id)} className="text-[11px] px-2 py-0.5 rounded-full flex-shrink-0" style={{ background: C.bg, border: `1px solid ${C.line}` }}>{c.name} · {countIn(c.id)}</button>)}</div>}
+          {catSel && catSel !== "none" && s.categories.find(c => c.id === catSel)?.parentId && <p className="text-[11px] mb-2" style={{ color: C.muted }}>{catPath(catSel)} · <button onClick={() => setCatSel(s.categories.find(c => c.id === catSel).parentId)} className="underline">up</button></p>}
           <div className="flex items-center gap-2 mb-2 text-xs" style={{ color: C.muted }}>
             <span>{visible.length} of {s.products.length}</span>
             <label className="flex items-center gap-1 cursor-pointer ml-1"><input type="checkbox" checked={onlyBio} onChange={e => setOnlyBio(e.target.checked)} />bio</label>
             <label className="flex items-center gap-1 cursor-pointer"><input type="checkbox" checked={showInactive} onChange={e => setShowInactive(e.target.checked)} />inactive</label>
-            <select value={sortBy} onChange={e => setSortBy(e.target.value)} className="ml-auto text-xs rounded px-1.5 py-1 outline-none" style={inp}><option value="az">A–Z</option><option value="id">by ID</option><option value="cat">by category</option></select>
           </div>
           {unassigned > 0 && catSel !== "none" && <button onClick={() => setCatSel("none")} className="w-full text-left text-xs rounded-lg px-2.5 py-2 mb-2" style={{ background: C.warnBg, color: C.warn }}>{unassigned} product{unassigned === 1 ? "" : "s"} without a category — they get no category specs. Show them →</button>}
           {catSel === "none" && unassigned > 0 && <CategorySuggestPanel s={s} set={set} products={s.products.filter(p => !p.categoryId)} />}
@@ -1686,7 +1692,7 @@ function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset }) {
               <Primary small onClick={assignVisible} disabled={!bulkCat}>Assign</Primary>
             </div>
           )}
-          <div style={{ maxHeight: "calc(100vh - 360px)", overflowY: "auto" }}>
+          <div style={{ maxHeight: "calc(100vh - 320px)", overflowY: "auto" }}>
             {s.products.length === 0 ? <Empty icon="📦" title="No products yet" hint="Create one, import a list, or map a product sheet in Integrations." /> : visible.length === 0 ? <p className="text-xs py-6 text-center" style={{ color: C.muted }}>Nothing matches.</p> : visible.map(p => (
               <button key={p.id} onClick={() => setSel(p.id)} className="w-full flex items-center gap-2 px-2 py-1 rounded-md text-left" style={{ background: sel === p.id ? C.accentSoft : "transparent", opacity: p.isActive === false ? .55 : 1 }}>
                 {thumb(p)}
