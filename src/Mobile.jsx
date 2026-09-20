@@ -1943,38 +1943,62 @@ function MProductCard({ s, user, product, onBack, onStart, go, setState, notify,
   const ref = s.inspections.find(i => i.productId === product.id && i.isReference);
   const [flag, setFlag] = useState(""); const [flagOpen, setFlagOpen] = useState(false);
   const catPath = id => { const c = s.categories.find(x => x.id === id); if (!c) return "uncategorised"; const p = c.parentId && s.categories.find(x => x.id === c.parentId); return p ? `${p.name} › ${c.name}` : c.name; };
+  const photos = asPhotoList(product.photos); const [photoIx, setPhotoIx] = useState(0);
+  const attrs = effectiveAttributes(s, product); const hist = recentProblemsFor(s, product.id);
+  const suppliers = (product.supplierIds || []).map(id => (s.suppliers || []).find(x => x.id === id)?.name).filter(Boolean);
+  const types = allowedTypes(s, product);
+  const facts = [["CU / TU", product.cusPerTu], ["g / CU", product.weightPerCu], ["pcs / CU", product.piecesPerCu]].filter(([, v]) => v);
+  const Section = ({ title, children, tone }) => <div className="rounded-2xl mb-3 overflow-hidden" style={{ background: C.surface, border: `1px solid ${tone === "bad" ? C.bad : C.line}` }}>{title && <p className="label-sm px-3.5 pt-3 pb-1" style={{ color: tone === "bad" ? C.bad : C.muted }}>{title}</p>}<div className="px-3.5 pb-3">{children}</div></div>;
+  const Row = ({ k, v, last }) => <div className="flex items-baseline justify-between gap-3 py-2 text-sm" style={{ borderBottom: last ? "none" : `1px solid ${C.line}` }}><span style={{ color: C.muted }}>{k}</span><span className="font-medium text-right">{v}</span></div>;
   return (
     <div className="pb-4">
-      <TopBar title="Product" onBack={onBack} />
+      <TopBar title={catPath(product.categoryId)} onBack={onBack} />
+      {/* Hero: the picture is the identity — a controller matches what's in front of them to it. */}
       <div className="px-4 pt-3">
-        <div className="flex gap-3 items-start mb-3">{asPhotoList(product.photos).length ? <img src={asPhotoList(product.photos)[0].dataUrl} alt="" className="w-20 h-20 rounded-xl object-cover flex-shrink-0" /> : <div className="w-20 h-20 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: C.bg, color: C.muted }}><Ic i={ImageIcon} s={28} mr={0} /></div>}<div className="min-w-0"><p className="font-semibold leading-tight">{product.name}</p><p className="text-xs mt-1" style={{ color: C.muted }}>ID {product.articleId || "—"} · {catPath(product.categoryId)}{product.isBio && " · bio"}</p><p className="text-xs" style={{ color: C.muted }}>{product.cusPerTu || "?"} CU/TU · {product.weightPerCu || "?"} g/CU{product.barcodeCu && ` · CU ${product.barcodeCu}`}{product.barcodeTu && ` · TU ${product.barcodeTu}`}</p>{product.consumerAppUrl && <a href={product.consumerAppUrl} className="text-xs underline" style={{ color: C.accent }}>open in the consumer app ↗</a>}<p className="text-[10px] mt-1" style={{ color: C.muted }}>allowed: {allowedTypes(s, product).map(t => t.name).join(", ") || "none"}</p></div></div>
-        {asPhotoList(product.photos).length > 1 && <div className="mb-3"><PhotoStrip photos={product.photos} size={56} /></div>}
-        {effectiveAttributes(s, product).length > 0 && <div className="flex flex-wrap gap-1.5 mb-3">{effectiveAttributes(s, product).map(a => <span key={a.dictionaryId} className="text-xs px-2.5 py-1 rounded-full" style={{ background: C.bg, border: `1px solid ${C.line}` }}><span style={{ color: C.muted }}>{a.list}:</span> <b>{a.value}</b></span>)}</div>}
-        <DockPresence product={product} onPickPallet={hu => go("palletInfo", hu)} />
-        {anns.map(a => <div key={a.id} className="rounded-xl px-3.5 py-2 mb-2 text-sm" style={{ background: C.surface, border: `1px solid ${C.line}`, borderLeft: `3px solid ${C.accent}` }}><b>{a.title}</b><span style={{ color: C.muted }}> — {a.body}</span></div>)}
-        {ref && <button onClick={() => go("inspection", ref.id)} className="w-full rounded-xl px-3 py-2 mb-2 text-sm text-left" style={{ background: C.okBg, color: C.ok }}><Ic i={Star} />View reference inspection</button>}
-        <p className="label-sm mb-1" style={{ color: C.muted }}>Specs</p>
-        {specs.length === 0 ? <p className="text-xs mb-3" style={{ color: C.muted }}>none</p> : specs.map(q => <div key={q.id} className="flex items-center text-sm py-1.5" style={{ borderBottom: `1px solid ${C.line}` }}><span className="flex-1">{q.name}</span><span className="font-medium">{specLabel(q)}</span></div>)}
-        {vars.length > 0 && <><p className="label-sm mt-3 mb-1" style={{ color: C.muted }}>Varieties</p><div className="flex flex-wrap gap-1.5">{vars.map(v => <span key={v.id} className="text-xs px-2 py-1 rounded-full" style={{ background: C.bg }}>{v.name}</span>)}</div></>}
-        <p className="label-sm mt-3 mb-1" style={{ color: C.muted }}>Last 3 inspections</p>
-        {last3.length === 0 ? <p className="text-xs" style={{ color: C.muted }}>none yet</p> : last3.map(i => <button key={i.id} onClick={() => go("inspection", i.id)} className="w-full flex items-center gap-2 py-2 text-left" style={{ borderBottom: `1px solid ${C.line}` }}><span className="text-sm flex-1" style={{ color: C.muted }}>{dayLabel(i.completedAt)}, {hhmm(i.completedAt)}</span><ResultPill i={i} s={s} /></button>)}
-        <div className="mt-4 flex flex-col gap-2">
-          {allowedTypes(s, product).map((t, idx) => <button key={t.id} onClick={() => onStart(t.id)} className="w-full py-3 rounded-xl text-sm font-medium inline-flex items-center justify-center gap-2" style={idx === 0 ? { background: C.ink, color: C.onDark } : { background: C.surface, color: C.ink, border: `1px solid ${C.line}` }}><span className="inline-block rounded-full" style={{ width: 8, height: 8, background: t.color }} />{t.name} inspection</button>)}
-          {allowedTypes(s, product).length === 0 && <p className="text-[11px] text-center" style={{ color: C.bad }}>{typesOf(s).length ? `No inspection type is allowed for this product (${effectivePolicy(s, product).source}).` : "The Head hasn't defined any inspection types yet (portal → Forms)."}</p>}
-          <button onClick={() => setAskOpen(o => !o)} className="w-full py-2.5 rounded-xl text-sm" style={{ background: C.accentSoft, color: C.accent }}><Ic i={MessageSquare} />Ask the Head about this product</button>
-          {askOpen && <div className="flex gap-2"><input value={ask} onChange={e => setAsk(e.target.value)} onKeyDown={e => e.key === "Enter" && askHead()} placeholder="e.g. is this calibre OK?" className="flex-1 text-sm rounded-xl px-3 py-2 outline-none" style={inp} /><button onClick={askHead} className="px-3 rounded-xl text-sm" style={{ background: C.accent, color: C.onDark }}>Send</button></div>}
-          <button onClick={() => setFlagOpen(o => !o)} className="w-full py-2.5 rounded-xl text-sm" style={{ background: C.warnBg, color: C.warn }}><Ic i={Flag} />Something's off in the profile</button>
-          {flagOpen && <div className="flex gap-2"><input value={flag} onChange={e => setFlag(e.target.value)} placeholder="co?" className="flex-1 text-sm rounded-xl px-3 py-2 outline-none" style={inp} /><button onClick={() => { if (flag.trim() && setState) { setState(x => ({ ...x, flags: [...x.flags, { id: uid(), productId: product.id, inspectionId: null, raisedBy: user.id, description: flag.trim(), status: "Open", createdAt: nowISO() }] })); notify && notify("Flag", `${user.name}: ${product.name} — ${flag.trim()}`, "ProductFlag", null); setFlag(""); setFlagOpen(false); } }} className="px-3 rounded-xl text-sm" style={{ background: C.accent, color: C.onDark }}>Send</button></div>}
-          <button onClick={onBack} className="w-full py-2.5 text-sm" style={{ color: C.muted }}>Cancel</button>
+        <div className="rounded-2xl overflow-hidden relative" style={{ background: C.bg, height: 220 }}>
+          {photos.length ? <img src={photos[Math.min(photoIx, photos.length - 1)].dataUrl} alt="" className="w-full h-full object-cover" /> : <div className="w-full h-full flex flex-col items-center justify-center" style={{ color: C.muted }}><Ic i={Package} s={44} mr={0} /><p className="text-[11px] mt-2">No photo yet</p></div>}
+          {product.isBio && <span className="absolute top-2.5 left-2.5 text-[11px] font-semibold px-2 py-0.5 rounded-full" style={{ background: C.okBg, color: C.ok }}>bio</span>}
+          {photos.length > 1 && <div className="absolute bottom-2.5 left-0 right-0 flex justify-center gap-1.5">{photos.map((_, ix) => <button key={ix} onClick={() => setPhotoIx(ix)} className="rounded-full" style={{ width: 7, height: 7, background: ix === photoIx ? C.onDark : "rgba(255,255,255,.5)" }} />)}</div>}
+        </div>
+        {photos.length > 1 && <div className="flex gap-1.5 mt-2 overflow-x-auto">{photos.map((ph, ix) => <button key={ix} onClick={() => setPhotoIx(ix)} className="flex-shrink-0 rounded-lg overflow-hidden" style={{ width: 52, height: 52, outline: ix === photoIx ? `2px solid ${C.accent}` : "none" }}><img src={ph.dataUrl} alt="" className="w-full h-full object-cover" /></button>)}</div>}
+
+        <h2 className="mt-4 leading-tight" style={{ fontSize: 22, fontWeight: 650, letterSpacing: "-.01em" }}>{product.name}</h2>
+        <div className="flex flex-wrap items-center gap-1.5 mt-2">
+          <span className="text-[11px] px-2 py-0.5 rounded-full font-mono" style={{ background: C.bg, border: `1px solid ${C.line}` }}>ID {product.articleId || "—"}</span>
+          {suppliers.map(n => <span key={n} className="text-[11px] px-2 py-0.5 rounded-full inline-flex items-center" style={{ background: C.bg, border: `1px solid ${C.line}` }}><Ic i={Truck} s={11} mr={4} />{n}</span>)}
+          {vars.map(v => <span key={v.id} className="text-[11px] px-2 py-0.5 rounded-full" style={{ background: C.accentSoft, color: C.accent }}>{v.name}</span>)}
+        </div>
+
+        {facts.length > 0 && <div className="grid gap-2 mt-4" style={{ gridTemplateColumns: `repeat(${facts.length}, 1fr)` }}>
+          {facts.map(([l, v]) => <div key={l} className="rounded-2xl px-3 py-2.5" style={{ background: C.bg, border: `1px solid ${C.line}` }}><p className="text-xl font-bold tracking-tight leading-none" style={{ fontVariantNumeric: "tabular-nums" }}>{v}</p><p className="text-[10px] mt-1" style={{ color: C.muted }}>{l}</p></div>)}
+        </div>}
+        {(product.barcodeCu || product.barcodeTu) && <p className="text-[11px] mt-2 font-mono" style={{ color: C.muted }}>{product.barcodeCu && <>CU {product.barcodeCu}</>}{product.barcodeCu && product.barcodeTu && " · "}{product.barcodeTu && <>TU {product.barcodeTu}</>}</p>}
+
+        <div className="mt-4"><DockPresence product={product} onPickPallet={hu => go("palletInfo", hu)} /></div>
+        {hist.count > 0 && <Section title={`${hist.count} rejected in the last 14 days`} tone="bad"><p className="text-sm" style={{ color: C.bad }}>{hist.problems.slice(0, 4).map(x => `${x.name} ×${x.count}`).join(", ")}{hist.problems.length > 4 ? "…" : ""}</p><p className="text-[11px] mt-0.5" style={{ color: C.muted }}>last {dayLabel(hist.lastAt)} — look for these first</p></Section>}
+        {anns.map(a => <div key={a.id} className="rounded-2xl px-3.5 py-2.5 mb-3 text-sm" style={{ background: C.accentSoft, borderLeft: `3px solid ${C.accent}` }}><b>{a.title}</b><span style={{ color: C.muted }}> — {a.body}</span></div>)}
+        {ref && <button onClick={() => go("inspection", ref.id)} className="w-full rounded-2xl px-3.5 py-3 mb-3 text-sm text-left flex items-center" style={{ background: C.okBg, color: C.ok }}><Ic i={Star} s={15} />Reference inspection — what a good pallet looks like<span className="ml-auto text-xs">open</span></button>}
+
+        {specs.length > 0 && <Section title="Specifications">{specs.map((q, ix) => <Row key={q.id} k={q.name} v={specLabel(q)} last={ix === specs.length - 1} />)}</Section>}
+        {attrs.length > 0 && <Section title="Properties">{attrs.map((a, ix) => <Row key={a.dictionaryId} k={a.list} v={a.value} last={ix === attrs.length - 1} />)}</Section>}
+        {last3.length > 0 && <Section title="Recent inspections">{last3.map((i, ix) => <button key={i.id} onClick={() => go("inspection", i.id)} className="w-full flex items-center gap-2 py-2 text-left" style={{ borderBottom: ix === last3.length - 1 ? "none" : `1px solid ${C.line}` }}><span className="text-sm flex-1"><span>{dayLabel(i.completedAt)}, {hhmm(i.completedAt)}</span><span className="text-xs ml-1.5" style={{ color: C.muted }}>{s.users.find(u => u.id === i.controllerId)?.name.split(" ")[0]}</span></span><ResultPill i={i} s={s} /></button>)}</Section>}
+        {product.consumerAppUrl && <a href={product.consumerAppUrl} className="block text-xs underline mb-3" style={{ color: C.accent }}>Open in the consumer app ↗</a>}
+
+        <div className="mt-2 flex flex-col gap-2">
+          {types.map((t, idx) => <button key={t.id} onClick={() => onStart(t.id)} className="w-full py-3 rounded-xl text-sm font-semibold inline-flex items-center justify-center gap-2" style={idx === 0 ? { background: C.ink, color: C.onDark } : { background: C.surface, color: C.ink, border: `1px solid ${C.line}` }}><span className="inline-block rounded-full" style={{ width: 8, height: 8, background: t.color }} />{t.name} inspection</button>)}
+          {types.length === 0 && <p className="text-[11px] text-center" style={{ color: C.bad }}>{typesOf(s).length ? `No inspection type is allowed for this product (${effectivePolicy(s, product).source}).` : "The Head hasn't defined any inspection types yet (portal → Forms)."}</p>}
+          <div className="flex gap-2 mt-1">
+            <button onClick={() => { setAskOpen(o => !o); setFlagOpen(false); }} className="flex-1 py-2.5 rounded-xl text-sm inline-flex items-center justify-center" style={{ background: C.surface, border: `1px solid ${C.line}`, color: askOpen ? C.accent : C.ink }}><Ic i={MessageSquare} s={14} />Ask the Head</button>
+            <button onClick={() => { setFlagOpen(o => !o); setAskOpen(false); }} className="flex-1 py-2.5 rounded-xl text-sm inline-flex items-center justify-center" style={{ background: C.surface, border: `1px solid ${C.line}`, color: flagOpen ? C.warn : C.ink }}><Ic i={Flag} s={14} />Report an issue</button>
+          </div>
+          {askOpen && <div className="flex gap-2"><input autoFocus value={ask} onChange={e => setAsk(e.target.value)} onKeyDown={e => e.key === "Enter" && askHead()} placeholder="e.g. is this calibre OK?" className="flex-1 text-sm rounded-xl px-3 py-2 outline-none" style={inp} /><button onClick={askHead} className="px-3 rounded-xl text-sm" style={{ background: C.accent, color: C.onDark }}>Send</button></div>}
+          {flagOpen && <div className="flex gap-2"><input autoFocus value={flag} onChange={e => setFlag(e.target.value)} placeholder="what's wrong in this profile?" className="flex-1 text-sm rounded-xl px-3 py-2 outline-none" style={inp} /><button onClick={() => { if (flag.trim() && setState) { setState(x => ({ ...x, flags: [...x.flags, { id: uid(), productId: product.id, inspectionId: null, raisedBy: user.id, description: flag.trim(), status: "Open", createdAt: nowISO() }] })); notify && notify("Flag", `${user.name}: ${product.name} — ${flag.trim()}`, "ProductFlag", null); setFlag(""); setFlagOpen(false); } }} className="px-3 rounded-xl text-sm" style={{ background: C.accent, color: C.onDark }}>Send</button></div>}
         </div>
       </div>
     </div>
   );
 }
 
-// ── Skaner (symulacja) i cztery stany wyniku ──
-// Live barcode scanner v2: our own <video> preview (works on iOS: playsinline + muted + started by a tap) and a separate decoder —
-// native BarcodeDetector when the browser has it, otherwise ZXing (bundled in the repo as window.ZXingBrowser) reading frames from the same video.
 function LiveScanner({ onCode }) {
   const [state, setState] = useState("idle"); const [err, setErr] = useState(""); const [decoder, setDecoder] = useState(""); const videoRef = useRef(null); const streamRef = useRef(null); const timerRef = useRef(null); const zxingRef = useRef(null);
   const secure = typeof window !== "undefined" && (window.isSecureContext || location.hostname === "localhost");
