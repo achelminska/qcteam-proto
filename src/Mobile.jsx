@@ -1789,6 +1789,7 @@ function MLostControls({ s, set, user, row }) {
 // rejections) before the pallet's own numbers. Tapping it opens the profile. Falls back to a "no profile yet" strip.
 function MProductHeader({ s, product, article, name, go }) {
   if (!product) return <div className="rounded-2xl px-3.5 py-3 mb-3" style={{ background: C.warnBg }}><p className="text-sm font-semibold leading-tight">{name || article}</p><p className="text-xs mt-0.5" style={{ color: C.warn }}>Article {article} has no product profile yet.</p></div>;
+  const catPath = id => { const c = s.categories.find(x => x.id === id); if (!c) return "uncategorised"; const p = c.parentId && s.categories.find(x => x.id === c.parentId); return p ? `${p.name} › ${c.name}` : c.name; };
   const photos = asPhotoList(product.photos); const attrs = effectiveAttributes(s, product).slice(0, 4); const hist = recentProblemsFor(s, product.id);
   return (
     <button onClick={() => go("catalog", product.id)} className="w-full text-left rounded-2xl p-3.5 mb-3 active:opacity-70" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
