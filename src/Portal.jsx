@@ -3311,6 +3311,21 @@ function DataPanel({ s, set, onClose }) {
 
 export default function App() {
   const [page, setPage] = useState("dashboard");
+  // Browser/back-forward + swipe-back support: every page change pushes a history entry, and going back through
+  // them (however it's triggered) restores the matching page instead of leaving the app. skipPushRef swallows the
+  // one page-state update right after a pop (it's already reflecting history — pushing it again would double it up)
+  // and the very first render (there's nothing to push yet).
+  const skipPushRef = useRef(true);
+  useEffect(() => {
+    if (skipPushRef.current) { skipPushRef.current = false; return; }
+    try { history.pushState({ __qcNav: true, page }, ""); } catch {}
+  }, [page]);
+  useEffect(() => {
+    try { history.replaceState({ __qcNav: true, page }, ""); } catch {}
+    const onPop = e => { skipPushRef.current = true; const st = e.state; setPage(st && st.__qcNav ? st.page : "dashboard"); };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
   const [s, setRaw] = useState(EMPTY);
   const set = fn => { const f = typeof fn === "function" ? (x => sortState(fn(x))) : (() => sortState(fn)); syncerRef.current.pending.push(f); setRaw(x => { const nx = f(x); _S = nx; return nx; }); };
   useEffect(() => { _S = s; }, [s]);

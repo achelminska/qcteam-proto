@@ -2551,6 +2551,21 @@ export default function App() {
   const [pendingChatContext, setPendingChatContext] = useState(null);
   const bootIdRef = useRef(null); const [newVersion, setNewVersion] = useState(false);
   const [page, setPage] = useState("home"); const [param, setParam] = useState(null);
+  // Browser/back-forward + swipe-back support: every screen change pushes a history entry, and going back through
+  // them (hardware back, browser back, an edge-swipe — they all fire the same popstate event) restores the matching
+  // screen instead of leaving the app. skipPushRef swallows the one page-state update right after a pop (it's
+  // already reflecting history — pushing it again would double it up) and the very first render (nothing to push yet).
+  const skipPushRef = useRef(true);
+  useEffect(() => {
+    if (skipPushRef.current) { skipPushRef.current = false; return; }
+    try { history.pushState({ __qcNav: true, page, param }, ""); } catch {}
+  }, [page, param]);
+  useEffect(() => {
+    try { history.replaceState({ __qcNav: true, page, param }, ""); } catch {}
+    const onPop = e => { skipPushRef.current = true; const st = e.state; setPage(st && st.__qcNav ? st.page : "home"); setParam(st && st.__qcNav ? (st.param ?? null) : null); };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
   const [dismissed, setDismissed] = useState([]);
   const [toast, setToast] = useState("");
   const [netOnline, setNetOnline] = useState(typeof navigator === "undefined" ? true : navigator.onLine !== false); const [simOffline, setSimOffline] = useState(false); const [pendingSync, setPendingSync] = useState(0);
