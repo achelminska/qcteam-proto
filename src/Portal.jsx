@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceArea, ReferenceLine, Legend } from "recharts";
-import { Clock, MessageCircle, Link2, List as ListIcon, BarChart3, Printer, SlidersHorizontal, SkipForward, LayoutDashboard, ClipboardList, Flag, Bell, FolderTree, ListTree, Package, LayoutTemplate, Truck, Globe, Megaphone, MessageSquare, Users, Search, Sun, Moon, Database, Home, Menu as MenuIcon, ScanLine, Plus, ChevronLeft, User, Camera, Image as ImageIcon, Paperclip, Send, Star, Pencil, Sparkles, HelpCircle, Download, Lock as LockIcon, AlertTriangle, Inbox, FileText, ShieldAlert, Tag, Layers, BookOpen, Filter, Check, X, Ruler, Boxes } from "lucide-react";
+import { Clock, MessageCircle, Link2, List as ListIcon, BarChart3, Printer, SlidersHorizontal, SkipForward, LayoutDashboard, ClipboardList, Flag, Bell, FolderTree, ListTree, Package, LayoutTemplate, Truck, Globe, Megaphone, MessageSquare, Users, Search, Sun, Moon, Database, Home, Menu as MenuIcon, ScanLine, Plus, ChevronLeft, ChevronDown, ChevronRight, User, Camera, Image as ImageIcon, Paperclip, Send, Star, Pencil, Sparkles, HelpCircle, Download, Lock as LockIcon, AlertTriangle, Inbox, FileText, ShieldAlert, Tag, Layers, BookOpen, Filter, Check, X, Ruler, Boxes } from "lucide-react";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // QCteam — portal Head of Quality (mini-aplikacja, stan startowy pusty)
@@ -1496,18 +1496,22 @@ function PrintReport({ insp, s, onClose }) {
 }
 
 // ═══════════════════ PAGE: Problem catalog ═══════════════════
-function CatalogNode({ node, problems, onPatch, onAdd, onRemove, s, isOwned, onHide }) {
+function CatalogNode({ node, problems, onPatch, onAdd, onRemove, s, isOwned, onHide, collapsed, onToggle }) {
   const owned = isOwned ? isOwned(node) : true;
   const d = depthOf(problems, node.id), inherited = effTol(problems, [], node.parentId);
   const own = node.tolerance !== null && node.tolerance !== "" && node.tolerance !== undefined;
   const eff = own ? Number(node.tolerance) : inherited;
+  const kids = kidsOf(problems, node.id);
+  const isCollapsed = collapsed.has(node.id);
   return (
     <div>
       <div className="row flex items-center gap-2 py-1.5 pr-2 rounded-lg flex-wrap" style={{ paddingLeft: d * 18, borderTop: `1px solid ${C.line}` }}>
+        {kids.length > 0 ? <button onClick={() => onToggle(node.id)} className="flex-shrink-0 flex items-center justify-center" style={{ width: 18, height: 18, color: C.muted }} title={isCollapsed ? "expand" : "collapse"}><Ic i={isCollapsed ? ChevronRight : ChevronDown} s={13} mr={0} /></button> : <span style={{ width: 18, flexShrink: 0 }} />}
         {owned ? <input value={node.name} onChange={e => onPatch(node.id, { name: e.target.value })} className="flex-1 min-w-[6rem] text-sm bg-transparent outline-none" style={{ fontWeight: d === 0 ? 600 : d === 1 ? 500 : 400 }} />
           : <span className="flex-1 min-w-[6rem] text-sm" style={{ fontWeight: d === 0 ? 600 : d === 1 ? 500 : 400, color: C.muted }}>{node.name}</span>}
         {s && scopeTag(node, s) && <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ background: C.warnBg, color: C.warn }}>{scopeTag(node, s)}</span>}
         {!owned && isOwned && <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ background: C.line, color: C.muted }}>inherited</span>}
+        {isCollapsed && <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ background: C.line, color: C.muted }}>{kids.length} hidden</span>}
         <span className="flex items-center gap-1 text-xs" style={{ color: C.muted }}>
           tolerance {owned ? <input type="number" value={node.tolerance ?? ""} onChange={e => onPatch(node.id, { tolerance: e.target.value === "" ? null : e.target.value })} placeholder={inherited !== null ? `(${inherited})` : "—"} className="w-14 text-right rounded px-1 py-0.5 outline-none" style={{ ...inp, borderColor: eff === 0 ? C.warn : C.line, color: own ? C.ink : C.muted }} /> : <span className="w-14 text-right inline-block">{eff !== null ? eff : "—"}</span>}%
           {eff === 0 && <span className="px-1.5 py-0.5 rounded" style={{ background: C.warnBg, color: C.warn }} title="presence alone = exceeded">⚡</span>}
@@ -1516,12 +1520,14 @@ function CatalogNode({ node, problems, onPatch, onAdd, onRemove, s, isOwned, onH
         {owned ? <button onClick={() => onRemove(node.id)} className="text-xs px-1.5" style={{ color: C.muted }} title="delete with subtree">×</button>
           : (onHide && d > 0 && <button onClick={() => onHide(node.id)} className="text-[10px] px-1.5" style={{ color: C.muted }} title="hide in this scope (stays globally)">hide</button>)}
       </div>
-      {kidsOf(problems, node.id).map(k => <CatalogNode key={k.id} node={k} problems={problems} onPatch={onPatch} onAdd={onAdd} onRemove={onRemove} s={s} isOwned={isOwned} onHide={onHide} />)}
+      {!isCollapsed && kids.map(k => <CatalogNode key={k.id} node={k} problems={problems} onPatch={onPatch} onAdd={onAdd} onRemove={onRemove} s={s} isOwned={isOwned} onHide={onHide} collapsed={collapsed} onToggle={onToggle} />)}
     </div>
   );
 }
 function ProblemsPage({ s, set }) {
   const [scope, setScope] = useState({ kind: "Global" });
+  const [collapsed, setCollapsed] = useState(new Set());
+  const toggleCollapse = id => setCollapsed(c => { const next = new Set(c); next.has(id) ? next.delete(id) : next.add(id); return next; });
   const visible = problemsFor(s, scope);
   const patch = (id, p) => set(x => ({ ...x, problems: x.problems.map(n => n.id === id ? { ...n, ...p } : n) }));
   const add = parentId => set(x => ({ ...x, problems: [...x.problems, { id: uid(), parentId, name: parentId ? "new problem" : "New problem type", tolerance: null, categoryId: scope.kind === "Category" ? scope.id : null, productId: scope.kind === "Product" ? scope.id : null }] }));
@@ -1546,7 +1552,7 @@ function ProblemsPage({ s, set }) {
       <Card>
         {visible.length === 0 ? <Empty icon="🌳" title="The catalog is empty" hint="Typically: “Quality problems” with Major/Minor subcategories, and “General problems” with pallet issues. Set tolerance on the subcategory and override on a specific problem only when needed." action={<Primary onClick={() => add(null)}>Add the first type</Primary>} /> : (
           <>
-            {visible.filter(p => !p.parentId).map(r => <CatalogNode key={r.id} node={r} problems={visible} onPatch={patch} onAdd={add} onRemove={remove} s={s} isOwned={isOwned} onHide={scope.kind === "Global" ? null : hide} />)}
+            {visible.filter(p => !p.parentId).map(r => <CatalogNode key={r.id} node={r} problems={visible} onPatch={patch} onAdd={add} onRemove={remove} s={s} isOwned={isOwned} onHide={scope.kind === "Global" ? null : hide} collapsed={collapsed} onToggle={toggleCollapse} />)}
             {hiddenHere.length > 0 && <div className="text-xs mt-3 flex flex-wrap gap-1.5 items-center" style={{ color: C.muted }}>hidden in this scope: {hiddenHere.map(h => <button key={h.id} onClick={() => unhide(h.id)} className="px-1.5 py-0.5 rounded line-through" style={{ background: C.line }} title="restore">{h.name}</button>)}</div>}
             <div className="mt-3"><Ghost onClick={() => add(null)}>+ Add problem type{scope.kind !== "Global" && " (in this scope)"}</Ghost></div>
           </>
