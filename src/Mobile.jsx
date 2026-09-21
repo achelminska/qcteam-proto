@@ -1816,7 +1816,11 @@ function MPalletInfo({ s, set, user, go, hu, onAssign }) {
 }
 
 function MPriorityList({ s, user, go, priority }) {
-  const allRows = dockRowsLive(s).filter(r => priority === "Skippable" ? r.skippable : r.priority === priority);
+  // "All" is the tile for the whole dock (SKUs / pallets on docks) rather than one priority — it gets its own two tabs
+  // instead of a priority filter: the pallets that actually need inspecting, and the ones flagged skippable.
+  const isAll = priority === "All";
+  const [subTab, setSubTab] = useState("regular");
+  const allRows = isAll ? dockRowsLive(s).filter(r => subTab === "skippable" ? r.skippable : !r.skippable) : dockRowsLive(s).filter(r => priority === "Skippable" ? r.skippable : r.priority === priority);
   const lostRows = allRows.filter(r => lostOf(s, r)); const rows = allRows.filter(r => !lostOf(s, r));
   // Sections by arrival day, oldest first — the 24h rejection window makes the oldest pallets the urgent ones. Inside a day the
   // same SKU collapses into one row (×N) and anything with a recent rejection floats to the top.
@@ -1828,7 +1832,7 @@ function MPriorityList({ s, user, go, priority }) {
       const locs = new Set(g.rows.map(r => r.location).filter(Boolean)); const earliest = [...g.rows].sort((x, y) => (x.arrivedTime || "99").localeCompare(y.arrivedTime || "99"))[0];
       const cl = g.rows.length === 1 ? claimOf(s, first) : null; const holder = cl && s.users.find(u => u.id === cl.userId);
       return { key: first.article || first.hu, name: first.name || product?.name || first.article, count: g.rows.length, hu: earliest.hu, productId: product?.id || null, holder, stacked: cl?.status === "stacked",
-        location: locs.size <= 1 ? first.location : `${locs.size} locations`, transporter: earliest.transporter, arrivedTime: earliest.arrivedTime, blocking: g.rows.some(r => r.blocking), hist };
+        location: locs.size <= 1 ? first.location : `${locs.size} locations`, transporter: earliest.transporter, arrivedTime: earliest.arrivedTime, blocking: g.rows.some(r => r.blocking), hist, priority: first.priority };
     // recent rejections first, then chronological by arrival time (oldest on top) — a ×N group counts as its earliest pallet
     }).sort((a, b) => (b.hist.count > 0) - (a.hist.count > 0) || (a.arrivedTime || "99").localeCompare(b.arrivedTime || "99")); };
   const dayTitle = d => { if (!d) return "Arrival date unknown"; const label = dayLabel(d + "T12:00:00"); const full = new Date(d + "T12:00:00").toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" }); return label === "Today" || label === "Yesterday" ? `${label} · ${full}` : full; };
@@ -1836,10 +1840,13 @@ function MPriorityList({ s, user, go, priority }) {
   const skus = new Set(rows.map(r => r.article || r.hu)).size;
   return (
     <div className="pb-4">
-      <TopBar title={priority} onBack={() => go("home")} />
+      <TopBar title={isAll ? "Pallets on docks" : priority} onBack={() => go("home")} />
+      {isAll && <div className="flex gap-1 px-4 mt-2" style={{ borderBottom: `1px solid ${C.line}` }}>
+        {[["regular", "Priorities"], ["skippable", "Skippable"]].map(([k, l]) => <button key={k} onClick={() => setSubTab(k)} className="px-1 py-2 text-sm" style={{ marginRight: 14, borderBottom: subTab === k ? `2px solid ${C.ink}` : "2px solid transparent", color: subTab === k ? C.ink : C.muted, fontWeight: subTab === k ? 500 : 400 }}>{l}</button>)}
+      </div>}
       <div className="px-4 pt-3">
         <p className="text-xs mb-1" style={{ color: C.muted }}>{rows.length} pallet{rows.length === 1 ? "" : "s"} · {skus} SKU{skus === 1 ? "" : "s"} · oldest arrivals first</p>
-        {rows.length === 0 && <p className="text-sm py-8 text-center" style={{ color: C.muted }}>{lostRows.length ? "Nothing findable at this priority — only lost pallets below." : "Nothing at this priority right now."}</p>}
+        {rows.length === 0 && <p className="text-sm py-8 text-center" style={{ color: C.muted }}>{lostRows.length ? "Nothing findable here — only lost pallets below." : isAll ? (subTab === "skippable" ? "No skippable pallets on the docks right now." : "Nothing on the docks right now.") : "Nothing at this priority right now."}</p>}
         {days.map(d => { const items = itemsFor(byDay[d]); const n = byDay[d].length; const old = ageDays(d) >= 1; return (
           <div key={d || "none"} className="mt-3">
             <div className="flex items-center gap-2 py-1.5 sticky top-0" style={{ background: C.surface }}>
@@ -1848,7 +1855,7 @@ function MPriorityList({ s, user, go, priority }) {
             </div>
             {items.map(it => (
               <button key={it.key} onClick={() => it.count > 1 && it.productId ? go("catalog", it.productId) : go("palletInfo", it.hu)} className="w-full text-left py-3 active:opacity-60" style={{ borderBottom: `1px solid ${C.line}` }}>
-                <div className="flex items-center gap-2"><p className="text-sm font-medium flex-1 truncate">{it.name}</p>{it.count > 1 && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ background: C.accentSoft, color: C.accent }}>×{it.count} on docks</span>}{it.hist.count > 0 && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ background: C.badBg, color: C.bad }}>{it.hist.count} rejected recently</span>}{it.holder && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0 inline-flex items-center gap-1" style={{ background: C.bg, color: it.holder.id === user.id ? C.accent : C.muted, border: `1px solid ${C.line}` }}><Avatar user={it.holder} size={12} />{it.holder.id === user.id ? "you" : it.holder.name.split(" ")[0]}{it.stacked ? " · stack" : ""}</span>}</div>
+                <div className="flex items-center gap-2">{isAll && subTab === "regular" && it.priority && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ background: PRIORITY[it.priority]?.[1] || C.line, color: PRIORITY[it.priority]?.[0] || C.muted }}>{it.priority}</span>}<p className="text-sm font-medium flex-1 truncate">{it.name}</p>{it.count > 1 && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ background: C.accentSoft, color: C.accent }}>×{it.count} on docks</span>}{it.hist.count > 0 && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ background: C.badBg, color: C.bad }}>{it.hist.count} rejected recently</span>}{it.holder && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0 inline-flex items-center gap-1" style={{ background: C.bg, color: it.holder.id === user.id ? C.accent : C.muted, border: `1px solid ${C.line}` }}><Avatar user={it.holder} size={12} />{it.holder.id === user.id ? "you" : it.holder.name.split(" ")[0]}{it.stacked ? " · stack" : ""}</span>}</div>
                 <p className="text-xs mt-0.5" style={{ color: C.muted }}>{it.location} · {it.transporter} · {it.arrivedTime}{it.blocking ? " · needed today" : ""}</p>
                 {it.hist.count > 0 && <p className="text-xs mt-1" style={{ color: C.bad }}>Was rejected for: {it.hist.problems.slice(0, 3).map(p => `${p.name} ×${p.count}`).join(", ")}{it.hist.problems.length > 3 ? "…" : ""} · last {dayLabel(it.hist.lastAt)}</p>}
               </button>
@@ -1920,8 +1927,8 @@ function MDashboard({ s, set, user, go, dismissed, setDismissed, onAssign }) {
       <div className="grid grid-cols-2 gap-2 px-5">
         <div className="rounded-2xl p-3.5" style={{ background: C.bg, border: `1px solid ${C.line}` }}><p className="text-xs" style={{ color: C.muted }}>Done today (team)</p><p className="text-[26px] leading-tight font-semibold mt-0.5">{doneToday}</p></div>
         {(() => { const bs = blockedSummary(s) || {}; const rows = blockedRowsLive(s); const lostN = blockedQueue(s).filter(b => b.lost && b.status !== "Completed").length; const open = Math.max(0, (bs.notStarted != null ? (bs.notStarted || 0) + (bs.started || 0) : rows.filter(r => r.status !== "Completed").length) - lostN); return <div className="rounded-2xl p-3.5" style={{ background: C.bg, border: `1px solid ${C.line}` }}><p className="text-xs" style={{ color: C.muted }}>Blocked pallets</p><p className="text-[26px] leading-tight font-semibold mt-0.5" style={{ color: open ? C.bad : C.ink }}>{open}</p><p className="text-[10px]" style={{ color: C.muted }}>{(() => { const mine = blockedQueue(s).filter(b => b.status !== "Completed" && b.claim?.userId === user.id).length; const st = blockedQueue(s).filter(b => b.status !== "Completed" && b.claim?.status === "stacked").length; return rows.length ? `${mine} yours · ${st} in stack${lostN ? ` · ${lostN} lost` : ""}` : "no blocked-pallets sheet yet"; })()}</p></div>; })()}
-        <div className="rounded-2xl p-3.5" style={{ background: C.bg, border: `1px solid ${C.line}` }}><p className="text-xs" style={{ color: C.muted }}>SKUs on docks<Lock /></p><p className="text-[26px] leading-tight font-semibold mt-0.5">{sheetStats(s).skus}</p><p className="text-[10px]" style={{ color: C.muted }}>{sheetStats(s).expected != null ? `${sheetStats(s).expected} still expected` : "distinct articles"}</p></div>
-        <div className="rounded-2xl p-3.5" style={{ background: C.bg, border: `1px solid ${C.line}` }}><p className="text-xs" style={{ color: C.muted }}>Pallets on docks<Lock /></p><p className="text-[26px] leading-tight font-semibold mt-0.5">{sheetStats(s).pallets}</p><p className="text-[10px]" style={{ color: C.muted }}>{sheetStats(s).skippablePallets != null ? `${sheetStats(s).skippablePallets} skippable · ${sheetStats(s).skippableSkus ?? "—"} SKUs` : "in total"}</p></div>
+        <button onClick={() => go("priority", "All")} className="rounded-2xl p-3.5 text-left transition-transform active:scale-95" style={{ background: C.bg, border: `1px solid ${C.line}` }}><p className="text-xs" style={{ color: C.muted }}>SKUs on docks</p><p className="text-[26px] leading-tight font-semibold mt-0.5">{sheetStats(s).skus}</p><p className="text-[10px]" style={{ color: C.muted }}>{sheetStats(s).expected != null ? `${sheetStats(s).expected} still expected` : "distinct articles"}</p></button>
+        <button onClick={() => go("priority", "All")} className="rounded-2xl p-3.5 text-left transition-transform active:scale-95" style={{ background: C.bg, border: `1px solid ${C.line}` }}><p className="text-xs" style={{ color: C.muted }}>Pallets on docks</p><p className="text-[26px] leading-tight font-semibold mt-0.5">{sheetStats(s).pallets}</p><p className="text-[10px]" style={{ color: C.muted }}>{sheetStats(s).skippablePallets != null ? `${sheetStats(s).skippablePallets} skippable · ${sheetStats(s).skippableSkus ?? "—"} SKUs` : "in total"}</p></button>
       </div>
       <p className="label-sm px-5 mt-3 mb-1" style={{ color: C.muted }}>Dock priorities</p>
       {/* Skippable is a boolean flag, not a distinct priority — the "N skippable" figure above already covers it, so it's not a tile here. */}
