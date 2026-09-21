@@ -1794,7 +1794,7 @@ function MProductHeader({ s, product, article, name, go }) {
   return (
     <button onClick={() => go("catalog", product.id)} className="w-full text-left rounded-2xl p-3.5 mb-3 active:opacity-70" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
       <div className="flex gap-3 items-start">
-        {photos.length ? <img src={photos[0].dataUrl} alt="" className="w-20 h-20 rounded-xl object-cover flex-shrink-0" /> : <div className="w-20 h-20 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: C.surface, color: C.muted }}><Ic i={ImageIcon} s={28} mr={0} /></div>}
+        {photos.length ? <img src={photos[0].dataUrl} alt="" className="w-20 h-20 rounded-xl object-contain flex-shrink-0" style={{ background: C.surface }} /> : <div className="w-20 h-20 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: C.surface, color: C.muted }}><Ic i={ImageIcon} s={28} mr={0} /></div>}
         <div className="min-w-0 flex-1">
           <p className="font-semibold leading-tight">{product.name}</p>
           <p className="text-xs mt-1" style={{ color: C.muted }}>ID {product.articleId || "—"} · {catPath(product.categoryId)}{product.isBio && " · bio"}</p>
@@ -2010,7 +2010,7 @@ function MSearch({ s, user, go, onStart, setState, notify, onVisual }) {
     <div>
       <TopBar title="New inspection" onBack={() => go("home")} />
       <div className="px-4 pt-3"><input autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder="Product name or article ID…" className="w-full text-sm rounded-xl px-3 py-2.5 outline-none" style={{ ...inp, background: C.bg }} /></div>
-      <div className="px-4 pt-2">{list.slice(0, 40).map(p => <button key={p.id} onClick={() => setSel(p.id)} className="w-full text-left flex items-center gap-3 py-2.5" style={{ borderBottom: `1px solid ${C.line}` }}>{asPhotoList(p.photos).length ? <img src={asPhotoList(p.photos)[0].dataUrl} alt="" className="w-10 h-10 rounded-lg object-cover" /> : <div className="w-10 h-10 rounded-lg flex items-center justify-center" style={{ background: C.bg, color: C.muted }}><Ic i={ImageIcon} s={18} mr={0} /></div>}<div className="flex-1 min-w-0"><p className="text-sm truncate">{p.name}</p><p className="text-xs" style={{ color: C.muted }}>{p.articleId || "no ID"}{p.isBio && " · bio"}</p></div><span style={{ color: C.muted }}>›</span></button>)}{list.length === 0 && <p className="text-sm py-6 text-center" style={{ color: C.muted }}>No results.</p>}</div>
+      <div className="px-4 pt-2">{list.slice(0, 40).map(p => <button key={p.id} onClick={() => setSel(p.id)} className="w-full text-left flex items-center gap-3 py-2.5" style={{ borderBottom: `1px solid ${C.line}` }}>{asPhotoList(p.photos).length ? <img src={asPhotoList(p.photos)[0].dataUrl} alt="" className="w-10 h-10 rounded-lg object-contain" style={{ background: C.bg }} /> : <div className="w-10 h-10 rounded-lg flex items-center justify-center" style={{ background: C.bg, color: C.muted }}><Ic i={ImageIcon} s={18} mr={0} /></div>}<div className="flex-1 min-w-0"><p className="text-sm truncate">{p.name}</p><p className="text-xs" style={{ color: C.muted }}>{p.articleId || "no ID"}{p.isBio && " · bio"}</p></div><span style={{ color: C.muted }}>›</span></button>)}{list.length === 0 && <p className="text-sm py-6 text-center" style={{ color: C.muted }}>No results.</p>}</div>
     </div>
   );
 }
@@ -2048,7 +2048,7 @@ function MProductCard({ s, user, product, onBack, onStart, go, setState, notify,
       {/* Hero: the picture is the identity — a controller matches what's in front of them to it. */}
       <div className="px-4 pt-3">
         <div className="rounded-2xl overflow-hidden relative" style={{ background: C.bg, height: 220 }} onClick={() => photos.length && setZoomOpen(true)}>
-          {photos.length ? <img src={photos[Math.min(photoIx, photos.length - 1)].dataUrl} alt="" className="w-full h-full object-cover" style={{ cursor: "zoom-in" }} /> : <div className="w-full h-full flex flex-col items-center justify-center" style={{ color: C.muted }}><Ic i={Package} s={44} mr={0} /><p className="text-[11px] mt-2">No photo yet</p></div>}
+          {photos.length ? <img src={photos[Math.min(photoIx, photos.length - 1)].dataUrl} alt="" className="w-full h-full object-contain" style={{ cursor: "zoom-in" }} /> : <div className="w-full h-full flex flex-col items-center justify-center" style={{ color: C.muted }}><Ic i={Package} s={44} mr={0} /><p className="text-[11px] mt-2">No photo yet</p></div>}
           {product.isBio && <span className="absolute top-2.5 left-2.5 text-[11px] font-semibold px-2 py-0.5 rounded-full" style={{ background: C.okBg, color: C.ok }}>bio</span>}
           {photos.length > 1 && <div className="absolute bottom-2.5 left-0 right-0 flex justify-center gap-1.5">{photos.map((_, ix) => <button key={ix} onClick={e => { e.stopPropagation(); setPhotoIx(ix); }} className="rounded-full" style={{ width: 7, height: 7, background: ix === photoIx ? C.onDark : "rgba(255,255,255,.5)" }} />)}</div>}
         </div>
@@ -2352,7 +2352,7 @@ function MCatalog({ s, user, go, onStart, setState, notify, onVisual, preset }) 
   const Chip = ({ on, onClick, children }) => <button onClick={onClick} className="text-xs px-3 py-1.5 rounded-full whitespace-nowrap" style={{ background: on ? C.ink : "transparent", color: on ? C.onDark : C.ink, border: `1px solid ${on ? C.ink : C.line}` }}>{children}</button>;
   const Tile = ({ p }) => { const li = lastInsp(p.id); const openFlag = s.flags.some(x => x.productId === p.id && x.status === "Open"); return (
     <button onClick={() => setSel(p.id)} className="rounded-2xl p-2.5 text-left relative" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
-      {asPhotoList(p.photos).length ? <img src={asPhotoList(p.photos)[0].dataUrl} alt="" className="w-full h-20 rounded-xl object-cover mb-2" /> : <div className="w-full h-20 rounded-xl flex items-center justify-center mb-2" style={{ background: C.surface, color: C.muted }}><Ic i={ImageIcon} s={22} mr={0} /></div>}
+      {asPhotoList(p.photos).length ? <img src={asPhotoList(p.photos)[0].dataUrl} alt="" className="w-full h-20 rounded-xl object-contain mb-2" style={{ background: C.surface }} /> : <div className="w-full h-20 rounded-xl flex items-center justify-center mb-2" style={{ background: C.surface, color: C.muted }}><Ic i={ImageIcon} s={22} mr={0} /></div>}
       <p className="text-xs font-medium leading-tight" style={{ minHeight: 32 }}>{p.name}</p>
       <div className="flex items-center gap-1.5 mt-1.5"><span className="text-[10px]" style={{ color: C.muted }}>{p.articleId || "—"}</span>{p.isBio && <span className="text-[9px] px-1 rounded" style={{ background: C.okBg, color: C.ok }}>bio</span>}<div className="flex-1" />{openFlag && <Ic i={Flag} s={11} mr={0} style={{ color: C.warn }} />}{li && <span title={`ostatnia: ${li.result === "Accepted" ? "accepted" : "rejected"}, ${dayLabel(li.completedAt)}`} className="inline-block rounded-full" style={{ width: 8, height: 8, background: li.result === "Accepted" ? C.ok : C.bad }} />}</div>
     </button>
