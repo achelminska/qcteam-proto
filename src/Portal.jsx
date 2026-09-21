@@ -94,6 +94,7 @@ const metricKey = f => f.key || slugKey(f.specName || f.label);
 const STATUS = { Draft: ["Draft", C.muted, C.line], PendingReview: ["Awaiting Head", C.warn, C.warnBg], Completed: ["Completed", C.ok, C.okBg], Cancelled: ["Cancelled", C.muted, C.line] };
 const nowISO = () => new Date().toISOString();
 const fmtTime = iso => { const d = new Date(iso); return isNaN(d) ? "" : d.toLocaleString("en-GB", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }); };
+const truncate = (t, n = 90) => t && t.length > n ? t.slice(0, n).trimEnd() + "…" : t;
 
 // ── Pomocnicze na drzewach ──────────────────────────────────────────────────
 const byId = arr => Object.fromEntries(arr.map(x => [x.id, x]));
@@ -1170,14 +1171,33 @@ function ControllerDashboard({ s, user, setPage, setOpenId, openProduct }) {
   const alerts = computeDeadlineAlerts(s);
   const mine = s.inspections.filter(i => i.controllerId === user.id).sort((a, b) => (b.startedAt || "").localeCompare(a.startedAt || ""));
   const open = mine.filter(i => ["Draft", "PendingReview"].includes(i.status));
+  const [annOpen, setAnnOpen] = useState(null);
+  const dashAnns = s.announcements.filter(a => a.showOnDashboard && annActive(a)).sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
+  // Product-scoped announcements already have a home — the product's profile card — so clicking one just opens that instead of a modal.
+  const openAnn = a => (a.productId && openProduct) ? openProduct(a.productId) : setAnnOpen(a);
   return (
     <div>
       <h1 className="mb-1">Hi, {user.name.split(" ")[0]}</h1>
       <p className="text-sm mb-5" style={{ color: C.muted, maxWidth: 640 }}>Controller view (on the phone this is the mobile app). Only what's yours.</p>
-      {s.announcements.filter(a => a.showOnDashboard && annActive(a)).length > 0 && <Card style={{ marginBottom: 16, borderColor: C.accent }}><p className="text-xs font-medium mb-2" style={{ color: C.accent }}>📣 ANNOUNCEMENTS</p>{s.announcements.filter(a => a.showOnDashboard && annActive(a)).sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || "")).map(a => <div key={a.id} className="py-2" style={{ borderTop: `1px solid ${C.line}` }}><p className="text-sm font-medium">{a.title}</p><p className="text-sm">{a.body}</p><p className="text-xs" style={{ color: C.muted }}>{fmtTime(a.createdAt)}{a.validTo && ` · to ${a.validTo}`}</p></div>)}</Card>}
+      {dashAnns.length > 0 && <Card style={{ marginBottom: 16, borderColor: C.accent }}><p className="text-xs font-medium mb-2" style={{ color: C.accent }}>📣 ANNOUNCEMENTS</p>{dashAnns.map(a => <button key={a.id} onClick={() => openAnn(a)} className="w-full text-left py-2" style={{ borderTop: `1px solid ${C.line}` }}><p className="text-sm font-medium">{a.title}</p><p className="text-sm truncate" style={{ color: C.muted }}>{truncate(a.body)}</p><p className="text-xs" style={{ color: C.muted }}>{fmtTime(a.createdAt)}{a.validTo && ` · to ${a.validTo}`}</p></button>)}</Card>}
       <div className="mb-4"><Primary onClick={() => { setOpenId(null); setPage("inspections"); }}>+ New inspection</Primary></div>
       {open.length > 0 && <Card style={{ marginBottom: 16 }}><p className="font-medium text-sm mb-2">Unfinished</p>{open.map(i => <button key={i.id} onClick={() => { setOpenId(i.id); setPage("inspections"); }} className="w-full text-left flex items-center gap-2 py-2" style={{ borderTop: `1px solid ${C.line}` }}><span className="text-xs px-2 py-0.5 rounded-full" style={{ background: STATUS[i.status][2], color: STATUS[i.status][1] }}>{STATUS[i.status][0]}</span><span className="flex-1 text-sm">{s.products.find(p => p.id === i.productId)?.name}</span><span className="text-xs" style={{ color: C.muted }}>{fmtTime(i.startedAt)}</span></button>)}</Card>}
       <Card><p className="font-medium text-sm mb-2">My recent</p>{mine.filter(i => i.status === "Completed").slice(0, 8).map(i => <button key={i.id} onClick={() => { setOpenId(i.id); setPage("inspections"); }} className="w-full text-left flex items-center gap-2 py-2" style={{ borderTop: `1px solid ${C.line}` }}><span className="text-xs px-2 py-0.5 rounded-full" style={{ background: i.result === "Accepted" ? C.okBg : C.badBg, color: i.result === "Accepted" ? C.ok : C.bad }}>{i.result === "Accepted" ? "Accepted" : "Rejected"}</span><span className="flex-1 text-sm">{s.products.find(p => p.id === i.productId)?.name}</span><span className="text-xs" style={{ color: C.muted }}>{fmtTime(i.completedAt)}</span></button>)}{mine.filter(i => i.status === "Completed").length === 0 && <p className="text-xs" style={{ color: C.muted }}>Nothing yet.</p>}</Card>
+      {annOpen && <AnnouncementModal a={annOpen} onClose={() => setAnnOpen(null)} />}
+    </div>
+  );
+}
+// Full announcement text, off the dashboard preview — dimmed backdrop, click outside or Close to dismiss.
+function AnnouncementModal({ a, onClose }) {
+  return (
+    <div className="fixed inset-0 flex items-center justify-center p-6" style={{ background: "rgba(31,42,36,0.55)", zIndex: 50 }} onClick={onClose}>
+      <div className="rounded-2xl p-6 max-w-md w-full" style={{ background: C.surface }} onClick={e => e.stopPropagation()}>
+        <p className="text-xs font-medium mb-2 flex items-center" style={{ color: C.accent }}><Ic i={Megaphone} s={13} />Announcement</p>
+        <p className="text-lg font-semibold mb-2">{a.title}</p>
+        <p className="text-sm mb-4" style={{ whiteSpace: "pre-wrap" }}>{a.body}</p>
+        <p className="text-xs mb-4" style={{ color: C.muted }}>{fmtTime(a.createdAt)}{a.validTo && ` · on the dashboard until ${a.validTo}`}</p>
+        <button onClick={onClose} className="text-sm px-4 py-2 rounded-xl" style={{ background: C.ink, color: C.onDark }}>Close</button>
+      </div>
     </div>
   );
 }
@@ -3239,7 +3259,7 @@ export default function App() {
       {dataOpen && <DataPanel s={s} set={set} onClose={() => setDataOpen(false)} />}
       {toastMsg && <div className="fixed left-1/2 -translate-x-1/2 text-sm px-4 py-2 rounded-xl" style={{ top: 12, zIndex: 90, background: C.ink, color: C.onDark, boxShadow: "0 8px 20px rgba(0,0,0,.25)" }}>{toastMsg}</div>}
       {newVersion && <div className="fixed left-1/2 -translate-x-1/2 flex items-center gap-3 text-sm px-4 py-2.5 rounded-xl" style={{ top: 12, zIndex: 91, background: C.accent, color: C.onDark, boxShadow: "0 8px 20px rgba(0,0,0,.3)" }}>A new version is live<button onClick={() => location.reload()} className="px-2.5 py-1 rounded-lg font-semibold" style={{ background: C.onDark, color: C.accent }}>Refresh</button></div>}
-      {safePage === "dashboard" && (user.role === "Head" ? <Dashboard s={s} user={user} set={set} setPage={setPage} seed={() => set(olaState())} openProduct={id => { setSelProduct(id); setPage("products"); }} onAssign={a => { setPendingChatContext({ kind: "pallet", id: a.hu, label: `${a.name} · ${a.location}` }); setPage("messages"); }} /> : <ControllerDashboard s={s} user={user} setPage={setPage} setOpenId={setOpenInspId} />)}
+      {safePage === "dashboard" && (user.role === "Head" ? <Dashboard s={s} user={user} set={set} setPage={setPage} seed={() => set(olaState())} openProduct={id => { setSelProduct(id); setPage("products"); }} onAssign={a => { setPendingChatContext({ kind: "pallet", id: a.hu, label: `${a.name} · ${a.location}` }); setPage("messages"); }} /> : <ControllerDashboard s={s} user={user} setPage={setPage} setOpenId={setOpenInspId} openProduct={id => { setSelProduct(id); setPage("products"); }} />)}
       {safePage === "categories" && <CategoriesPage s={s} set={set} />}
       {safePage === "problems" && <ProblemsPage s={s} set={set} />}
       {safePage === "products" && <ProductsPage s={s} set={set} sel={selProduct} setSel={setSelProduct} presetFilter={productsQuery} clearPreset={() => setProductsQuery("")} />}

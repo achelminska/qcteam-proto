@@ -121,6 +121,7 @@ const metricKey = f => f.key || slugKey(f.specName || f.label);
 const STATUS = { Draft: ["Draft", C.muted, C.line], PendingReview: ["Awaiting Head", C.warn, C.warnBg], Completed: ["Completed", C.ok, C.okBg], Cancelled: ["Cancelled", C.muted, C.line] };
 const nowISO = () => new Date().toISOString();
 const fmtTime = iso => { const d = new Date(iso); return isNaN(d) ? "" : d.toLocaleString("en-GB", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }); };
+const truncate = (t, n = 70) => t && t.length > n ? t.slice(0, n).trimEnd() + "…" : t;
 
 // ── Pomocnicze na drzewach ──────────────────────────────────────────────────
 const byId = arr => Object.fromEntries(arr.map(x => [x.id, x]));
@@ -1866,8 +1867,23 @@ function MPriorityList({ s, user, go, priority }) {
   );
 }
 
+// Full announcement text, off the dashboard preview — dimmed backdrop, tap outside or Close to dismiss.
+function MAnnouncementModal({ a, onClose }) {
+  return (
+    <div className="fixed inset-0 flex items-center justify-center p-5" style={{ background: "rgba(31,42,36,0.55)", zIndex: 50 }} onClick={onClose}>
+      <div className="rounded-2xl p-5 max-w-sm w-full" style={{ background: C.surface }} onClick={e => e.stopPropagation()}>
+        <p className="text-xs font-medium mb-2 flex items-center" style={{ color: C.accent }}><Ic i={Megaphone} s={13} />Announcement</p>
+        <p className="text-base font-semibold mb-2">{a.title}</p>
+        <p className="text-sm mb-4" style={{ whiteSpace: "pre-wrap" }}>{a.body}</p>
+        <p className="text-xs mb-4" style={{ color: C.muted }}>{fmtTime(a.createdAt)}{a.validTo && ` · on the dashboard until ${a.validTo}`}</p>
+        <button onClick={onClose} className="w-full py-2.5 rounded-xl text-sm font-medium" style={{ background: C.ink, color: C.onDark }}>Close</button>
+      </div>
+    </div>
+  );
+}
 function MDashboard({ s, set, user, go, dismissed, setDismissed, onAssign }) {
   const [now, setNow] = useState(Date.now()); useEffect(() => { const id = setInterval(() => setNow(Date.now()), 30000); return () => clearInterval(id); }, []);
+  const [annOpen, setAnnOpen] = useState(false);
   const [blockedView, setBlockedView] = useState("open");
   const [tab, setTab] = useState("history");
   const bottomPad = { paddingBottom: 96 };
@@ -1889,7 +1905,8 @@ function MDashboard({ s, set, user, go, dismissed, setDismissed, onAssign }) {
         </div>
       ); })()}
       <div className="px-5"><DeadlineBanner s={s} alerts={computeDeadlineAlerts(s, now)} now={now} onOpen={al => go("palletInfo", al.hu)} /></div>
-      {ann && <div className="mx-5 mb-3 rounded-xl px-3.5 py-2.5 flex items-start gap-2.5" style={{ background: C.surface, border: `1px solid ${C.line}`, borderLeft: `3px solid ${C.accent}` }}><span style={{ color: C.accent, marginTop: 2 }}><Ic i={Megaphone} s={14} mr={0} /></span><p className="text-sm flex-1"><b>{ann.title}</b><span style={{ color: C.muted }}> — {ann.body}</span></p><button onClick={() => setDismissed(d => [...d, ann.id])} className="text-sm" style={{ color: C.muted }}>×</button></div>}
+      {ann && <button onClick={() => ann.productId ? go("catalog", ann.productId) : setAnnOpen(true)} className="text-left mx-5 mb-3 rounded-xl px-3.5 py-2.5 flex items-start gap-2.5" style={{ background: C.surface, border: `1px solid ${C.line}`, borderLeft: `3px solid ${C.accent}` }}><span style={{ color: C.accent, marginTop: 2 }}><Ic i={Megaphone} s={14} mr={0} /></span><p className="text-sm flex-1"><b>{ann.title}</b><span style={{ color: C.muted }}> — {truncate(ann.body)}</span></p><span onClick={e => { e.stopPropagation(); setDismissed(d => [...d, ann.id]); }} className="text-sm" style={{ color: C.muted }}>×</span></button>}
+      {annOpen && ann && <MAnnouncementModal a={ann} onClose={() => setAnnOpen(false)} />}
       {user.role === "Head" && (() => { const esc = s.inspections.filter(i => i.status === "PendingReview").length, fl = s.flags.filter(f => f.status === "Open").length; return (
         <div className="px-5 mb-3">
           <p className="label-sm mb-1.5">Needs you</p>
