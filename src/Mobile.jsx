@@ -40,6 +40,33 @@ const SearchBox = ({ value, onChange, placeholder, className = "", style = {}, i
     <input autoFocus={autoFocus} value={value} onChange={e => onChange(e.target.value)} onKeyDown={onKeyDown} placeholder={placeholder} className={`w-full text-sm ${inputClass}`} style={{ paddingLeft: size + 18 }} />
   </div>
 );
+// Searchable product picker — an alphabetical <select> of the whole catalog (hundreds of products) is unusable on a phone.
+const MProductPicker = ({ products, value, onChange, placeholder = "Search product…" }) => {
+  const [q, setQ] = useState(""); const [open, setOpen] = useState(false);
+  const selected = products.find(p => p.id === value);
+  const qq = q.trim().toLowerCase();
+  const results = (qq ? products.filter(p => (p.name + " " + (p.articleId || "")).toLowerCase().includes(qq)) : products).slice(0, 8);
+  if (selected && !open) return (
+    <div className="flex items-center justify-between rounded-xl px-3 py-2.5" style={{ border: `1px solid ${C.line}` }}>
+      <span className="text-sm truncate flex-1 min-w-0">{selected.name}</span>
+      <button onClick={() => { setQ(""); setOpen(true); }} className="text-xs flex-shrink-0 ml-2" style={{ color: C.accent }}>change</button>
+    </div>
+  );
+  return (
+    <div>
+      <SearchBox autoFocus={open} value={q} onChange={v => { setQ(v); setOpen(true); }} placeholder={placeholder} inputClass="rounded-xl py-2.5" />
+      <div className="rounded-xl mt-1.5 overflow-hidden" style={{ border: `1px solid ${C.line}`, maxHeight: 220, overflowY: "auto" }}>
+        {results.length === 0 ? <p className="text-xs px-3 py-2.5" style={{ color: C.muted }}>No matches.</p> : results.map(p => (
+          <button key={p.id} onClick={() => { onChange(p.id); setQ(""); setOpen(false); }} className="w-full text-left px-3 py-2" style={{ borderTop: `1px solid ${C.line}` }}>
+            <span className="block text-sm truncate">{p.name}</span>
+            <span className="block text-xs truncate" style={{ color: C.muted }}>{p.articleId || "no ID"}</span>
+          </button>
+        ))}
+        {products.length > results.length && !qq && <p className="text-xs px-3 py-2" style={{ color: C.muted, borderTop: `1px solid ${C.line}` }}>{products.length - results.length} more — keep typing to narrow it down</p>}
+      </div>
+    </div>
+  );
+};
 // Notification look: one lucide icon per type in a soft circle; legacy messages get their emoji stripped on display.
 const NOTIF = { Exceeded: [AlertTriangle, "bad"], AcceptedDespite: [AlertTriangle, "warn"], Escalation: [HelpCircle, "warn"], Question: [MessageCircle, "info"], Answered: [MessageCircle, "ok"], Flag: [Flag, "warn"], Announcement: [Megaphone, "info"], EditedByOther: [Pencil, "info"], DeadlineWarning: [Clock, "warn"], DeadlineBreached: [AlertTriangle, "bad"], Lost: [Search, "warn"], Found: [Check, "ok"] };
 const notifLook = t => { const [I, tone] = NOTIF[t] || [Bell, "info"]; const fg = tone === "bad" ? C.bad : tone === "warn" ? C.warn : tone === "ok" ? C.ok : C.accent; const bg = tone === "bad" ? C.badBg : tone === "warn" ? C.warnBg : tone === "ok" ? C.okBg : C.accentSoft; return { I, fg, bg }; };
@@ -2430,8 +2457,8 @@ function MHeadAnnounce({ s, set, user, go, notify }) {
     <textarea value={d.body} onChange={e => setD(x => ({ ...x, body: e.target.value }))} placeholder="body" rows={4} className="w-full text-sm mb-3" />
     <p className="label-sm mb-1.5">Channels</p>
     <div className="flex flex-wrap gap-1.5 mb-3"><Chip on={d.showOnDashboard} onClick={() => setD(x => ({ ...x, showOnDashboard: !x.showOnDashboard }))}>Dashboard</Chip><Chip on={d.isBlocking} onClick={() => setD(x => ({ ...x, isBlocking: !x.isBlocking }))}>Blocking — must acknowledge</Chip></div>
-    <p className="label-sm mb-1.5">Product (optional)</p>
-    <select value={d.productId} onChange={e => setD(x => ({ ...x, productId: e.target.value }))} className="w-full text-sm mb-3"><option value="">— none —</option>{s.products.filter(p => p.isActive !== false).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select>
+    <div className="flex items-center justify-between mb-1.5"><p className="label-sm">Product (optional)</p>{d.productId && <button onClick={() => setD(x => ({ ...x, productId: "" }))} className="text-xs" style={{ color: C.muted }}>clear</button>}</div>
+    <div className="mb-3"><MProductPicker products={s.products.filter(p => p.isActive !== false)} value={d.productId} onChange={id => setD(x => ({ ...x, productId: id }))} /></div>
     <p className="label-sm mb-1.5">Dashboard until (optional)</p>
     <input type="date" value={d.validTo} onChange={e => setD(x => ({ ...x, validTo: e.target.value }))} className="w-full text-sm mb-4" />
     <button onClick={publish} disabled={!d.title.trim()} className="w-full py-3 rounded-xl text-sm font-medium" style={{ background: d.title.trim() ? C.ink : C.line, color: d.title.trim() ? C.onDark : C.muted }}>Publish</button>

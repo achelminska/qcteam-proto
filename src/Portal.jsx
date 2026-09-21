@@ -2603,6 +2603,35 @@ function CatalogPage({ s, set, user, notify, onStartInspection }) {
 const CHANNELS = { blocking: ["Blocking", "the controller must acknowledge before doing anything (AnnouncementRecipient.AcknowledgedAt)"], dashboard: ["On the dashboard", "visible to controllers until the expiry date"], product: ["On the product", "in the catalog card and at the top of this product's inspection"] };
 const annActive = a => (!a.validTo || a.validTo >= new Date().toISOString().slice(0, 10));
 const annChannels = a => [a.isBlocking && "blocking", a.showOnDashboard && "dashboard", a.productId && "product"].filter(Boolean);
+// Searchable product picker — a plain <select> is unusable once the catalog has hundreds of products.
+function ProductPicker({ products, value, onChange, placeholder = "Search product by name or article ID…", invalid = false }) {
+  const [q, setQ] = useState(""); const [open, setOpen] = useState(false);
+  const selected = products.find(p => p.id === value);
+  const qq = q.trim().toLowerCase();
+  const results = (qq ? products.filter(p => (p.name + " " + (p.articleId || "")).toLowerCase().includes(qq)) : products).slice(0, 8);
+  if (selected && !open) return (
+    <div className="flex items-center gap-2 rounded-md px-2" style={{ ...inp, height: 32 }}>
+      <span className="flex-1 min-w-0 truncate text-[13px]">{selected.name}</span>
+      <button onClick={() => { setQ(""); setOpen(true); }} className="text-xs flex-shrink-0" style={{ color: C.accent }}>change</button>
+    </div>
+  );
+  return (
+    <div className="relative">
+      <input autoFocus={open} value={q} onChange={e => setQ(e.target.value)} onFocus={() => setOpen(true)} onBlur={() => setTimeout(() => setOpen(false), 150)} placeholder={placeholder} className="w-full text-[13px] rounded-md px-2 outline-none" style={{ ...inp, height: 32, borderColor: invalid ? C.warn : C.line }} />
+      {open && (
+        <div className="absolute left-0 right-0 mt-1 rounded-md overflow-hidden z-10" style={{ background: C.surface, border: `1px solid ${C.line}`, maxHeight: 240, overflowY: "auto", boxShadow: "0 4px 16px rgba(0,0,0,.08)" }}>
+          {results.length === 0 ? <p className="text-xs px-2.5 py-2" style={{ color: C.muted }}>No matches.</p> : results.map(p => (
+            <button key={p.id} onMouseDown={e => e.preventDefault()} onClick={() => { onChange(p.id); setQ(""); setOpen(false); }} className="w-full text-left px-2.5 py-1.5" style={{ borderTop: `1px solid ${C.line}` }}>
+              <span className="block truncate text-[13px]">{p.name}</span>
+              <span className="block truncate text-[11px]" style={{ color: C.muted }}>{p.articleId || "no ID"}</span>
+            </button>
+          ))}
+          {products.length > results.length && !qq && <p className="text-[11px] px-2.5 py-1.5" style={{ color: C.muted, borderTop: `1px solid ${C.line}` }}>{products.length - results.length} more — keep typing to narrow it down</p>}
+        </div>
+      )}
+    </div>
+  );
+}
 function AnnouncementsPage({ s, set, user, notify }) {
   const [d, setD] = useState({ blocking: false, dashboard: true, product: false, title: "", body: "", productId: "", validTo: "" });
   const controllers = s.users.filter(u => u.role === "Controller" && u.active !== false);
@@ -2628,7 +2657,7 @@ function AnnouncementsPage({ s, set, user, notify }) {
           <div className="mb-2" />
           <input value={d.title} onChange={e => setD(x => ({ ...x, title: e.target.value }))} placeholder="title" className="w-full text-sm rounded px-2 py-1.5 outline-none mb-2" style={inp} />
           <textarea value={d.body} onChange={e => setD(x => ({ ...x, body: e.target.value }))} rows={3} placeholder="body" className="w-full text-sm rounded px-2 py-1.5 outline-none mb-2" style={inp} />
-          {d.product && <select value={d.productId} onChange={e => setD(x => ({ ...x, productId: e.target.value }))} className="w-full text-sm rounded px-2 py-1.5 outline-none mb-2" style={{ ...inp, borderColor: d.productId ? C.line : C.warn }}><option value="">— which product —</option>{s.products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select>}
+          {d.product && <div className="mb-2"><ProductPicker products={s.products} value={d.productId} onChange={id => setD(x => ({ ...x, productId: id }))} invalid={!d.productId} /></div>}
           {d.dashboard && <label className="text-xs flex items-center gap-2 mb-2" style={{ color: C.muted }}>on the dashboard until <input type="date" value={d.validTo} onChange={e => setD(x => ({ ...x, validTo: e.target.value }))} className="text-sm rounded px-2 py-1 outline-none" style={inp} /> (empty = no expiry)</label>}
           <Primary onClick={add} disabled={!valid}>Publish</Primary>
         </Card>
