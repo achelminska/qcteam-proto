@@ -1247,9 +1247,11 @@ function AnnouncementModal({ a, onClose }) {
 }
 
 // ═══════════════════ STRONA: Categories ═══════════════════
-function CategoriesPage({ s, set, onMessage, presetSel, clearPresetSel }) {
+function CategoriesPage({ s, set, onMessage, onOpenProduct, presetSel, clearPresetSel }) {
   const [name, setName] = useState(""); const [parentId, setParentId] = useState(""); const [selCat, setSelCat] = useBackSel("selCat", null);
   const [addOpen, setAddOpen] = useState(false);
+  const [prodListOpen, setProdListOpen] = useState(false);
+  useEffect(() => { setProdListOpen(false); }, [selCat]);
   useEffect(() => { if (presetSel) { setSelCat(presetSel); clearPresetSel && clearPresetSel(); } }, [presetSel]);
   const cat = s.categories.find(c => c.id === selCat);
   const patchCat = p => set(x => ({ ...x, categories: x.categories.map(c => c.id === selCat ? { ...c, ...p } : c) }));
@@ -1302,7 +1304,26 @@ function CategoriesPage({ s, set, onMessage, presetSel, clearPresetSel }) {
               <span className="w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: C.accentSoft, color: C.accent }}><Ic i={FolderTree} s={20} mr={0} /></span>
               <div className="flex-1 min-w-0">
                 <input value={cat.name} onChange={e => patchCat({ name: e.target.value })} className="text-base font-semibold w-full outline-none bg-transparent" style={{ border: "none", padding: 0 }} />
-                <p className="text-xs mt-1" style={{ color: C.muted }}>{cat.parentId ? `Sub-category of ${s.categories.find(c => c.id === cat.parentId)?.name || "—"}` : "Top-level category"} · {prodCount(cat.id)} product{prodCount(cat.id) === 1 ? "" : "s"}{(cat.specs || []).length > 0 ? ` · ${cat.specs.length} spec.` : ""}</p>
+                <p className="text-xs mt-1 flex items-center flex-wrap gap-1" style={{ color: C.muted }}>
+                  <span>{cat.parentId ? `Sub-category of ${s.categories.find(c => c.id === cat.parentId)?.name || "—"}` : "Top-level category"} ·</span>
+                  {prodCount(cat.id) > 0 ? (
+                    <button onClick={() => setProdListOpen(o => !o)} className="inline-flex items-center" style={{ color: C.accent }}>
+                      {prodCount(cat.id)} product{prodCount(cat.id) === 1 ? "" : "s"}<Ic i={prodListOpen ? ChevronDown : ChevronRight} s={12} mr={0} style={{ marginLeft: 2 }} />
+                    </button>
+                  ) : <span>0 products</span>}
+                  {(cat.specs || []).length > 0 && <span>· {cat.specs.length} spec.</span>}
+                </p>
+                {prodListOpen && prodCount(cat.id) > 0 && (
+                  <div className="mt-2 rounded-xl" style={{ border: `1px solid ${C.line}`, maxHeight: 220, overflowY: "auto" }}>
+                    {s.products.filter(p => p.categoryId === cat.id).sort((a, b) => a.name.localeCompare(b.name)).map(p => (
+                      <button key={p.id} onClick={() => onOpenProduct && onOpenProduct(p.id)} className="w-full flex items-center gap-2 px-3 py-2 text-left" style={{ borderTop: `1px solid ${C.line}` }}>
+                        <span className="flex-1 min-w-0 text-sm truncate">{p.name}</span>
+                        <span className="text-[11px] flex-shrink-0" style={{ color: C.muted }}>{p.articleId || "no ID"}</span>
+                        {p.isBio && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ background: C.okBg, color: C.ok }}>bio</span>}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
               <div className="flex items-center gap-1.5 flex-shrink-0">
                 {onMessage && <button onClick={() => onMessage({ kind: "category", id: cat.id, label: cat.name })} className="text-xs px-2.5 py-1 rounded-md inline-flex items-center" style={{ border: `1px solid ${C.line}` }}><Ic i={MessageSquare} s={13} />Message</button>}
@@ -3443,7 +3464,7 @@ export default function App() {
       {toastMsg && <div className="fixed left-1/2 -translate-x-1/2 text-sm px-4 py-2 rounded-xl" style={{ top: 12, zIndex: 90, background: C.ink, color: C.onDark, boxShadow: "0 8px 20px rgba(0,0,0,.25)" }}>{toastMsg}</div>}
       {newVersion && <div className="fixed left-1/2 -translate-x-1/2 flex items-center gap-3 text-sm px-4 py-2.5 rounded-xl" style={{ top: 12, zIndex: 91, background: C.accent, color: C.onDark, boxShadow: "0 8px 20px rgba(0,0,0,.3)" }}>A new version is live<button onClick={() => location.reload()} className="px-2.5 py-1 rounded-lg font-semibold" style={{ background: C.onDark, color: C.accent }}>Refresh</button></div>}
       {safePage === "dashboard" && (user.role === "Head" ? <Dashboard s={s} user={user} set={set} setPage={setPage} seed={() => set(olaState())} openProduct={id => { setSelProduct(id); setPage("products"); }} onAssign={a => { setPendingChatContext({ kind: "pallet", id: a.hu, label: `${a.name} · ${a.location}` }); setPage("messages"); }} /> : <ControllerDashboard s={s} user={user} setPage={setPage} setOpenId={setOpenInspId} openProduct={id => { setSelProduct(id); setPage("products"); }} />)}
-      {safePage === "categories" && <CategoriesPage s={s} set={set} onMessage={ctx => { setPendingChatContext(ctx); setPage("messages"); }} presetSel={presetCategory} clearPresetSel={() => setPresetCategory(null)} />}
+      {safePage === "categories" && <CategoriesPage s={s} set={set} onMessage={ctx => { setPendingChatContext(ctx); setPage("messages"); }} onOpenProduct={id => { setSelProduct(id); setPage("products"); }} presetSel={presetCategory} clearPresetSel={() => setPresetCategory(null)} />}
       {safePage === "problems" && <ProblemsPage s={s} set={set} />}
       {safePage === "products" && <ProductsPage s={s} set={set} sel={selProduct} setSel={setSelProduct} presetFilter={productsQuery} clearPreset={() => setProductsQuery("")} onMessage={ctx => { setPendingChatContext(ctx); setPage("messages"); }} />}
       {safePage === "forms" && <FormsPage s={s} set={set} />}
