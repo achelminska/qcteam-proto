@@ -171,6 +171,9 @@ const problemSuggestions = (s, scope, visible) => {
   });
   return [...map.values()].map(v => ({ name: v.name, sources: [...v.sources] })).sort((a, b) => a.name.localeCompare(b.name));
 };
+// Full "Parent › Child" label for a node id, and a tree-ordered flat list for a "pick a parent" dropdown.
+const problemPath = (problems, id) => { const node = problems.find(p => p.id === id); if (!node) return ""; const parent = node.parentId ? problemPath(problems, node.parentId) : ""; return parent ? `${parent} › ${node.name}` : node.name; };
+const problemParentOptions = problems => { const out = []; const walk = parentId => { problems.filter(p => (p.parentId || null) === parentId).forEach(p => { out.push({ id: p.id, label: problemPath(problems, p.id) }); walk(p.id); }); }; walk(null); return out; };
 // Required inspection level: Full (raport) < Visual (visual is enough) < Skip (can be skipped). Product → category → system setting.
 // Inspection types are Head-defined (InspectionTypes). Behaviour comes from flags, not from the name.
 // No default inspection types: the Head defines them (Forms → + new type). Legacy ids below only keep old records readable.
@@ -1549,9 +1552,12 @@ function ProblemsPage({ s, set }) {
   const visible = problemsFor(s, scope);
   const patch = (id, p) => set(x => ({ ...x, problems: x.problems.map(n => n.id === id ? { ...n, ...p } : n) }));
   const add = parentId => set(x => ({ ...x, problems: [...x.problems, { id: uid(), parentId, name: parentId ? "new problem" : "New problem type", tolerance: null, categoryId: scope.kind === "Category" ? scope.id : null, productId: scope.kind === "Product" ? scope.id : null }] }));
-  const addSuggestion = name => set(x => ({ ...x, problems: [...x.problems, { id: uid(), parentId: null, name, tolerance: null, categoryId: scope.kind === "Category" ? scope.id : null, productId: scope.kind === "Product" ? scope.id : null }] }));
+  const addSuggestion = (name, parentId) => set(x => ({ ...x, problems: [...x.problems, { id: uid(), parentId: parentId || null, name, tolerance: null, categoryId: scope.kind === "Category" ? scope.id : null, productId: scope.kind === "Product" ? scope.id : null }] }));
   const suggestions = problemSuggestions(s, scope, visible);
   const sourceLabel = list => list.length <= 2 ? list.join(", ") : `${list.slice(0, 2).join(", ")} +${list.length - 2}`;
+  const [addingSuggestion, setAddingSuggestion] = useState(null);
+  const [addParent, setAddParent] = useState("");
+  const parentOptions = problemParentOptions(visible);
   const catPath = c => { const p = c.parentId && s.categories.find(x => x.id === c.parentId); return p ? `${p.name} › ${c.name}` : c.name; };
   const isOwned = scope.kind === "Global" ? null : n => scope.kind === "Category" ? n.categoryId === scope.id : n.productId === scope.id;
   const holder = scope.kind === "Category" ? s.categories.find(c => c.id === scope.id) : scope.kind === "Product" ? s.products.find(p => p.id === scope.id) : null;
@@ -1585,12 +1591,25 @@ function ProblemsPage({ s, set }) {
             <p className="font-medium text-sm mb-1 flex items-center gap-1"><Ic i={Sparkles} s={14} mr={0} />Suggestions</p>
             <p className="text-xs mb-3" style={{ color: C.muted }}>Used elsewhere, not yet here — click + to add.</p>
             {suggestions.map(sug => (
-              <div key={sug.name} className="row flex items-center gap-2 py-1.5 px-1 rounded-lg" style={{ borderTop: `1px solid ${C.line}` }}>
-                <span className="flex-1 min-w-0">
-                  <span className="block text-sm truncate">{sug.name}</span>
-                  <span className="block text-[10px] truncate" style={{ color: C.muted }}>{sourceLabel(sug.sources)}</span>
-                </span>
-                <button onClick={() => addSuggestion(sug.name)} className="text-xs px-1.5 flex-shrink-0" style={{ color: C.accent }} title="add here">+</button>
+              <div key={sug.name} className="py-1.5 px-1 rounded-lg" style={{ borderTop: `1px solid ${C.line}` }}>
+                <div className="flex items-center gap-2">
+                  <span className="flex-1 min-w-0">
+                    <span className="block text-sm truncate">{sug.name}</span>
+                    <span className="block text-[10px] truncate" style={{ color: C.muted }}>{sourceLabel(sug.sources)}</span>
+                  </span>
+                  {addingSuggestion === sug.name
+                    ? <button onClick={() => setAddingSuggestion(null)} className="text-xs px-1.5 flex-shrink-0" style={{ color: C.muted }} title="cancel">×</button>
+                    : <button onClick={() => { setAddingSuggestion(sug.name); setAddParent(""); }} className="text-xs px-1.5 flex-shrink-0" style={{ color: C.accent }} title="add here">+</button>}
+                </div>
+                {addingSuggestion === sug.name && (
+                  <div className="flex items-center gap-1 mt-1.5">
+                    <select value={addParent} onChange={e => setAddParent(e.target.value)} className="flex-1 min-w-0 text-xs rounded px-1.5 py-1 outline-none" style={{ ...inp }}>
+                      <option value="">— top level —</option>
+                      {parentOptions.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
+                    </select>
+                    <button onClick={() => { addSuggestion(sug.name, addParent); setAddingSuggestion(null); }} className="text-xs px-2 py-1 rounded flex-shrink-0" style={{ background: C.accent, color: C.onDark }}>Add</button>
+                  </div>
+                )}
               </div>
             ))}
           </Card>
