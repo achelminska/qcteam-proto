@@ -1739,6 +1739,30 @@ function DictionaryPage({ s, set, listKey, title, hint, placeholder, usageOf }) 
   );
 }
 
+// Plain styled input, plus the label/grid wrappers around it. All three are defined at module scope (not inside a
+// component body) so they keep a stable identity across renders — a component re-created on every render gets
+// remounted by React on every state change, which drops focus out of whatever field you're typing in. That applies
+// just as much to a wrapper like Field/Group as to the input itself: if the wrapper's identity changes, React tears
+// down everything inside it, input included, even though the input's own identity didn't change.
+const Field = ({ label, hint, children, className = "" }) => <label className={`block min-w-0 ${className}`}><span className="block text-[11px] font-medium mb-1" style={{ color: C.muted, letterSpacing: ".01em" }}>{label}</span>{children}{hint && <span className="block text-[11px] mt-1" style={{ color: C.muted }}>{hint}</span>}</label>;
+const Group = ({ title, children, cols = 3 }) => <div className="mb-4"><p className="text-[11px] font-semibold uppercase mb-2" style={{ color: C.muted, letterSpacing: ".06em" }}>{title}</p><div className="grid gap-x-3 gap-y-3" style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}>{children}</div></div>;
+const Input = props => <input {...props} className={`w-full text-[13px] rounded-md px-2 outline-none ${props.className || ""}`} style={{ ...inp, height: 32, ...(props.style || {}) }} />;
+// Code fields (article ID, barcodes) are often filled by a handheld scanner, which "types" the whole code in a
+// few milliseconds — far faster than a human. Binding straight to a per-keystroke commit would re-sort the whole
+// catalog and queue a server sync on every single keystroke, and the app can't keep up: characters after the
+// first get dropped. FastInput keeps keystrokes local (cheap) and only commits upstream after a short pause, on
+// blur, or on Enter — so the scan lands intact, and manual typing still autosaves a moment after you stop.
+// Also defined at module scope, for the same stable-identity reason as Input above.
+const FastInput = ({ value, onCommit, ...props }) => {
+  const [local, setLocal] = useState(value);
+  const lastCommitted = useRef(value);
+  const timerRef = useRef(null);
+  useEffect(() => { if (value !== lastCommitted.current) { setLocal(value); lastCommitted.current = value; } }, [value]);
+  useEffect(() => () => { if (timerRef.current) clearTimeout(timerRef.current); }, []);
+  const commit = v => { if (v !== lastCommitted.current) { lastCommitted.current = v; onCommit(v); } };
+  return <Input {...props} value={local} onChange={e => { const v = e.target.value; setLocal(v); if (timerRef.current) clearTimeout(timerRef.current); timerRef.current = setTimeout(() => commit(v), 250); }} onBlur={e => { if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; } commit(local); props.onBlur && props.onBlur(e); }} onKeyDown={e => { if (e.key === "Enter") { if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; } commit(local); e.currentTarget.blur(); } props.onKeyDown && props.onKeyDown(e); }} />;
+};
+
 // ═══════════════════ STRONA: Products ═══════════════════
 function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset, onMessage }) {
   const [d, setD] = useState({ name: "", articleId: "", categoryId: "", isBio: false, cusPerTu: "", piecesPerCu: "", weightPerCu: "" });
@@ -1793,23 +1817,6 @@ function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset, onMessag
   const removeVar = id => patchP({ varieties: (product.varieties || []).filter(v => v.id !== id) });
   const allSup = s.suppliers || [];
   const visibleSup = allSup.filter(x => x.name.toLowerCase().includes(supQ.toLowerCase()));
-  const Field = ({ label, hint, children, className = "" }) => <label className={`block min-w-0 ${className}`}><span className="block text-[11px] font-medium mb-1" style={{ color: C.muted, letterSpacing: ".01em" }}>{label}</span>{children}{hint && <span className="block text-[11px] mt-1" style={{ color: C.muted }}>{hint}</span>}</label>;
-  const Input = props => <input {...props} className={`w-full text-[13px] rounded-md px-2 outline-none ${props.className || ""}`} style={{ ...inp, height: 32, ...(props.style || {}) }} />;
-  // Code fields (article ID, barcodes) are often filled by a handheld scanner, which "types" the whole code in a
-  // few milliseconds — far faster than a human. Binding straight to patchP would re-sort the whole catalog and
-  // queue a server sync on every single keystroke, and the app can't keep up: characters after the first get
-  // dropped. FastInput keeps keystrokes local (cheap) and only commits to app state after a short pause, on
-  // blur, or on Enter — so the scan lands intact, and manual typing still autosaves a moment after you stop.
-  const FastInput = ({ value, onCommit, ...props }) => {
-    const [local, setLocal] = useState(value);
-    const lastCommitted = useRef(value);
-    const timerRef = useRef(null);
-    useEffect(() => { if (value !== lastCommitted.current) { setLocal(value); lastCommitted.current = value; } }, [value]);
-    useEffect(() => () => { if (timerRef.current) clearTimeout(timerRef.current); }, []);
-    const commit = v => { if (v !== lastCommitted.current) { lastCommitted.current = v; onCommit(v); } };
-    return <Input {...props} value={local} onChange={e => { const v = e.target.value; setLocal(v); if (timerRef.current) clearTimeout(timerRef.current); timerRef.current = setTimeout(() => commit(v), 250); }} onBlur={e => { if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; } commit(local); props.onBlur && props.onBlur(e); }} onKeyDown={e => { if (e.key === "Enter") { if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; } commit(local); e.currentTarget.blur(); } props.onKeyDown && props.onKeyDown(e); }} />;
-  };
-  const Group = ({ title, children, cols = 3 }) => <div className="mb-4"><p className="text-[11px] font-semibold uppercase mb-2" style={{ color: C.muted, letterSpacing: ".06em" }}>{title}</p><div className="grid gap-x-3 gap-y-3" style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}>{children}</div></div>;
   const thumb = pr => { const ph = asPhotoList(pr.photos)[0]; return ph ? <img src={ph.dataUrl} alt="" className="rounded-md object-cover flex-shrink-0" style={{ width: 30, height: 30 }} /> : <span className="rounded-md flex items-center justify-center flex-shrink-0" style={{ width: 30, height: 30, background: C.bg, color: C.muted }}><Ic i={Package} s={14} mr={0} /></span>; };
   const tabs = product ? [["profile", "Profile"], ["photos", `Photos${asPhotoList(product.photos).length ? ` · ${asPhotoList(product.photos).length}` : ""}`], ["specs", `Specifications${effectiveSpecs(s, product).length ? ` · ${effectiveSpecs(s, product).length}` : ""}`], ["attrs", `Properties${effectiveAttributes(s, product).length ? ` · ${effectiveAttributes(s, product).length}` : ""}`], ["supply", `Suppliers${(product.supplierIds || []).length ? ` · ${(product.supplierIds || []).length}` : ""}`], ["policy", "Inspection types"]] : [];
   const missing = product ? [!product.articleId && "article ID", !product.barcodeCu && !product.barcodeTu && "barcode", !product.categoryId && "category", !asPhotoList(product.photos).length && "photo"].filter(Boolean) : [];
