@@ -1084,7 +1084,7 @@ function Dashboard({ s, setPage, seed, user, openProduct, onAssign, set }) {
   ];
   const nextStep = steps.find(x => !x.done);
   const hasDock = (s.integrations || []).some(i => i.purpose === "Dock" && i.rows?.length);
-  const prioRows = prioSel ? f.dock.filter(r => r.priority === prioSel).sort((a, b) => `${a.arrived} ${a.arrivedTime}`.localeCompare(`${b.arrived} ${b.arrivedTime}`)) : [];
+  const prioRows = prioSel ? f.dock.filter(r => prioSel === "Skippable" ? r.skippable : r.priority === prioSel).sort((a, b) => `${a.arrived} ${a.arrivedTime}`.localeCompare(`${b.arrived} ${b.arrivedTime}`)) : [];
   // Same collapse-by-SKU the phone uses: one row per article, "×N" when more than one pallet is on the dock.
   const prioGroups = (() => { const map = new Map(); prioRows.forEach(r => { const k = r.article || r.hu; if (!map.has(k)) map.set(k, []); map.get(k).push(r); });
     return [...map.values()].map(rows => { const sorted = [...rows].sort((a, b) => `${a.arrived} ${a.arrivedTime}`.localeCompare(`${b.arrived} ${b.arrivedTime}`)); const first = sorted[0]; const locs = new Set(rows.map(r => r.location).filter(Boolean));
@@ -1096,8 +1096,9 @@ function Dashboard({ s, setPage, seed, user, openProduct, onAssign, set }) {
       <DeadlineBanner s={s} alerts={f.alerts} now={now} onOpen={a => a.productId && openProduct && openProduct(a.productId)} onMessage={onAssign} />
 
       <p className="label-sm mt-2 mb-1.5" style={{ color: C.muted }}>Docks · {f.dock.length} pallets · {f.skus} SKUs{f.blocking ? ` · ${f.blocking} needed today` : ""}{f.skippable ? ` · ${f.skippable} skippable` : ""}{f.dockLost ? ` · ${f.dockLost} lost` : ""}</p>
-      <div className="grid gap-3 mb-3" style={{ gridTemplateColumns: "repeat(5, 1fr)" }}>
+      <div className="grid gap-3 mb-3" style={{ gridTemplateColumns: "repeat(6, 1fr)" }}>
         {PRIO_ORDER.map(k => <Tile key={k} label={k} value={f.prio[k]} color={k === "Now needed" || k === "High risk" ? C.bad : k === "High issues" || k === "Late inspection" ? C.warn : C.muted} onClick={hasDock ? () => setPrioSel(prioSel === k ? null : k) : undefined} active={prioSel === k} />)}
+        <Tile label="Skippable" value={f.skippable} color={C.muted} onClick={hasDock ? () => setPrioSel(prioSel === "Skippable" ? null : "Skippable") : undefined} active={prioSel === "Skippable"} />
       </div>
       {prioSel && <Card style={{ marginBottom: 12 }}>
         <div className="flex items-center gap-2 mb-2"><p className="font-medium text-sm flex-1">{prioSel} · {prioRows.length} pallet{prioRows.length === 1 ? "" : "s"} · oldest first</p><button onClick={() => setPrioSel(null)} className="text-xs" style={{ color: C.muted }}>close</button></div>
