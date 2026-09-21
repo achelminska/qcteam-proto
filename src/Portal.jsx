@@ -2315,7 +2315,7 @@ function InspectionRunner({ insp, patch, t, problems, product, suppliers, dictio
       </div>
       {askCancel && <Note tone="bad"><div className="flex items-center gap-3 flex-wrap"><span>Cancel this inspection? It stays in history as cancelled.</span><button onClick={onCancel} className="text-xs px-3 py-1.5 rounded-lg font-semibold" style={{ background: C.bad, color: C.onDark }}>Yes, cancel</button><button onClick={() => setAskCancel(false)} className="text-xs px-3 py-1.5 rounded-lg" style={{ border: `1px solid ${C.line}` }}>Keep working</button></div></Note>}
       {flagOpen && <div className="rounded-lg p-2 mb-3 flex gap-2 items-center" style={{ background: C.warnBg }}><input value={flagText} onChange={e => setFlagText(e.target.value)} placeholder="what's wrong with this product profile? (wrong supplier, code, spec…)" className="flex-1 text-xs rounded px-2 py-1 outline-none" style={inp} /><Primary small onClick={() => { if (flagText.trim()) { onRaiseFlag(flagText.trim()); setFlagText(""); setFlagOpen(false); } }}>Send to the Head</Primary></div>}
-      {sctx.announcements.filter(a => a.productId === product.id).map(a => <Note key={a.id} tone="warn">📣 <b>{a.title}</b> — {a.body}</Note>)}
+      {sctx.announcements.filter(a => annMatchesProduct(sctx, a, product)).map(a => <Note key={a.id} tone="warn">📣 <b>{a.title}</b> — {a.body}</Note>)}
       {escalated && <Note tone="warn">⏸ Paused — question for the Head: <i>„{insp.question}"</i>. You can keep filling in; the result is locked until answered.</Note>}
       {insp.answer && insp.status !== "PendingReview" && <Note tone="ok">💬 Head's answer: <i>„{insp.answer}"</i></Note>}
       <div className="flex gap-1 mb-3 border-b flex-wrap" style={{ borderColor: C.line }}>{[...modules.map(x => x.name), "Summary"].map((name, i) => <button key={i} onClick={() => setTab(i)} className="text-xs px-3 py-2" style={{ borderBottom: tab === i ? `2px solid ${C.accent}` : "2px solid transparent", color: tab === i ? C.ink : C.muted, fontWeight: tab === i ? 500 : 400, marginBottom: -1, fontStyle: i === modules.length ? "italic" : "normal" }}>{name}</button>)}</div>
@@ -2591,7 +2591,7 @@ function CatalogPage({ s, set, user, notify, onStartInspection }) {
                   {product.consumerAppUrl && <button className="text-xs mt-1 underline" style={{ color: C.accent }} title="ConsumerAppUrl — phone only">open in the consumer app ↗</button>}
                 </div>
               </div>
-              {s.announcements.filter(a => a.productId === product.id).map(a => <Note key={a.id} tone="warn">📣 <b>{a.title}</b> — {a.body}</Note>)}
+              {s.announcements.filter(a => annMatchesProduct(s, a, product)).map(a => <Note key={a.id} tone="warn">📣 <b>{a.title}</b> — {a.body}</Note>)}
               {openFlags.length > 0 && <Note tone="warn">🚩 {openFlags.length} open flag on this product — the Head hasn't resolved it yet.</Note>}
               {asPhotoList(product.photos).length > 1 && <div className="mb-3"><PhotoStrip photos={product.photos} size={56} /></div>}
               {effectiveAttributes(s, product).length > 0 && <div className="flex flex-wrap gap-1.5 mb-3">{effectiveAttributes(s, product).map(a => <span key={a.dictionaryId} className="text-xs px-2.5 py-1 rounded-full" style={{ background: C.bg, border: `1px solid ${C.line}` }}><span style={{ color: C.muted }}>{a.list}:</span> <b>{a.value}</b></span>)}</div>}
@@ -2620,9 +2620,10 @@ function CatalogPage({ s, set, user, notify, onStartInspection }) {
 
 // ═══════════════════ MODULE 4: Announcements (Head) ═══════════════════
 // An announcement has CHANNELS, not a type — several can be on at once.
-const CHANNELS = { blocking: ["Blocking", "the controller must acknowledge before doing anything (AnnouncementRecipient.AcknowledgedAt)"], dashboard: ["On the dashboard", "visible to controllers until the expiry date"], product: ["On the product", "in the catalog card and at the top of this product's inspection"] };
+const CHANNELS = { blocking: ["Blocking", "the controller must acknowledge before doing anything (AnnouncementRecipient.AcknowledgedAt)"], dashboard: ["On the dashboard", "visible to controllers until the expiry date"], product: ["On the product", "in the catalog card and at the top of this product's inspection"], category: ["On a category", "on every product in that category (and its subcategories)"] };
 const annActive = a => (!a.validTo || a.validTo >= new Date().toISOString().slice(0, 10));
-const annChannels = a => [a.isBlocking && "blocking", a.showOnDashboard && "dashboard", a.productId && "product"].filter(Boolean);
+const annChannels = a => [a.isBlocking && "blocking", a.showOnDashboard && "dashboard", a.productId && "product", a.categoryId && "category"].filter(Boolean);
+const annMatchesProduct = (s, a, product) => (a.productId && a.productId === product.id) || (a.categoryId && product.categoryId && categoryChainIds(s, product.categoryId).includes(a.categoryId));
 // Searchable product picker — a plain <select> is unusable once the catalog has hundreds of products.
 function ProductPicker({ products, value, onChange, placeholder = "Search product by name or article ID…", invalid = false }) {
   const [q, setQ] = useState(""); const [open, setOpen] = useState(false);
@@ -2652,23 +2653,33 @@ function ProductPicker({ products, value, onChange, placeholder = "Search produc
     </div>
   );
 }
+function CategoryPicker({ categories, value, onChange, invalid = false }) {
+  const catPath = c => { const p = c.parentId && categories.find(x => x.id === c.parentId); return p ? `${p.name} › ${c.name}` : c.name; };
+  return (
+    <select value={value} onChange={e => onChange(e.target.value)} className="w-full text-[13px] rounded-md px-2 outline-none" style={{ ...inp, height: 32, borderColor: invalid ? C.warn : C.line }}>
+      <option value="">Select a category…</option>
+      {categories.map(c => <option key={c.id} value={c.id}>{catPath(c)}</option>)}
+    </select>
+  );
+}
 function AnnouncementsPage({ s, set, user, notify }) {
-  const [d, setD] = useState({ blocking: false, dashboard: true, product: false, title: "", body: "", productId: "", validTo: "" });
+  const [d, setD] = useState({ blocking: false, dashboard: true, product: false, category: false, title: "", body: "", productId: "", categoryId: "", validTo: "" });
   const controllers = s.users.filter(u => u.role === "Controller" && u.active !== false);
-  const valid = d.title.trim() && d.body.trim() && (d.blocking || d.dashboard || d.product) && (!d.product || d.productId);
+  const catPath = id => { const c = s.categories.find(x => x.id === id); if (!c) return "—"; const p = c.parentId && s.categories.find(x => x.id === c.parentId); return p ? `${p.name} › ${c.name}` : c.name; };
+  const valid = d.title.trim() && d.body.trim() && (d.blocking || d.dashboard || d.product || d.category) && (!d.product || d.productId) && (!d.category || d.categoryId);
   const add = () => {
     if (!valid) return;
-    const a = { id: uid(), isBlocking: d.blocking, showOnDashboard: d.dashboard, productId: d.product ? d.productId : null, title: d.title.trim(), body: d.body.trim(), validTo: d.dashboard ? (d.validTo || null) : null, createdBy: user.id, createdAt: nowISO(), acks: {} };
+    const a = { id: uid(), isBlocking: d.blocking, showOnDashboard: d.dashboard, productId: d.product ? d.productId : null, categoryId: d.category ? d.categoryId : null, title: d.title.trim(), body: d.body.trim(), validTo: d.dashboard ? (d.validTo || null) : null, createdBy: user.id, createdAt: nowISO(), acks: {} };
     set(x => ({ ...x, announcements: [...x.announcements, a] }));
     if (a.isBlocking) controllers.forEach(c => notify("Announcement", `New blocking announcement: ${a.title}`, "Announcement", a.id, c.id));
-    setD({ blocking: false, dashboard: true, product: false, title: "", body: "", productId: "", validTo: "" });
+    setD({ blocking: false, dashboard: true, product: false, category: false, title: "", body: "", productId: "", categoryId: "", validTo: "" });
   };
   const remove = id => set(x => ({ ...x, announcements: x.announcements.filter(a => a.id !== id) }));
   const list = [...s.announcements].sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
   return (
     <div>
       <h1 className="mb-1">Announcements</h1>
-      <p className="text-sm mb-5" style={{ color: C.muted, maxWidth: 640 }}>One announcement, three channels — enable all of them to make sure it lands.</p>
+      <p className="text-sm mb-5" style={{ color: C.muted, maxWidth: 640 }}>One announcement, several channels — enable all of them to make sure it lands.</p>
       <div className="grid gap-4" style={{ gridTemplateColumns: "1fr 1fr" }}>
         <Card>
           <p className="font-medium text-sm mb-3">New announcement</p>
@@ -2678,15 +2689,16 @@ function AnnouncementsPage({ s, set, user, notify }) {
           <input value={d.title} onChange={e => setD(x => ({ ...x, title: e.target.value }))} placeholder="title" className="w-full text-sm rounded px-2 py-1.5 outline-none mb-2" style={inp} />
           <textarea value={d.body} onChange={e => setD(x => ({ ...x, body: e.target.value }))} rows={3} placeholder="body" className="w-full text-sm rounded px-2 py-1.5 outline-none mb-2" style={inp} />
           {d.product && <div className="mb-2"><ProductPicker products={s.products} value={d.productId} onChange={id => setD(x => ({ ...x, productId: id }))} invalid={!d.productId} /></div>}
+          {d.category && <div className="mb-2"><CategoryPicker categories={s.categories} value={d.categoryId} onChange={id => setD(x => ({ ...x, categoryId: id }))} invalid={!d.categoryId} /></div>}
           {d.dashboard && <label className="text-xs flex items-center gap-2 mb-2" style={{ color: C.muted }}>on the dashboard until <input type="date" value={d.validTo} onChange={e => setD(x => ({ ...x, validTo: e.target.value }))} className="text-sm rounded px-2 py-1 outline-none" style={inp} /> (empty = no expiry)</label>}
           <Primary onClick={add} disabled={!valid}>Publish</Primary>
         </Card>
         <Card>
           {list.length === 0 ? <Empty icon="📣" title="No announcements" hint="Publish the first one on the left." /> : list.map(a => { const acked = Object.keys(a.acks || {}).length; return (
             <div key={a.id} className="py-3" style={{ borderTop: `1px solid ${C.line}` }}>
-              <div className="flex items-center gap-2 mb-1 flex-wrap">{annChannels(a).map(k => <span key={k} className="text-xs px-2 py-0.5 rounded-full inline-flex items-center gap-1.5" style={{ background: C.surface, border: `1px solid ${C.line}`, color: C.ink }}><span className="inline-block rounded-full" style={{ width: 6, height: 6, background: k === "blocking" ? C.bad : k === "product" ? C.warn : C.accent }} />{CHANNELS[k][0]}</span>)}<span className="text-sm font-medium flex-1">{a.title}</span><button onClick={() => remove(a.id)} className="text-xs" style={{ color: C.muted }}>×</button></div>
+              <div className="flex items-center gap-2 mb-1 flex-wrap">{annChannels(a).map(k => <span key={k} className="text-xs px-2 py-0.5 rounded-full inline-flex items-center gap-1.5" style={{ background: C.surface, border: `1px solid ${C.line}`, color: C.ink }}><span className="inline-block rounded-full" style={{ width: 6, height: 6, background: k === "blocking" ? C.bad : k === "product" ? C.warn : k === "category" ? C.ok : C.accent }} />{CHANNELS[k][0]}</span>)}<span className="text-sm font-medium flex-1">{a.title}</span><button onClick={() => remove(a.id)} className="text-xs" style={{ color: C.muted }}>×</button></div>
               <p className="text-sm mb-1">{a.body}</p>
-              <p className="text-xs" style={{ color: C.muted }}>{fmtTime(a.createdAt)}{a.productId && ` · ${s.products.find(p => p.id === a.productId)?.name}`}{a.validTo && ` · dashboard until ${a.validTo}`}{a.showOnDashboard && !annActive(a) && " · expired on the dashboard"}</p>
+              <p className="text-xs" style={{ color: C.muted }}>{fmtTime(a.createdAt)}{a.productId && ` · ${s.products.find(p => p.id === a.productId)?.name}`}{a.categoryId && ` · ${catPath(a.categoryId)}`}{a.validTo && ` · dashboard until ${a.validTo}`}{a.showOnDashboard && !annActive(a) && " · expired on the dashboard"}</p>
               {a.isBlocking && <div className="mt-1.5"><div className="h-1.5 rounded-full overflow-hidden" style={{ background: C.line }}><div className="h-full" style={{ width: `${controllers.length ? acked / controllers.length * 100 : 0}%`, background: C.ok }} /></div><p className="text-[10px] mt-1" style={{ color: C.muted }}>acknowledged by {acked}/{controllers.length}: {controllers.map(c => <span key={c.id} style={{ color: a.acks?.[c.id] ? C.ok : C.muted }}>{c.name.split(" ")[0]}{a.acks?.[c.id] ? " ✓" : " ·"} </span>)}</p></div>}
             </div>
           ); })}
