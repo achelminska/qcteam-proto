@@ -1843,7 +1843,9 @@ function MPriorityList({ s, user, go, priority }) {
   // instead of a priority filter: the pallets that actually need inspecting, and the ones flagged skippable.
   const isAll = priority === "All";
   const [subTab, setSubTab] = useState("regular");
-  const allRows = isAll ? dockRowsLive(s).filter(r => subTab === "skippable" ? r.skippable : !r.skippable) : dockRowsLive(s).filter(r => priority === "Skippable" ? r.skippable : r.priority === priority);
+  // "Priorities" is the all-up list — it must include skippable pallets too, not hide them; "Skippable" is just a
+  // filtered view of the same set, not a separate bucket that pulls items out of the main list.
+  const allRows = isAll ? dockRowsLive(s).filter(r => subTab === "skippable" ? r.skippable : true) : dockRowsLive(s).filter(r => priority === "Skippable" ? r.skippable : r.priority === priority);
   const lostRows = allRows.filter(r => lostOf(s, r)); const rows = allRows.filter(r => !lostOf(s, r));
   // Sections by arrival day, oldest first — the 24h rejection window makes the oldest pallets the urgent ones. Inside a day the
   // same SKU collapses into one row (×N) and anything with a recent rejection floats to the top.
