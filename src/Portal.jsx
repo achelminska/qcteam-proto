@@ -1779,8 +1779,6 @@ function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset, onMessag
   const [bulkCat, setBulkCat] = useState("");
   const visibleUnassigned = visible.filter(p => !p.categoryId);
   const assignVisible = () => { if (!bulkCat) return; const ids = new Set(visibleUnassigned.map(p => p.id)); set(x => ({ ...x, products: x.products.map(p => ids.has(p.id) ? { ...p, categoryId: bulkCat } : p) })); };
-  // Keep a product open at all times: pick the first visible one on load and whenever filters drop the current pick out of view.
-  useEffect(() => { if (visible.length > 0 && !visible.some(p => p.id === sel)) setSel(visible[0].id); }, [catSel, filter, onlyBio, showInactive, s.products.length]);
   // The profile panel lives at the top of the page — jump there whenever a different product is picked from the grid below.
   const selectProduct = id => { setSel(id); try { window.scrollTo({ top: 0, behavior: "smooth" }); } catch {} };
   const patchP = p => set(x => ({ ...x, products: x.products.map(q => q.id === product.id ? { ...q, ...p } : q) }));
