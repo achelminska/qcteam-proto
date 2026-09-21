@@ -2719,7 +2719,14 @@ function AnnouncementsPage({ s, set, user, notify }) {
               <div className="flex items-center gap-2 mb-1 flex-wrap">{annChannels(a).map(k => <span key={k} className="text-xs px-2 py-0.5 rounded-full inline-flex items-center gap-1.5" style={{ background: C.surface, border: `1px solid ${C.line}`, color: C.ink }}><span className="inline-block rounded-full" style={{ width: 6, height: 6, background: k === "blocking" ? C.bad : k === "product" ? C.warn : k === "category" ? C.ok : C.accent }} />{CHANNELS[k][0]}</span>)}<span className="text-sm font-medium flex-1">{a.title}</span><button onClick={() => remove(a.id)} className="text-xs" style={{ color: C.muted }}>×</button></div>
               <p className="text-sm mb-1">{a.body}</p>
               <p className="text-xs" style={{ color: C.muted }}>{fmtTime(a.createdAt)}{a.productId && ` · ${s.products.find(p => p.id === a.productId)?.name}`}{a.categoryId && ` · ${catPath(a.categoryId)}`}{a.validTo && ` · dashboard until ${a.validTo}`}{a.showOnDashboard && !annActive(a) && " · expired on the dashboard"}</p>
-              {a.isBlocking && <div className="mt-1.5"><div className="h-1.5 rounded-full overflow-hidden" style={{ background: C.line }}><div className="h-full" style={{ width: `${controllers.length ? acked / controllers.length * 100 : 0}%`, background: C.ok }} /></div><p className="text-[10px] mt-1" style={{ color: C.muted }}>acknowledged by {acked}/{controllers.length}: {controllers.map(c => <span key={c.id} style={{ color: a.acks?.[c.id] ? C.ok : C.muted }}>{c.name.split(" ")[0]}{a.acks?.[c.id] ? " ✓" : " ·"} </span>)}</p></div>}
+              {a.isBlocking && (
+                <div className="group relative inline-block mt-1">
+                  <p className="text-xs cursor-help underline decoration-dotted" style={{ color: C.muted }}>acknowledged by {acked}/{controllers.length}</p>
+                  <div className="hidden group-hover:block absolute left-0 top-full mt-1 rounded-lg p-2 z-10" style={{ background: C.surface, border: `1px solid ${C.line}`, boxShadow: "0 4px 16px rgba(0,0,0,.08)", minWidth: 160 }}>
+                    {controllers.map(c => <p key={c.id} className="text-xs whitespace-nowrap" style={{ color: a.acks?.[c.id] ? C.ok : C.muted }}>{c.name}{a.acks?.[c.id] ? " ✓" : " · not yet"}</p>)}
+                  </div>
+                </div>
+              )}
             </div>
           ); })}
         </Card>
