@@ -1503,7 +1503,7 @@ function CatalogNode({ node, problems, onPatch, onAdd, onRemove, s, isOwned, onH
   const eff = own ? Number(node.tolerance) : inherited;
   return (
     <div>
-      <div className="flex items-center gap-2 py-1.5 flex-wrap" style={{ paddingLeft: d * 18, borderTop: `1px solid ${C.line}` }}>
+      <div className="row flex items-center gap-2 py-1.5 pr-2 rounded-lg flex-wrap" style={{ paddingLeft: d * 18, borderTop: `1px solid ${C.line}` }}>
         {owned ? <input value={node.name} onChange={e => onPatch(node.id, { name: e.target.value })} className="flex-1 min-w-[6rem] text-sm bg-transparent outline-none" style={{ fontWeight: d === 0 ? 600 : d === 1 ? 500 : 400 }} />
           : <span className="flex-1 min-w-[6rem] text-sm" style={{ fontWeight: d === 0 ? 600 : d === 1 ? 500 : 400, color: C.muted }}>{node.name}</span>}
         {s && scopeTag(node, s) && <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ background: C.warnBg, color: C.warn }}>{scopeTag(node, s)}</span>}
