@@ -2035,6 +2035,7 @@ function MProductCard({ s, user, product, onBack, onStart, go, setState, notify,
   const [flag, setFlag] = useState(""); const [flagOpen, setFlagOpen] = useState(false);
   const catPath = id => { const c = s.categories.find(x => x.id === id); if (!c) return "uncategorised"; const p = c.parentId && s.categories.find(x => x.id === c.parentId); return p ? `${p.name} › ${c.name}` : c.name; };
   const photos = asPhotoList(product.photos); const [photoIx, setPhotoIx] = useState(0);
+  const [zoomOpen, setZoomOpen] = useState(false);
   const attrs = effectiveAttributes(s, product); const hist = recentProblemsFor(s, product.id);
   const suppliers = (product.supplierIds || []).map(id => (s.suppliers || []).find(x => x.id === id)?.name).filter(Boolean);
   const types = allowedTypes(s, product);
@@ -2046,12 +2047,19 @@ function MProductCard({ s, user, product, onBack, onStart, go, setState, notify,
       <TopBar title={catPath(product.categoryId)} onBack={onBack} />
       {/* Hero: the picture is the identity — a controller matches what's in front of them to it. */}
       <div className="px-4 pt-3">
-        <div className="rounded-2xl overflow-hidden relative" style={{ background: C.bg, height: 220 }}>
-          {photos.length ? <img src={photos[Math.min(photoIx, photos.length - 1)].dataUrl} alt="" className="w-full h-full object-cover" /> : <div className="w-full h-full flex flex-col items-center justify-center" style={{ color: C.muted }}><Ic i={Package} s={44} mr={0} /><p className="text-[11px] mt-2">No photo yet</p></div>}
+        <div className="rounded-2xl overflow-hidden relative" style={{ background: C.bg, height: 220 }} onClick={() => photos.length && setZoomOpen(true)}>
+          {photos.length ? <img src={photos[Math.min(photoIx, photos.length - 1)].dataUrl} alt="" className="w-full h-full object-cover" style={{ cursor: "zoom-in" }} /> : <div className="w-full h-full flex flex-col items-center justify-center" style={{ color: C.muted }}><Ic i={Package} s={44} mr={0} /><p className="text-[11px] mt-2">No photo yet</p></div>}
           {product.isBio && <span className="absolute top-2.5 left-2.5 text-[11px] font-semibold px-2 py-0.5 rounded-full" style={{ background: C.okBg, color: C.ok }}>bio</span>}
-          {photos.length > 1 && <div className="absolute bottom-2.5 left-0 right-0 flex justify-center gap-1.5">{photos.map((_, ix) => <button key={ix} onClick={() => setPhotoIx(ix)} className="rounded-full" style={{ width: 7, height: 7, background: ix === photoIx ? C.onDark : "rgba(255,255,255,.5)" }} />)}</div>}
+          {photos.length > 1 && <div className="absolute bottom-2.5 left-0 right-0 flex justify-center gap-1.5">{photos.map((_, ix) => <button key={ix} onClick={e => { e.stopPropagation(); setPhotoIx(ix); }} className="rounded-full" style={{ width: 7, height: 7, background: ix === photoIx ? C.onDark : "rgba(255,255,255,.5)" }} />)}</div>}
         </div>
         {photos.length > 1 && <div className="flex gap-1.5 mt-2 overflow-x-auto">{photos.map((ph, ix) => <button key={ix} onClick={() => setPhotoIx(ix)} className="flex-shrink-0 rounded-lg overflow-hidden" style={{ width: 52, height: 52, outline: ix === photoIx ? `2px solid ${C.accent}` : "none" }}><img src={ph.dataUrl} alt="" className="w-full h-full object-cover" /></button>)}</div>}
+        {zoomOpen && photos.length > 0 && (
+          <div className="fixed inset-0 flex flex-col items-center justify-center p-4" style={{ background: "rgba(0,0,0,.9)", zIndex: 80 }} onClick={() => setZoomOpen(false)}>
+            <img src={photos[Math.min(photoIx, photos.length - 1)].dataUrl} alt="" className="max-w-full max-h-full rounded-xl" style={{ objectFit: "contain" }} />
+            <button onClick={() => setZoomOpen(false)} className="absolute top-4 right-5 text-2xl" style={{ color: "#fff" }}>×</button>
+            {photos.length > 1 && <div className="absolute bottom-6 left-0 right-0 flex justify-center gap-1.5" onClick={e => e.stopPropagation()}>{photos.map((_, ix) => <button key={ix} onClick={() => setPhotoIx(ix)} className="rounded-full" style={{ width: 8, height: 8, background: ix === photoIx ? "#fff" : "rgba(255,255,255,.4)" }} />)}</div>}
+          </div>
+        )}
 
         <h2 className="mt-4 leading-tight" style={{ fontSize: 22, fontWeight: 650, letterSpacing: "-.01em" }}>{product.name}</h2>
         <div className="flex flex-wrap items-center gap-1.5 mt-2">
