@@ -854,7 +854,7 @@ function CategorySuggestPanel({ s, set, products }) {
 // ═══════════════════ CHAT: attachments (MessageAttachment) + system context (MessageContext) ═══════════════════
 // A message can carry files/photos and references to system objects. Context chips are clickable and open the object.
 const pickFiles = () => new Promise(res => { const i = document.createElement("input"); i.type = "file"; i.multiple = true; i.accept = "image/*,.pdf,.csv,.xlsx,.txt,.json"; mountPicker(i); i.onchange = async () => { const out = []; for (const f of Array.from(i.files || [])) { if (f.type.startsWith("image/")) { const d = await shrinkImage(f); if (d) { out.push({ id: uid(), kind: "image", name: f.name, dataUrl: d, size: f.size }); continue; } } if (f.size > 2.5 * 1024 * 1024) { out.push({ id: uid(), kind: "file", name: f.name, size: f.size, tooBig: true }); continue; } const d = await readAsDataUrl(f); out.push({ id: uid(), kind: "file", name: f.name, size: f.size, dataUrl: d, mime: f.type }); } unmountPicker(i); res(out); }; i.click(); });
-const contextLabel = (s, c) => { if (c.kind === "product") return { icon: Package, text: s.products.find(p => p.id === c.id)?.name || "product" }; if (c.kind === "inspection") { const i = s.inspections.find(x => x.id === c.id); const p = i && s.products.find(x => x.id === i.productId); return { icon: ClipboardList, text: i ? `${p?.name || "inspection"} · ${i.status === "Completed" ? (i.result || inspType(s, i).name) : STATUS[i.status]?.[0] || i.status} · ${fmtTime(i.completedAt || i.startedAt)}` : "inspection" }; } if (c.kind === "pallet") return { icon: Truck, text: `Pallet ${c.id}${c.label ? " · " + c.label : ""}` }; if (c.kind === "flag") { const f = s.flags.find(x => x.id === c.id); return { icon: Flag, text: f ? `Flag: ${(f.description || "").slice(0, 40)}` : "flag" }; } return { icon: Tag, text: c.label || c.kind }; };
+const contextLabel = (s, c) => { if (c.kind === "product") return { icon: Package, text: s.products.find(p => p.id === c.id)?.name || "product" }; if (c.kind === "inspection") { const i = s.inspections.find(x => x.id === c.id); const p = i && s.products.find(x => x.id === i.productId); return { icon: ClipboardList, text: i ? `${p?.name || "inspection"} · ${i.status === "Completed" ? (i.result || inspType(s, i).name) : STATUS[i.status]?.[0] || i.status} · ${fmtTime(i.completedAt || i.startedAt)}` : "inspection" }; } if (c.kind === "pallet") return { icon: Truck, text: `Pallet ${c.id}${c.label ? " · " + c.label : ""}` }; if (c.kind === "flag") { const f = s.flags.find(x => x.id === c.id); return { icon: Flag, text: f ? `Flag: ${(f.description || "").slice(0, 40)}` : "flag" }; } if (c.kind === "category") return { icon: FolderTree, text: s.categories.find(x => x.id === c.id)?.name || c.label || "category" }; return { icon: Tag, text: c.label || c.kind }; };
 function ContextChips({ s, contexts, onOpen, dark }) {
   if (!contexts?.length) return null;
   return <div className="flex flex-wrap gap-1 mb-1">{contexts.map((c, i) => { const { icon, text } = contextLabel(s, c); return <button key={i} onClick={() => onOpen && onOpen(c)} className="text-[11px] px-2 py-0.5 rounded-full inline-flex items-center max-w-full" style={{ background: dark ? C.onDarkSoft : C.accentSoft, color: dark ? C.onDark : C.accent }}><Ic i={icon} s={11} mr={4} /><span className="truncate">{text}</span></button>; })}</div>;
@@ -1247,8 +1247,10 @@ function AnnouncementModal({ a, onClose }) {
 }
 
 // ═══════════════════ STRONA: Categories ═══════════════════
-function CategoriesPage({ s, set }) {
+function CategoriesPage({ s, set, onMessage, presetSel, clearPresetSel }) {
   const [name, setName] = useState(""); const [parentId, setParentId] = useState(""); const [selCat, setSelCat] = useBackSel("selCat", null);
+  const [addOpen, setAddOpen] = useState(false);
+  useEffect(() => { if (presetSel) { setSelCat(presetSel); clearPresetSel && clearPresetSel(); } }, [presetSel]);
   const cat = s.categories.find(c => c.id === selCat);
   const patchCat = p => set(x => ({ ...x, categories: x.categories.map(c => c.id === selCat ? { ...c, ...p } : c) }));
   const parentSpecs = cat?.parentId ? (s.categories.find(c => c.id === cat.parentId)?.specs || []).map(q => ({ ...q, source: `category ${s.categories.find(c => c.id === cat.parentId)?.name}` })) : [];
@@ -1259,33 +1261,58 @@ function CategoriesPage({ s, set }) {
   const applyDecision = () => { const skip = applyAsk.kids.filter(p => !applyAsk.chosen.has(p.id)); if (skip.length) set(x => ({ ...x, products: x.products.map(p => skip.some(k => k.id === p.id) ? { ...p, excludedSpecNames: [...new Set([...(p.excludedSpecNames || []), applyAsk.spec.name])] } : p) })); setApplyAsk(null); };
   const addCatVar = () => { if (!cat || !varName.trim()) return; patchCat({ varieties: [...(cat.varieties || []), { id: uid(), name: varName.trim() }] }); setVarName(""); };
   const roots = s.categories.filter(c => !c.parentId);
-  const add = () => { if (!name.trim()) return; set(x => ({ ...x, categories: [...x.categories, { id: uid(), name: name.trim(), parentId: parentId || null, specs: [], varieties: [] }] })); setName(""); setParentId(""); };
+  const add = () => { if (!name.trim()) return; const id = uid(); set(x => ({ ...x, categories: [...x.categories, { id, name: name.trim(), parentId: parentId || null, specs: [], varieties: [] }] })); setName(""); setParentId(""); setAddOpen(false); setSelCat(id); };
   const used = id => s.products.some(p => p.categoryId === id) || s.categories.some(c => c.parentId === id);
-  const remove = id => set(x => ({ ...x, categories: x.categories.filter(c => c.id !== id) }));
+  const remove = id => { set(x => ({ ...x, categories: x.categories.filter(c => c.id !== id) })); if (selCat === id) setSelCat(null); };
+  const prodCount = id => s.products.filter(p => p.categoryId === id).length;
+  const CatCard = ({ c, sub }) => (
+    <button onClick={() => setSelCat(c.id)} className="rounded-2xl p-3 text-left flex items-center gap-2.5" style={{ background: selCat === c.id ? C.accentSoft : C.surface, border: `1px solid ${selCat === c.id ? C.accent : C.line}` }}>
+      <span className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: sub ? C.bg : C.accentSoft, color: sub ? C.muted : C.accent }}>{sub ? "↳" : <Ic i={FolderTree} s={17} mr={0} />}</span>
+      <span className="min-w-0">
+        <span className="block text-sm font-medium truncate" style={{ color: selCat === c.id ? C.accent : C.ink }}>{c.name}</span>
+        <span className="block text-[10px] truncate" style={{ color: C.muted }}>{prodCount(c.id)} product{prodCount(c.id) === 1 ? "" : "s"}{!sub && kidsOf(s.categories, c.id).length ? ` · ${kidsOf(s.categories, c.id).length} sub` : ""}{sub ? ` · in ${s.categories.find(x => x.id === c.parentId)?.name || "—"}` : ""}</span>
+      </span>
+    </button>
+  );
   return (
     <div>
-      <h1 className="mb-1">Categories</h1>
-      <p className="text-sm mb-5" style={{ color: C.muted, maxWidth: 640 }}>At most two levels. A product belongs to exactly one.</p>
-      <div className="grid gap-4" style={{ gridTemplateColumns: "1.2fr 1fr" }}>
-        <Card>
-          {s.categories.length === 0 ? <Empty icon="📁" title="No categories" hint="Start with the main ones, e.g. Apples, Tomatoes. Add subcategories by choosing a parent." /> : roots.map(r => (
-            <div key={r.id}>
-              <div className="flex items-center gap-2 py-2" style={{ borderTop: `1px solid ${C.line}` }}><button onClick={() => setSelCat(r.id)} className="flex-1 text-left text-sm font-medium rounded px-1 -mx-1" style={{ background: selCat === r.id ? C.accentSoft : "transparent", color: selCat === r.id ? C.accent : C.ink }}><Ic i={FolderTree} s={14} />{r.name}{(r.specs || []).length > 0 && <span className="text-xs ml-1" style={{ color: C.muted }}>· {r.specs.length} spec.</span>}</button><span className="text-xs" style={{ color: C.muted }}>{s.products.filter(p => p.categoryId === r.id).length} prod.</span><button onClick={() => remove(r.id)} disabled={used(r.id)} className="text-xs px-1" style={{ color: used(r.id) ? C.line : C.muted }}>×</button></div>
-              {kidsOf(s.categories, r.id).map(k => <div key={k.id} className="flex items-center gap-2 py-1.5 pl-6" style={{ borderTop: `1px solid ${C.line}` }}><button onClick={() => setSelCat(k.id)} className="flex-1 text-left text-sm rounded px-1 -mx-1" style={{ background: selCat === k.id ? C.accentSoft : "transparent", color: selCat === k.id ? C.accent : C.ink }}>↳ {k.name}{(k.specs || []).length > 0 && <span className="text-xs ml-1" style={{ color: C.muted }}>· {k.specs.length} spec.</span>}</button><span className="text-xs" style={{ color: C.muted }}>{s.products.filter(p => p.categoryId === k.id).length} prod.</span><button onClick={() => remove(k.id)} disabled={used(k.id)} className="text-xs px-1" style={{ color: used(k.id) ? C.line : C.muted }}>×</button></div>)}
-            </div>
-          ))}
-        </Card>
-        <Card>
-          <p className="font-medium text-sm mb-3">New category</p>
-          <input value={name} onChange={e => setName(e.target.value)} onKeyDown={e => e.key === "Enter" && add()} placeholder="e.g. Apples" className="w-full text-sm rounded px-2 py-1.5 outline-none mb-2" style={{ ...inp }} />
-          <select value={parentId} onChange={e => setParentId(e.target.value)} className="w-full text-sm rounded px-2 py-1.5 outline-none mb-1" style={{ ...inp }}>
+      <div className="flex items-end gap-3 mb-4">
+        <div className="flex-1"><h1>Categories</h1><p className="text-sm mt-0.5" style={{ color: C.muted, maxWidth: 640 }}>At most two levels. A product belongs to exactly one.</p></div>
+        <button onClick={() => { setAddOpen(o => !o); }} className="text-sm px-3 py-2 rounded-xl inline-flex items-center" style={{ background: addOpen ? C.ink : C.surface, color: addOpen ? C.onDark : C.ink, border: `1px solid ${addOpen ? C.ink : C.line}` }}><Ic i={Plus} s={14} />New category</button>
+      </div>
+
+      {addOpen && <Card style={{ marginBottom: 16 }}>
+        <p className="font-medium text-sm mb-3">New category</p>
+        <div className="grid gap-3" style={{ gridTemplateColumns: "1fr 1fr" }}>
+          <input autoFocus value={name} onChange={e => setName(e.target.value)} onKeyDown={e => e.key === "Enter" && add()} placeholder="e.g. Apples" className="w-full text-sm rounded px-2 py-1.5 outline-none" style={{ ...inp }} />
+          <select value={parentId} onChange={e => setParentId(e.target.value)} className="w-full text-sm rounded px-2 py-1.5 outline-none" style={{ ...inp }}>
             <option value="">None — top-level category</option>
             {roots.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
           </select>
-          <p className="text-xs mb-3" style={{ color: C.muted }}>Only a top-level category can be a parent.</p>
-          <Primary onClick={add}>Create</Primary>
-        </Card>
-      </div>
+        </div>
+        <p className="text-xs mt-1.5 mb-3" style={{ color: C.muted }}>Only a top-level category can be a parent.</p>
+        <div className="flex gap-2"><Primary onClick={add} disabled={!name.trim()}>Create</Primary><button onClick={() => setAddOpen(false)} className="text-sm px-3" style={{ color: C.muted }}>Cancel</button></div>
+      </Card>}
+
+      {/* Selected category: info & editing panel, always on top */}
+      <Card style={{ marginBottom: 16 }}>
+        {!cat ? <Empty icon="📁" title="Select a category" hint="Pick one from the list below, or create a new one." /> : (
+          <>
+            <div className="flex items-start gap-3">
+              <span className="w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: C.accentSoft, color: C.accent }}><Ic i={FolderTree} s={20} mr={0} /></span>
+              <div className="flex-1 min-w-0">
+                <input value={cat.name} onChange={e => patchCat({ name: e.target.value })} className="text-base font-semibold w-full outline-none bg-transparent" style={{ border: "none", padding: 0 }} />
+                <p className="text-xs mt-1" style={{ color: C.muted }}>{cat.parentId ? `Sub-category of ${s.categories.find(c => c.id === cat.parentId)?.name || "—"}` : "Top-level category"} · {prodCount(cat.id)} product{prodCount(cat.id) === 1 ? "" : "s"}{(cat.specs || []).length > 0 ? ` · ${cat.specs.length} spec.` : ""}</p>
+              </div>
+              <div className="flex items-center gap-1.5 flex-shrink-0">
+                {onMessage && <button onClick={() => onMessage({ kind: "category", id: cat.id, label: cat.name })} className="text-xs px-2.5 py-1 rounded-md inline-flex items-center" style={{ border: `1px solid ${C.line}` }}><Ic i={MessageSquare} s={13} />Message</button>}
+                <button onClick={() => remove(cat.id)} disabled={used(cat.id)} className="text-xs px-2.5 py-1 rounded-md" style={{ color: used(cat.id) ? C.muted : C.bad, border: `1px solid ${C.line}`, opacity: used(cat.id) ? .5 : 1 }} title={used(cat.id) ? "Still used by products or subcategories" : ""}>Delete</button>
+              </div>
+            </div>
+          </>
+        )}
+      </Card>
+
       {cat && (
         <Card style={{ marginTop: 16 }}>
           <p className="font-medium text-sm mb-1">Allowed inspection types: {cat.name}</p>
@@ -1314,6 +1341,33 @@ function CategoriesPage({ s, set }) {
           <SpecForm sctx={s} specs={cat.specs || []} inherited={parentSpecs} onAdd={q => { patchCat({ specs: [...(cat.specs || []), q] }); const kids = productsUnder(cat.id); if (kids.length) setApplyAsk({ spec: q, kids, chosen: new Set(kids.map(p => p.id)), choosing: false }); }} onRemove={id => patchCat({ specs: (cat.specs || []).filter(q => q.id !== id) })}
             hint="Inherited by all products in this category (by name). A product can override with its own spec of the same name. Set e.g. Brix or Firmness once for the whole category here." />
         </Card>
+      )}
+
+      {/* Below: every category, browsable like the mobile catalog's category grid */}
+      <p className="label-sm mt-5 mb-2">All categories</p>
+      {s.categories.length === 0 ? <Card><Empty icon="📁" title="No categories" hint="Start with the main ones, e.g. Apples, Tomatoes. Add subcategories by choosing a parent." /></Card> : (
+        <div className="grid gap-2" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))" }}>
+          {roots.flatMap(r => [{ c: r, sub: false }, ...kidsOf(s.categories, r.id).map(k => ({ c: k, sub: true }))]).map(({ c, sub }) => <CatCard key={c.id} c={c} sub={sub} />)}
+        </div>
+      )}
+
+      {applyAsk && (
+        <div className="fixed inset-0 flex items-center justify-center p-6" style={{ background: "rgba(20,26,22,.55)", zIndex: 60 }}>
+          <div className="rounded-2xl p-5 w-full" style={{ maxWidth: 480, background: C.surface }}>
+            <h2 className="mb-1">Apply “{applyAsk.spec.name}” to the products in this category?</h2>
+            <p className="text-xs mb-3" style={{ color: C.muted }}>{applyAsk.kids.length} product{applyAsk.kids.length === 1 ? "" : "s"} inherit from “{cat?.name}”. Products you leave out get a “not inherited” mark you can undo later in their profile.</p>
+            {applyAsk.choosing && <div className="rounded-xl mb-3" style={{ border: `1px solid ${C.line}`, maxHeight: 260, overflowY: "auto" }}>{applyAsk.kids.map(p => <label key={p.id} className="flex items-center gap-2 px-3 py-2 text-sm cursor-pointer" style={{ borderTop: `1px solid ${C.line}` }}><input type="checkbox" checked={applyAsk.chosen.has(p.id)} onChange={e => setApplyAsk(a => { const c = new Set(a.chosen); e.target.checked ? c.add(p.id) : c.delete(p.id); return { ...a, chosen: c }; })} /><span className="flex-1">{p.name}</span>{(p.specs || []).some(q => (q.name || "").trim().toLowerCase() === applyAsk.spec.name.trim().toLowerCase()) && <span className="text-[11px]" style={{ color: C.muted }}>has its own</span>}</label>)}</div>}
+            <div className="flex gap-2 flex-wrap">
+              {!applyAsk.choosing ? <>
+                <Primary onClick={applyDecision}>All {applyAsk.kids.length}</Primary>
+                <Ghost onClick={() => setApplyAsk(a => ({ ...a, choosing: true }))}>Choose which…</Ghost>
+              </> : <>
+                <Primary onClick={applyDecision}>Apply to {applyAsk.chosen.size} of {applyAsk.kids.length}</Primary>
+                <Ghost onClick={() => setApplyAsk(a => ({ ...a, chosen: new Set(a.kids.map(p => p.id)), choosing: false }))}>Back</Ghost>
+              </>}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -1516,24 +1570,6 @@ function PrintReport({ insp, s, onClose }) {
         <table><tbody>{(insp.audit || []).map((a, i) => <tr key={i}><th style={{ width: "26%" }}>{a.action}</th><td>{fmtTime(a.at)} · {s.users.find(u => u.id === a.userId)?.name}{s.users.find(u => u.id === a.userId)?.email ? ` (${s.users.find(u => u.id === a.userId).email})` : ""}{a.details ? ` — ${a.details}` : ""}</td></tr>)}</tbody></table>
         <div className="k" style={{ marginTop: 18, borderTop: "1px solid #ddd", paddingTop: 8, display: "flex", justifyContent: "space-between" }}><span>{settingsOf(s).companyName} · {settingsOf(s).qcEmail} · generated by QCteam {new Date().toLocaleString("en-GB")}</span><span>Report {insp.id.toUpperCase()}</span></div>
       </div>
-      {applyAsk && (
-        <div className="fixed inset-0 flex items-center justify-center p-6" style={{ background: "rgba(20,26,22,.55)", zIndex: 60 }}>
-          <div className="rounded-2xl p-5 w-full" style={{ maxWidth: 480, background: C.surface }}>
-            <h2 className="mb-1">Apply “{applyAsk.spec.name}” to the products in this category?</h2>
-            <p className="text-xs mb-3" style={{ color: C.muted }}>{applyAsk.kids.length} product{applyAsk.kids.length === 1 ? "" : "s"} inherit from “{cat?.name}”. Products you leave out get a “not inherited” mark you can undo later in their profile.</p>
-            {applyAsk.choosing && <div className="rounded-xl mb-3" style={{ border: `1px solid ${C.line}`, maxHeight: 260, overflowY: "auto" }}>{applyAsk.kids.map(p => <label key={p.id} className="flex items-center gap-2 px-3 py-2 text-sm cursor-pointer" style={{ borderTop: `1px solid ${C.line}` }}><input type="checkbox" checked={applyAsk.chosen.has(p.id)} onChange={e => setApplyAsk(a => { const c = new Set(a.chosen); e.target.checked ? c.add(p.id) : c.delete(p.id); return { ...a, chosen: c }; })} /><span className="flex-1">{p.name}</span>{(p.specs || []).some(q => (q.name || "").trim().toLowerCase() === applyAsk.spec.name.trim().toLowerCase()) && <span className="text-[11px]" style={{ color: C.muted }}>has its own</span>}</label>)}</div>}
-            <div className="flex gap-2 flex-wrap">
-              {!applyAsk.choosing ? <>
-                <Primary onClick={applyDecision}>All {applyAsk.kids.length}</Primary>
-                <Ghost onClick={() => setApplyAsk(a => ({ ...a, choosing: true }))}>Choose which…</Ghost>
-              </> : <>
-                <Primary onClick={applyDecision}>Apply to {applyAsk.chosen.size} of {applyAsk.kids.length}</Primary>
-                <Ghost onClick={() => setApplyAsk(a => ({ ...a, chosen: new Set(a.kids.map(p => p.id)), choosing: false }))}>Back</Ghost>
-              </>}
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -1681,7 +1717,7 @@ function DictionaryPage({ s, set, listKey, title, hint, placeholder, usageOf }) 
 }
 
 // ═══════════════════ STRONA: Products ═══════════════════
-function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset }) {
+function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset, onMessage }) {
   const [d, setD] = useState({ name: "", articleId: "", categoryId: "", isBio: false, cusPerTu: "", piecesPerCu: "", weightPerCu: "" });
   const [filter, setFilter] = useState(""); const [importOpen, setImportOpen] = useState(false); const [importText, setImportText] = useState(""); const [importMsg, setImportMsg] = useState("");
   useEffect(() => { if (presetFilter) { setFilter(presetFilter); clearPreset && clearPreset(); } }, [presetFilter]);
@@ -1826,6 +1862,7 @@ function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset }) {
                   </div>
                 </div>
                 <div className="flex items-center gap-1.5 flex-shrink-0">
+                  {onMessage && <button onClick={() => onMessage({ kind: "product", id: product.id })} className="text-xs px-2.5 py-1 rounded-md inline-flex items-center" style={{ border: `1px solid ${C.line}` }}><Ic i={MessageSquare} s={13} />Message</button>}
                   <button onClick={() => patchP({ isActive: product.isActive === false })} className="text-xs px-2.5 py-1 rounded-md" style={{ border: `1px solid ${C.line}` }}>{product.isActive === false ? "Activate" : "Deactivate"}</button>
                   <button onClick={() => setConfirmDel(true)} className="text-xs px-2.5 py-1 rounded-md" style={{ color: C.bad, border: `1px solid ${C.line}` }}>Delete</button>
                 </div>
@@ -2841,7 +2878,7 @@ function BlockingOverlay({ s, set, user }) {
 // ═══════════════════ MODULE 4: Messages (1:1 and groups) ═══════════════════
 const unreadIn = (conv, userId) => { const last = (conv.lastRead || {})[userId] || ""; return (conv.messages || []).filter(m => m.senderId !== userId && (m.at || "") > last).length; };
 const convName = (conv, s, userId) => conv.name || conv.participantIds.filter(id => id !== userId).map(id => s.users.find(u => u.id === id)?.name).join(", ") || "(empty)";
-function MessagesPage({ s, set, user, setPage, onOpenProduct, onOpenInspection, initialContext, clearInitialContext }) {
+function MessagesPage({ s, set, user, setPage, onOpenProduct, onOpenInspection, onOpenCategory, initialContext, clearInitialContext }) {
   const [open, setOpen] = useState(null); const [text, setText] = useState(""); const [creating, setCreating] = useState(false); const [pick, setPick] = useState([]); const [gname, setGname] = useState("");
   const mine = s.conversations.filter(c => c.participantIds.includes(user.id) && c.isActive !== false).sort((a, b) => ((b.messages?.slice(-1)[0]?.at) || b.createdAt || "").localeCompare((a.messages?.slice(-1)[0]?.at) || a.createdAt || ""));
   const conv = s.conversations.find(c => c.id === open);
@@ -2851,7 +2888,7 @@ function MessagesPage({ s, set, user, setPage, onOpenProduct, onOpenInspection, 
   const [pending, setPending] = useState({ attachments: [], contexts: initialContext ? [initialContext] : [] });
   useEffect(() => { if (initialContext) { setPending(p => ({ ...p, contexts: [...p.contexts.filter(c => !(c.kind === initialContext.kind && c.id === initialContext.id)), initialContext] })); clearInitialContext && clearInitialContext(); } }, [initialContext]);
   const send = () => { if ((!text.trim() && !pending.attachments.length && !pending.contexts.length) || !conv) return; set(x => ({ ...x, conversations: x.conversations.map(c => c.id === conv.id ? { ...c, messages: [...(c.messages || []), { id: uid(), senderId: user.id, text: text.trim(), at: nowISO(), attachments: pending.attachments, contexts: pending.contexts, productId: pending.contexts.find(k => k.kind === "product")?.id || null }], lastRead: { ...(c.lastRead || {}), [user.id]: nowISO() } } : c) })); setText(""); setPending({ attachments: [], contexts: [] }); };
-  const openCtx = c => { if (c.kind === "product") { setPage && setPage("products"); onOpenProduct && onOpenProduct(c.id); } else if (c.kind === "inspection") { onOpenInspection && onOpenInspection(c.id); } else if (c.kind === "flag") { setPage && setPage("flags"); } };
+  const openCtx = c => { if (c.kind === "product") { setPage && setPage("products"); onOpenProduct && onOpenProduct(c.id); } else if (c.kind === "inspection") { onOpenInspection && onOpenInspection(c.id); } else if (c.kind === "flag") { setPage && setPage("flags"); } else if (c.kind === "category") { setPage && setPage("categories"); onOpenCategory && onOpenCategory(c.id); } };
   const create = () => {
     if (!pick.length) return;
     const isGroup = pick.length > 1 || !!gname.trim();
@@ -3361,6 +3398,7 @@ export default function App() {
   }, []);
   const [presetProduct, setPresetProduct] = useState("");
   const [productsQuery, setProductsQuery] = useState("");
+  const [presetCategory, setPresetCategory] = useState(null);
   const [pendingChatContext, setPendingChatContext] = useState(null);
   const bootIdRef = useRef(null); const [newVersion, setNewVersion] = useState(false);
   const [dark, setDark] = useState(false);
@@ -3405,9 +3443,9 @@ export default function App() {
       {toastMsg && <div className="fixed left-1/2 -translate-x-1/2 text-sm px-4 py-2 rounded-xl" style={{ top: 12, zIndex: 90, background: C.ink, color: C.onDark, boxShadow: "0 8px 20px rgba(0,0,0,.25)" }}>{toastMsg}</div>}
       {newVersion && <div className="fixed left-1/2 -translate-x-1/2 flex items-center gap-3 text-sm px-4 py-2.5 rounded-xl" style={{ top: 12, zIndex: 91, background: C.accent, color: C.onDark, boxShadow: "0 8px 20px rgba(0,0,0,.3)" }}>A new version is live<button onClick={() => location.reload()} className="px-2.5 py-1 rounded-lg font-semibold" style={{ background: C.onDark, color: C.accent }}>Refresh</button></div>}
       {safePage === "dashboard" && (user.role === "Head" ? <Dashboard s={s} user={user} set={set} setPage={setPage} seed={() => set(olaState())} openProduct={id => { setSelProduct(id); setPage("products"); }} onAssign={a => { setPendingChatContext({ kind: "pallet", id: a.hu, label: `${a.name} · ${a.location}` }); setPage("messages"); }} /> : <ControllerDashboard s={s} user={user} setPage={setPage} setOpenId={setOpenInspId} openProduct={id => { setSelProduct(id); setPage("products"); }} />)}
-      {safePage === "categories" && <CategoriesPage s={s} set={set} />}
+      {safePage === "categories" && <CategoriesPage s={s} set={set} onMessage={ctx => { setPendingChatContext(ctx); setPage("messages"); }} presetSel={presetCategory} clearPresetSel={() => setPresetCategory(null)} />}
       {safePage === "problems" && <ProblemsPage s={s} set={set} />}
-      {safePage === "products" && <ProductsPage s={s} set={set} sel={selProduct} setSel={setSelProduct} presetFilter={productsQuery} clearPreset={() => setProductsQuery("")} />}
+      {safePage === "products" && <ProductsPage s={s} set={set} sel={selProduct} setSel={setSelProduct} presetFilter={productsQuery} clearPreset={() => setProductsQuery("")} onMessage={ctx => { setPendingChatContext(ctx); setPage("messages"); }} />}
       {safePage === "forms" && <FormsPage s={s} set={set} />}
       {safePage === "suppliers" && <DictionaryPage s={s} set={set} listKey="suppliers" title="Suppliers" hint="One global list of all suppliers (Suppliers). Assign to products in Products." placeholder="e.g. El Ciruelo" usageOf={id => s.products.filter(p => (p.supplierIds || []).includes(id)).length} />}
       {safePage === "lists" && <ListsPage s={s} set={set} />}
@@ -3422,7 +3460,7 @@ export default function App() {
       {safePage === "settings" && <SettingsPage s={s} set={set} />}
       {safePage === "users" && <UsersPage s={s} set={set} />}
       {safePage === "announcements" && <AnnouncementsPage s={s} set={set} user={user} notify={notify} />}
-      {safePage === "messages" && <MessagesPage s={s} set={set} user={user} setPage={setPage} onOpenProduct={id => setSelProduct(id)} onOpenInspection={id => { setOpenInspId(id); setPage("inspections"); }} initialContext={pendingChatContext} clearInitialContext={() => setPendingChatContext(null)} />}
+      {safePage === "messages" && <MessagesPage s={s} set={set} user={user} setPage={setPage} onOpenProduct={id => setSelProduct(id)} onOpenInspection={id => { setOpenInspId(id); setPage("inspections"); }} onOpenCategory={id => setPresetCategory(id)} initialContext={pendingChatContext} clearInitialContext={() => setPendingChatContext(null)} />}
     </Shell>
   );
 }
