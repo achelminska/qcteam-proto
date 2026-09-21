@@ -1981,9 +1981,28 @@ function MDashboard({ s, set, user, go, dismissed, setDismissed, onAssign }) {
   );
 }
 
+// A drill-down selection (which item within a screen is open) that also rides the browser's history stack, so
+// stepping "back" inside a screen — browser back, hardware back, an edge-swipe, anything that fires popstate —
+// undoes one level of drill-down instead of leaving the screen outright, the same way the top-level `go()` does.
+// `key` only needs to be unique among the useBackSel calls active on screen at once (a component can use more than one).
+function useBackSel(key, initial) {
+  const read = () => { try { const st = history.state; return st && st.__qcSel && (key in st.__qcSel) ? st.__qcSel[key] : initial; } catch { return initial; } };
+  const [sel, setSelRaw] = useState(read);
+  const selRef = useRef(sel); selRef.current = sel;
+  useEffect(() => {
+    const onPop = () => { const v = read(); if (v !== selRef.current) setSelRaw(v); };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
+  const setSel = v => {
+    setSelRaw(v);
+    try { const cur = (history.state && history.state.__qcSel) || {}; history.pushState({ ...history.state, __qcSel: { ...cur, [key]: v } }, ""); } catch {}
+  };
+  return [sel, setSel];
+}
 // ── Wyszukiwarka produktu → karta → start ──
 function MSearch({ s, user, go, onStart, setState, notify, onVisual }) {
-  const [q, setQ] = useState(""); const [sel, setSel] = useState(null);
+  const [q, setQ] = useState(""); const [sel, setSel] = useBackSel("searchSel", null);
   const list = s.products.filter(p => p.isActive !== false && (!q || (p.name + " " + (p.articleId || "") + " " + (p.barcodeCu || "") + " " + (p.barcodeTu || "")).toLowerCase().includes(q.toLowerCase())));
   const product = s.products.find(p => p.id === sel);
   if (product) return <MProductCard s={s} user={user} product={product} onBack={() => setSel(null)} onStart={typeId => onStart(product.id, null, typeId)} go={go} setState={setState} notify={notify} onVisual={onVisual} />;
@@ -2302,7 +2321,7 @@ const productCodes = p => [["article", p.articleId], ["CU", p.barcodeCu], ["TU",
 const codeKind = (p, c) => (productCodes(p).find(([, v]) => String(v).trim() === String(c).trim()) || [null])[0];
 const matchesCode = (p, c) => !!codeKind(p, c);
 function MCatalog({ s, user, go, onStart, setState, notify, onVisual, preset }) {
-  const [q, setQ] = useState(""); const [sel, setSel] = useState(preset || null); const [cat, setCat] = useState(null); const [fOpen, setFOpen] = useState(false);
+  const [q, setQ] = useState(""); const [sel, setSel] = useBackSel("catalogSel", preset || null); const [cat, setCat] = useBackSel("catalogCat", null); const [fOpen, setFOpen] = useState(false);
   const [f, setF] = useState({ bio: "", supplier: "", flagged: false, reference: false, sort: "name" });
   const product = s.products.find(p => p.id === sel);
   if (product) return <MProductCard s={s} user={user} product={product} onBack={() => setSel(null)} onStart={typeId => onStart(product.id, null, typeId)} go={go} setState={setState} notify={notify} onVisual={onVisual} />;
@@ -2375,7 +2394,7 @@ function MCatalog({ s, user, go, onStart, setState, notify, onVisual, preset }) 
 
 // ── Chat ──
 function MChat({ s, set, user, go, initialContext, clearInitialContext }) {
-  const [open, setOpen] = useState(null); const [text, setText] = useState(""); const [creating, setCreating] = useState(false); const [pick, setPick] = useState([]); const [gname, setGname] = useState("");
+  const [open, setOpen] = useBackSel("chatOpen", null); const [text, setText] = useState(""); const [creating, setCreating] = useState(false); const [pick, setPick] = useState([]); const [gname, setGname] = useState("");
   const mine = s.conversations.filter(c => c.participantIds.includes(user.id) && c.isActive !== false).sort((a, b) => ((b.messages?.slice(-1)[0]?.at) || b.createdAt || "").localeCompare((a.messages?.slice(-1)[0]?.at) || a.createdAt || ""));
   const conv = s.conversations.find(c => c.id === open);
   const markRead = id => set(x => ({ ...x, conversations: x.conversations.map(c => c.id === id ? { ...c, lastRead: { ...(c.lastRead || {}), [user.id]: nowISO() } } : c) }));

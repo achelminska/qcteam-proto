@@ -680,9 +680,28 @@ const refreshPushedIntegrations = async (getState, set, force = false) => {
     } catch (e) { /* offline or server down — keep what we have */ }
   }
 };
+// A drill-down selection (which item within a screen is open) that also rides the browser's history stack, so
+// stepping "back" inside a screen — browser back, an edge-swipe, anything that fires popstate — undoes one level
+// of drill-down instead of leaving the screen outright, the same way the top-level page switch does. `key` only
+// needs to be unique among the useBackSel calls active on screen at once (a component can use more than one).
+function useBackSel(key, initial) {
+  const read = () => { try { const st = history.state; return st && st.__qcSel && (key in st.__qcSel) ? st.__qcSel[key] : initial; } catch { return initial; } };
+  const [sel, setSelRaw] = useState(read);
+  const selRef = useRef(sel); selRef.current = sel;
+  useEffect(() => {
+    const onPop = () => { const v = read(); if (v !== selRef.current) setSelRaw(v); };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
+  const setSel = v => {
+    setSelRaw(v);
+    try { const cur = (history.state && history.state.__qcSel) || {}; history.pushState({ ...history.state, __qcSel: { ...cur, [key]: v } }, ""); } catch {}
+  };
+  return [sel, setSel];
+}
 function IntegrationsPage({ s, set }) {
   const list = s.integrations || [];
-  const [sel, setSel] = useState(list[0]?.id || null); const it = list.find(i => i.id === sel);
+  const [sel, setSel] = useBackSel("integSel", list[0]?.id || null); const it = list.find(i => i.id === sel);
   const [paste, setPaste] = useState("");
   const targets = targetsFor(it?.purpose);
   const patchIt = ch => set(x => ({ ...x, integrations: x.integrations.map(i => i.id === sel ? { ...i, ...ch } : i) }));
@@ -1229,7 +1248,7 @@ function AnnouncementModal({ a, onClose }) {
 
 // ═══════════════════ STRONA: Categories ═══════════════════
 function CategoriesPage({ s, set }) {
-  const [name, setName] = useState(""); const [parentId, setParentId] = useState(""); const [selCat, setSelCat] = useState(null);
+  const [name, setName] = useState(""); const [parentId, setParentId] = useState(""); const [selCat, setSelCat] = useBackSel("selCat", null);
   const cat = s.categories.find(c => c.id === selCat);
   const patchCat = p => set(x => ({ ...x, categories: x.categories.map(c => c.id === selCat ? { ...c, ...p } : c) }));
   const parentSpecs = cat?.parentId ? (s.categories.find(c => c.id === cat.parentId)?.specs || []).map(q => ({ ...q, source: `category ${s.categories.find(c => c.id === cat.parentId)?.name}` })) : [];
@@ -1624,7 +1643,7 @@ function ProblemsPage({ s, set }) {
 
 // ═══════════════════ STRONA: Dictionaries (Suppliers / Kraje) ═══════════════════
 function DictionaryPage({ s, set, listKey, title, hint, placeholder, usageOf }) {
-  const [name, setName] = useState(""); const [sel, setSel] = useState(null);
+  const [name, setName] = useState(""); const [sel, setSel] = useBackSel("dictSel", null);
   const items = s[listKey] || [];
   const rich = listKey === "suppliers";
   const item = rich && items.find(i => i.id === sel);
@@ -2602,8 +2621,8 @@ const productCodes = p => [["article", p.articleId], ["CU", p.barcodeCu], ["TU",
 const codeKind = (p, c) => (productCodes(p).find(([, v]) => String(v).trim() === String(c).trim()) || [null])[0];
 const matchesCode = (p, c) => !!codeKind(p, c);
 function CatalogPage({ s, set, user, notify, onStartInspection }) {
-  const [q, setQ] = useState(""); const [sel, setSel] = useState(null); const [flagText, setFlagText] = useState(""); const [flagOpen, setFlagOpen] = useState(false); const [showRef, setShowRef] = useState(null);
-  const [cat, setCat] = useState(null); const [f, setF] = useState({ bio: "", supplier: "", flagged: false, sort: "name" });
+  const [q, setQ] = useState(""); const [sel, setSel] = useBackSel("catalogSel", null); const [flagText, setFlagText] = useState(""); const [flagOpen, setFlagOpen] = useState(false); const [showRef, setShowRef] = useState(null);
+  const [cat, setCat] = useBackSel("catalogCat", null); const [f, setF] = useState({ bio: "", supplier: "", flagged: false, sort: "name" });
   const catPath = id => { const c = s.categories.find(x => x.id === id); if (!c) return "uncategorised"; const p = c.parentId && s.categories.find(x => x.id === c.parentId); return p ? `${p.name} › ${c.name}` : c.name; };
   const catChain = id => { const out = []; let c = s.categories.find(x => x.id === id); while (c) { out.unshift(c); c = c.parentId ? s.categories.find(x => x.id === c.parentId) : null; } return out; };
   const lastInsp = pid => s.inspections.filter(i => i.productId === pid && i.status === "Completed").sort((a, b) => (b.completedAt || "").localeCompare(a.completedAt || ""))[0];
@@ -2988,7 +3007,7 @@ function BlockedQueuePage({ s, set, user, setSel, setPage }) {
 
 // ═══════════════════ PAGE: Lists (Dictionaries + DictionaryItems) — Head-defined value lists, attached to form fields ═══════════════════
 function ListsPage({ s, set }) {
-  const [sel, setSel] = useState(null); const [name, setName] = useState(""); const [item, setItem] = useState("");
+  const [sel, setSel] = useBackSel("listsSel", null); const [name, setName] = useState(""); const [item, setItem] = useState("");
   const lists = s.dictionaries || []; const cur = lists.find(d => d.id === sel);
   const patchList = (id, fn) => set(x => ({ ...x, dictionaries: x.dictionaries.map(d => d.id === id ? (typeof fn === "function" ? fn(d) : { ...d, ...fn }) : d) }));
   const addList = () => { if (!name.trim()) return; const id = uid(); set(x => ({ ...x, dictionaries: [...(x.dictionaries || []), { id, name: name.trim(), items: [], isActive: true }] })); setName(""); setSel(id); };
@@ -3311,21 +3330,6 @@ function DataPanel({ s, set, onClose }) {
 
 export default function App() {
   const [page, setPage] = useState("dashboard");
-  // Browser/back-forward + swipe-back support: every page change pushes a history entry, and going back through
-  // them (however it's triggered) restores the matching page instead of leaving the app. skipPushRef swallows the
-  // one page-state update right after a pop (it's already reflecting history — pushing it again would double it up)
-  // and the very first render (there's nothing to push yet).
-  const skipPushRef = useRef(true);
-  useEffect(() => {
-    if (skipPushRef.current) { skipPushRef.current = false; return; }
-    try { history.pushState({ __qcNav: true, page }, ""); } catch {}
-  }, [page]);
-  useEffect(() => {
-    try { history.replaceState({ __qcNav: true, page }, ""); } catch {}
-    const onPop = e => { skipPushRef.current = true; const st = e.state; setPage(st && st.__qcNav ? st.page : "dashboard"); };
-    window.addEventListener("popstate", onPop);
-    return () => window.removeEventListener("popstate", onPop);
-  }, []);
   const [s, setRaw] = useState(EMPTY);
   const set = fn => { const f = typeof fn === "function" ? (x => sortState(fn(x))) : (() => sortState(fn)); syncerRef.current.pending.push(f); setRaw(x => { const nx = f(x); _S = nx; return nx; }); };
   useEffect(() => { _S = s; }, [s]);
@@ -3335,6 +3339,26 @@ export default function App() {
   const [userId, setUserId] = useState(() => readSession());
   const syncerRef = useRef(createSyncer());
   const [openInspId, setOpenInspId] = useState(null);
+  // Browser/back-forward + swipe-back support: every screen change — a sidebar page, opening a product, opening an
+  // inspection — pushes a history entry, and going back through them (however it's triggered) restores the matching
+  // screen instead of leaving the app. skipPushRef swallows the one state update right after a pop (it's already
+  // reflecting history — pushing it again would double it up) and the very first render (there's nothing to push yet).
+  const skipPushRef = useRef(true);
+  useEffect(() => {
+    if (skipPushRef.current) { skipPushRef.current = false; return; }
+    try { history.pushState({ __qcNav: true, page, selProduct, openInspId }, ""); } catch {}
+  }, [page, selProduct, openInspId]);
+  useEffect(() => {
+    try { history.replaceState({ __qcNav: true, page, selProduct, openInspId }, ""); } catch {}
+    const onPop = e => {
+      skipPushRef.current = true; const st = e.state;
+      setPage(st && st.__qcNav ? st.page : "dashboard");
+      setSelProduct(st && st.__qcNav ? (st.selProduct ?? null) : null);
+      setOpenInspId(st && st.__qcNav ? (st.openInspId ?? null) : null);
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
   const [presetProduct, setPresetProduct] = useState("");
   const [productsQuery, setProductsQuery] = useState("");
   const [pendingChatContext, setPendingChatContext] = useState(null);
