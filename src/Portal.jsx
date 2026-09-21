@@ -29,6 +29,7 @@ const DARK = {
 const C = { ...LIGHT };
 const applyTheme = dark => { Object.assign(C, dark ? DARK : LIGHT); };
 const THEME_KEY = "qcteam-theme";
+const PHOTO_BG = "#E9EDDE";
 
 // Icons (lucide) — one size, one stroke width
 const Ic = ({ i: I, s = 15, mr = 6, style }) => <I size={s} strokeWidth={2} style={{ display: "inline-block", verticalAlign: "-3px", marginRight: mr, flexShrink: 0, ...style }} />;
@@ -1856,7 +1857,7 @@ function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset, onMessag
         {!product ? <Card><Empty icon="📦" title="Select a product" hint="Its profile, photos, specifications, suppliers and inspection types open here." /></Card> : (
             <Card style={{ padding: 0, overflow: "hidden" }}>
               <div className="flex items-center gap-3 px-4 pt-4 pb-3">
-                {asPhotoList(product.photos)[0] ? <img src={asPhotoList(product.photos)[0].dataUrl} alt="" className="rounded-lg object-contain flex-shrink-0" style={{ width: 52, height: 52 }} /> : <button onClick={() => setTab("photos")} className="rounded-lg flex items-center justify-center flex-shrink-0" style={{ width: 52, height: 52, background: C.bg, color: C.muted, border: `1px dashed ${C.line}` }}><Ic i={ImageIcon} s={18} mr={0} /></button>}
+                {asPhotoList(product.photos)[0] ? <img src={asPhotoList(product.photos)[0].dataUrl} alt="" className="rounded-lg object-contain flex-shrink-0" style={{ width: 52, height: 52, background: PHOTO_BG }} /> : <button onClick={() => setTab("photos")} className="rounded-lg flex items-center justify-center flex-shrink-0" style={{ width: 52, height: 52, background: C.bg, color: C.muted, border: `1px dashed ${C.line}` }}><Ic i={ImageIcon} s={18} mr={0} /></button>}
                 <div className="flex-1 min-w-0">
                   <h2 className="truncate" style={{ fontSize: 16 }}>{product.name}</h2>
                   <div className="flex flex-wrap items-center gap-1.5 mt-1">
@@ -1968,7 +1969,7 @@ function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset, onMessag
           <div className="grid gap-2" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(170px, 1fr))" }}>
             {visible.map(p => (
               <button key={p.id} onClick={() => selectProduct(p.id)} className="rounded-2xl p-2.5 text-left" style={{ background: sel === p.id ? C.accentSoft : C.surface, border: `1px solid ${sel === p.id ? C.accent : C.line}`, opacity: p.isActive === false ? .55 : 1 }}>
-                {asPhotoList(p.photos).length ? <img src={asPhotoList(p.photos)[0].dataUrl} alt="" className="w-full rounded-xl object-contain mb-2" style={{ height: 72 }} /> : <div className="w-full rounded-xl flex items-center justify-center mb-2" style={{ height: 72, background: C.bg, color: C.muted }}><Ic i={Package} s={20} mr={0} /></div>}
+                {asPhotoList(p.photos).length ? <img src={asPhotoList(p.photos)[0].dataUrl} alt="" className="w-full rounded-xl object-contain mb-2" style={{ height: 72, background: PHOTO_BG }} /> : <div className="w-full rounded-xl flex items-center justify-center mb-2" style={{ height: 72, background: C.bg, color: C.muted }}><Ic i={Package} s={20} mr={0} /></div>}
                 <p className="text-xs font-medium leading-tight truncate" style={{ color: sel === p.id ? C.accent : C.ink }}>{p.name}</p>
                 <p className="text-[10px] mt-0.5 truncate" style={{ color: C.muted }}>{p.articleId || "no ID"} · {p.categoryId ? catPath(p.categoryId) : <span style={{ color: C.warn }}>no category</span>}</p>
                 <div className="flex items-center gap-1 mt-1">
@@ -2741,7 +2742,7 @@ function CatalogPage({ s, set, user, notify, onStartInspection }) {
           </div>
           {visible.length === 0 ? <p className="text-xs" style={{ color: C.muted }}>Nothing matches.</p> : visible.slice(0, 60).map(p => { const li = lastInsp(p.id); const openFlag = s.flags.some(x => x.productId === p.id && x.status === "Open"); return (
             <button key={p.id} onClick={() => { setSel(p.id); setFlagOpen(false); setShowRef(null); }} className="w-full text-left flex items-center gap-2 px-2 py-2 rounded-lg row" style={{ background: sel === p.id ? C.accentSoft : "transparent", borderTop: `1px solid ${C.line}` }}>
-              {asPhotoList(p.photos).length ? <img src={asPhotoList(p.photos)[0].dataUrl} alt="" className="w-8 h-8 rounded-md object-contain" /> : <span className="w-8 h-8 rounded-md flex items-center justify-center" style={{ background: C.bg, color: C.muted }}><Ic i={ImageIcon} s={14} mr={0} /></span>}
+              {asPhotoList(p.photos).length ? <img src={asPhotoList(p.photos)[0].dataUrl} alt="" className="w-8 h-8 rounded-md object-contain" style={{ background: PHOTO_BG }} /> : <span className="w-8 h-8 rounded-md flex items-center justify-center" style={{ background: C.bg, color: C.muted }}><Ic i={ImageIcon} s={14} mr={0} /></span>}
               <span className="flex-1 min-w-0"><span className="block text-sm truncate" style={{ color: sel === p.id ? C.accent : C.ink }}>{p.name}{p.isBio && <span className="text-xs ml-1" style={{ color: C.ok }}>bio</span>}</span><span className="block text-[11px]" style={{ color: C.muted }}>{p.articleId || "—"} · {catPath(p.categoryId)}</span></span>
               {openFlag && <Ic i={Flag} s={12} mr={0} style={{ color: C.warn }} />}
               {li && <span className="inline-block rounded-full" title={`ostatnia: ${li.result === "Accepted" ? "accepted" : "rejected"}, ${fmtTime(li.completedAt)}`} style={{ width: 8, height: 8, background: li.result === "Accepted" ? C.ok : C.bad }} />}
@@ -2753,7 +2754,7 @@ function CatalogPage({ s, set, user, notify, onStartInspection }) {
           {!product ? <Empty icon="📦" title="Select a product" hint="You'll see the profile, specs, suppliers, varieties and recent inspections." /> : (
             <>
               <div className="flex items-start gap-3 mb-3">
-                {asPhotoList(product.photos).length ? <img src={asPhotoList(product.photos)[0].dataUrl} alt="" className="w-16 h-16 rounded-lg object-contain" style={{ border: `1px solid ${C.line}` }} /> : <div className="w-16 h-16 rounded-lg flex items-center justify-center" style={{ background: C.bg, border: `1px solid ${C.line}`, color: C.muted }} title="ProductPhotos — reference photos"><Ic i={ImageIcon} s={24} mr={0} /></div>}
+                {asPhotoList(product.photos).length ? <img src={asPhotoList(product.photos)[0].dataUrl} alt="" className="w-16 h-16 rounded-lg object-contain" style={{ border: `1px solid ${C.line}`, background: PHOTO_BG }} /> : <div className="w-16 h-16 rounded-lg flex items-center justify-center" style={{ background: C.bg, border: `1px solid ${C.line}`, color: C.muted }} title="ProductPhotos — reference photos"><Ic i={ImageIcon} s={24} mr={0} /></div>}
                 <div className="flex-1 min-w-0">
                   <p className="font-semibold">{product.name}{product.isBio && <span className="text-xs ml-2 px-1.5 py-0.5 rounded" style={{ background: C.okBg, color: C.ok }}>bio</span>}</p>
                   <p className="text-xs" style={{ color: C.muted }}>ID {product.articleId || "—"}{product.barcodeCu && ` · CU ${product.barcodeCu}`}{product.barcodeTu && ` · TU ${product.barcodeTu}`} · {catPath(product.categoryId)}{product.isActive === false && <span className="ml-2 px-1.5 py-0.5 rounded" style={{ background: C.line, color: C.muted }}>inactive</span>}</p>
