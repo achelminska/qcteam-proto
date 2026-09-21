@@ -1914,14 +1914,15 @@ function MAnnouncementModal({ a, onClose }) {
 }
 function MDashboard({ s, set, user, go, dismissed, setDismissed, onAssign }) {
   const [now, setNow] = useState(Date.now()); useEffect(() => { const id = setInterval(() => setNow(Date.now()), 30000); return () => clearInterval(id); }, []);
-  const [annOpen, setAnnOpen] = useState(false);
+  const [annOpen, setAnnOpen] = useState(null);
   const [blockedView, setBlockedView] = useState("open");
   const [tab, setTab] = useState("history");
   const bottomPad = { paddingBottom: 96 };
   const mine = s.inspections.filter(i => i.status !== "Cancelled").sort((a, b) => (b.completedAt || b.startedAt || "").localeCompare(a.completedAt || a.startedAt || ""));
   const today = new Date().toISOString().slice(0, 10);
   const doneToday = s.inspections.filter(i => i.status === "Completed" && countsAs(s, i) && (i.completedAt || "").slice(0, 10) === today).length;
-  const ann = s.announcements.filter(a => a.showOnDashboard && annActive(a) && !dismissed.includes(a.id)).sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""))[0];
+  // All of them at once — one gets its full preview text, several collapse to titles only so they don't take over the dashboard.
+  const anns = s.announcements.filter(a => a.showOnDashboard && annActive(a) && !dismissed.includes(a.id)).sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
   const unread = s.notifications.filter(n => n.userId === user.id && !n.readAt).length;
   const groups = []; mine.slice(0, 30).forEach(i => { const k = dayLabel(i.completedAt || i.startedAt); let g = groups.find(x => x.k === k); if (!g) { g = { k, items: [] }; groups.push(g); } g.items.push(i); });
   return (
@@ -1936,8 +1937,9 @@ function MDashboard({ s, set, user, go, dismissed, setDismissed, onAssign }) {
         </div>
       ); })()}
       <div className="px-5"><DeadlineBanner s={s} alerts={computeDeadlineAlerts(s, now)} now={now} onOpen={al => go("palletInfo", al.hu)} /></div>
-      {ann && <button onClick={() => ann.productId ? go("catalog", ann.productId) : setAnnOpen(true)} className="text-left mx-5 mb-3 rounded-xl px-3.5 py-2.5 flex items-start gap-2.5" style={{ background: C.surface, border: `1px solid ${C.line}`, borderLeft: `3px solid ${C.accent}` }}><span style={{ color: C.accent, marginTop: 2 }}><Ic i={Megaphone} s={14} mr={0} /></span><p className="text-sm flex-1"><b>{ann.title}</b><span style={{ color: C.muted }}> — {truncate(ann.body)}</span></p><span onClick={e => { e.stopPropagation(); setDismissed(d => [...d, ann.id]); }} className="text-sm" style={{ color: C.muted }}>×</span></button>}
-      {annOpen && ann && <MAnnouncementModal a={ann} onClose={() => setAnnOpen(false)} />}
+      {anns.length === 1 && <button onClick={() => anns[0].productId ? go("catalog", anns[0].productId) : setAnnOpen(anns[0])} className="text-left mx-5 mb-3 rounded-xl px-3.5 py-2.5 flex items-start gap-2.5" style={{ background: C.surface, border: `1px solid ${C.line}`, borderLeft: `3px solid ${C.accent}` }}><span style={{ color: C.accent, marginTop: 2 }}><Ic i={Megaphone} s={14} mr={0} /></span><p className="text-sm flex-1"><b>{anns[0].title}</b><span style={{ color: C.muted }}> — {truncate(anns[0].body)}</span></p><span onClick={e => { e.stopPropagation(); setDismissed(d => [...d, anns[0].id]); }} className="text-sm" style={{ color: C.muted }}>×</span></button>}
+      {anns.length > 1 && <div className="mx-5 mb-3 rounded-xl overflow-hidden" style={{ background: C.surface, border: `1px solid ${C.line}` }}>{anns.map((a, i) => <button key={a.id} onClick={() => a.productId ? go("catalog", a.productId) : setAnnOpen(a)} className="w-full text-left px-3.5 py-2 flex items-center gap-2.5" style={{ borderTop: i ? `1px solid ${C.line}` : "none", borderLeft: `3px solid ${C.accent}` }}><span style={{ color: C.accent }}><Ic i={Megaphone} s={13} mr={0} /></span><p className="text-sm flex-1 truncate"><b>{a.title}</b></p><span onClick={e => { e.stopPropagation(); setDismissed(d => [...d, a.id]); }} className="text-sm" style={{ color: C.muted }}>×</span></button>)}</div>}
+      {annOpen && <MAnnouncementModal a={annOpen} onClose={() => setAnnOpen(null)} />}
       {user.role === "Head" && (() => { const esc = s.inspections.filter(i => i.status === "PendingReview").length, fl = s.flags.filter(f => f.status === "Open").length; return (
         <div className="px-5 mb-3">
           <p className="label-sm mb-1.5">Needs you</p>
@@ -2076,7 +2078,9 @@ function MProductCard({ s, user, product, onBack, onStart, go, setState, notify,
         </div>}
         {(product.barcodeCu || product.barcodeTu) && <p className="text-[11px] mt-2 font-mono" style={{ color: C.muted }}>{product.barcodeCu && <>CU {product.barcodeCu}</>}{product.barcodeCu && product.barcodeTu && " · "}{product.barcodeTu && <>TU {product.barcodeTu}</>}</p>}
 
-        <div className="mt-4"><DockPresence product={product} onPickPallet={hu => go("palletInfo", hu)} /></div>
+        {/* Inspect jumps straight into scanning that pallet, and Lost is handled right here — no detour through a
+            separate pallet-info screen just to do either. */}
+        <div className="mt-4"><DockPresence s={s} set={setState} user={user} product={product} onPickPallet={hu => go("scan", hu)} showLost /></div>
         {hist.count > 0 && <Section title={`${hist.count} rejected in the last 14 days`} tone="bad"><p className="text-sm" style={{ color: C.bad }}>{hist.problems.slice(0, 4).map(x => `${x.name} ×${x.count}`).join(", ")}{hist.problems.length > 4 ? "…" : ""}</p><p className="text-[11px] mt-0.5" style={{ color: C.muted }}>last {dayLabel(hist.lastAt)} — look for these first</p></Section>}
         {anns.map(a => <div key={a.id} className="rounded-2xl px-3.5 py-2.5 mb-3 text-sm" style={{ background: C.accentSoft, borderLeft: `3px solid ${C.accent}` }}><b>{a.title}</b><span style={{ color: C.muted }}> — {a.body}</span></div>)}
         {ref && <button onClick={() => go("inspection", ref.id)} className="w-full rounded-2xl px-3.5 py-3 mb-3 text-sm text-left flex items-center" style={{ background: C.okBg, color: C.ok }}><Ic i={Star} s={15} />Reference inspection — what a good pallet looks like<span className="ml-auto text-xs">open</span></button>}
@@ -2140,7 +2144,9 @@ const isPalletCode = code => /^\d{14,}$/.test(code.trim());
 const extractSSCC = raw => { const d = String(raw || "").replace(/\D/g, ""); const m = /(?:^|\D)00(\d{18})/.exec(String(raw || "")) || (d.length >= 20 && d.startsWith("00") ? [null, d.slice(2, 20)] : null); if (m) return m[1]; if (d.length >= 18) return d.slice(0, 18); return d; };
 const samePallet = (a, b) => { const x = String(a || "").replace(/\D/g, "").replace(/^0+/, ""), y = String(b || "").replace(/\D/g, "").replace(/^0+/, ""); return !!x && !!y && (x === y || x.endsWith(y) || y.endsWith(x)); };
 const dockRowsFor = product => product ? dockRowsLive(_S).filter(r => r.article === product.articleId) : [];
-function DockPresence({ product, onPickPallet, compact }) {
+// showLost (only passed from the product profile, not from inside the scan flow) also renders Mark-as-lost inline per
+// pallet, so acting on a specific pallet from here never needs a hop through a separate info screen first.
+function DockPresence({ s, set, user, product, onPickPallet, showLost, compact }) {
   const rows = dockRowsFor(product); const [open, setOpen] = useState(false);
   const pallets = rows.length;
   const blocked = blockedRowsLive(_S).filter(b => b.article === product?.articleId && b.status !== "Completed");
@@ -2154,10 +2160,13 @@ function DockPresence({ product, onPickPallet, compact }) {
         <span className="text-xs" style={{ color: C.muted }}>{open ? "hide" : "where?"}</span>
       </button>
       {open && <div className="px-3 pb-2">{rows.map(r => (
-        <button key={r.hu} onClick={() => onPickPallet && onPickPallet(r.hu)} className="w-full text-left flex items-center gap-2 py-2" style={{ borderTop: `1px solid ${C.line}` }}>
-          <span className="flex-1 min-w-0"><span className="block text-xs font-mono truncate">HU {r.hu}</span><span className="block text-[11px]" style={{ color: C.muted }}>{r.location} · {r.priority} · {r.transporter} {r.arrivedTime}{r.blocking ? " · needed today" : ""}</span></span>
-          {onPickPallet && <span className="text-xs font-medium" style={{ color: C.accent }}>Inspect ›</span>}
-        </button>
+        <div key={r.hu} className="py-2" style={{ borderTop: `1px solid ${C.line}` }}>
+          <button onClick={() => onPickPallet && onPickPallet(r.hu)} className="w-full text-left flex items-center gap-2">
+            <span className="flex-1 min-w-0"><span className="block text-xs font-mono truncate">HU {r.hu}</span><span className="block text-[11px]" style={{ color: C.muted }}>{r.location} · {r.priority} · {r.transporter} {r.arrivedTime}{r.blocking ? " · needed today" : ""}</span></span>
+            {onPickPallet && <span className="text-xs font-medium" style={{ color: C.accent }}>Inspect ›</span>}
+          </button>
+          {showLost && <MLostControls s={s} set={set} user={user} row={r} />}
+        </div>
       ))}</div>}
     </div>
   );
