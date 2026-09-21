@@ -1033,7 +1033,7 @@ function Shell({ page, setPage, children, badge, topRight, users, user, setUser,
     <div className="qc min-h-screen" style={{ background: C.bg, color: C.ink }}>
       <style>{GLOBAL_CSS()}</style>
       <div className="flex items-center gap-4 px-5" style={{ height: 56, background: C.surface, borderBottom: `1px solid ${C.line}` }}>
-        <div className="flex items-center gap-2.5" style={{ width: 190 }}><span className="w-7 h-7 rounded-lg flex items-center justify-center text-sm font-bold" style={{ background: C.accent, color: C.onDark }}>Q</span><span className="font-semibold text-[15px] tracking-tight">QCteam</span><span className="text-[11px] px-1.5 py-0.5 rounded-md" style={{ background: C.accentSoft, color: C.accent }}>Head</span></div>
+        <div className="flex items-center gap-2.5" style={{ width: 190 }}><span className="w-7 h-7 rounded-lg flex items-center justify-center text-sm font-bold" style={{ background: C.accent, color: C.onDark }}>Q</span><span className="font-semibold text-[15px] tracking-tight">QCteam</span><span className="text-[11px] px-1.5 py-0.5 rounded-md" style={{ background: C.accentSoft, color: C.accent }}>{user.role}</span></div>
 <SearchBox value={topQ} onChange={setTopQ} placeholder="Search products, inspections…" className="hidden md:block" style={{ width: 320 }} inputClass="rounded-xl" onKeyDown={e => { if (e.key === "Enter" && topQ.trim()) { onSearch && onSearch(topQ.trim()); } }} />
         <div className="flex-1" />
         {topRight}
@@ -1083,7 +1083,7 @@ const floorStats = (s, now = Date.now()) => { const today = new Date().toISOStri
     const inProgress = s.inspections.filter(i => i.controllerId === u.id && ["Draft", "PendingReview"].includes(i.status));
     const doneToday = s.inspections.filter(i => i.controllerId === u.id && i.status === "Completed" && (i.completedAt || "").slice(0, 10) === today);
     const lastAt = [...claims.map(([, c]) => c.at), ...s.inspections.filter(i => i.controllerId === u.id).map(i => i.completedAt || i.startedAt)].filter(Boolean).sort().slice(-1)[0] || null;
-    return { user: u, taken: mine.filter(r => r.claim.status === "taken"), stacked: mine.filter(r => r.claim.status === "stacked"), inProgress, doneToday: doneToday.length, lastAt };
+    return { user: u, taken: mine.filter(r => r.claim.status === "taken"), inProgress, doneToday: doneToday.length, lastAt };
   }).sort((a, b) => (b.lastAt || "").localeCompare(a.lastAt || ""));
   const alerts = computeDeadlineAlerts(s, now);
   return { dock, dockLost, prio, skippable, blocking, skus: new Set(dock.map(r => r.article)).size, bl, lostOpen, people, alerts, fresh: sheetFreshness(s), doneToday: s.inspections.filter(i => i.status === "Completed" && (i.completedAt || "").slice(0, 10) === today).length };
@@ -1146,12 +1146,13 @@ function Dashboard({ s, setPage, seed, user, openProduct, onAssign, set }) {
       <p className="label-sm mt-4 mb-1.5" style={{ color: C.muted }}>Team · {f.doneToday} inspection{f.doneToday === 1 ? "" : "s"} done today</p>
       <Card style={{ marginBottom: 16 }}>
         {f.people.length === 0 ? <p className="text-xs py-2" style={{ color: C.muted }}>No controllers yet.</p> : <table className="w-full text-sm" style={{ borderCollapse: "collapse" }}>
-          <thead><tr className="text-xs text-left" style={{ color: C.muted }}>{["Controller", "Has now", "In stack", "Inspecting", "Done today", "Last activity"].map(h => <th key={h} className="py-1.5 pr-3 font-medium" style={{ borderBottom: `1px solid ${C.line}` }}>{h}</th>)}</tr></thead>
+          <thead><tr className="text-xs text-left" style={{ color: C.muted }}>{["Controller", "Has now", "Inspecting", "Done today", "Last activity"].map(h => <th key={h} className="py-1.5 pr-3 font-medium" style={{ borderBottom: `1px solid ${C.line}` }}>{h}</th>)}</tr></thead>
           <tbody>{f.people.map(p => (
             <tr key={p.user.id} style={{ borderBottom: `1px solid ${C.line}` }}>
               <td className="py-2 pr-3"><span className="inline-flex items-center gap-2"><Avatar user={p.user} size={22} />{p.user.name}</span></td>
+              {/* "In stack" isn't anyone's — it means the pallet can't be reached yet (buried under another), not that a controller
+                  holds it — so it belongs to the Blocked-pallets status tiles above, not to a person's row here. */}
               <td className="py-2 pr-3 text-xs">{p.taken.length ? p.taken.map(r => <div key={claimKey(r)}>{r.name || r.article} <span style={{ color: C.muted }}>· {r.location}{r.zone ? ` · zone ${r.zone}` : ""}{r.priority ? ` · ${r.priority}` : " · blocked"}</span></div>) : <span style={{ color: C.muted }}>—</span>}</td>
-              <td className="py-2 pr-3 text-xs">{p.stacked.length ? p.stacked.map(r => <div key={claimKey(r)}>{r.name || r.article} <span style={{ color: C.muted }}>· {r.location}</span></div>) : <span style={{ color: C.muted }}>—</span>}</td>
               <td className="py-2 pr-3 text-xs">{p.inProgress.length ? p.inProgress.map(i => <div key={i.id}>{s.products.find(x => x.id === i.productId)?.name || `pallet ${(i.pallets || [])[0] || ""}`} <span style={{ color: C.muted }}>· {i.status === "PendingReview" ? "awaiting you" : "draft"}</span></div>) : <span style={{ color: C.muted }}>—</span>}</td>
               <td className="py-2 pr-3">{p.doneToday}</td>
               <td className="py-2 text-xs" style={{ color: C.muted }}>{agoShort(p.lastAt)}</td>
@@ -1224,7 +1225,8 @@ function ControllerDashboard({ s, user, setPage, setOpenId, openProduct }) {
     <div>
       <h1 className="mb-1">Hi, {user.name.split(" ")[0]}</h1>
       <p className="text-sm mb-5" style={{ color: C.muted, maxWidth: 640 }}>Controller view (on the phone this is the mobile app). Only what's yours.</p>
-      {dashAnns.length > 0 && <Card style={{ marginBottom: 16, borderColor: C.accent }}><p className="text-xs font-medium mb-2" style={{ color: C.accent }}>📣 ANNOUNCEMENTS</p>{dashAnns.map(a => <button key={a.id} onClick={() => openAnn(a)} className="w-full text-left py-2" style={{ borderTop: `1px solid ${C.line}` }}><p className="text-sm font-medium">{a.title}</p><p className="text-sm truncate" style={{ color: C.muted }}>{truncate(a.body)}</p><p className="text-xs" style={{ color: C.muted }}>{fmtTime(a.createdAt)}{a.validTo && ` · to ${a.validTo}`}</p></button>)}</Card>}
+      {/* One gets its full preview text; several collapse to titles only so they don't take over the dashboard. */}
+      {dashAnns.length > 0 && <Card style={{ marginBottom: 16, borderColor: C.accent }}><p className="text-xs font-medium mb-2" style={{ color: C.accent }}>📣 ANNOUNCEMENTS</p>{dashAnns.length === 1 ? <button onClick={() => openAnn(dashAnns[0])} className="w-full text-left py-2" style={{ borderTop: `1px solid ${C.line}` }}><p className="text-sm font-medium">{dashAnns[0].title}</p><p className="text-sm truncate" style={{ color: C.muted }}>{truncate(dashAnns[0].body)}</p><p className="text-xs" style={{ color: C.muted }}>{fmtTime(dashAnns[0].createdAt)}{dashAnns[0].validTo && ` · to ${dashAnns[0].validTo}`}</p></button> : dashAnns.map(a => <button key={a.id} onClick={() => openAnn(a)} className="w-full text-left py-2" style={{ borderTop: `1px solid ${C.line}` }}><p className="text-sm font-medium">{a.title}</p></button>)}</Card>}
       <div className="mb-4"><Primary onClick={() => { setOpenId(null); setPage("inspections"); }}>+ New inspection</Primary></div>
       {open.length > 0 && <Card style={{ marginBottom: 16 }}><p className="font-medium text-sm mb-2">Unfinished</p>{open.map(i => <button key={i.id} onClick={() => { setOpenId(i.id); setPage("inspections"); }} className="w-full text-left flex items-center gap-2 py-2" style={{ borderTop: `1px solid ${C.line}` }}><span className="text-xs px-2 py-0.5 rounded-full" style={{ background: STATUS[i.status][2], color: STATUS[i.status][1] }}>{STATUS[i.status][0]}</span><span className="flex-1 text-sm">{s.products.find(p => p.id === i.productId)?.name}</span><span className="text-xs" style={{ color: C.muted }}>{fmtTime(i.startedAt)}</span></button>)}</Card>}
       <Card><p className="font-medium text-sm mb-2">My recent</p>{mine.filter(i => i.status === "Completed").slice(0, 8).map(i => <button key={i.id} onClick={() => { setOpenId(i.id); setPage("inspections"); }} className="w-full text-left flex items-center gap-2 py-2" style={{ borderTop: `1px solid ${C.line}` }}><span className="text-xs px-2 py-0.5 rounded-full" style={{ background: i.result === "Accepted" ? C.okBg : C.badBg, color: i.result === "Accepted" ? C.ok : C.bad }}>{i.result === "Accepted" ? "Accepted" : "Rejected"}</span><span className="flex-1 text-sm">{s.products.find(p => p.id === i.productId)?.name}</span><span className="text-xs" style={{ color: C.muted }}>{fmtTime(i.completedAt)}</span></button>)}{mine.filter(i => i.status === "Completed").length === 0 && <p className="text-xs" style={{ color: C.muted }}>Nothing yet.</p>}</Card>
@@ -3477,7 +3479,7 @@ export default function App() {
   const [toastMsg, setToastMsg] = useState(""); useEffect(() => { if (!toastMsg) return; const t = setTimeout(() => setToastMsg(""), 4000); return () => clearTimeout(t); }, [toastMsg]);
   if (!loaded) return <div className="min-h-screen flex items-center justify-center text-sm" style={{ background: C.bg, color: C.muted }}>Loading…</div>;
   const user = s.users.find(u => u.id === userId && u.active !== false) || null;
-  if (!user) return <LoginScreen s={s} allowRoles={["Head"]} onLogin={setUserId} subtitle="Head portal — sign in" />;
+  if (!user) return <LoginScreen s={s} allowRoles={["Head", "Controller"]} onLogin={setUserId} subtitle="QCteam portal — sign in" />;
   // Notification: to a specific user (toUserId) or to all Heads
   const notify = (type, message, entityType, entityId, toUserId) => set(x => { const targets = toUserId ? [toUserId] : x.users.filter(u => u.role === "Head").map(u => u.id); return { ...x, notifications: [...x.notifications, ...targets.map(uid_ => ({ id: uid(), userId: uid_, type, message, entityType, entityId, createdAt: nowISO(), readAt: null }))] }; });
   const unread = s.notifications.filter(n => n.userId === user.id && !n.readAt).length;
