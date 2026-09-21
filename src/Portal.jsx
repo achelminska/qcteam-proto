@@ -606,12 +606,12 @@ function DeadlineBanner({ s, alerts, onOpen, onMessage, now = Date.now() }) {
     <div className="mb-4">
       <div className="flex items-center gap-2 mb-1.5"><p className="text-xs font-semibold flex items-center" style={{ color: C.bad }}><Ic i={Clock} s={13} />Rejection window closing · {alerts.length}{breached ? ` · ${breached} expired` : ""}</p></div>
       <div className="flex gap-2 overflow-x-auto pb-1" style={{ scrollbarWidth: "thin", WebkitOverflowScrolling: "touch" }}>
-        {alerts.map(a => { const left = a.deadlineAt - now; const urgent = left <= 3600000; const c = claimOf(s, a); const who = c && s.users.find(u => u.id === c.userId); return (
+        {alerts.map(a => { const left = a.deadlineAt - now; const urgent = left <= 3600000; return (
           <button key={a.key} onClick={() => onOpen(a)} className="text-left rounded-2xl px-3 py-2.5 flex-shrink-0 active:opacity-70" style={{ width: 150, background: left <= 0 ? C.bad : urgent ? C.badBg : C.warnBg, color: left <= 0 ? C.onDark : C.ink, border: `1px solid ${left <= 0 ? C.bad : urgent ? C.bad : C.warn}` }}>
             <p className="text-lg font-bold tracking-tight leading-none" style={{ color: left <= 0 ? C.onDark : urgent ? C.bad : C.warn, fontVariantNumeric: "tabular-nums" }}>{fmtLeft(left)}</p>
             <p className="text-xs font-medium mt-1.5 truncate">{a.name}</p>
             <p className="text-[11px] truncate" style={{ opacity: .75 }}>{a.location}{a.risky ? " · rejected recently" : ""}</p>
-            <div className="flex items-center gap-1 mt-1 text-[10px]" style={{ opacity: .85, minHeight: 14 }}>{who && <><Avatar user={who} size={12} />{who.name.split(" ")[0]}{c.status === "stacked" ? " · stack" : ""}</>}{onMessage && <span onClick={e => { e.stopPropagation(); onMessage(a); }} className="ml-auto underline">assign</span>}</div>
+            {onMessage && <div className="flex items-center mt-1 text-[10px]" style={{ opacity: .85, minHeight: 14 }}><span onClick={e => { e.stopPropagation(); onMessage(a); }} className="ml-auto underline">assign</span></div>}
           </button>
         ); })}
       </div>
@@ -1054,7 +1054,6 @@ const floorStats = (s, now = Date.now()) => { const today = new Date().toISOStri
   const dockAll = dockRowsLive(s); const dock = dockAll.filter(r => !lostOf(s, r)); const dockLost = dockAll.length - dock.length;
   const prio = Object.fromEntries(PRIO_ORDER.map(k => [k, dock.filter(r => r.priority === k).length]));
   const skippable = dock.filter(r => r.skippable).length; const blocking = dock.filter(r => r.blocking).length;
-  const dockTaken = dock.filter(r => claimOf(s, r)?.status === "taken").length; const dockStacked = dock.filter(r => claimOf(s, r)?.status === "stacked").length;
   const q = blockedQueue(s); const open = q.filter(b => b.status !== "Completed" && !b.lost); const bl = { open: open.length, taken: open.filter(b => b.claim?.status === "taken").length, stacked: open.filter(b => b.claim?.status === "stacked").length, lost: q.filter(b => b.lost && b.status !== "Completed").length, done: q.filter(b => b.status === "Completed").length };
   bl.unassigned = bl.open - bl.taken - bl.stacked;
   const lostOpen = Object.entries(s.lostPallets || {}).filter(([k]) => [...dockAll, ...blockedRowsLive(s)].some(r => lostKey(r) === k && lostOf(s, r))).length;
@@ -1067,7 +1066,7 @@ const floorStats = (s, now = Date.now()) => { const today = new Date().toISOStri
     return { user: u, taken: mine.filter(r => r.claim.status === "taken"), stacked: mine.filter(r => r.claim.status === "stacked"), inProgress, doneToday: doneToday.length, lastAt };
   }).sort((a, b) => (b.lastAt || "").localeCompare(a.lastAt || ""));
   const alerts = computeDeadlineAlerts(s, now);
-  return { dock, dockLost, prio, skippable, blocking, dockTaken, dockStacked, skus: new Set(dock.map(r => r.article)).size, bl, lostOpen, people, alerts, fresh: sheetFreshness(s), doneToday: s.inspections.filter(i => i.status === "Completed" && (i.completedAt || "").slice(0, 10) === today).length };
+  return { dock, dockLost, prio, skippable, blocking, skus: new Set(dock.map(r => r.article)).size, bl, lostOpen, people, alerts, fresh: sheetFreshness(s), doneToday: s.inspections.filter(i => i.status === "Completed" && (i.completedAt || "").slice(0, 10) === today).length };
 };
 const agoShort = t => { if (!t) return "—"; const m = Math.round((Date.now() - new Date(t).getTime()) / 60000); return m < 1 ? "now" : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : fmtTime(t); };
 
@@ -1103,12 +1102,11 @@ function Dashboard({ s, setPage, seed, user, openProduct, onAssign, set }) {
       {prioSel && <Card style={{ marginBottom: 12 }}>
         <div className="flex items-center gap-2 mb-2"><p className="font-medium text-sm flex-1">{prioSel} · {prioRows.length} pallet{prioRows.length === 1 ? "" : "s"} · oldest first</p><button onClick={() => setPrioSel(null)} className="text-xs" style={{ color: C.muted }}>close</button></div>
         {prioRows.length === 0 ? <p className="text-xs py-3" style={{ color: C.muted }}>Nothing at this priority.</p> : <table className="w-full text-sm" style={{ borderCollapse: "collapse" }}>
-          <thead><tr className="text-xs text-left" style={{ color: C.muted }}>{["Product", "Article", "Location", "Arrived", "Transporter", "Who", "History"].map(h => <th key={h} className="py-1.5 pr-3 font-medium" style={{ borderBottom: `1px solid ${C.line}` }}>{h}</th>)}</tr></thead>
-          <tbody>{prioGroups.map(r => { const prod = s.products.find(p => p.articleId === r.article); const c = r.count === 1 ? claimOf(s, r) : null; const who = c && s.users.find(u => u.id === c.userId); const hist = recentProblemsFor(s, prod?.id); return (
+          <thead><tr className="text-xs text-left" style={{ color: C.muted }}>{["Product", "Article", "Location", "Arrived", "Transporter", "History"].map(h => <th key={h} className="py-1.5 pr-3 font-medium" style={{ borderBottom: `1px solid ${C.line}` }}>{h}</th>)}</tr></thead>
+          <tbody>{prioGroups.map(r => { const prod = s.products.find(p => p.articleId === r.article); const hist = recentProblemsFor(s, prod?.id); return (
             <tr key={r.article || r.hu} style={{ borderBottom: `1px solid ${C.line}` }}>
               <td className="py-1.5 pr-3">{prod ? <button onClick={() => openProduct(prod.id)} className="underline text-left" style={{ color: C.accent }}>{r.name || prod.name}</button> : <span>{r.name || r.article}<span className="text-[11px] ml-1" style={{ color: C.warn }}>no profile</span></span>}{r.count > 1 && <span className="text-[10px] ml-1.5 px-1.5 py-0.5 rounded-full" style={{ background: C.accentSoft, color: C.accent }}>×{r.count} on docks</span>}{r.blocking && <span className="text-[10px] ml-1.5 px-1.5 py-0.5 rounded" style={{ background: C.badBg, color: C.bad }}>needed today</span>}</td>
               <td className="py-1.5 pr-3 font-mono text-xs">{r.article}</td><td className="py-1.5 pr-3">{r.location}</td><td className="py-1.5 pr-3 text-xs">{r.arrived} {r.arrivedTime}</td><td className="py-1.5 pr-3 text-xs">{r.transporter}</td>
-              <td className="py-1.5 pr-3 text-xs">{who ? <span className="inline-flex items-center gap-1"><Avatar user={who} size={16} />{who.name.split(" ")[0]}{c.status === "stacked" ? " · stack" : ""}</span> : <span style={{ color: C.muted }}>—</span>}</td>
               <td className="py-1.5 text-xs" style={{ color: hist.count ? C.bad : C.muted }}>{hist.count ? `${hist.count} rejected · ${hist.problems.slice(0, 2).map(x => x.name).join(", ")}` : "clean"}</td>
             </tr>); })}</tbody>
         </table>}

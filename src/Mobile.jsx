@@ -640,12 +640,12 @@ function DeadlineBanner({ s, alerts, onOpen, onMessage, now = Date.now() }) {
     <div className="mb-4">
       <div className="flex items-center gap-2 mb-1.5"><p className="text-xs font-semibold flex items-center" style={{ color: C.bad }}><Ic i={Clock} s={13} />Rejection window closing · {alerts.length}{breached ? ` · ${breached} expired` : ""}</p></div>
       <div className="flex gap-2 overflow-x-auto pb-1" style={{ scrollbarWidth: "thin", WebkitOverflowScrolling: "touch" }}>
-        {alerts.map(a => { const left = a.deadlineAt - now; const urgent = left <= 3600000; const c = claimOf(s, a); const who = c && s.users.find(u => u.id === c.userId); return (
+        {alerts.map(a => { const left = a.deadlineAt - now; const urgent = left <= 3600000; return (
           <button key={a.key} onClick={() => onOpen(a)} className="text-left rounded-2xl px-3 py-2.5 flex-shrink-0 active:opacity-70" style={{ width: 150, background: left <= 0 ? C.bad : urgent ? C.badBg : C.warnBg, color: left <= 0 ? C.onDark : C.ink, border: `1px solid ${left <= 0 ? C.bad : urgent ? C.bad : C.warn}` }}>
             <p className="text-lg font-bold tracking-tight leading-none" style={{ color: left <= 0 ? C.onDark : urgent ? C.bad : C.warn, fontVariantNumeric: "tabular-nums" }}>{fmtLeft(left)}</p>
             <p className="text-xs font-medium mt-1.5 truncate">{a.name}</p>
             <p className="text-[11px] truncate" style={{ opacity: .75 }}>{a.location}{a.risky ? " · rejected recently" : ""}</p>
-            <div className="flex items-center gap-1 mt-1 text-[10px]" style={{ opacity: .85, minHeight: 14 }}>{who && <><Avatar user={who} size={12} />{who.name.split(" ")[0]}{c.status === "stacked" ? " · stack" : ""}</>}{onMessage && <span onClick={e => { e.stopPropagation(); onMessage(a); }} className="ml-auto underline">assign</span>}</div>
+            {onMessage && <div className="flex items-center mt-1 text-[10px]" style={{ opacity: .85, minHeight: 14 }}><span onClick={e => { e.stopPropagation(); onMessage(a); }} className="ml-auto underline">assign</span></div>}
           </button>
         ); })}
       </div>
@@ -1823,17 +1823,9 @@ function MPalletInfo({ s, set, user, go, hu, onAssign }) {
         {lostOf(s, r) && <MLostControls s={s} set={set} user={user} row={r} />}
         {(() => { const al = computeDeadlineAlerts(s).find(a => samePallet(a.hu, r.hu)); if (!al) return null; return <div className="rounded-xl px-3 py-2 mb-3" style={{ background: C.badBg }}><p className="text-xs font-semibold flex items-center" style={{ color: C.bad }}><Ic i={AlertTriangle} s={13} />{al.level === "breached" ? "Rejection window expired" : `Rejection window closes in ${Math.max(0, Math.round(al.hoursLeft))} h`}</p><p className="text-[11px]" style={{ color: C.bad }}>{al.level === "breached" ? "Rejecting is no longer possible — inspect anyway and note it." : `Arrived ${r.arrived} ${r.arrivedTime}${al.risky ? " · this product was rejected recently, so it's flagged early" : ""}.`}</p></div>; })()}
         {r.blocking && !lostOf(s, r) && <div className="rounded-xl px-3 py-2 mb-3 text-xs font-semibold" style={{ background: C.badBg, color: C.bad }}>Needed today — picking is waiting for this pallet.</div>}
-        {!lostOf(s, r) && (() => { const c = claimOf(s, r); const me = c && c.userId === user.id; const who = c && s.users.find(u => u.id === c.userId); const stacked = c?.status === "stacked";
-          const take = () => setClaim(set, r, { userId: user.id, at: nowISO(), status: "taken" }); const stack = () => setClaim(set, r, { userId: user.id, at: nowISO(), status: "stacked" }); const release = () => setClaim(set, r, null);
-          return <div className="rounded-2xl px-3.5 py-3 mb-3" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
-            <div className="flex items-center gap-2 mb-2"><p className="text-xs flex-1" style={{ color: C.muted }}>{who ? <span className="flex items-center gap-1"><Avatar user={who} size={16} /><b style={{ color: me ? C.accent : C.ink }}>{me ? "You have" : `${who.name.split(" ")[0]} has`}</b> this pallet{stacked ? " · in stack, not reachable yet" : ""}</span> : "Nobody has this pallet yet — take it before you walk over."}</p></div>
-            <div className="flex gap-2">
-              {!c && <><button onClick={take} className="flex-1 py-2.5 rounded-xl text-sm font-semibold" style={{ background: C.ink, color: C.onDark }}>Take</button><button onClick={stack} className="flex-1 py-2.5 rounded-xl text-sm inline-flex items-center justify-center" style={{ border: `1px solid ${C.line}` }}><Ic i={Layers} s={13} />In stack</button></>}
-              {c && me && <><button onClick={stacked ? take : stack} className="flex-1 py-2.5 rounded-xl text-sm font-semibold" style={{ background: C.ink, color: C.onDark }}>{stacked ? "Reachable now — take" : "Mark in stack"}</button><button onClick={release} className="flex-1 py-2.5 rounded-xl text-sm" style={{ border: `1px solid ${C.line}`, color: C.muted }}>Release</button></>}
-              {c && !me && <button onClick={take} className="flex-1 py-2.5 rounded-xl text-sm font-semibold" style={{ background: C.ink, color: C.onDark }}>{stacked ? "Reachable now — take" : "Take over"}</button>}
-            </div>
-            {user.role === "Head" && onAssign && <button onClick={() => onAssign(r)} className="w-full py-2 text-xs mt-1 inline-flex items-center justify-center" style={{ color: C.accent }}><Ic i={MessageSquare} s={12} />Assign to someone in chat</button>}
-          </div>; })()}
+        {/* No take/in-stack claim here — dock pallets sit at a known location and duplicate inspections are already
+            caught when someone starts one, so "taking" a pallet just to look at it would add a step without a payoff. */}
+        {user.role === "Head" && onAssign && !lostOf(s, r) && <button onClick={() => onAssign(r)} className="w-full py-2 text-xs mb-2 inline-flex items-center justify-center" style={{ color: C.accent }}><Ic i={MessageSquare} s={12} />Assign to someone in chat</button>}
         <p className="label-sm mb-1" style={{ color: C.muted }}>This pallet</p>
         <div className="rounded-2xl p-3.5 mb-3" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
           {fields.map(([k, v]) => <div key={k} className="flex justify-between gap-3 py-1.5 text-sm" style={{ borderBottom: `1px solid ${C.line}` }}><span style={{ color: C.muted }}>{k}</span><span className="font-medium text-right">{v}</span></div>)}
@@ -1860,8 +1852,7 @@ function MPriorityList({ s, user, go, priority }) {
   const itemsFor = dayRows => { const groups = {}; dayRows.forEach(r => { const k = r.article || r.hu; (groups[k] = groups[k] || { rows: [] }).rows.push(r); });
     return Object.values(groups).map(g => { const first = g.rows[0]; const product = s.products.find(p => p.articleId === first.article); const hist = recentProblemsFor(s, product?.id);
       const locs = new Set(g.rows.map(r => r.location).filter(Boolean)); const earliest = [...g.rows].sort((x, y) => (x.arrivedTime || "99").localeCompare(y.arrivedTime || "99"))[0];
-      const cl = g.rows.length === 1 ? claimOf(s, first) : null; const holder = cl && s.users.find(u => u.id === cl.userId);
-      return { key: first.article || first.hu, name: first.name || product?.name || first.article, count: g.rows.length, hu: earliest.hu, productId: product?.id || null, holder, stacked: cl?.status === "stacked",
+      return { key: first.article || first.hu, name: first.name || product?.name || first.article, count: g.rows.length, hu: earliest.hu, productId: product?.id || null,
         location: locs.size <= 1 ? first.location : `${locs.size} locations`, transporter: earliest.transporter, arrivedTime: earliest.arrivedTime, blocking: g.rows.some(r => r.blocking), hist, priority: first.priority };
     // recent rejections first, then chronological by arrival time (oldest on top) — a ×N group counts as its earliest pallet
     }).sort((a, b) => (b.hist.count > 0) - (a.hist.count > 0) || (a.arrivedTime || "99").localeCompare(b.arrivedTime || "99")); };
@@ -1885,7 +1876,7 @@ function MPriorityList({ s, user, go, priority }) {
             </div>
             {items.map(it => (
               <button key={it.key} onClick={() => it.count > 1 && it.productId ? go("catalog", it.productId) : go("palletInfo", it.hu)} className="w-full text-left py-3 active:opacity-60" style={{ borderBottom: `1px solid ${C.line}` }}>
-                <div className="flex items-center gap-2">{isAll && subTab === "regular" && it.priority && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ background: PRIORITY[it.priority]?.[1] || C.line, color: PRIORITY[it.priority]?.[0] || C.muted }}>{it.priority}</span>}<p className="text-sm font-medium flex-1 truncate">{it.name}</p>{it.count > 1 && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ background: C.accentSoft, color: C.accent }}>×{it.count} on docks</span>}{it.hist.count > 0 && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ background: C.badBg, color: C.bad }}>{it.hist.count} rejected recently</span>}{it.holder && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0 inline-flex items-center gap-1" style={{ background: C.bg, color: it.holder.id === user.id ? C.accent : C.muted, border: `1px solid ${C.line}` }}><Avatar user={it.holder} size={12} />{it.holder.id === user.id ? "you" : it.holder.name.split(" ")[0]}{it.stacked ? " · stack" : ""}</span>}</div>
+                <div className="flex items-center gap-2">{isAll && subTab === "regular" && it.priority && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ background: PRIORITY[it.priority]?.[1] || C.line, color: PRIORITY[it.priority]?.[0] || C.muted }}>{it.priority}</span>}<p className="text-sm font-medium flex-1 truncate">{it.name}</p>{it.count > 1 && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ background: C.accentSoft, color: C.accent }}>×{it.count} on docks</span>}{it.hist.count > 0 && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ background: C.badBg, color: C.bad }}>{it.hist.count} rejected recently</span>}</div>
                 <p className="text-xs mt-0.5" style={{ color: C.muted }}>{it.location} · {it.transporter} · {it.arrivedTime}{it.blocking ? " · needed today" : ""}</p>
                 {it.hist.count > 0 && <p className="text-xs mt-1" style={{ color: C.bad }}>Was rejected for: {it.hist.problems.slice(0, 3).map(p => `${p.name} ×${p.count}`).join(", ")}{it.hist.problems.length > 3 ? "…" : ""} · last {dayLabel(it.hist.lastAt)}</p>}
               </button>
