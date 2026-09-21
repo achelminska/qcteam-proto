@@ -2653,13 +2653,33 @@ function ProductPicker({ products, value, onChange, placeholder = "Search produc
     </div>
   );
 }
-function CategoryPicker({ categories, value, onChange, invalid = false }) {
+// Searchable category picker — same pattern as ProductPicker, since the category tree can run to dozens of entries too.
+function CategoryPicker({ categories, value, onChange, placeholder = "Search category…", invalid = false }) {
   const catPath = c => { const p = c.parentId && categories.find(x => x.id === c.parentId); return p ? `${p.name} › ${c.name}` : c.name; };
+  const [q, setQ] = useState(""); const [open, setOpen] = useState(false);
+  const selected = categories.find(c => c.id === value);
+  const qq = q.trim().toLowerCase();
+  const results = (qq ? categories.filter(c => catPath(c).toLowerCase().includes(qq)) : categories).slice(0, 8);
+  if (selected && !open) return (
+    <div className="flex items-center gap-2 rounded-md px-2" style={{ ...inp, height: 32 }}>
+      <span className="flex-1 min-w-0 truncate text-[13px]">{catPath(selected)}</span>
+      <button onClick={() => { setQ(""); setOpen(true); }} className="text-xs flex-shrink-0" style={{ color: C.accent }}>change</button>
+    </div>
+  );
   return (
-    <select value={value} onChange={e => onChange(e.target.value)} className="w-full text-[13px] rounded-md px-2 outline-none" style={{ ...inp, height: 32, borderColor: invalid ? C.warn : C.line }}>
-      <option value="">Select a category…</option>
-      {categories.map(c => <option key={c.id} value={c.id}>{catPath(c)}</option>)}
-    </select>
+    <div className="relative">
+      <input autoFocus={open} value={q} onChange={e => setQ(e.target.value)} onFocus={() => setOpen(true)} onBlur={() => setTimeout(() => setOpen(false), 150)} placeholder={placeholder} className="w-full text-[13px] rounded-md px-2 outline-none" style={{ ...inp, height: 32, borderColor: invalid ? C.warn : C.line }} />
+      {open && (
+        <div className="absolute left-0 right-0 mt-1 rounded-md overflow-hidden z-10" style={{ background: C.surface, border: `1px solid ${C.line}`, maxHeight: 240, overflowY: "auto", boxShadow: "0 4px 16px rgba(0,0,0,.08)" }}>
+          {results.length === 0 ? <p className="text-xs px-2.5 py-2" style={{ color: C.muted }}>No matches.</p> : results.map(c => (
+            <button key={c.id} onMouseDown={e => e.preventDefault()} onClick={() => { onChange(c.id); setQ(""); setOpen(false); }} className="w-full text-left px-2.5 py-1.5" style={{ borderTop: `1px solid ${C.line}` }}>
+              <span className="block truncate text-[13px]">{catPath(c)}</span>
+            </button>
+          ))}
+          {categories.length > results.length && !qq && <p className="text-[11px] px-2.5 py-1.5" style={{ color: C.muted, borderTop: `1px solid ${C.line}` }}>{categories.length - results.length} more — keep typing to narrow it down</p>}
+        </div>
+      )}
+    </div>
   );
 }
 function AnnouncementsPage({ s, set, user, notify }) {

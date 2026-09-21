@@ -67,6 +67,33 @@ const MProductPicker = ({ products, value, onChange, placeholder = "Search produ
     </div>
   );
 };
+// Searchable category picker — same pattern as MProductPicker; the category tree runs to dozens of entries too.
+const MCategoryPicker = ({ categories, value, onChange, placeholder = "Search category…" }) => {
+  const catPath = c => { const p = c.parentId && categories.find(x => x.id === c.parentId); return p ? `${p.name} › ${c.name}` : c.name; };
+  const [q, setQ] = useState(""); const [open, setOpen] = useState(false);
+  const selected = categories.find(c => c.id === value);
+  const qq = q.trim().toLowerCase();
+  const results = (qq ? categories.filter(c => catPath(c).toLowerCase().includes(qq)) : categories).slice(0, 8);
+  if (selected && !open) return (
+    <div className="flex items-center justify-between rounded-xl px-3 py-2.5" style={{ border: `1px solid ${C.line}` }}>
+      <span className="text-sm truncate flex-1 min-w-0">{catPath(selected)}</span>
+      <button onClick={() => { setQ(""); setOpen(true); }} className="text-xs flex-shrink-0 ml-2" style={{ color: C.accent }}>change</button>
+    </div>
+  );
+  return (
+    <div>
+      <SearchBox autoFocus={open} value={q} onChange={v => { setQ(v); setOpen(true); }} placeholder={placeholder} inputClass="rounded-xl py-2.5" />
+      <div className="rounded-xl mt-1.5 overflow-hidden" style={{ border: `1px solid ${C.line}`, maxHeight: 220, overflowY: "auto" }}>
+        {results.length === 0 ? <p className="text-xs px-3 py-2.5" style={{ color: C.muted }}>No matches.</p> : results.map(c => (
+          <button key={c.id} onClick={() => { onChange(c.id); setQ(""); setOpen(false); }} className="w-full text-left px-3 py-2" style={{ borderTop: `1px solid ${C.line}` }}>
+            <span className="block text-sm truncate">{catPath(c)}</span>
+          </button>
+        ))}
+        {categories.length > results.length && !qq && <p className="text-xs px-3 py-2" style={{ color: C.muted, borderTop: `1px solid ${C.line}` }}>{categories.length - results.length} more — keep typing to narrow it down</p>}
+      </div>
+    </div>
+  );
+};
 // Notification look: one lucide icon per type in a soft circle; legacy messages get their emoji stripped on display.
 const NOTIF = { Exceeded: [AlertTriangle, "bad"], AcceptedDespite: [AlertTriangle, "warn"], Escalation: [HelpCircle, "warn"], Question: [MessageCircle, "info"], Answered: [MessageCircle, "ok"], Flag: [Flag, "warn"], Announcement: [Megaphone, "info"], EditedByOther: [Pencil, "info"], DeadlineWarning: [Clock, "warn"], DeadlineBreached: [AlertTriangle, "bad"], Lost: [Search, "warn"], Found: [Check, "ok"] };
 const notifLook = t => { const [I, tone] = NOTIF[t] || [Bell, "info"]; const fg = tone === "bad" ? C.bad : tone === "warn" ? C.warn : tone === "ok" ? C.ok : C.accent; const bg = tone === "bad" ? C.badBg : tone === "warn" ? C.warnBg : tone === "ok" ? C.okBg : C.accentSoft; return { I, fg, bg }; };
@@ -2478,7 +2505,6 @@ function MHeadAnnounce({ s, set, user, go, notify }) {
   const [d, setD] = useState({ title: "", body: "", isBlocking: false, showOnDashboard: true, productId: "", categoryId: "", validTo: "" });
   const publish = () => { if (!d.title.trim()) return; const id = uid(); set(x => ({ ...x, announcements: [...x.announcements, { id, title: d.title.trim(), body: d.body.trim(), productId: d.productId || null, categoryId: d.categoryId || null, validTo: d.validTo || null, createdBy: user.id, createdAt: nowISO(), acks: {}, isBlocking: d.isBlocking, showOnDashboard: d.showOnDashboard }] })); if (d.isBlocking && notify) s.users.filter(u => u.role === "Controller" && u.active !== false).forEach(u => notify("Announcement", `New blocking announcement: ${d.title.trim()}`, "Announcement", id, u.id)); go("home"); };
   const Chip = ({ on, onClick, children }) => <button onClick={onClick} className="text-xs px-3 py-1.5 rounded-full" style={{ background: on ? C.ink : "transparent", color: on ? C.onDark : C.ink, border: `1px solid ${on ? C.ink : C.line}` }}>{children}</button>;
-  const catPath = c => { const p = c.parentId && s.categories.find(x => x.id === c.parentId); return p ? `${p.name} › ${c.name}` : c.name; };
   return <div><TopBar title="New announcement" onBack={() => go("home")} /><div className="px-4 pt-3">
     <input value={d.title} onChange={e => setD(x => ({ ...x, title: e.target.value }))} placeholder="title" className="w-full text-sm mb-2" />
     <textarea value={d.body} onChange={e => setD(x => ({ ...x, body: e.target.value }))} placeholder="body" rows={4} className="w-full text-sm mb-3" />
@@ -2487,7 +2513,7 @@ function MHeadAnnounce({ s, set, user, go, notify }) {
     <div className="flex items-center justify-between mb-1.5"><p className="label-sm">Product (optional)</p>{d.productId && <button onClick={() => setD(x => ({ ...x, productId: "" }))} className="text-xs" style={{ color: C.muted }}>clear</button>}</div>
     <div className="mb-3"><MProductPicker products={s.products.filter(p => p.isActive !== false)} value={d.productId} onChange={id => setD(x => ({ ...x, productId: id, categoryId: id ? "" : x.categoryId }))} /></div>
     <div className="flex items-center justify-between mb-1.5"><p className="label-sm">Category (optional)</p>{d.categoryId && <button onClick={() => setD(x => ({ ...x, categoryId: "" }))} className="text-xs" style={{ color: C.muted }}>clear</button>}</div>
-    <select value={d.categoryId} onChange={e => setD(x => ({ ...x, categoryId: e.target.value, productId: e.target.value ? "" : x.productId }))} className="w-full text-sm mb-3"><option value="">— none —</option>{s.categories.map(c => <option key={c.id} value={c.id}>{catPath(c)}</option>)}</select>
+    <div className="mb-3"><MCategoryPicker categories={s.categories} value={d.categoryId} onChange={id => setD(x => ({ ...x, categoryId: id, productId: id ? "" : x.productId }))} /></div>
     <p className="label-sm mb-1.5">Dashboard until (optional)</p>
     <input type="date" value={d.validTo} onChange={e => setD(x => ({ ...x, validTo: e.target.value }))} className="w-full text-sm mb-4" />
     <button onClick={publish} disabled={!d.title.trim()} className="w-full py-3 rounded-xl text-sm font-medium" style={{ background: d.title.trim() ? C.ink : C.line, color: d.title.trim() ? C.onDark : C.muted }}>Publish</button>
