@@ -1267,8 +1267,10 @@ function CategoriesPage({ s, set, onMessage, onOpenProduct, presetSel, clearPres
   const used = id => s.products.some(p => p.categoryId === id) || s.categories.some(c => c.parentId === id);
   const remove = id => { set(x => ({ ...x, categories: x.categories.filter(c => c.id !== id) })); if (selCat === id) setSelCat(null); };
   const prodCount = id => s.products.filter(p => p.categoryId === id).length;
+  // The info/editing panel lives at the top of the page — jump there whenever a different category is picked from the grid below.
+  const selectCat = id => { setSelCat(id); try { window.scrollTo({ top: 0, behavior: "smooth" }); } catch {} };
   const CatCard = ({ c, sub }) => (
-    <button onClick={() => setSelCat(c.id)} className="rounded-2xl p-3 text-left flex items-center gap-2.5" style={{ background: selCat === c.id ? C.accentSoft : C.surface, border: `1px solid ${selCat === c.id ? C.accent : C.line}` }}>
+    <button onClick={() => selectCat(c.id)} className="rounded-2xl p-3 text-left flex items-center gap-2.5" style={{ background: selCat === c.id ? C.accentSoft : C.surface, border: `1px solid ${selCat === c.id ? C.accent : C.line}` }}>
       <span className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: sub ? C.bg : C.accentSoft, color: sub ? C.muted : C.accent }}>{sub ? "↳" : <Ic i={FolderTree} s={17} mr={0} />}</span>
       <span className="min-w-0">
         <span className="block text-sm font-medium truncate" style={{ color: selCat === c.id ? C.accent : C.ink }}>{c.name}</span>
@@ -1779,6 +1781,8 @@ function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset, onMessag
   const assignVisible = () => { if (!bulkCat) return; const ids = new Set(visibleUnassigned.map(p => p.id)); set(x => ({ ...x, products: x.products.map(p => ids.has(p.id) ? { ...p, categoryId: bulkCat } : p) })); };
   // Keep a product open at all times: pick the first visible one on load and whenever filters drop the current pick out of view.
   useEffect(() => { if (visible.length > 0 && !visible.some(p => p.id === sel)) setSel(visible[0].id); }, [catSel, filter, onlyBio, showInactive, s.products.length]);
+  // The profile panel lives at the top of the page — jump there whenever a different product is picked from the grid below.
+  const selectProduct = id => { setSel(id); try { window.scrollTo({ top: 0, behavior: "smooth" }); } catch {} };
   const patchP = p => set(x => ({ ...x, products: x.products.map(q => q.id === product.id ? { ...q, ...p } : q) }));
   // Delete: always asks. History (inspections, flags) is never deleted with the product — it just loses the product name.
   const [confirmDel, setConfirmDel] = useState(false);
@@ -1828,47 +1832,9 @@ function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset, onMessag
         <div className="flex items-center gap-2"><Primary small onClick={runImport} disabled={!importText.trim()}>Import</Primary><button onClick={() => setImportOpen(false)} className="text-xs px-2" style={{ color: C.muted }}>Close</button>{importMsg && <span className="text-xs" style={{ color: C.accent }}>{importMsg}</span>}</div>
       </Card>}
 
-      <div className="grid gap-4 items-start grid-cols-1 lg:grid-cols-[340px_minmax(0,1fr)]">
-        <Card style={{ padding: 12, minWidth: 0 }}>
-          <SearchBox value={filter} onChange={setFilter} placeholder="Search name or article ID" className="mb-2" inputClass="rounded-lg" size={13} />
-          <div className="flex items-center gap-1.5 mb-2">
-            <select value={catSel} onChange={e => setCatSel(e.target.value)} className="flex-1 min-w-0 text-[13px] rounded-md px-2 outline-none" style={{ ...inp, height: 32 }}>
-              <option value="">All categories · {countIn("")}</option>
-              {unassigned > 0 && <option value="none">No category · {countIn("none")}</option>}
-              {roots.map(c => <option key={c.id} value={c.id}>{c.name} · {countIn(c.id)}</option>)}
-            </select>
-            <select value={sortBy} onChange={e => setSortBy(e.target.value)} className="text-[13px] rounded-md px-1.5 outline-none flex-shrink-0" style={{ ...inp, height: 32, width: 92 }}><option value="az">A–Z</option><option value="id">by ID</option><option value="cat">by cat.</option></select>
-          </div>
-          {catSel && catSel !== "none" && children(catSel).length > 0 && <div className="flex flex-wrap gap-1.5 mb-2" style={{ maxHeight: 64, overflowY: "auto" }}>{children(catSel).map(c => <button key={c.id} onClick={() => setCatSel(c.id)} className="text-[11px] px-2 py-0.5 rounded-full flex-shrink-0" style={{ background: C.bg, border: `1px solid ${C.line}` }}>{c.name} · {countIn(c.id)}</button>)}</div>}
-          {catSel && catSel !== "none" && s.categories.find(c => c.id === catSel)?.parentId && <p className="text-[11px] mb-2" style={{ color: C.muted }}>{catPath(catSel)} · <button onClick={() => setCatSel(s.categories.find(c => c.id === catSel).parentId)} className="underline">up</button></p>}
-          <div className="flex items-center gap-2 mb-2 text-xs" style={{ color: C.muted }}>
-            <span>{visible.length} of {s.products.length}</span>
-            <label className="flex items-center gap-1 cursor-pointer ml-1"><input type="checkbox" checked={onlyBio} onChange={e => setOnlyBio(e.target.checked)} />bio</label>
-            <label className="flex items-center gap-1 cursor-pointer"><input type="checkbox" checked={showInactive} onChange={e => setShowInactive(e.target.checked)} />inactive</label>
-          </div>
-          {unassigned > 0 && catSel !== "none" && <button onClick={() => setCatSel("none")} className="w-full text-left text-xs rounded-lg px-2.5 py-2 mb-2" style={{ background: C.warnBg, color: C.warn }}>{unassigned} product{unassigned === 1 ? "" : "s"} without a category — they get no category specs. Show them →</button>}
-          {catSel === "none" && unassigned > 0 && <CategorySuggestPanel s={s} set={set} products={s.products.filter(p => !p.categoryId)} />}
-          {visibleUnassigned.length > 0 && (
-            <div className="flex items-center gap-2 mb-2 rounded-lg p-2" style={{ background: C.accentSoft }}>
-              <span className="text-xs whitespace-nowrap" style={{ color: C.accent }}>{visibleUnassigned.length} shown →</span>
-              <select value={bulkCat} onChange={e => setBulkCat(e.target.value)} className="text-xs rounded px-1.5 py-1 outline-none flex-1 min-w-0" style={{ ...inp }}><option value="">assign category…</option>{s.categories.map(c => <option key={c.id} value={c.id}>{catPath(c.id)}</option>)}</select>
-              <Primary small onClick={assignVisible} disabled={!bulkCat}>Assign</Primary>
-            </div>
-          )}
-          <div style={{ maxHeight: "calc(100vh - 320px)", overflowY: "auto" }}>
-            {s.products.length === 0 ? <Empty icon="📦" title="No products yet" hint="Create one, import a list, or map a product sheet in Integrations." /> : visible.length === 0 ? <p className="text-xs py-6 text-center" style={{ color: C.muted }}>Nothing matches.</p> : visible.map(p => (
-              <button key={p.id} onClick={() => setSel(p.id)} className="w-full flex items-center gap-2 px-2 py-1 rounded-md text-left" style={{ background: sel === p.id ? C.accentSoft : "transparent", opacity: p.isActive === false ? .55 : 1 }}>
-                {thumb(p)}
-                <span className="flex-1 min-w-0"><span className="block text-[13px] truncate" style={{ color: sel === p.id ? C.accent : C.ink, fontWeight: sel === p.id ? 600 : 400 }}>{p.name}</span><span className="block text-[11px] truncate" style={{ color: C.muted }}>{p.articleId || "no ID"} · {p.categoryId ? catPath(p.categoryId) : <span style={{ color: C.warn }}>no category</span>}</span></span>
-                {p.isBio && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ background: C.okBg, color: C.ok }}>bio</span>}
-                {p.isActive === false && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ background: C.line, color: C.muted }}>inactive</span>}
-              </button>
-            ))}
-          </div>
-        </Card>
-
-        <div className="min-w-0">
-          {!product ? <Card><Empty icon="📦" title="Select a product" hint="Its profile, photos, specifications, suppliers and inspection types open here." /></Card> : (
+      {/* Selected product: full profile panel, always on top */}
+      <div className="mb-4">
+        {!product ? <Card><Empty icon="📦" title="Select a product" hint="Its profile, photos, specifications, suppliers and inspection types open here." /></Card> : (
             <Card style={{ padding: 0, overflow: "hidden" }}>
               <div className="flex items-center gap-3 px-4 pt-4 pb-3">
                 {asPhotoList(product.photos)[0] ? <img src={asPhotoList(product.photos)[0].dataUrl} alt="" className="rounded-lg object-cover flex-shrink-0" style={{ width: 52, height: 52 }} /> : <button onClick={() => setTab("photos")} className="rounded-lg flex items-center justify-center flex-shrink-0" style={{ width: 52, height: 52, background: C.bg, color: C.muted, border: `1px dashed ${C.line}` }}><Ic i={ImageIcon} s={18} mr={0} /></button>}
@@ -1951,9 +1917,50 @@ function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset, onMessag
                 </div>}
               </div>
             </Card>
-          )}
-        </div>
+        )}
       </div>
+
+      {/* Below: browse & search all products, catalog-style like the mobile app */}
+      <Card style={{ padding: 12 }}>
+        <SearchBox value={filter} onChange={setFilter} placeholder="Search name or article ID" className="mb-2" inputClass="rounded-lg" size={13} />
+        <div className="flex items-center gap-1.5 mb-2 flex-wrap">
+          <select value={catSel} onChange={e => setCatSel(e.target.value)} className="text-[13px] rounded-md px-2 outline-none" style={{ ...inp, height: 32, minWidth: 180 }}>
+            <option value="">All categories · {countIn("")}</option>
+            {unassigned > 0 && <option value="none">No category · {countIn("none")}</option>}
+            {roots.map(c => <option key={c.id} value={c.id}>{c.name} · {countIn(c.id)}</option>)}
+          </select>
+          <select value={sortBy} onChange={e => setSortBy(e.target.value)} className="text-[13px] rounded-md px-1.5 outline-none flex-shrink-0" style={{ ...inp, height: 32, width: 92 }}><option value="az">A–Z</option><option value="id">by ID</option><option value="cat">by cat.</option></select>
+          <label className="flex items-center gap-1 cursor-pointer text-xs ml-1" style={{ color: C.muted }}><input type="checkbox" checked={onlyBio} onChange={e => setOnlyBio(e.target.checked)} />bio</label>
+          <label className="flex items-center gap-1 cursor-pointer text-xs" style={{ color: C.muted }}><input type="checkbox" checked={showInactive} onChange={e => setShowInactive(e.target.checked)} />inactive</label>
+          <span className="text-xs ml-auto" style={{ color: C.muted }}>{visible.length} of {s.products.length}</span>
+        </div>
+        {catSel && catSel !== "none" && children(catSel).length > 0 && <div className="flex flex-wrap gap-1.5 mb-2" style={{ maxHeight: 64, overflowY: "auto" }}>{children(catSel).map(c => <button key={c.id} onClick={() => setCatSel(c.id)} className="text-[11px] px-2 py-0.5 rounded-full flex-shrink-0" style={{ background: C.bg, border: `1px solid ${C.line}` }}>{c.name} · {countIn(c.id)}</button>)}</div>}
+        {catSel && catSel !== "none" && s.categories.find(c => c.id === catSel)?.parentId && <p className="text-[11px] mb-2" style={{ color: C.muted }}>{catPath(catSel)} · <button onClick={() => setCatSel(s.categories.find(c => c.id === catSel).parentId)} className="underline">up</button></p>}
+        {unassigned > 0 && catSel !== "none" && <button onClick={() => setCatSel("none")} className="w-full text-left text-xs rounded-lg px-2.5 py-2 mb-2" style={{ background: C.warnBg, color: C.warn }}>{unassigned} product{unassigned === 1 ? "" : "s"} without a category — they get no category specs. Show them →</button>}
+        {catSel === "none" && unassigned > 0 && <CategorySuggestPanel s={s} set={set} products={s.products.filter(p => !p.categoryId)} />}
+        {visibleUnassigned.length > 0 && (
+          <div className="flex items-center gap-2 mb-2 rounded-lg p-2" style={{ background: C.accentSoft }}>
+            <span className="text-xs whitespace-nowrap" style={{ color: C.accent }}>{visibleUnassigned.length} shown →</span>
+            <select value={bulkCat} onChange={e => setBulkCat(e.target.value)} className="text-xs rounded px-1.5 py-1 outline-none flex-1 min-w-0" style={{ ...inp }}><option value="">assign category…</option>{s.categories.map(c => <option key={c.id} value={c.id}>{catPath(c.id)}</option>)}</select>
+            <Primary small onClick={assignVisible} disabled={!bulkCat}>Assign</Primary>
+          </div>
+        )}
+        {s.products.length === 0 ? <Empty icon="📦" title="No products yet" hint="Create one, import a list, or map a product sheet in Integrations." /> : visible.length === 0 ? <p className="text-xs py-6 text-center" style={{ color: C.muted }}>Nothing matches.</p> : (
+          <div className="grid gap-2" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(170px, 1fr))" }}>
+            {visible.map(p => (
+              <button key={p.id} onClick={() => selectProduct(p.id)} className="rounded-2xl p-2.5 text-left" style={{ background: sel === p.id ? C.accentSoft : C.surface, border: `1px solid ${sel === p.id ? C.accent : C.line}`, opacity: p.isActive === false ? .55 : 1 }}>
+                {asPhotoList(p.photos).length ? <img src={asPhotoList(p.photos)[0].dataUrl} alt="" className="w-full rounded-xl object-cover mb-2" style={{ height: 72 }} /> : <div className="w-full rounded-xl flex items-center justify-center mb-2" style={{ height: 72, background: C.bg, color: C.muted }}><Ic i={Package} s={20} mr={0} /></div>}
+                <p className="text-xs font-medium leading-tight truncate" style={{ color: sel === p.id ? C.accent : C.ink }}>{p.name}</p>
+                <p className="text-[10px] mt-0.5 truncate" style={{ color: C.muted }}>{p.articleId || "no ID"} · {p.categoryId ? catPath(p.categoryId) : <span style={{ color: C.warn }}>no category</span>}</p>
+                <div className="flex items-center gap-1 mt-1">
+                  {p.isBio && <span className="text-[9px] px-1.5 py-0.5 rounded-full" style={{ background: C.okBg, color: C.ok }}>bio</span>}
+                  {p.isActive === false && <span className="text-[9px] px-1.5 py-0.5 rounded-full" style={{ background: C.line, color: C.muted }}>inactive</span>}
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+      </Card>
     </div>
   );
 }
