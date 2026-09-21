@@ -1795,6 +1795,20 @@ function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset, onMessag
   const visibleSup = allSup.filter(x => x.name.toLowerCase().includes(supQ.toLowerCase()));
   const Field = ({ label, hint, children, className = "" }) => <label className={`block min-w-0 ${className}`}><span className="block text-[11px] font-medium mb-1" style={{ color: C.muted, letterSpacing: ".01em" }}>{label}</span>{children}{hint && <span className="block text-[11px] mt-1" style={{ color: C.muted }}>{hint}</span>}</label>;
   const Input = props => <input {...props} className={`w-full text-[13px] rounded-md px-2 outline-none ${props.className || ""}`} style={{ ...inp, height: 32, ...(props.style || {}) }} />;
+  // Code fields (article ID, barcodes) are often filled by a handheld scanner, which "types" the whole code in a
+  // few milliseconds — far faster than a human. Binding straight to patchP would re-sort the whole catalog and
+  // queue a server sync on every single keystroke, and the app can't keep up: characters after the first get
+  // dropped. FastInput keeps keystrokes local (cheap) and only commits to app state after a short pause, on
+  // blur, or on Enter — so the scan lands intact, and manual typing still autosaves a moment after you stop.
+  const FastInput = ({ value, onCommit, ...props }) => {
+    const [local, setLocal] = useState(value);
+    const lastCommitted = useRef(value);
+    const timerRef = useRef(null);
+    useEffect(() => { if (value !== lastCommitted.current) { setLocal(value); lastCommitted.current = value; } }, [value]);
+    useEffect(() => () => { if (timerRef.current) clearTimeout(timerRef.current); }, []);
+    const commit = v => { if (v !== lastCommitted.current) { lastCommitted.current = v; onCommit(v); } };
+    return <Input {...props} value={local} onChange={e => { const v = e.target.value; setLocal(v); if (timerRef.current) clearTimeout(timerRef.current); timerRef.current = setTimeout(() => commit(v), 250); }} onBlur={e => { if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; } commit(local); props.onBlur && props.onBlur(e); }} onKeyDown={e => { if (e.key === "Enter") { if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; } commit(local); e.currentTarget.blur(); } props.onKeyDown && props.onKeyDown(e); }} />;
+  };
   const Group = ({ title, children, cols = 3 }) => <div className="mb-4"><p className="text-[11px] font-semibold uppercase mb-2" style={{ color: C.muted, letterSpacing: ".06em" }}>{title}</p><div className="grid gap-x-3 gap-y-3" style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}>{children}</div></div>;
   const thumb = pr => { const ph = asPhotoList(pr.photos)[0]; return ph ? <img src={ph.dataUrl} alt="" className="rounded-md object-cover flex-shrink-0" style={{ width: 30, height: 30 }} /> : <span className="rounded-md flex items-center justify-center flex-shrink-0" style={{ width: 30, height: 30, background: C.bg, color: C.muted }}><Ic i={Package} s={14} mr={0} /></span>; };
   const tabs = product ? [["profile", "Profile"], ["photos", `Photos${asPhotoList(product.photos).length ? ` · ${asPhotoList(product.photos).length}` : ""}`], ["specs", `Specifications${effectiveSpecs(s, product).length ? ` · ${effectiveSpecs(s, product).length}` : ""}`], ["attrs", `Properties${effectiveAttributes(s, product).length ? ` · ${effectiveAttributes(s, product).length}` : ""}`], ["supply", `Suppliers${(product.supplierIds || []).length ? ` · ${(product.supplierIds || []).length}` : ""}`], ["policy", "Inspection types"]] : [];
@@ -1865,14 +1879,14 @@ function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset, onMessag
                 {tab === "profile" && <div style={{ maxWidth: 760 }}>
                   <Group title="Identity" cols={6}>
                     <Field label="Name" className="col-span-4"><Input value={product.name} onChange={e => patchP({ name: e.target.value })} /></Field>
-                    <Field label="Article ID"><Input value={product.articleId || ""} onChange={e => patchP({ articleId: e.target.value })} className="font-mono" style={{ borderColor: product.articleId ? C.line : C.warn }} /></Field>
+                    <Field label="Article ID"><FastInput value={product.articleId || ""} onCommit={v => patchP({ articleId: v })} className="font-mono" style={{ borderColor: product.articleId ? C.line : C.warn }} /></Field>
                     <Field label="Bio"><button onClick={() => patchP({ isBio: !product.isBio })} className="w-full text-[13px] rounded-md" style={{ height: 32, border: `1px solid ${product.isBio ? C.ok : C.line}`, background: product.isBio ? C.okBg : C.surface, color: product.isBio ? C.ok : C.muted }}>{product.isBio ? "bio" : "no"}</button></Field>
                     <Field label="Category" className="col-span-3"><select value={product.categoryId || ""} onChange={e => patchP({ categoryId: e.target.value || null })} className="w-full text-[13px] rounded-md px-1.5 outline-none" style={{ ...inp, height: 32, borderColor: product.categoryId ? C.line : C.warn }}><option value="">—</option>{s.categories.map(c => <option key={c.id} value={c.id}>{catPath(c.id)}</option>)}</select></Field>
                     <Field label="Consumer app link" className="col-span-3"><Input value={product.consumerAppUrl || ""} onChange={e => patchP({ consumerAppUrl: e.target.value })} placeholder="https://…" /></Field>
                   </Group>
                   <Group title="Codes" cols={2}>
-                    <Field label="Barcode CU · consumer pack"><Input value={product.barcodeCu || ""} onChange={e => patchP({ barcodeCu: e.target.value })} className="font-mono" style={{ borderColor: product.barcodeCu || product.barcodeTu ? C.line : C.warn }} /></Field>
-                    <Field label="Barcode TU · box / case"><Input value={product.barcodeTu || ""} onChange={e => patchP({ barcodeTu: e.target.value })} className="font-mono" style={{ borderColor: product.barcodeCu || product.barcodeTu ? C.line : C.warn }} /></Field>
+                    <Field label="Barcode CU · consumer pack"><FastInput value={product.barcodeCu || ""} onCommit={v => patchP({ barcodeCu: v })} className="font-mono" style={{ borderColor: product.barcodeCu || product.barcodeTu ? C.line : C.warn }} /></Field>
+                    <Field label="Barcode TU · box / case"><FastInput value={product.barcodeTu || ""} onCommit={v => patchP({ barcodeTu: v })} className="font-mono" style={{ borderColor: product.barcodeCu || product.barcodeTu ? C.line : C.warn }} /></Field>
                     {!product.barcodeCu && !product.barcodeTu && <p className="text-[11px] col-span-2 -mt-1" style={{ color: C.warn }}>At least one barcode — the scanner matches on it.</p>}
                   </Group>
                   <Group title="Packaging" cols={3}>
