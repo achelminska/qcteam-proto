@@ -153,6 +153,24 @@ const problemsFor = (s, scope, suppressed) => {
   return list;
 };
 const scopeTag = (p, s) => p.productId ? `product: ${s.products.find(x => x.id === p.productId)?.name ?? "?"}` : p.categoryId ? `kat. ${s.categories.find(x => x.id === p.categoryId)?.name ?? "?"}` : null;
+// Suggestions: problem names used in OTHER categories/products (not this scope, not global) that aren't already visible here.
+const problemSuggestions = (s, scope, visible) => {
+  if (scope.kind === "Global") return [];
+  const visibleNames = new Set(visible.map(p => p.name.trim().toLowerCase()));
+  const labelOf = p => p.productId ? s.products.find(x => x.id === p.productId)?.name : p.categoryId ? s.categories.find(x => x.id === p.categoryId)?.name : null;
+  const map = new Map();
+  s.problems.forEach(p => {
+    if (!p.categoryId && !p.productId) return;
+    if (p.categoryId === scope.id || p.productId === scope.id) return;
+    const key = p.name.trim().toLowerCase();
+    if (!key || visibleNames.has(key)) return;
+    const label = labelOf(p);
+    if (!label) return;
+    if (!map.has(key)) map.set(key, { name: p.name.trim(), sources: new Set() });
+    map.get(key).sources.add(label);
+  });
+  return [...map.values()].map(v => ({ name: v.name, sources: [...v.sources] })).sort((a, b) => a.name.localeCompare(b.name));
+};
 // Required inspection level: Full (raport) < Visual (visual is enough) < Skip (can be skipped). Product → category → system setting.
 // Inspection types are Head-defined (InspectionTypes). Behaviour comes from flags, not from the name.
 // No default inspection types: the Head defines them (Forms → + new type). Legacy ids below only keep old records readable.
@@ -1531,6 +1549,9 @@ function ProblemsPage({ s, set }) {
   const visible = problemsFor(s, scope);
   const patch = (id, p) => set(x => ({ ...x, problems: x.problems.map(n => n.id === id ? { ...n, ...p } : n) }));
   const add = parentId => set(x => ({ ...x, problems: [...x.problems, { id: uid(), parentId, name: parentId ? "new problem" : "New problem type", tolerance: null, categoryId: scope.kind === "Category" ? scope.id : null, productId: scope.kind === "Product" ? scope.id : null }] }));
+  const addSuggestion = name => set(x => ({ ...x, problems: [...x.problems, { id: uid(), parentId: null, name, tolerance: null, categoryId: scope.kind === "Category" ? scope.id : null, productId: scope.kind === "Product" ? scope.id : null }] }));
+  const suggestions = problemSuggestions(s, scope, visible);
+  const sourceLabel = list => list.length <= 2 ? list.join(", ") : `${list.slice(0, 2).join(", ")} +${list.length - 2}`;
   const catPath = c => { const p = c.parentId && s.categories.find(x => x.id === c.parentId); return p ? `${p.name} › ${c.name}` : c.name; };
   const isOwned = scope.kind === "Global" ? null : n => scope.kind === "Category" ? n.categoryId === scope.id : n.productId === scope.id;
   const holder = scope.kind === "Category" ? s.categories.find(c => c.id === scope.id) : scope.kind === "Product" ? s.products.find(p => p.id === scope.id) : null;
@@ -1549,15 +1570,32 @@ function ProblemsPage({ s, set }) {
         <select value={scope.kind === "Product" ? scope.id : ""} onChange={e => e.target.value && setScope({ kind: "Product", id: e.target.value })} className="text-xs rounded px-2 py-1.5 outline-none" style={{ ...inp, background: scope.kind === "Product" ? C.accent : C.accentSoft, color: scope.kind === "Product" ? C.onDark : C.accent, border: "none" }}><option value="">for product…</option>{s.products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select>
         <span className="text-xs" style={{ color: C.muted }}>{scope.kind === "Global" ? "editing the global catalog" : "inherited nodes can only be hidden or extended; you delete and edit only what was added here"}</span>
       </div>
-      <Card>
-        {visible.length === 0 ? <Empty icon="🌳" title="The catalog is empty" hint="Typically: “Quality problems” with Major/Minor subcategories, and “General problems” with pallet issues. Set tolerance on the subcategory and override on a specific problem only when needed." action={<Primary onClick={() => add(null)}>Add the first type</Primary>} /> : (
-          <>
-            {visible.filter(p => !p.parentId).map(r => <CatalogNode key={r.id} node={r} problems={visible} onPatch={patch} onAdd={add} onRemove={remove} s={s} isOwned={isOwned} onHide={scope.kind === "Global" ? null : hide} collapsed={collapsed} onToggle={toggleCollapse} />)}
-            {hiddenHere.length > 0 && <div className="text-xs mt-3 flex flex-wrap gap-1.5 items-center" style={{ color: C.muted }}>hidden in this scope: {hiddenHere.map(h => <button key={h.id} onClick={() => unhide(h.id)} className="px-1.5 py-0.5 rounded line-through" style={{ background: C.line }} title="restore">{h.name}</button>)}</div>}
-            <div className="mt-3"><Ghost onClick={() => add(null)}>+ Add problem type{scope.kind !== "Global" && " (in this scope)"}</Ghost></div>
-          </>
+      <div className="grid gap-4" style={{ gridTemplateColumns: suggestions.length > 0 ? "1fr 280px" : "1fr" }}>
+        <Card>
+          {visible.length === 0 ? <Empty icon="🌳" title="The catalog is empty" hint="Typically: “Quality problems” with Major/Minor subcategories, and “General problems” with pallet issues. Set tolerance on the subcategory and override on a specific problem only when needed." action={<Primary onClick={() => add(null)}>Add the first type</Primary>} /> : (
+            <>
+              {visible.filter(p => !p.parentId).map(r => <CatalogNode key={r.id} node={r} problems={visible} onPatch={patch} onAdd={add} onRemove={remove} s={s} isOwned={isOwned} onHide={scope.kind === "Global" ? null : hide} collapsed={collapsed} onToggle={toggleCollapse} />)}
+              {hiddenHere.length > 0 && <div className="text-xs mt-3 flex flex-wrap gap-1.5 items-center" style={{ color: C.muted }}>hidden in this scope: {hiddenHere.map(h => <button key={h.id} onClick={() => unhide(h.id)} className="px-1.5 py-0.5 rounded line-through" style={{ background: C.line }} title="restore">{h.name}</button>)}</div>}
+              <div className="mt-3"><Ghost onClick={() => add(null)}>+ Add problem type{scope.kind !== "Global" && " (in this scope)"}</Ghost></div>
+            </>
+          )}
+        </Card>
+        {suggestions.length > 0 && (
+          <Card>
+            <p className="font-medium text-sm mb-1 flex items-center gap-1"><Ic i={Sparkles} s={14} mr={0} />Suggestions</p>
+            <p className="text-xs mb-3" style={{ color: C.muted }}>Used elsewhere, not yet here — click + to add.</p>
+            {suggestions.map(sug => (
+              <div key={sug.name} className="row flex items-center gap-2 py-1.5 px-1 rounded-lg" style={{ borderTop: `1px solid ${C.line}` }}>
+                <span className="flex-1 min-w-0">
+                  <span className="block text-sm truncate">{sug.name}</span>
+                  <span className="block text-[10px] truncate" style={{ color: C.muted }}>{sourceLabel(sug.sources)}</span>
+                </span>
+                <button onClick={() => addSuggestion(sug.name)} className="text-xs px-1.5 flex-shrink-0" style={{ color: C.accent }} title="add here">+</button>
+              </div>
+            ))}
+          </Card>
         )}
-      </Card>
+      </div>
     </div>
   );
 }
