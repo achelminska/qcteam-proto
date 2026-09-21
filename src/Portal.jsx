@@ -11,12 +11,12 @@ import { Clock, MessageCircle, Link2, List as ListIcon, BarChart3, Printer, Slid
 // ═══════════════════════════════════════════════════════════════════════════
 
 const LIGHT = {
-  bg: "#EBEEE9", surface: "#F8FAF7", ink: "#182219", muted: "#6A776E", line: "#D3DAD4",
+  bg: "#DEE4DA", surface: "#EBEFE8", ink: "#182219", muted: "#5C6960", line: "#C4CCC6",
   accent: "#1F5C3E", accentSoft: "rgba(31,92,62,.09)",
   warn: "#9C6A1E", warnBg: "rgba(156,106,30,.10)",
   ok: "#1F6B45", okBg: "rgba(31,107,69,.10)",
   bad: "#A63D3D", badBg: "rgba(166,61,61,.09)",
-  onDark: "#FFFFFF", onDarkMuted: "rgba(255,255,255,.7)", onDarkSoft: "rgba(255,255,255,.2)", frameBg: "#E2E7E1",
+  onDark: "#FFFFFF", onDarkMuted: "rgba(255,255,255,.7)", onDarkSoft: "rgba(255,255,255,.2)", frameBg: "#D6DCD2",
 };
 const DARK = {
   bg: "#0F1512", surface: "#161D19", ink: "#E7ECE8", muted: "#8E9C93", line: "#263129",
