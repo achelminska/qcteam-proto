@@ -147,6 +147,10 @@ const specBasis = q => q?.basis || "piece"; const fieldBasis = f => f?.measureBa
 const limitsFor = (spec, f, piecesPerCu) => { const mn = spec ? spec.min : f.min, mx = spec ? spec.max : f.max; if (!spec) return { min: mn, max: mx, factor: 1, note: "" }; const sb = specBasis(spec), fb = fieldBasis(f); if (sb === fb) return { min: mn, max: mx, factor: 1, note: "" }; const n = Number(piecesPerCu) || 0; if (!n) return { min: mn, max: mx, factor: 1, note: `spec is per ${sb}, you measure per ${fb} — pieces per CU unknown, comparing as is` }; const factor = sb === "piece" && fb === "cu" ? n : 1 / n; const cv = v => hasV(v) ? String(Math.round(Number(v) * factor * 1000) / 1000) : v; return { min: cv(mn), max: cv(mx), factor, note: `spec ${specLabel(spec)}/${sb} → ${specLabel({ min: cv(mn), max: cv(mx), unit: spec.unit })} per ${fb} (${n} pcs/CU)` }; };
 const slugKey = str => (str || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
 const metricKey = f => f.key || slugKey(f.specName || f.label);
+// Fields created in the builder default to label "New field" until the Head renames them — easy to miss when they
+// instead fill in "specification by name" and never touch the label box above it. Falls back to the spec name so the
+// field still shows something meaningful on screen and in the PDF instead of the literal placeholder.
+const fieldLabel = f => { const l = (f.label || "").trim(); return (l && l.toLowerCase() !== "new field") ? l : ((f.specName || "").trim() || l || "New field"); };
 const STATUS = { Draft: ["Draft", C.muted, C.line], PendingReview: ["Awaiting Head", C.warn, C.warnBg], Completed: ["Completed", C.ok, C.okBg], Cancelled: ["Cancelled", C.muted, C.line] };
 const nowISO = () => new Date().toISOString();
 const fmtTime = iso => { const d = new Date(iso); return isNaN(d) ? "" : d.toLocaleString("en-GB", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }); };
@@ -174,7 +178,18 @@ const effTol = (problems, overrides, id) => {
 const presenceIn = (problems, remarks, id) => { const sub = subtree(problems, id); return remarks.some(r => r.mode === "Presence" && sub.has(r.leafId)); };
 const pct = (r, totals) => { if (r.mode === "Presence") return 0; const raw = Number(r.raw) || 0; const base = r.mode === "PieceCount" ? totals.pieces : r.mode === "DirectWeight" ? totals.weight : totals.cu; return base ? raw / base * 100 : 0; };
 const aggregate = (problems, remarks, id, totals) => { const s = subtree(problems, id); return remarks.filter(r => s.has(r.leafId)).reduce((a, r) => a + pct(r, totals), 0); };
-const statusOf = (problems, overrides, remarks, id, totals) => { const t = effTol(problems, overrides, id), a = aggregate(problems, remarks, id, totals), pr = presenceIn(problems, remarks, id); if (pr && t === 0) return "exceeded"; if (t === null) return a > 0 || pr ? "flagged" : "clean"; return a > t ? "exceeded" : a > 0 || pr ? "flagged" : "clean"; };
+const statusOf = (problems, overrides, remarks, id, totals) => {
+  const t = effTol(problems, overrides, id), a = aggregate(problems, remarks, id, totals), pr = presenceIn(problems, remarks, id);
+  if (pr && t === 0) return "exceeded";
+  if (t === null) {
+    // An aggregate category with no tolerance of its own (e.g. "Quality problems", summing unrelated % types) used to
+    // cap at "flagged" (orange) no matter how bad a child was — one leaf could be way over its own tolerance and the
+    // category bar would still show orange, never red. It now inherits "exceeded" from any child that is.
+    if (problems.some(k => k.parentId === id && statusOf(problems, overrides, remarks, k.id, totals) === "exceeded")) return "exceeded";
+    return a > 0 || pr ? "flagged" : "clean";
+  }
+  return a > t ? "exceeded" : a > 0 || pr ? "flagged" : "clean";
+};
 const tone = s => s === "exceeded" ? [C.bad, C.badBg] : s === "flagged" ? [C.warn, C.warnBg] : [C.ok, C.okBg];
 
 // ProductSpecification: MinValue / MaxValue (at least one). The "bad when" direction follows from what is set.
@@ -448,7 +463,7 @@ async function buildReportPdf(insp, s) {
     h2("Quality status");
     const body = rows.map(n => { const tol = effTol(problems, t.overrides || [], n.id), agg = aggregate(problems, insp.remarks || [], n.id, totals), pr = presenceIn(problems, insp.remarks || [], n.id), st = statusOf(problems, t.overrides || [], insp.remarks || [], n.id, totals); return [n.name, tol === 0 ? (pr ? "present" : "—") : `${fmt(agg)}%`, tol === null ? "—" : `${tol}%`, st]; });
     doc.autoTable({ ...tableBase, startY: y, head: [["Problem group", "Found", "Tolerance", "Status"]], body, columnStyles: { 0: { fontStyle: "bold" }, 3: { fontStyle: "bold" } },
-      didParseCell: d => { if (d.section === "body" && d.column.index === 3) { const st = d.cell.raw; d.cell.text = [st === "exceeded" ? "EXCEEDED" : st === "flagged" ? "within" : "clean"]; d.cell.styles.textColor = st === "exceeded" ? BAD : st === "flagged" ? WARN : OK; } } });
+      didParseCell: d => { if (d.section === "body" && d.column.index === 3) { const st = d.cell.raw; d.cell.text = [st === "exceeded" ? "OVER TOLERANCE" : st === "flagged" ? "within tolerance" : "clean"]; d.cell.styles.textColor = st === "exceeded" ? BAD : st === "flagged" ? WARN : OK; } } });
     y = doc.lastAutoTable.finalY + 4;
   }
   if ((insp.remarks || []).length) {
@@ -459,7 +474,7 @@ async function buildReportPdf(insp, s) {
   const answered = (t.fields || []).filter(f => !isSystem(f.type) && insp.values?.[f.id] !== undefined && insp.values?.[f.id] !== "").sort(bySort);
   if (answered.length) {
     h2("Parameters");
-    const body = answered.map(f => { const v = insp.values[f.id]; let txt; if (f.type === "Number") { const nums = (v?.measurements || []).filter(x => x !== "").map(Number); txt = nums.map(fmt).join(" / ") + (nums.length > 1 ? ` — avg ${fmt(nums.reduce((a, b) => a + b, 0) / nums.length)}` : ""); } else txt = Array.isArray(v) ? v.join(", ") : String(v ?? ""); return [f.label, txt]; });
+    const body = answered.map(f => { const v = insp.values[f.id]; let txt; if (f.type === "Number") { const nums = (v?.measurements || []).filter(x => x !== "").map(Number); txt = nums.map(fmt).join(" / ") + (nums.length > 1 ? ` — avg ${fmt(nums.reduce((a, b) => a + b, 0) / nums.length)}` : ""); } else txt = Array.isArray(v) ? v.join(", ") : String(v ?? ""); return [fieldLabel(f), txt]; });
     doc.autoTable({ ...tableBase, startY: y, body, columnStyles: { 0: { cellWidth: 52, textColor: MUTED, fontStyle: "bold", fontSize: 8 } } }); y = doc.lastAutoTable.finalY + 4;
   }
   h2("Comment"); doc.setFontSize(9.5); doc.setTextColor(...INK); const lines = doc.splitTextToSize(insp.comment || "—", 178); doc.text(lines, L, y + 3); y += lines.length * 5 + 4;
@@ -1222,7 +1237,7 @@ function ProblemTreeView({ root, problems, overrides, remarks, onReport, onDelet
           <div key={r.id} className="flex items-center gap-2 text-xs py-1" style={{ paddingLeft: dep * 14 + 12, color: C.muted }}>
             <span>↳ {r.mode === "Presence" ? "present" : `${r.raw} ${unitOf(r.mode)}`}{r.auto && " · of pomiaru"}</span>
             {r.mode !== "Presence" && <span className="font-medium" style={{ color: C.ink }}>{fmt(pct(r, totals))}%</span>}
-            <button onClick={() => onPhoto && onPhoto(r.id)} className="px-1" style={{ color: C.accent }} title="photo of this problem (InspectionPhoto.RemarkId)">📷{asPhotoList(r.photos).length ? asPhotoList(r.photos).length : ""}</button>
+            <button onClick={() => onPhoto && onPhoto(r.id)} className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full font-medium" style={{ background: asPhotoList(r.photos).length ? C.accentSoft : "transparent", color: C.accent, border: `1px solid ${asPhotoList(r.photos).length ? "transparent" : C.line}` }} title="photo of this problem (InspectionPhoto.RemarkId)"><Ic i={Camera} s={11} mr={0} />{asPhotoList(r.photos).length || "add"}</button>
             <button onClick={() => onDelete(r.id)} className="px-1" style={{ color: C.bad }} title="delete report">×</button>
           </div>
         ))}
@@ -1256,11 +1271,14 @@ function ProblemTreeView({ root, problems, overrides, remarks, onReport, onDelet
 }
 
 function SampleBlock({ sample, setSample, totals }) {
+  // Fixed 2×2 grid, not 4-in-a-row: on a phone width, 4 columns forced "Pieces per CU" to wrap onto two lines while
+  // the other labels stayed on one, so that column's row (all 4 stretch to the tallest cell) pushed its input down
+  // and out of line with the rest. Two columns give every label enough room to stay on one line.
   const F = ({ k, label, unit }) => <label className="text-xs flex flex-col gap-1" style={{ color: C.muted }}>{label}<span className="flex items-center gap-1"><input type="number" value={sample[k]} onChange={e => setSample(x => ({ ...x, [k]: e.target.value }))} className="w-full text-sm rounded px-2 py-1 outline-none" style={{ ...inp }} /><span>{unit}</span></span></label>;
   return (
     <div className="rounded-lg p-3" style={{ background: C.accentSoft }}>
-      <div className="grid grid-cols-4 gap-2 mb-2">
-        <F k="tu" label="Checked TU" unit="TU" /><F k="cusPerTu" label="CU per TU" unit="CU" /><F k="piecesPerCu" label="Pieces per CU" unit="pcs" /><F k="weightPerCu" label="CU weight" unit="g" />
+      <div className="grid grid-cols-2 gap-x-3 gap-y-2.5 mb-2">
+        <F k="tu" label="Checked TU" unit="TU" /><F k="cusPerTu" label="CU / TU" unit="CU" /><F k="piecesPerCu" label="pcs / CU" unit="pcs" /><F k="weightPerCu" label="CU weight" unit="g" />
       </div>
       <p className="text-xs" style={{ color: C.accent, fontVariantNumeric: "tabular-nums" }}>Sample: <b>{totals.cu} CU · {totals.pieces} pcs · {fmt(totals.weight)} g</b> — the divisor for all percentages. Defaults from the product profile, can be overridden.</p>
     </div>
@@ -1322,6 +1340,7 @@ function InspectionRunner({ insp, patch, t, problems, product, suppliers, dictio
   const modules = [...t.modules].sort(bySort);
   const [tab, setTab] = useState(0);
   const [question, setQuestion] = useState(""); const [flagText, setFlagText] = useState(""); const [flagOpen, setFlagOpen] = useState(false); const [askCancel, setAskCancel] = useState(false);
+  const [scanPalletIdx, setScanPalletIdx] = useState(null);
   // Pre-fill "Choice from list" fields from the product's attributes (once, on open); the controller can still change them.
   useEffect(() => { if (!sctx || !product || !t) return; const attrs = effectiveAttributes(sctx, product); if (!attrs.length) return;
     patch(prev => { const v = { ...(prev.values || {}) }; let changed = false; (t.fields || []).forEach(f => { if (f.type !== "List" || v[f.id] !== undefined) return; const a = attrs.find(x => x.dictionaryId === f.dictionaryId); if (a && a.value !== "—") { v[f.id] = a.value; changed = true; } }); return changed ? { ...prev, values: v } : prev; }); }, [insp.id]);
@@ -1370,12 +1389,30 @@ function InspectionRunner({ insp, patch, t, problems, product, suppliers, dictio
         <div>
           {t.fields.filter(f => f.moduleId === m.id).sort(bySort).map(f => (
             <div key={f.id} className="mb-4">
-              {f.type !== "ProductInfo" && <label className="block text-sm font-medium mb-1">{f.label}{f.required && !isSystem(f.type) && <span style={{ color: C.bad }}> *</span>}{f.helper && <span className="block text-xs font-normal" style={{ color: C.muted }}>{f.helper}</span>}</label>}
+              {f.type !== "ProductInfo" && <label className="block text-sm font-medium mb-1">{fieldLabel(f)}{f.required && !isSystem(f.type) && <span style={{ color: C.bad }}> *</span>}{f.helper && <span className="block text-xs font-normal" style={{ color: C.muted }}>{f.helper}</span>}</label>}
               {f.type === "ProductInfo" && <div className="rounded-lg p-3" style={{ background: C.bg, border: `1px solid ${C.line}` }}><p className="font-semibold">{product.name}{product.isBio && <span className="text-xs ml-2 px-1.5 py-0.5 rounded" style={{ background: C.okBg, color: C.ok }}>bio</span>}</p><p className="text-xs mt-1" style={{ color: C.muted }}>{specs.length ? specs.map(q => `${q.name}: ${specLabel(q)}${q.source !== "product" ? " (" + q.source + ")" : ""}`).join(" · ") : "no specifications"}</p></div>}
               {f.type === "Supplier" && (productSuppliers.length ? <div><div className="flex flex-wrap gap-1.5">{productSuppliers.map(x => <button key={x.id} onClick={() => set({ supplier: x.name })} className="text-xs px-3 py-1.5 rounded-full" style={{ background: insp.supplier === x.name ? C.accent : C.accentSoft, color: insp.supplier === x.name ? C.onDark : C.accent }}>{x.name}</button>)}</div>{suppliersUnrestricted && <p className="text-[10px] mt-1" style={{ color: C.muted }}>product has no assigned suppliers — showing all</p>}</div> : <p className="text-xs" style={{ color: C.warn }}>The supplier list is empty — fill it in Dictionaries → Suppliers.</p>)}
               {f.type === "Variety" && (effectiveVarieties(sctx, product).length ? <div className="flex flex-wrap gap-1.5">{effectiveVarieties(sctx, product).map(v => <button key={v.id} onClick={() => set({ variety: v.name })} className="text-xs px-3 py-1.5 rounded-full" style={{ background: insp.variety === v.name ? C.accent : C.accentSoft, color: insp.variety === v.name ? C.onDark : C.accent }}>{v.name}</button>)}</div> : <p className="text-xs" style={{ color: C.warn }}>No varieties — add them on the category or the product.</p>)}
-              {f.type === "List" && (() => { const d = (dictionaries || sctx?.dictionaries || []).find(x => x.id === f.dictionaryId); const preset = sctx && product ? effectiveAttributes(sctx, product).find(a => a.dictionaryId === f.dictionaryId) : null; return d ? (d.items.length ? <div><div className="flex flex-wrap gap-1.5">{d.items.map(o => <button key={o.id} onClick={() => setV(f.id, o.value)} className="text-xs px-3 py-1.5 rounded-full" style={{ background: values[f.id] === o.value ? C.accent : C.accentSoft, color: values[f.id] === o.value ? C.onDark : C.accent }}>{o.value}</button>)}</div>{preset && <p className="text-[11px] mt-1" style={{ color: C.muted }}>Pre-filled from the product profile ({preset.source}: {preset.value}){values[f.id] && values[f.id] !== preset.value ? " — changed on the dock" : ""}.</p>}</div> : <p className="text-xs" style={{ color: C.warn }}>The list “{d.name}” is empty — fill it in Dictionaries → Lists.</p>) : <p className="text-xs" style={{ color: C.warn }}>No list attached to this field — the Head must pick one in the form builder.</p>; })()}
-              {f.type === "Pallet" && <div>{pallets.map((p, i) => <div key={i} className="flex gap-1.5 mb-1.5"><input value={p} onChange={e => setPallets(ps => ps.map((x, j) => j === i ? e.target.value : x))} placeholder={`pallet ${i + 1}`} className="flex-1 text-sm rounded px-2 py-1.5 outline-none" style={{ ...inp }} /><button className="text-xs px-2 rounded" style={{ background: C.line, color: C.muted }} title="scanning — extension E1" disabled><Ic i={ScanLine} s={13} mr={0} /></button>{pallets.length > 1 && <button onClick={() => setPallets(ps => ps.filter((_, j) => j !== i))} className="text-xs px-1" style={{ color: C.muted }}>×</button>}</div>)}<button onClick={() => setPallets(ps => [...ps, ""])} className="text-xs" style={{ color: C.accent }}>+ another pallet</button><DeliveryPallets product={product} insp={insp} onAdd={hus => setPallets(ps => [...ps.filter(Boolean), ...hus.filter(h => !ps.includes(h))])} /></div>}
+              {f.type === "List" && (() => {
+                const d = (dictionaries || sctx?.dictionaries || []).find(x => x.id === f.dictionaryId);
+                const preset = sctx && product ? effectiveAttributes(sctx, product).find(a => a.dictionaryId === f.dictionaryId) : null;
+                if (!d) return <p className="text-xs" style={{ color: C.warn }}>No list attached to this field — the Head must pick one in the form builder.</p>;
+                if (!d.items.length) return <p className="text-xs" style={{ color: C.warn }}>The list "{d.name}" is empty — fill it in Dictionaries → Lists.</p>;
+                // Short lists stay one-tap pill buttons; longer ones (the Head can attach a 70-item list) become a real dropdown so it doesn't turn into a wall of buttons.
+                const picker = d.items.length > 6
+                  ? <select value={values[f.id] || ""} onChange={e => setV(f.id, e.target.value)} className="w-full text-sm rounded px-2 py-1.5 outline-none" style={{ ...inp }}><option value="">— choose ({d.items.length} options) —</option>{d.items.map(o => <option key={o.id} value={o.value}>{o.value}</option>)}</select>
+                  : <div className="flex flex-wrap gap-1.5">{d.items.map(o => <button key={o.id} onClick={() => setV(f.id, o.value)} className="text-xs px-3 py-1.5 rounded-full" style={{ background: values[f.id] === o.value ? C.accent : C.accentSoft, color: values[f.id] === o.value ? C.onDark : C.accent }}>{o.value}</button>)}</div>;
+                return <div>{picker}{preset && <p className="text-[11px] mt-1" style={{ color: C.muted }}>Pre-filled from the product profile ({preset.source}: {preset.value}){values[f.id] && values[f.id] !== preset.value ? " — changed on the dock" : ""}.</p>}</div>;
+              })()}
+              {f.type === "Pallet" && <div>{pallets.map((p, i) => <div key={i} className="flex gap-1.5 mb-1.5"><input value={p} onChange={e => setPallets(ps => ps.map((x, j) => j === i ? e.target.value : x))} placeholder={`pallet ${i + 1}`} className="flex-1 text-sm rounded px-2 py-1.5 outline-none font-mono" style={{ ...inp }} /><button onClick={() => setScanPalletIdx(i)} className="text-xs px-2 rounded" style={{ background: C.accentSoft, color: C.accent }} title="scan pallet barcode (SSCC)"><Ic i={ScanLine} s={13} mr={0} /></button>{pallets.length > 1 && <button onClick={() => setPallets(ps => ps.filter((_, j) => j !== i))} className="text-xs px-1" style={{ color: C.muted }}>×</button>}</div>)}<button onClick={() => setPallets(ps => [...ps, ""])} className="text-xs" style={{ color: C.accent }}>+ another pallet</button><DeliveryPallets product={product} insp={insp} onAdd={hus => setPallets(ps => [...ps.filter(Boolean), ...hus.filter(h => !ps.includes(h))])} />
+                {scanPalletIdx !== null && (
+                  <Modal open>
+                    <p className="text-sm font-semibold mb-2">Scan pallet {scanPalletIdx + 1}</p>
+                    <LiveScanner onCode={code => { const sscc = extractSSCC(code); setPallets(ps => ps.map((x, j) => j === scanPalletIdx ? sscc : x)); setScanPalletIdx(null); }} />
+                    <button onClick={() => setScanPalletIdx(null)} className="w-full py-2 text-sm" style={{ color: C.muted }}>Cancel</button>
+                  </Modal>
+                )}
+              </div>}
               {f.type === "DateCode" && <div><input type="date" value={insp.dateISO || ""} onChange={e => set({ dateISO: e.target.value })} className="w-full text-sm rounded px-2 py-1.5 outline-none" style={{ ...inp }} />{insp.dateISO && <p className="text-xs mt-1.5" style={{ color: C.muted }}>saved as date code: <b style={{ color: C.ink, fontVariantNumeric: "tabular-nums" }}>{dateCode(insp.dateISO)}</b> (week {dateCode(insp.dateISO).slice(0, -1)}, day {dateCode(insp.dateISO).slice(-1)})</p>}</div>}
               {f.type === "SampleSize" && <SampleBlock sample={sample} setSample={setSample} totals={totals} />}
               {f.type === "Photos" && <PhotoStrip photos={photos[f.id]} onAdd={got => addPhotos(f.id, got)} onRemove={id => removePhoto(f.id, id)} />}
