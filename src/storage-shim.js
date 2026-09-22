@@ -36,12 +36,18 @@ window.storage = {
   // Changes when the server process restarts (every deploy) — used to notice a new build is live and offer a refresh.
   async getBootId() { if (!(await probe())) return null; try { const r = await fetch(`${SERVER}/boot`, { cache: "no-store" }); const j = await r.json(); return j.bootId || null; } catch { return null; } },
   // Versioned save: If-Match with the version we last saw. 409 → {conflict, value, version} (someone saved first) or {rejected} (size guard).
+  // A network drop mid-request (flaky warehouse WiFi, a Render restart) must never look like a normal, versionless
+  // "offline" save — that used to fall through as if nothing was wrong, so the caller cleared the edit from its
+  // pending queue without it ever reaching the server. Report it as {error: true} so the caller knows to keep
+  // retrying instead of quietly losing the edit.
   async setVersioned(key, value, version) {
     local.set(key, value);
-    if (!(await probe())) return { version: null };
-    const r = await fetch(`${SERVER}/storage/${encodeURIComponent(key)}`, { method: "PUT", headers: { "Content-Type": "text/plain; charset=utf-8", ...(version ? { "If-Match": version } : {}) }, body: value });
-    if (r.status === 409) { const j = await r.json().catch(() => ({})); if (j.rejected) return { rejected: true }; return { conflict: true, value: j.value, version: j.updatedAt ? String(j.updatedAt) : null }; }
-    const j = await r.json().catch(() => ({})); return { version: j.updatedAt ? String(j.updatedAt) : null };
+    if (!(await probe())) return { error: true };
+    try {
+      const r = await fetch(`${SERVER}/storage/${encodeURIComponent(key)}`, { method: "PUT", headers: { "Content-Type": "text/plain; charset=utf-8", ...(version ? { "If-Match": version } : {}) }, body: value });
+      if (r.status === 409) { const j = await r.json().catch(() => ({})); if (j.rejected) return { rejected: true }; return { conflict: true, value: j.value, version: j.updatedAt ? String(j.updatedAt) : null }; }
+      const j = await r.json().catch(() => ({})); return { version: j.updatedAt ? String(j.updatedAt) : null };
+    } catch (e) { return { error: true }; }
   },
   async delete(key) { if (await probe()) { await fetch(`${SERVER}/storage/${encodeURIComponent(key)}`, { method: "DELETE" }); return { key, deleted: true }; } localStorage.removeItem(key); return { key, deleted: true }; },
 };

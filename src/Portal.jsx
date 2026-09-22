@@ -965,6 +965,11 @@ const flushState = async (syncer, key, getLocal, setLocal, normalizeFn, onConfli
       const fns = syncer.pending.splice(0);
       const res = await window.storage.setVersioned(key, JSON.stringify(getLocal()), syncer.version);
       if (!res) break;
+      // A dropped connection mid-save (flaky warehouse WiFi, a Render restart) must not silently discard the edit:
+      // put it back at the front of the queue so it isn't lost, and leave `pending` non-empty so the poll below
+      // knows there's unsynced work and won't overwrite it with the server's (still pre-edit) copy in the meantime.
+      // The poll retries this on its next tick; there's nothing more useful to do right now.
+      if (res.error) { syncer.pending.unshift(...fns); break; }
       if (res.rejected) { console.warn("QCteam: server rejected this state as too small — keeping the server's copy"); const r = await window.storage.get(key); if (r?.value) { setLocal(normalizeFn(JSON.parse(r.value))); syncer.version = r.version || null; } break; }
       if (res.conflict) {
         let base = normalizeFn(JSON.parse(res.value)); syncer.version = res.version || null;
@@ -1903,11 +1908,11 @@ function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset, onMessag
               <div className="px-4 py-4">
                 {tab === "profile" && <div style={{ maxWidth: 760 }}>
                   <Group title="Identity" cols={6}>
-                    <Field label="Name" className="col-span-4"><Input value={product.name} onChange={e => patchP({ name: e.target.value })} /></Field>
+                    <Field label="Name" className="col-span-4"><FastInput value={product.name} onCommit={v => patchP({ name: v })} /></Field>
                     <Field label="Article ID"><FastInput value={product.articleId || ""} onCommit={v => patchP({ articleId: v })} className="font-mono" style={{ borderColor: product.articleId ? C.line : C.warn }} /></Field>
                     <Field label="Bio"><button onClick={() => patchP({ isBio: !product.isBio })} className="w-full text-[13px] rounded-md" style={{ height: 32, border: `1px solid ${product.isBio ? C.ok : C.line}`, background: product.isBio ? C.okBg : C.surface, color: product.isBio ? C.ok : C.muted }}>{product.isBio ? "bio" : "no"}</button></Field>
                     <Field label="Category" className="col-span-3"><select value={product.categoryId || ""} onChange={e => patchP({ categoryId: e.target.value || null })} className="w-full text-[13px] rounded-md px-1.5 outline-none" style={{ ...inp, height: 32, borderColor: product.categoryId ? C.line : C.warn }}><option value="">—</option>{s.categories.map(c => <option key={c.id} value={c.id}>{catPath(c.id)}</option>)}</select></Field>
-                    <Field label="Consumer app link" className="col-span-3"><Input value={product.consumerAppUrl || ""} onChange={e => patchP({ consumerAppUrl: e.target.value })} placeholder="https://…" /></Field>
+                    <Field label="Consumer app link" className="col-span-3"><FastInput value={product.consumerAppUrl || ""} onCommit={v => patchP({ consumerAppUrl: v })} placeholder="https://…" /></Field>
                   </Group>
                   <Group title="Codes" cols={2}>
                     <Field label="Barcode CU · consumer pack"><FastInput value={product.barcodeCu || ""} onCommit={v => patchP({ barcodeCu: v })} className="font-mono" style={{ borderColor: product.barcodeCu || product.barcodeTu ? C.line : C.warn }} /></Field>
@@ -1915,9 +1920,9 @@ function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset, onMessag
                     {!product.barcodeCu && !product.barcodeTu && <p className="text-[11px] col-span-2 -mt-1" style={{ color: C.warn }}>At least one barcode — the scanner matches on it.</p>}
                   </Group>
                   <Group title="Packaging" cols={3}>
-                    <Field label="CU per TU"><Input type="number" value={product.cusPerTu || ""} onChange={e => patchP({ cusPerTu: e.target.value })} /></Field>
-                    <Field label="Pieces per CU"><Input type="number" value={product.piecesPerCu || ""} onChange={e => patchP({ piecesPerCu: e.target.value })} /></Field>
-                    <Field label="Weight per CU · g"><Input type="number" value={product.weightPerCu || ""} onChange={e => patchP({ weightPerCu: e.target.value })} /></Field>
+                    <Field label="CU per TU"><FastInput type="number" value={product.cusPerTu || ""} onCommit={v => patchP({ cusPerTu: v })} /></Field>
+                    <Field label="Pieces per CU"><FastInput type="number" value={product.piecesPerCu || ""} onCommit={v => patchP({ piecesPerCu: v })} /></Field>
+                    <Field label="Weight per CU · g"><FastInput type="number" value={product.weightPerCu || ""} onCommit={v => patchP({ weightPerCu: v })} /></Field>
                   </Group>
                 </div>}
                 {tab === "photos" && <div style={{ maxWidth: 720 }}>
@@ -3476,7 +3481,13 @@ export default function App() {
   // Fast, cheap poll: check the version every ~5s; pull the full state only when it changed and we have nothing unsaved of our own.
   useEffect(() => { if (!loaded) return; const id = setInterval(async () => {
     if (window.storage?.getBootId) { const b = await window.storage.getBootId(); if (b) { if (bootIdRef.current === null) bootIdRef.current = b; else if (b !== bootIdRef.current) setNewVersion(true); } }
-    if (!window.storage?.getMeta || syncerRef.current.busy || syncerRef.current.pending.length) return; const v = await window.storage.getMeta(STORAGE_KEY); if (v && v !== syncerRef.current.version) { const r = await window.storage.get(STORAGE_KEY); if (r?.value) { const nx = sortState(normalize(JSON.parse(r.value))); _S = nx; setRaw(nx); syncerRef.current.version = r.version || v; } }
+    if (syncerRef.current.busy) return;
+    // A save that failed to reach the server (dropped connection) leaves its edit sitting in `pending` rather than
+    // losing it — retry it here so a brief blip self-heals within one poll tick instead of staying stuck until the
+    // next keystroke. Retrying always takes priority over pulling: never overwrite unsynced local edits with the
+    // server's (still older) copy.
+    if (syncerRef.current.pending.length) { flushState(syncerRef.current, STORAGE_KEY, () => _S, v => { _S = v; setRaw(v); }, p => sortState(normalize(p)), n => n && setToastMsg && setToastMsg(`Merged with changes from another device (${n} of yours re-applied)`)); return; }
+    if (!window.storage?.getMeta) return; const v = await window.storage.getMeta(STORAGE_KEY); if (v && v !== syncerRef.current.version) { const r = await window.storage.get(STORAGE_KEY); if (r?.value) { const nx = sortState(normalize(JSON.parse(r.value))); _S = nx; setRaw(nx); syncerRef.current.version = r.version || v; } }
   }, 5000); return () => clearInterval(id); }, [loaded]);
 
   // Load saved state on start

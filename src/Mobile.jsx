@@ -975,6 +975,11 @@ const flushState = async (syncer, key, getLocal, setLocal, normalizeFn, onConfli
       const fns = syncer.pending.splice(0);
       const res = await window.storage.setVersioned(key, JSON.stringify(getLocal()), syncer.version);
       if (!res) break;
+      // A dropped connection mid-save (flaky warehouse WiFi, a Render restart) must not silently discard the edit:
+      // put it back at the front of the queue so it isn't lost, and leave `pending` non-empty so the poll below
+      // knows there's unsynced work and won't overwrite it with the server's (still pre-edit) copy in the meantime.
+      // The poll retries this on its next tick; there's nothing more useful to do right now.
+      if (res.error) { syncer.pending.unshift(...fns); break; }
       if (res.rejected) { console.warn("QCteam: server rejected this state as too small — keeping the server's copy"); const r = await window.storage.get(key); if (r?.value) { setLocal(normalizeFn(JSON.parse(r.value))); syncer.version = r.version || null; } break; }
       if (res.conflict) {
         let base = normalizeFn(JSON.parse(res.value)); syncer.version = res.version || null;
@@ -2662,7 +2667,13 @@ export default function App() {
   // doesn't gate on visibility — the cost of an occasional background fetch is negligible for a prototype.
   useEffect(() => { if (!loaded) return; const id = setInterval(async () => {
     if (window.storage?.getBootId) { const b = await window.storage.getBootId(); if (b) { if (bootIdRef.current === null) bootIdRef.current = b; else if (b !== bootIdRef.current) setNewVersion(true); } }
-    if (!window.storage?.getMeta || syncerRef.current.busy || syncerRef.current.pending.length) return; const v = await window.storage.getMeta(STORAGE_KEY); if (v && v !== syncerRef.current.version) pullState(false);
+    if (syncerRef.current.busy) return;
+    // A save that failed to reach the server (dropped connection) leaves its edit sitting in `pending` rather than
+    // losing it — retry it here so a brief blip self-heals within one poll tick instead of staying stuck until the
+    // next change. Retrying always takes priority over pulling: never overwrite unsynced local edits with the
+    // server's (still older) copy.
+    if (syncerRef.current.pending.length) { flushState(syncerRef.current, STORAGE_KEY, () => _S, v => { _S = v; setRaw(v); }, p => sortState(normalize(p)), n => n && setToast(`Merged with changes from another device (${n} of yours re-applied)`)); return; }
+    if (!window.storage?.getMeta) return; const v = await window.storage.getMeta(STORAGE_KEY); if (v && v !== syncerRef.current.version) pullState(false);
   }, 5000); return () => clearInterval(id); }, [loaded]);
   useEffect(() => { const h = () => { if (document.visibilityState === "visible") pullState(false); }; document.addEventListener("visibilitychange", h); window.addEventListener("focus", h); window.addEventListener("pageshow", h); return () => { document.removeEventListener("visibilitychange", h); window.removeEventListener("focus", h); window.removeEventListener("pageshow", h); }; }, []);
   useEffect(() => { (async () => { try { if (window.storage) { const r = await window.storage.get(THEME_KEY); if (r?.value === "dark") { applyTheme(true); setDark(true); } } } catch (e) {} })(); }, []);
