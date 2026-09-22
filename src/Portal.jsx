@@ -971,8 +971,17 @@ const flushState = async (syncer, key, getLocal, setLocal, normalizeFn, onConfli
   if (syncer.busy) { syncer.again = true; return; }
   syncer.busy = true;
   try {
+    // `carried`: pending functions already reapplied in an EARLIER attempt of this same flush cycle. They must keep
+    // being reapplied on every later conflict too — otherwise the 2nd (3rd, ...) consecutive conflict rebases onto
+    // the server's fresh-but-still-pre-edit value with nothing left in that attempt's own `fns` to reapply (they were
+    // only ever queued once, by the user's click), and the edit is silently reverted: it had looked saved locally
+    // for a moment, then vanished again, even before any page reload. This is what actually made a delete "come
+    // back" — not that the save never went out, but that a second sheet push landing right after the first one
+    // undid it. Confirmed with a scripted repro against the old code: 2+ consecutive conflicting writes reverted
+    // the change both locally and on the server, every time.
+    let saved = false, carried = [];
     for (let attempt = 0; attempt < 5; attempt++) {
-      const fns = syncer.pending.splice(0);
+      const fns = [...carried, ...syncer.pending.splice(0)];
       const res = await window.storage.setVersioned(key, JSON.stringify(getLocal()), syncer.version);
       if (!res) break;
       // A dropped connection mid-save (flaky warehouse WiFi, a Render restart) must not silently discard the edit:
@@ -984,12 +993,16 @@ const flushState = async (syncer, key, getLocal, setLocal, normalizeFn, onConfli
       if (res.conflict) {
         let base = normalizeFn(JSON.parse(res.value)); syncer.version = res.version || null;
         for (const f of fns) { try { base = f(base); } catch (e) { console.warn("QCteam: could not re-apply a change after conflict", e); } }
-        for (const f of syncer.pending.splice(0)) { try { base = f(base); } catch (e) {} }
         setLocal(base); onConflictResolved && onConflictResolved(fns.length);
+        carried = fns; // keep reapplying these too if yet another conflict hits on the next attempt
         continue; // save the merged state with the new version
       }
-      syncer.version = res.version || syncer.version; break;
+      syncer.version = res.version || syncer.version; saved = true; break;
     }
+    // Ran out of retries while the server kept moving out from under us (heavy, sustained concurrent writes) — the
+    // edit is correctly merged into local state, but nothing is left in `pending` to ever save it. Requeue it so the
+    // next poll tick (or the next edit) tries again with the latest version, instead of silently losing it.
+    if (!saved && !syncer.pending.length) syncer.pending.push(...(carried.length ? carried : [x => x]));
   } finally { syncer.busy = false; if (syncer.again) { syncer.again = false; flushState(syncer, key, getLocal, setLocal, normalizeFn, onConflictResolved); } }
 };
 
@@ -1137,7 +1150,12 @@ function Dashboard({ s, setPage, seed, user, openProduct, onAssign, set }) {
     // of the group already have a completed report and flag it, instead of letting them look untouched.
     return [...map.values()].map(rows => { const sorted = [...rows].sort((a, b) => `${a.arrived} ${a.arrivedTime}`.localeCompare(`${b.arrived} ${b.arrivedTime}`)); const first = sorted[0]; const locs = new Set(rows.map(r => r.location).filter(Boolean));
       const mixedPO = new Set(rows.map(r => (r.po || "").trim()).filter(Boolean)).size > 1;
-      return { ...first, count: rows.length, checked: rows.filter(x => completedInspectionFor(s, x.hu)).length, mixedPO, location: locs.size <= 1 ? first.location : `${locs.size} locations` }; }).sort((a, b) => `${a.arrived} ${a.arrivedTime}`.localeCompare(`${b.arrived} ${b.arrivedTime}`)); })();
+      // This table is filtered to one priority, so ×N here only ever counts pallets IN that priority — it's not the
+      // SKU's total on the dock. The product page's "On the docks now" count (dockRowsForProduct) has no such
+      // filter, so the two can legitimately differ; without this hint a lower number here reads as a bug instead of
+      // the two views simply answering different questions.
+      const totalOnDock = first.article ? f.dock.filter(x => x.article === first.article).length : rows.length;
+      return { ...first, count: rows.length, totalOnDock, checked: rows.filter(x => completedInspectionFor(s, x.hu)).length, mixedPO, location: locs.size <= 1 ? first.location : `${locs.size} locations` }; }).sort((a, b) => `${a.arrived} ${a.arrivedTime}`.localeCompare(`${b.arrived} ${b.arrivedTime}`)); })();
   const Tile = ({ label, value, sub, color, onClick, active }) => <button onClick={onClick} disabled={!onClick} className="rounded-2xl p-4 text-left" style={{ background: active ? C.accentSoft : C.surface, border: `1px solid ${active ? C.accent : C.line}`, borderLeft: `3px solid ${color || C.line}`, cursor: onClick ? "pointer" : "default" }}><p className="text-xs" style={{ color: C.muted }}>{label}</p><p className="text-[26px] leading-tight font-semibold mt-0.5" style={{ color: value > 0 && color ? color : C.ink }}>{value}</p>{sub && <p className="text-[11px]" style={{ color: C.muted }}>{sub}</p>}</button>;
   return (
     <div>
@@ -1155,7 +1173,7 @@ function Dashboard({ s, setPage, seed, user, openProduct, onAssign, set }) {
           <thead><tr className="text-xs text-left" style={{ color: C.muted }}>{["Product", "Article", "Location", "Arrived", "Transporter", "History"].map(h => <th key={h} className="py-1.5 pr-3 font-medium" style={{ borderBottom: `1px solid ${C.line}` }}>{h}</th>)}</tr></thead>
           <tbody>{prioGroups.map(r => { const prod = s.products.find(p => p.articleId === r.article); const hist = recentProblemsFor(s, prod?.id); return (
             <tr key={r.article || r.hu} style={{ borderBottom: `1px solid ${C.line}` }}>
-              <td className="py-1.5 pr-3">{prod ? <button onClick={() => openProduct(prod.id)} className="text-left font-medium" style={{ color: C.ink }}>{r.name || prod.name}</button> : <span>{r.name || r.article}<span className="text-[11px] ml-1" style={{ color: C.warn }}>no profile</span></span>}{r.count > 1 && <span className="text-[10px] ml-1.5 px-1.5 py-0.5 rounded-full" style={{ background: C.accentSoft, color: C.accent }}>×{r.count} on docks</span>}{r.mixedPO && <span className="text-[10px] ml-1.5 px-1.5 py-0.5 rounded-full" style={{ background: C.warnBg, color: C.warn }}>⚠ mixed PO</span>}{r.checked > 0 && <span className="text-[10px] ml-1.5 px-1.5 py-0.5 rounded-full" style={{ background: C.okBg, color: C.ok }}>✓ {r.checked === r.count ? "already inspected" : `${r.checked}/${r.count} inspected`}</span>}{r.blocking && <span className="text-[10px] ml-1.5 px-1.5 py-0.5 rounded" style={{ background: C.badBg, color: C.bad }}>needed today</span>}</td>
+              <td className="py-1.5 pr-3">{prod ? <button onClick={() => openProduct(prod.id)} className="text-left font-medium" style={{ color: C.ink }}>{r.name || prod.name}</button> : <span>{r.name || r.article}<span className="text-[11px] ml-1" style={{ color: C.warn }}>no profile</span></span>}{r.count > 1 && <span className="text-[10px] ml-1.5 px-1.5 py-0.5 rounded-full" style={{ background: C.accentSoft, color: C.accent }}>×{r.count} on docks</span>}{r.totalOnDock > r.count && <span className="text-[10px] ml-1.5" style={{ color: C.muted }}>+{r.totalOnDock - r.count} elsewhere</span>}{r.mixedPO && <span className="text-[10px] ml-1.5 px-1.5 py-0.5 rounded-full" style={{ background: C.warnBg, color: C.warn }}>⚠ mixed PO</span>}{r.checked > 0 && <span className="text-[10px] ml-1.5 px-1.5 py-0.5 rounded-full" style={{ background: C.okBg, color: C.ok }}>✓ {r.checked === r.count ? "already inspected" : `${r.checked}/${r.count} inspected`}</span>}{r.blocking && <span className="text-[10px] ml-1.5 px-1.5 py-0.5 rounded" style={{ background: C.badBg, color: C.bad }}>needed today</span>}</td>
               <td className="py-1.5 pr-3 font-mono text-xs">{r.article}</td><td className="py-1.5 pr-3">{r.location}</td><td className="py-1.5 pr-3 text-xs">{r.arrived} {r.arrivedTime}</td><td className="py-1.5 pr-3 text-xs">{r.transporter}</td>
               <td className="py-1.5 text-xs" style={{ color: hist.count ? C.bad : C.muted }}>{hist.count ? `${hist.count} rejected · ${hist.problems.slice(0, 2).map(x => x.name).join(", ")}` : "clean"}</td>
             </tr>); })}</tbody>

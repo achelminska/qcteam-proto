@@ -36,7 +36,7 @@ const checkDeadlines = (reason) => {
     const raw = store[STATE_KEY]; if (!raw) return;
     const st = JSON.parse(raw); const next = applyDeadlineAlerts(st);
     if (!next) return;
-    store[STATE_KEY] = JSON.stringify(next); (store.__meta = store.__meta || {})[STATE_KEY] = Date.now(); save();
+    store[STATE_KEY] = JSON.stringify(next); (store.__meta = store.__meta || {})[STATE_KEY] = Math.max(Date.now(), (store.__meta?.[STATE_KEY] || 0) + 1); save();
     const added = (next.notifications || []).length - (st.notifications || []).length;
     if (added > 0) console.log(`[deadlines] ${reason}: ${added} notification(s) sent`);
   } catch (e) { console.log("[deadlines] check failed:", e.message); }
@@ -78,7 +78,7 @@ const applyPushToState = (purpose, sheet) => {
     // Same rows, same summary as before → nothing for the phones to re-download. Freshness travels via /meta instead.
     const gist = it => JSON.stringify([it.rows, it.summary, it.header, it.mappings, it.needsRemap]);
     const before = JSON.parse(raw).integrations, unchanged = st.integrations.every((it, k) => !targets.some(t => t.id === it.id) || gist(it) === gist(before[k]));
-    if (unchanged) { note += " (no change)"; } else { store[STATE_KEY] = JSON.stringify(st); (store.__meta = store.__meta || {})[STATE_KEY] = Date.now(); }
+    if (unchanged) { note += " (no change)"; } else { store[STATE_KEY] = JSON.stringify(st); (store.__meta = store.__meta || {})[STATE_KEY] = Math.max(Date.now(), (store.__meta?.[STATE_KEY] || 0) + 1); }
     // Push log: enough to explain "the tiles vanished at 03:12" after the fact. /sheet/<purpose>/log returns the last 60 entries.
     try { const it = st.integrations.find(i => targets.some(t => t.id === i.id)); const hist = {}; (it?.rows || []).forEach(r => { const k = r.priority || (r.status ? `status:${r.status}` : "—"); hist[k] = (hist[k] || 0) + 1; }); const errs = (it?.rows || []).filter(r => r._errors?.length).length; (store.__pushlog = store.__pushlog || {})[purpose] = [...(store.__pushlog[purpose] || []).slice(-59), { at: sheet.receivedAt, raw: sheet.rows.length, table: j.rows.length, header: j.header.slice(0, 14), errors: errs, hist, note: note.trim() }]; } catch {}
     return " → applied to app state" + note;

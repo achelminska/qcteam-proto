@@ -980,8 +980,17 @@ const flushState = async (syncer, key, getLocal, setLocal, normalizeFn, onConfli
   if (syncer.busy) { syncer.again = true; return; }
   syncer.busy = true;
   try {
+    // `carried`: pending functions already reapplied in an EARLIER attempt of this same flush cycle. They must keep
+    // being reapplied on every later conflict too — otherwise the 2nd (3rd, ...) consecutive conflict rebases onto
+    // the server's fresh-but-still-pre-edit value with nothing left in that attempt's own `fns` to reapply (they were
+    // only ever queued once, by the user's click), and the edit is silently reverted: it had looked saved locally
+    // for a moment, then vanished again, even before any page reload. This is what actually made a delete "come
+    // back" — not that the save never went out, but that a second sheet push landing right after the first one
+    // undid it. Confirmed with a scripted repro against the old code: 2+ consecutive conflicting writes reverted
+    // the change both locally and on the server, every time.
+    let saved = false, carried = [];
     for (let attempt = 0; attempt < 5; attempt++) {
-      const fns = syncer.pending.splice(0);
+      const fns = [...carried, ...syncer.pending.splice(0)];
       const res = await window.storage.setVersioned(key, JSON.stringify(getLocal()), syncer.version);
       if (!res) break;
       // A dropped connection mid-save (flaky warehouse WiFi, a Render restart) must not silently discard the edit:
@@ -993,12 +1002,16 @@ const flushState = async (syncer, key, getLocal, setLocal, normalizeFn, onConfli
       if (res.conflict) {
         let base = normalizeFn(JSON.parse(res.value)); syncer.version = res.version || null;
         for (const f of fns) { try { base = f(base); } catch (e) { console.warn("QCteam: could not re-apply a change after conflict", e); } }
-        for (const f of syncer.pending.splice(0)) { try { base = f(base); } catch (e) {} }
         setLocal(base); onConflictResolved && onConflictResolved(fns.length);
+        carried = fns; // keep reapplying these too if yet another conflict hits on the next attempt
         continue; // save the merged state with the new version
       }
-      syncer.version = res.version || syncer.version; break;
+      syncer.version = res.version || syncer.version; saved = true; break;
     }
+    // Ran out of retries while the server kept moving out from under us (heavy, sustained concurrent writes) — the
+    // edit is correctly merged into local state, but nothing is left in `pending` to ever save it. Requeue it so the
+    // next poll tick (or the next edit) tries again with the latest version, instead of silently losing it.
+    if (!saved && !syncer.pending.length) syncer.pending.push(...(carried.length ? carried : [x => x]));
   } finally { syncer.busy = false; if (syncer.again) { syncer.again = false; flushState(syncer, key, getLocal, setLocal, normalizeFn, onConflictResolved); } }
 };
 
@@ -1884,7 +1897,8 @@ function MPriorityList({ s, user, go, priority }) {
   const [subTab, setSubTab] = useState("regular");
   // "Priorities" is the all-up list — it must include skippable pallets too, not hide them; "Skippable" is just a
   // filtered view of the same set, not a separate bucket that pulls items out of the main list.
-  const allRows = isAll ? dockRowsLive(s).filter(r => subTab === "skippable" ? r.skippable : true) : dockRowsLive(s).filter(r => priority === "Skippable" ? r.skippable : r.priority === priority);
+  const liveAll = dockRowsLive(s);
+  const allRows = isAll ? liveAll.filter(r => subTab === "skippable" ? r.skippable : true) : liveAll.filter(r => priority === "Skippable" ? r.skippable : r.priority === priority);
   const lostRows = allRows.filter(r => lostOf(s, r)); const rows = allRows.filter(r => !lostOf(s, r));
   // Sections by arrival day, oldest first — the 24h rejection window makes the oldest pallets the urgent ones. Inside a day the
   // same SKU collapses into one row (×N) and anything with a recent rejection floats to the top.
@@ -1900,7 +1914,12 @@ function MPriorityList({ s, user, go, priority }) {
       // Different PO numbers under the same SKU usually mean separate deliveries — worth a flag before assuming
       // every pallet here is the same batch.
       const mixedPO = new Set(g.rows.map(r => (r.po || "").trim()).filter(Boolean)).size > 1;
-      return { key: first.article || first.hu, name: first.name || product?.name || first.article, count: g.rows.length, checked, mixedPO, hu: earliest.hu, productId: product?.id || null,
+      // This view is filtered (by priority, or to just "skippable"), so ×N here only ever counts what's IN that
+      // filter — it is not the SKU's total on the dock. The product page's "On the docks now" count (DockPresence,
+      // dockRowsFor) has no such filter, so the two numbers can legitimately differ; without this hint that looks
+      // like a bug (a lower number here) rather than the two views simply answering different questions.
+      const totalOnDock = first.article ? liveAll.filter(r => r.article === first.article).length : g.rows.length;
+      return { key: first.article || first.hu, name: first.name || product?.name || first.article, count: g.rows.length, totalOnDock, checked, mixedPO, hu: earliest.hu, productId: product?.id || null,
         location: locs.size <= 1 ? first.location : `${locs.size} locations`, transporter: earliest.transporter, arrivedTime: earliest.arrivedTime, blocking: g.rows.some(r => r.blocking), hist, priority: first.priority };
     // recent rejections first, then chronological by arrival time (oldest on top) — a ×N group counts as its earliest pallet
     }).sort((a, b) => (b.hist.count > 0) - (a.hist.count > 0) || (a.arrivedTime || "99").localeCompare(b.arrivedTime || "99")); };
@@ -1924,7 +1943,7 @@ function MPriorityList({ s, user, go, priority }) {
             </div>
             {items.map(it => (
               <button key={it.key} onClick={() => it.count > 1 && it.productId ? go("catalog", it.productId) : go("palletInfo", it.hu)} className="w-full text-left py-3 active:opacity-60" style={{ borderBottom: `1px solid ${C.line}` }}>
-                <div className="flex items-center gap-2">{isAll && subTab === "regular" && it.priority && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ background: PRIORITY[it.priority]?.[1] || C.line, color: PRIORITY[it.priority]?.[0] || C.muted }}>{it.priority}</span>}<p className="text-sm font-medium flex-1 truncate">{it.name}</p>{it.count > 1 && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ background: C.accentSoft, color: C.accent }}>×{it.count} on docks</span>}{it.mixedPO && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0 inline-flex items-center gap-1" style={{ background: C.warnBg, color: C.warn }}><Ic i={AlertTriangle} s={10} mr={0} />mixed PO</span>}{it.checked > 0 && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0 inline-flex items-center gap-1" style={{ background: C.okBg, color: C.ok }}><Ic i={Check} s={10} mr={0} />{it.checked === it.count ? "already inspected" : `${it.checked}/${it.count} inspected`}</span>}{it.hist.count > 0 && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ background: C.badBg, color: C.bad }}>{it.hist.count} rejected recently</span>}</div>
+                <div className="flex items-center gap-2">{isAll && subTab === "regular" && it.priority && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ background: PRIORITY[it.priority]?.[1] || C.line, color: PRIORITY[it.priority]?.[0] || C.muted }}>{it.priority}</span>}<p className="text-sm font-medium flex-1 truncate">{it.name}</p>{it.count > 1 && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ background: C.accentSoft, color: C.accent }}>×{it.count} on docks</span>}{it.totalOnDock > it.count && <span className="text-[10px] flex-shrink-0" style={{ color: C.muted }}>+{it.totalOnDock - it.count} elsewhere</span>}{it.mixedPO && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0 inline-flex items-center gap-1" style={{ background: C.warnBg, color: C.warn }}><Ic i={AlertTriangle} s={10} mr={0} />mixed PO</span>}{it.checked > 0 && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0 inline-flex items-center gap-1" style={{ background: C.okBg, color: C.ok }}><Ic i={Check} s={10} mr={0} />{it.checked === it.count ? "already inspected" : `${it.checked}/${it.count} inspected`}</span>}{it.hist.count > 0 && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ background: C.badBg, color: C.bad }}>{it.hist.count} rejected recently</span>}</div>
                 <p className="text-xs mt-0.5" style={{ color: C.muted }}>{it.location} · {it.transporter} · {it.arrivedTime}{it.blocking ? " · needed today" : ""}</p>
                 {it.hist.count > 0 && <p className="text-xs mt-1" style={{ color: C.bad }}>Was rejected for: {it.hist.problems.slice(0, 3).map(p => `${p.name} ×${p.count}`).join(", ")}{it.hist.problems.length > 3 ? "…" : ""} · last {dayLabel(it.hist.lastAt)}</p>}
               </button>
