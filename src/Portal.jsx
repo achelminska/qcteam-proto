@@ -1860,7 +1860,8 @@ function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset, onMessag
   useEffect(() => { if (presetFilter) { setFilter(presetFilter); clearPreset && clearPreset(); } }, [presetFilter]);
   const [supQ, setSupQ] = useState("");
   const [tab, setTab] = useState("profile"); const [newOpen, setNewOpen] = useState(false);
-  useEffect(() => { setTab("profile"); }, [sel]);
+  const [refPick, setRefPick] = useState(null);
+  useEffect(() => { setTab("profile"); setRefPick(null); }, [sel]);
   const [varName, setVarName] = useState(""); const [varOpen, setVarOpen] = useState(false);
   const product = s.products.find(p => p.id === sel);
   const catPath = id => { const c = s.categories.find(x => x.id === id); if (!c) return "—"; const p = c.parentId && s.categories.find(x => x.id === c.parentId); return p ? `${p.name} › ${c.name}` : c.name; };
@@ -2022,8 +2023,13 @@ function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset, onMessag
                   </div>
                 </div>}
                 {tab === "reference" && (() => {
-                  const refProblems = problemsFor(s, { kind: "Product", id: product.id }, new Set(product.hiddenProblemIds || []));
-                  const leaves = refProblems.filter(p => isLeaf(refProblems, p.id));
+                  // Scoped-to-this-product and scoped-to-its-category remarks are what the Head actually came here for —
+                  // put them first, ahead of the (often much longer) global catalog, so they aren't buried in a wall of cards.
+                  const refProblems = problemsFor(s, { kind: "Product", id: product.id });
+                  const scopeRank = p => p.productId ? 0 : p.categoryId ? 1 : 2;
+                  const scopeLabel = p => p.productId ? "this product" : p.categoryId ? `category: ${s.categories.find(c => c.id === p.categoryId)?.name || "?"}` : "global";
+                  const leaves = refProblems.filter(p => isLeaf(refProblems, p.id))
+                    .sort((a, b) => scopeRank(a) - scopeRank(b) || problemPath(refProblems, a.id).localeCompare(problemPath(refProblems, b.id)));
                   const notes = (s.problemNotes || []).filter(n => n.productId === product.id);
                   const patchNote = (problemId, patch) => set(x => {
                     const list = x.problemNotes || [];
@@ -2031,19 +2037,26 @@ function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset, onMessag
                     if (idx === -1) return { ...x, problemNotes: [...list, { id: uid(), productId: product.id, problemId, description: "", photos: [], ...patch }] };
                     const next = [...list]; next[idx] = { ...next[idx], ...patch }; return { ...x, problemNotes: next };
                   });
+                  const doneCount = leaves.filter(l => hasNoteContent(noteFor(notes, l.id))).length;
+                  const selId = refPick && leaves.some(l => l.id === refPick) ? refPick : (leaves[0]?.id || null);
+                  const selLeaf = leaves.find(l => l.id === selId);
+                  const selNote = selLeaf ? noteFor(notes, selLeaf.id) : null;
                   return (
-                    <div style={{ maxWidth: 760 }}>
-                      <p className="text-xs mb-3" style={{ color: C.muted }}>A short description and reference photos per problem type, so controllers know exactly what to look for. Shown during inspection and on the product profile in the phone app.</p>
-                      {leaves.length === 0 ? <p className="text-xs" style={{ color: C.warn }}>No problem types apply to this product yet — add them in Problems.</p> : (
-                        <div className="flex flex-col gap-2.5">
-                          {leaves.map(leaf => { const note = noteFor(notes, leaf.id); return (
-                            <div key={leaf.id} className="rounded-xl p-3" style={{ border: `1px solid ${C.line}` }}>
-                              <p className="text-sm font-medium mb-2">{problemPath(refProblems, leaf.id)}</p>
-                              <FastTextarea value={note?.description || ""} onCommit={v => patchNote(leaf.id, { description: v })} rows={2} placeholder="What this problem looks like, how to judge it…" className="mb-2" style={{ resize: "vertical" }} />
-                              <PhotoStrip photos={note?.photos} onAdd={got => patchNote(leaf.id, { photos: [...asPhotoList(note?.photos), ...got] })} onRemove={id => patchNote(leaf.id, { photos: asPhotoList(note?.photos).filter(x => x.id !== id) })} size={56} />
+                    <div style={{ maxWidth: 640 }}>
+                      <p className="text-xs mb-3" style={{ color: C.muted }}>A short description and reference photos per problem type, so controllers know exactly what to look for. Shown during inspection and on the product profile in the phone app.{leaves.length > 0 && ` — ${doneCount} of ${leaves.length} filled in.`}</p>
+                      {leaves.length === 0 ? <p className="text-xs" style={{ color: C.warn }}>No problem types apply to this product yet — add or scope them in Problem types (global, this category, or this product).</p> : (
+                        <>
+                          <select value={selId || ""} onChange={e => setRefPick(e.target.value)} className="w-full text-sm rounded-md px-2 outline-none mb-3" style={{ ...inp, height: 34 }}>
+                            {leaves.map(leaf => <option key={leaf.id} value={leaf.id}>{hasNoteContent(noteFor(notes, leaf.id)) ? "✓ " : ""}{problemPath(refProblems, leaf.id)} — {scopeLabel(leaf)}</option>)}
+                          </select>
+                          {selLeaf && (
+                            <div className="rounded-xl p-3" style={{ border: `1px solid ${C.line}` }}>
+                              <p className="text-sm font-medium mb-2">{problemPath(refProblems, selLeaf.id)} <span className="text-xs font-normal" style={{ color: C.muted }}>· {scopeLabel(selLeaf)}</span></p>
+                              <FastTextarea key={selLeaf.id} value={selNote?.description || ""} onCommit={v => patchNote(selLeaf.id, { description: v })} rows={3} placeholder="What this problem looks like, how to judge it…" className="mb-2" style={{ resize: "vertical" }} />
+                              <PhotoStrip photos={selNote?.photos} onAdd={got => patchNote(selLeaf.id, { photos: [...asPhotoList(selNote?.photos), ...got] })} onRemove={id => patchNote(selLeaf.id, { photos: asPhotoList(selNote?.photos).filter(x => x.id !== id) })} size={64} />
                             </div>
-                          ); })}
-                        </div>
+                          )}
+                        </>
                       )}
                     </div>
                   );
