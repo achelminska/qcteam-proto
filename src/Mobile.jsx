@@ -1804,6 +1804,9 @@ function MProductHeader({ s, product, article, name, go }) {
         </div>
       </div>
       {attrs.length > 0 && <div className="flex flex-wrap gap-1.5 mt-2.5">{attrs.map(a => <span key={a.dictionaryId} className="text-xs px-2.5 py-1 rounded-full" style={{ background: C.surface, border: `1px solid ${C.line}` }}><span style={{ color: C.muted }}>{a.list}:</span> <b>{a.value}</b></span>)}</div>}
+      {/* Wherever this header shows up — dock pallet, blocked pallet, scan result — the product is already identified, so
+          any announcement about it belongs here, not only after tapping through to the full profile. */}
+      {s.announcements.filter(a => annMatchesProduct(s, a, product)).map(a => <div key={a.id} className="rounded-xl px-3 py-2 mt-2.5" style={{ background: C.accentSoft }}><p className="text-xs font-semibold flex items-center" style={{ color: C.accent }}><Ic i={Megaphone} s={12} mr={4} />{a.title}</p><p className="text-xs mt-0.5" style={{ color: C.ink }}>{a.body}</p></div>)}
       {hist.count > 0 && <div className="rounded-xl px-3 py-2 mt-2.5" style={{ background: C.badBg }}><p className="text-xs font-semibold" style={{ color: C.bad }}>{hist.count} rejected recently · last {dayLabel(hist.lastAt)}</p><p className="text-xs" style={{ color: C.bad }}>{hist.problems.slice(0, 3).map(p => `${p.name} ×${p.count}`).join(", ")}{hist.problems.length > 3 ? "…" : ""}</p></div>}
     </button>
   );
