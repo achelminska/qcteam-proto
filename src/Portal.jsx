@@ -584,7 +584,7 @@ const computeDeadlineAlerts = (s, nowMs = Date.now()) => {
   const st = settingsOf(s); const out = [];
   dockRowsLive(s).forEach(r => {
     if (!r.arrived) return;
-    const covered = s.inspections.some(i => i.status === "Completed" && (i.pallets || []).some(h => samePallet(h, r.hu)));
+    const covered = !!completedInspectionFor(s, r.hu);
     if (covered || lostOf(s, r)) return;
     const arrivalMs = new Date(`${r.arrived}T${r.arrivedTime || "00:00"}:00`).getTime(); if (isNaN(arrivalMs)) return;
     const deadlineAt = arrivalMs + st.rejectionWindowHours * 3600000; const hoursLeft = (deadlineAt - nowMs) / 3600000;
@@ -647,6 +647,9 @@ const claimOf = (s, b) => (s.palletClaims || {})[claimKey(b)] || null;
 const setClaim = (set, b, claim) => set(x => { const pc = { ...(x.palletClaims || {}) }; if (claim) pc[claimKey(b)] = claim; else delete pc[claimKey(b)]; return { ...x, palletClaims: pc }; });
 // One pallet, two ways of writing its SSCC (with/without the AI prefix and leading zeros)
 const samePallet = (a, b) => { const x = String(a || "").replace(/\D/g, "").replace(/^0+/, ""), y = String(b || "").replace(/\D/g, "").replace(/^0+/, ""); return !!x && !!y && (x === y || x.endsWith(y) || y.endsWith(x)); };
+// The WMS dock sheet can lag behind — a pallet already reported still shows up "on dock" until the next push. This is
+// what actually decides that, so it's surfaced wherever a pallet is browsed, not only when its exact code is scanned.
+const completedInspectionFor = (s, hu) => (s.inspections || []).filter(i => i.status === "Completed" && (i.pallets || []).some(h => samePallet(h, hu))).sort((a, b) => (b.completedAt || "").localeCompare(a.completedAt || ""))[0] || null;
 // Lost pallets: someone moved it without scanning and nobody can find it. QC can't act until it turns up, so it stays in
 // every list — dimmed, with a "lost" tag — and drops out of the deadline alerts and the big numbers. Internal for now;
 // markLost() is the single place to hook an outbound message (SV / WMS) later.
@@ -1106,8 +1109,10 @@ function Dashboard({ s, setPage, seed, user, openProduct, onAssign, set }) {
   const prioRows = prioSel ? f.dock.filter(r => prioSel === "Skippable" ? r.skippable : r.priority === prioSel).sort((a, b) => `${a.arrived} ${a.arrivedTime}`.localeCompare(`${b.arrived} ${b.arrivedTime}`)) : [];
   // Same collapse-by-SKU the phone uses: one row per article, "×N" when more than one pallet is on the dock.
   const prioGroups = (() => { const map = new Map(); prioRows.forEach(r => { const k = r.article || r.hu; if (!map.has(k)) map.set(k, []); map.get(k).push(r); });
+    // The dock sheet still lists a pallet even once it's reported — it just hasn't refreshed yet — so count how many
+    // of the group already have a completed report and flag it, instead of letting them look untouched.
     return [...map.values()].map(rows => { const sorted = [...rows].sort((a, b) => `${a.arrived} ${a.arrivedTime}`.localeCompare(`${b.arrived} ${b.arrivedTime}`)); const first = sorted[0]; const locs = new Set(rows.map(r => r.location).filter(Boolean));
-      return { ...first, count: rows.length, location: locs.size <= 1 ? first.location : `${locs.size} locations` }; }).sort((a, b) => `${a.arrived} ${a.arrivedTime}`.localeCompare(`${b.arrived} ${b.arrivedTime}`)); })();
+      return { ...first, count: rows.length, checked: rows.filter(x => completedInspectionFor(s, x.hu)).length, location: locs.size <= 1 ? first.location : `${locs.size} locations` }; }).sort((a, b) => `${a.arrived} ${a.arrivedTime}`.localeCompare(`${b.arrived} ${b.arrivedTime}`)); })();
   const Tile = ({ label, value, sub, color, onClick, active }) => <button onClick={onClick} disabled={!onClick} className="rounded-2xl p-4 text-left" style={{ background: active ? C.accentSoft : C.surface, border: `1px solid ${active ? C.accent : C.line}`, borderLeft: `3px solid ${color || C.line}`, cursor: onClick ? "pointer" : "default" }}><p className="text-xs" style={{ color: C.muted }}>{label}</p><p className="text-[26px] leading-tight font-semibold mt-0.5" style={{ color: value > 0 && color ? color : C.ink }}>{value}</p>{sub && <p className="text-[11px]" style={{ color: C.muted }}>{sub}</p>}</button>;
   return (
     <div>
@@ -1125,7 +1130,7 @@ function Dashboard({ s, setPage, seed, user, openProduct, onAssign, set }) {
           <thead><tr className="text-xs text-left" style={{ color: C.muted }}>{["Product", "Article", "Location", "Arrived", "Transporter", "History"].map(h => <th key={h} className="py-1.5 pr-3 font-medium" style={{ borderBottom: `1px solid ${C.line}` }}>{h}</th>)}</tr></thead>
           <tbody>{prioGroups.map(r => { const prod = s.products.find(p => p.articleId === r.article); const hist = recentProblemsFor(s, prod?.id); return (
             <tr key={r.article || r.hu} style={{ borderBottom: `1px solid ${C.line}` }}>
-              <td className="py-1.5 pr-3">{prod ? <button onClick={() => openProduct(prod.id)} className="text-left font-medium" style={{ color: C.ink }}>{r.name || prod.name}</button> : <span>{r.name || r.article}<span className="text-[11px] ml-1" style={{ color: C.warn }}>no profile</span></span>}{r.count > 1 && <span className="text-[10px] ml-1.5 px-1.5 py-0.5 rounded-full" style={{ background: C.accentSoft, color: C.accent }}>×{r.count} on docks</span>}{r.blocking && <span className="text-[10px] ml-1.5 px-1.5 py-0.5 rounded" style={{ background: C.badBg, color: C.bad }}>needed today</span>}</td>
+              <td className="py-1.5 pr-3">{prod ? <button onClick={() => openProduct(prod.id)} className="text-left font-medium" style={{ color: C.ink }}>{r.name || prod.name}</button> : <span>{r.name || r.article}<span className="text-[11px] ml-1" style={{ color: C.warn }}>no profile</span></span>}{r.count > 1 && <span className="text-[10px] ml-1.5 px-1.5 py-0.5 rounded-full" style={{ background: C.accentSoft, color: C.accent }}>×{r.count} on docks</span>}{r.checked > 0 && <span className="text-[10px] ml-1.5 px-1.5 py-0.5 rounded-full" style={{ background: C.okBg, color: C.ok }}>✓ {r.checked === r.count ? "already inspected" : `${r.checked}/${r.count} inspected`}</span>}{r.blocking && <span className="text-[10px] ml-1.5 px-1.5 py-0.5 rounded" style={{ background: C.badBg, color: C.bad }}>needed today</span>}</td>
               <td className="py-1.5 pr-3 font-mono text-xs">{r.article}</td><td className="py-1.5 pr-3">{r.location}</td><td className="py-1.5 pr-3 text-xs">{r.arrived} {r.arrivedTime}</td><td className="py-1.5 pr-3 text-xs">{r.transporter}</td>
               <td className="py-1.5 text-xs" style={{ color: hist.count ? C.bad : C.muted }}>{hist.count ? `${hist.count} rejected · ${hist.problems.slice(0, 2).map(x => x.name).join(", ")}` : "clean"}</td>
             </tr>); })}</tbody>

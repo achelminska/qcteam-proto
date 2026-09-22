@@ -618,7 +618,7 @@ const computeDeadlineAlerts = (s, nowMs = Date.now()) => {
   const st = settingsOf(s); const out = [];
   dockRowsLive(s).forEach(r => {
     if (!r.arrived) return;
-    const covered = s.inspections.some(i => i.status === "Completed" && (i.pallets || []).some(h => samePallet(h, r.hu)));
+    const covered = !!completedInspectionFor(s, r.hu);
     if (covered || lostOf(s, r)) return;
     const arrivalMs = new Date(`${r.arrived}T${r.arrivedTime || "00:00"}:00`).getTime(); if (isNaN(arrivalMs)) return;
     const deadlineAt = arrivalMs + st.rejectionWindowHours * 3600000; const hoursLeft = (deadlineAt - nowMs) / 3600000;
@@ -1824,6 +1824,16 @@ function MPalletInfo({ s, set, user, go, hu, onAssign }) {
       <TopBar title="Pallet on dock" onBack={() => go("home")} />
       <div className="px-4 pt-3">
         <MProductHeader s={s} product={product} article={r.article} name={r.name} go={go} />
+        {/* The dock sheet comes from the WMS and only refreshes on its own schedule — a pallet already reported can sit
+            here for a while looking untouched. Surface that up front so nobody re-walks a pallet that's done. */}
+        {(() => { const done = completedInspectionFor(s, r.hu); if (!done) return null; return (
+          <div className="rounded-2xl p-3.5 mb-3" style={{ background: C.okBg }}>
+            <p className="text-sm font-medium mb-1 flex items-center" style={{ color: C.ok }}><Ic i={Check} s={14} />Already inspected — the dock sheet just hasn't caught up yet</p>
+            <p className="text-xs mb-2" style={{ color: C.ink }}>{s.users.find(u => u.id === done.controllerId)?.name} · {dayLabel(done.completedAt)}, {hhmm(done.completedAt)}{" · " + inspType(s, done).name.toLowerCase()}</p>
+            <div className="flex items-center gap-2 mb-2 flex-wrap"><ResultPill i={done} s={s} />{done.comment && <span className="text-xs" style={{ color: C.muted }}>{done.comment}</span>}</div>
+            <button onClick={() => go("inspection", done.id)} className="w-full py-2 rounded-xl text-sm" style={{ border: `1px solid ${C.line}`, background: C.surface }}>{done.template ? "View report" : "View entry"}</button>
+          </div>
+        ); })()}
         {lostOf(s, r) && <MLostControls s={s} set={set} user={user} row={r} />}
         {(() => { const al = computeDeadlineAlerts(s).find(a => samePallet(a.hu, r.hu)); if (!al) return null; return <div className="rounded-xl px-3 py-2 mb-3" style={{ background: C.badBg }}><p className="text-xs font-semibold flex items-center" style={{ color: C.bad }}><Ic i={AlertTriangle} s={13} />{al.level === "breached" ? "Rejection window expired" : `Rejection window closes in ${Math.max(0, Math.round(al.hoursLeft))} h`}</p><p className="text-[11px]" style={{ color: C.bad }}>{al.level === "breached" ? "Rejecting is no longer possible — inspect anyway and note it." : `Arrived ${r.arrived} ${r.arrivedTime}${al.risky ? " · this product was rejected recently, so it's flagged early" : ""}.`}</p></div>; })()}
         {r.blocking && !lostOf(s, r) && <div className="rounded-xl px-3 py-2 mb-3 text-xs font-semibold" style={{ background: C.badBg, color: C.bad }}>Needed today — picking is waiting for this pallet.</div>}
@@ -1834,7 +1844,7 @@ function MPalletInfo({ s, set, user, go, hu, onAssign }) {
         <div className="rounded-2xl p-3.5 mb-3" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
           {fields.map(([k, v]) => <div key={k} className="flex justify-between gap-3 py-1.5 text-sm" style={{ borderBottom: `1px solid ${C.line}` }}><span style={{ color: C.muted }}>{k}</span><span className="font-medium text-right">{v}</span></div>)}
         </div>
-        <button onClick={() => go("scan", r.hu)} className="w-full py-3 rounded-xl text-sm font-medium" style={lostOf(s, r) ? { background: C.surface, border: `1px solid ${C.line}` } : { background: C.ink, color: C.onDark }}>Inspect this pallet</button>
+        <button onClick={() => go("scan", r.hu)} className="w-full py-3 rounded-xl text-sm font-medium" style={lostOf(s, r) ? { background: C.surface, border: `1px solid ${C.line}` } : { background: C.ink, color: C.onDark }}>{completedInspectionFor(s, r.hu) ? "Inspect again" : "Inspect this pallet"}</button>
         {!lostOf(s, r) && <MLostControls s={s} set={set} user={user} row={r} />}
       </div>
     </div>
@@ -1858,7 +1868,10 @@ function MPriorityList({ s, user, go, priority }) {
   const itemsFor = dayRows => { const groups = {}; dayRows.forEach(r => { const k = r.article || r.hu; (groups[k] = groups[k] || { rows: [] }).rows.push(r); });
     return Object.values(groups).map(g => { const first = g.rows[0]; const product = s.products.find(p => p.articleId === first.article); const hist = recentProblemsFor(s, product?.id);
       const locs = new Set(g.rows.map(r => r.location).filter(Boolean)); const earliest = [...g.rows].sort((x, y) => (x.arrivedTime || "99").localeCompare(y.arrivedTime || "99"))[0];
-      return { key: first.article || first.hu, name: first.name || product?.name || first.article, count: g.rows.length, hu: earliest.hu, productId: product?.id || null,
+      // The dock sheet still lists these pallets even once they're reported — it just hasn't refreshed yet — so count
+      // how many of the group already have a completed report and flag it, instead of letting them look untouched.
+      const checked = g.rows.filter(x => completedInspectionFor(s, x.hu)).length;
+      return { key: first.article || first.hu, name: first.name || product?.name || first.article, count: g.rows.length, checked, hu: earliest.hu, productId: product?.id || null,
         location: locs.size <= 1 ? first.location : `${locs.size} locations`, transporter: earliest.transporter, arrivedTime: earliest.arrivedTime, blocking: g.rows.some(r => r.blocking), hist, priority: first.priority };
     // recent rejections first, then chronological by arrival time (oldest on top) — a ×N group counts as its earliest pallet
     }).sort((a, b) => (b.hist.count > 0) - (a.hist.count > 0) || (a.arrivedTime || "99").localeCompare(b.arrivedTime || "99")); };
@@ -1882,7 +1895,7 @@ function MPriorityList({ s, user, go, priority }) {
             </div>
             {items.map(it => (
               <button key={it.key} onClick={() => it.count > 1 && it.productId ? go("catalog", it.productId) : go("palletInfo", it.hu)} className="w-full text-left py-3 active:opacity-60" style={{ borderBottom: `1px solid ${C.line}` }}>
-                <div className="flex items-center gap-2">{isAll && subTab === "regular" && it.priority && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ background: PRIORITY[it.priority]?.[1] || C.line, color: PRIORITY[it.priority]?.[0] || C.muted }}>{it.priority}</span>}<p className="text-sm font-medium flex-1 truncate">{it.name}</p>{it.count > 1 && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ background: C.accentSoft, color: C.accent }}>×{it.count} on docks</span>}{it.hist.count > 0 && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ background: C.badBg, color: C.bad }}>{it.hist.count} rejected recently</span>}</div>
+                <div className="flex items-center gap-2">{isAll && subTab === "regular" && it.priority && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ background: PRIORITY[it.priority]?.[1] || C.line, color: PRIORITY[it.priority]?.[0] || C.muted }}>{it.priority}</span>}<p className="text-sm font-medium flex-1 truncate">{it.name}</p>{it.count > 1 && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ background: C.accentSoft, color: C.accent }}>×{it.count} on docks</span>}{it.checked > 0 && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0 inline-flex items-center gap-1" style={{ background: C.okBg, color: C.ok }}><Ic i={Check} s={10} mr={0} />{it.checked === it.count ? "already inspected" : `${it.checked}/${it.count} inspected`}</span>}{it.hist.count > 0 && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ background: C.badBg, color: C.bad }}>{it.hist.count} rejected recently</span>}</div>
                 <p className="text-xs mt-0.5" style={{ color: C.muted }}>{it.location} · {it.transporter} · {it.arrivedTime}{it.blocking ? " · needed today" : ""}</p>
                 {it.hist.count > 0 && <p className="text-xs mt-1" style={{ color: C.bad }}>Was rejected for: {it.hist.problems.slice(0, 3).map(p => `${p.name} ×${p.count}`).join(", ")}{it.hist.problems.length > 3 ? "…" : ""} · last {dayLabel(it.hist.lastAt)}</p>}
               </button>
@@ -2146,6 +2159,9 @@ const isPalletCode = code => /^\d{14,}$/.test(code.trim());
 // "00087205744101641093" → "087205744101641093". Sheets sometimes drop the leading zero, so matching is by suffix.
 const extractSSCC = raw => { const d = String(raw || "").replace(/\D/g, ""); const m = /(?:^|\D)00(\d{18})/.exec(String(raw || "")) || (d.length >= 20 && d.startsWith("00") ? [null, d.slice(2, 20)] : null); if (m) return m[1]; if (d.length >= 18) return d.slice(0, 18); return d; };
 const samePallet = (a, b) => { const x = String(a || "").replace(/\D/g, "").replace(/^0+/, ""), y = String(b || "").replace(/\D/g, "").replace(/^0+/, ""); return !!x && !!y && (x === y || x.endsWith(y) || y.endsWith(x)); };
+// The WMS dock sheet can lag behind — a pallet already reported still shows up "on dock" until the next push. This is
+// what actually decides that, so it's surfaced everywhere a pallet is browsed, not only when its exact code is scanned.
+const completedInspectionFor = (s, hu) => (s.inspections || []).filter(i => i.status === "Completed" && (i.pallets || []).some(h => samePallet(h, hu))).sort((a, b) => (b.completedAt || "").localeCompare(a.completedAt || ""))[0] || null;
 const dockRowsFor = product => product ? dockRowsLive(_S).filter(r => r.article === product.articleId) : [];
 // showLost (only passed from the product profile, not from inside the scan flow) also renders Mark-as-lost inline per
 // pallet, so acting on a specific pallet from here never needs a hop through a separate info screen first.
