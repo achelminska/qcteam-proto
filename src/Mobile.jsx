@@ -510,18 +510,19 @@ function DeliveryPallets({ product, insp, onAdd, compact }) {
   const same = rows.filter(r => r.sameDay !== false && !r.poMismatch);
   const poMismatch = rows.filter(r => r.sameDay !== false && r.poMismatch);
   const other = rows.filter(r => r.sameDay === false);
+  const sameDayAll = [...same, ...poMismatch];
   const known = rows.basis !== "none";
   return (
-    <div className="rounded-xl mt-2 mb-2" style={{ background: C.surface, border: `1px solid ${C.line}`, borderLeft: `3px solid ${same.length ? C.accent : C.line}` }}>
-      <div className="px-3 pt-2.5 pb-1 flex items-center gap-2"><span style={{ color: C.accent }}><Ic i={Truck} s={14} mr={0} /></span><span className="text-sm flex-1"><b>More pallets of this product on the docks</b>{known ? ` — ${same.length} from this delivery` : ""}</span>{known && same.length > 1 && <button onClick={() => onAdd(same.map(r => r.hu))} className="text-xs font-semibold px-2.5 py-1 rounded-lg" style={{ background: C.accentSoft, color: C.accent }}>Add all {same.length}</button>}</div>
+    <div className="rounded-xl mt-2 mb-2" style={{ background: C.surface, border: `1px solid ${C.line}`, borderLeft: `3px solid ${sameDayAll.length ? C.accent : C.line}` }}>
+      <div className="px-3 pt-2.5 pb-1 flex items-center gap-2"><span style={{ color: C.accent }}><Ic i={Truck} s={14} mr={0} /></span><span className="text-sm flex-1"><b>More pallets of this product on the docks</b>{known ? ` — ${sameDayAll.length} from this delivery` : ""}</span>{known && sameDayAll.length > 1 && <button onClick={() => onAdd(sameDayAll.map(r => r.hu))} className="text-xs font-semibold px-2.5 py-1 rounded-lg" style={{ background: C.accentSoft, color: C.accent }}>Add all {sameDayAll.length}</button>}</div>
       {rows.basis === "none" && <p className="px-3 pb-1 text-[11px]" style={{ color: C.muted }}>Enter or scan the pallet you sampled first — then I can tell which of these are from the same delivery.</p>}
       {rows.basis === "today" && <p className="px-3 pb-1 text-[11px]" style={{ color: C.muted }}>The sampled pallet isn't on the dock sheet yet — assuming today's delivery.</p>}
       {same.map(r => <div key={r.hu} className="flex items-center gap-2 px-3 py-1.5" style={{ borderTop: `1px solid ${C.line}` }}><span className="flex-1 min-w-0"><span className="block text-xs font-mono">HU {r.hu}</span><span className="block text-[11px]" style={{ color: C.muted }}>{r.location} · {r.onDock} on dock / {r.inBuffer} in buffer · arrived {r.arrived}{r.po ? ` · PO ${r.po}` : ""}</span></span>{known && <button onClick={() => onAdd([r.hu])} className="text-xs font-medium px-2.5 py-1 rounded-lg" style={{ background: C.ink, color: C.onDark }}>Add</button>}</div>)}
-      {/* Same day, different PO — kept out of "Add all" on purpose: a different PO is usually a separate order, so
-          pooling it into this report without a deliberate tap risks reporting on the wrong batch. */}
+      {/* Same day, different PO — usually a separate order, so it's flagged rather than silently pooled in. But it's only
+          a heads-up: the controller decides, and adding one is exactly as easy as any other same-day pallet. */}
       {poMismatch.length > 0 && <div className="px-3 py-1.5" style={{ borderTop: `1px solid ${C.line}`, background: C.warnBg }}>
         <p className="text-[11px] mb-1 flex items-center" style={{ color: C.warn }}><Ic i={AlertTriangle} s={11} mr={4} />Same day, different PO ({rows.anchorPO || "?"} vs below) — likely a separate delivery:</p>
-        {poMismatch.map(r => <div key={r.hu} className="flex items-center gap-2 py-1"><span className="flex-1 min-w-0"><span className="block text-xs font-mono">HU {r.hu}</span><span className="block text-[11px]" style={{ color: C.warn }}>{r.location} · PO {r.po} · arrived {r.arrived}</span></span>{known && <button onClick={() => onAdd([r.hu])} className="text-xs font-medium px-2.5 py-1 rounded-lg" style={{ background: C.surface, border: `1px solid ${C.warn}`, color: C.warn }}>Add anyway</button>}</div>)}
+        {poMismatch.map(r => <div key={r.hu} className="flex items-center gap-2 py-1"><span className="flex-1 min-w-0"><span className="block text-xs font-mono">HU {r.hu}</span><span className="block text-[11px]" style={{ color: C.warn }}>{r.location} · PO {r.po} · arrived {r.arrived}</span></span>{known && <button onClick={() => onAdd([r.hu])} className="text-xs font-medium px-2.5 py-1 rounded-lg" style={{ background: C.surface, border: `1px solid ${C.warn}`, color: C.warn }}>Add</button>}</div>)}
       </div>}
       {other.length > 0 && <div className="px-3 py-1.5" style={{ borderTop: `1px solid ${C.line}` }}><p className="text-[11px] mb-1" style={{ color: C.muted }}>Different delivery day — not part of this report:</p>{other.map(r => <p key={r.hu} className="text-[11px] font-mono" style={{ color: C.muted, opacity: .8 }}>HU {r.hu} · {r.location} · arrived {r.arrived}</p>)}</div>}
     </div>
