@@ -2025,11 +2025,22 @@ function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset, onMessag
                 {tab === "reference" && (() => {
                   // Scoped-to-this-product and scoped-to-its-category remarks are what the Head actually came here for —
                   // put them first, ahead of the (often much longer) global catalog, so they aren't buried in a wall of cards.
+                  const chain = categoryChainIds(s, product.categoryId);
                   const refProblems = problemsFor(s, { kind: "Product", id: product.id });
                   const scopeRank = p => p.productId ? 0 : p.categoryId ? 1 : 2;
                   const scopeLabel = p => p.productId ? "this product" : p.categoryId ? `category: ${s.categories.find(c => c.id === p.categoryId)?.name || "?"}` : "global";
                   const leaves = refProblems.filter(p => isLeaf(refProblems, p.id))
                     .sort((a, b) => scopeRank(a) - scopeRank(b) || problemPath(refProblems, a.id).localeCompare(problemPath(refProblems, b.id)));
+                  const counts = leaves.reduce((acc, p) => { const k = p.productId ? "product" : p.categoryId ? "category" : "global"; acc[k]++; return acc; }, { product: 0, category: 0, global: 0 });
+                  // Anything hidden for this product OR anywhere in its category chain never reaches problemsFor at all (same
+                  // rule that hides it from controllers during a real inspection) — surface it here so "it's missing" is never
+                  // a mystery: it's either not scoped to this product/category, or it was explicitly hidden and can be restored.
+                  const hiddenEntries = [];
+                  chain.forEach(cid => { const cat = s.categories.find(c => c.id === cid); (cat?.hiddenProblemIds || []).forEach(id => { const node = s.problems.find(p => p.id === id); if (node && isLeaf(s.problems, node.id)) hiddenEntries.push({ node, holderType: "category", holderId: cid, holderName: cat.name }); }); });
+                  (product.hiddenProblemIds || []).forEach(id => { const node = s.problems.find(p => p.id === id); if (node && isLeaf(s.problems, node.id)) hiddenEntries.push({ node, holderType: "product", holderId: product.id, holderName: product.name }); });
+                  const unhideEntry = e => set(x => e.holderType === "category"
+                    ? { ...x, categories: x.categories.map(c => c.id === e.holderId ? { ...c, hiddenProblemIds: (c.hiddenProblemIds || []).filter(id => id !== e.node.id) } : c) }
+                    : { ...x, products: x.products.map(p => p.id === e.holderId ? { ...p, hiddenProblemIds: (p.hiddenProblemIds || []).filter(id => id !== e.node.id) } : p) });
                   const notes = (s.problemNotes || []).filter(n => n.productId === product.id);
                   const patchNote = (problemId, patch) => set(x => {
                     const list = x.problemNotes || [];
@@ -2043,7 +2054,9 @@ function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset, onMessag
                   const selNote = selLeaf ? noteFor(notes, selLeaf.id) : null;
                   return (
                     <div style={{ maxWidth: 640 }}>
-                      <p className="text-xs mb-3" style={{ color: C.muted }}>A short description and reference photos per problem type, so controllers know exactly what to look for. Shown during inspection and on the product profile in the phone app.{leaves.length > 0 && ` — ${doneCount} of ${leaves.length} filled in.`}</p>
+                      <p className="text-xs mb-1" style={{ color: C.muted }}>A short description and reference photos per problem type, so controllers know exactly what to look for. Shown during inspection and on the product profile in the phone app.</p>
+                      <p className="text-xs mb-3" style={{ color: C.muted }}>{leaves.length} problem type{leaves.length === 1 ? "" : "s"} apply here — {counts.global} global, {counts.category} from the category, {counts.product} on this product{leaves.length > 0 && ` · ${doneCount} filled in`}.</p>
+                      {hiddenEntries.length > 0 && <div className="rounded-lg p-2 mb-3 text-xs" style={{ background: C.warnBg, color: C.warn }}>hidden here, so not listed below (and not shown to controllers either) — click to restore: {hiddenEntries.map(e => <button key={e.holderType + e.holderId + e.node.id} onClick={() => unhideEntry(e)} className="px-1.5 py-0.5 rounded ml-1 mb-1" style={{ background: C.surface, border: `1px solid ${C.warn}` }} title={`hidden for ${e.holderType === "category" ? "category " + e.holderName : "this product"}`}>{e.node.name} ↺</button>)}</div>}
                       {leaves.length === 0 ? <p className="text-xs" style={{ color: C.warn }}>No problem types apply to this product yet — add or scope them in Problem types (global, this category, or this product).</p> : (
                         <>
                           <select value={selId || ""} onChange={e => setRefPick(e.target.value)} className="w-full text-sm rounded-md px-2 outline-none mb-3" style={{ ...inp, height: 34 }}>
