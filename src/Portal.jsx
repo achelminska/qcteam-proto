@@ -473,14 +473,22 @@ function PdfViewer({ insp, s, onClose }) {
 function DeliveryPallets({ product, insp, onAdd, compact }) {
   const rows = product ? sameDeliveryPallets(product, insp) : [];
   if (!rows.length) return null;
-  const same = rows.filter(r => r.sameDay !== false), other = rows.filter(r => r.sameDay === false);
+  const same = rows.filter(r => r.sameDay !== false && !r.poMismatch);
+  const poMismatch = rows.filter(r => r.sameDay !== false && r.poMismatch);
+  const other = rows.filter(r => r.sameDay === false);
   const known = rows.basis !== "none";
   return (
     <div className="rounded-xl mt-2 mb-2" style={{ background: C.surface, border: `1px solid ${C.line}`, borderLeft: `3px solid ${same.length ? C.accent : C.line}` }}>
       <div className="px-3 pt-2.5 pb-1 flex items-center gap-2"><span style={{ color: C.accent }}><Ic i={Truck} s={14} mr={0} /></span><span className="text-sm flex-1"><b>More pallets of this product on the docks</b>{known ? ` — ${same.length} from this delivery` : ""}</span>{known && same.length > 1 && <button onClick={() => onAdd(same.map(r => r.hu))} className="text-xs font-semibold px-2.5 py-1 rounded-lg" style={{ background: C.accentSoft, color: C.accent }}>Add all {same.length}</button>}</div>
       {rows.basis === "none" && <p className="px-3 pb-1 text-[11px]" style={{ color: C.muted }}>Enter or scan the pallet you sampled first — then I can tell which of these are from the same delivery.</p>}
       {rows.basis === "today" && <p className="px-3 pb-1 text-[11px]" style={{ color: C.muted }}>The sampled pallet isn't on the dock sheet yet — assuming today's delivery.</p>}
-      {same.map(r => <div key={r.hu} className="flex items-center gap-2 px-3 py-1.5" style={{ borderTop: `1px solid ${C.line}` }}><span className="flex-1 min-w-0"><span className="block text-xs font-mono">HU {r.hu}</span><span className="block text-[11px]" style={{ color: C.muted }}>{r.location} · {r.onDock} on dock / {r.inBuffer} in buffer · arrived {r.arrived}</span></span>{known && <button onClick={() => onAdd([r.hu])} className="text-xs font-medium px-2.5 py-1 rounded-lg" style={{ background: C.ink, color: C.onDark }}>Add</button>}</div>)}
+      {same.map(r => <div key={r.hu} className="flex items-center gap-2 px-3 py-1.5" style={{ borderTop: `1px solid ${C.line}` }}><span className="flex-1 min-w-0"><span className="block text-xs font-mono">HU {r.hu}</span><span className="block text-[11px]" style={{ color: C.muted }}>{r.location} · {r.onDock} on dock / {r.inBuffer} in buffer · arrived {r.arrived}{r.po ? ` · PO ${r.po}` : ""}</span></span>{known && <button onClick={() => onAdd([r.hu])} className="text-xs font-medium px-2.5 py-1 rounded-lg" style={{ background: C.ink, color: C.onDark }}>Add</button>}</div>)}
+      {/* Same day, different PO — kept out of "Add all" on purpose: a different PO is usually a separate order, so
+          pooling it into this report without a deliberate tap risks reporting on the wrong batch. */}
+      {poMismatch.length > 0 && <div className="px-3 py-1.5" style={{ borderTop: `1px solid ${C.line}`, background: C.warnBg }}>
+        <p className="text-[11px] mb-1 flex items-center" style={{ color: C.warn }}><Ic i={AlertTriangle} s={11} mr={4} />Same day, different PO ({rows.anchorPO || "?"} vs below) — likely a separate delivery:</p>
+        {poMismatch.map(r => <div key={r.hu} className="flex items-center gap-2 py-1"><span className="flex-1 min-w-0"><span className="block text-xs font-mono">HU {r.hu}</span><span className="block text-[11px]" style={{ color: C.warn }}>{r.location} · PO {r.po} · arrived {r.arrived}</span></span>{known && <button onClick={() => onAdd([r.hu])} className="text-xs font-medium px-2.5 py-1 rounded-lg" style={{ background: C.surface, border: `1px solid ${C.warn}`, color: C.warn }}>Add anyway</button>}</div>)}
+      </div>}
       {other.length > 0 && <div className="px-3 py-1.5" style={{ borderTop: `1px solid ${C.line}` }}><p className="text-[11px] mb-1" style={{ color: C.muted }}>Different delivery day — not part of this report:</p>{other.map(r => <p key={r.hu} className="text-[11px] font-mono" style={{ color: C.muted, opacity: .8 }}>HU {r.hu} · {r.location} · arrived {r.arrived}</p>)}</div>}
     </div>
   );
@@ -1112,7 +1120,8 @@ function Dashboard({ s, setPage, seed, user, openProduct, onAssign, set }) {
     // The dock sheet still lists a pallet even once it's reported — it just hasn't refreshed yet — so count how many
     // of the group already have a completed report and flag it, instead of letting them look untouched.
     return [...map.values()].map(rows => { const sorted = [...rows].sort((a, b) => `${a.arrived} ${a.arrivedTime}`.localeCompare(`${b.arrived} ${b.arrivedTime}`)); const first = sorted[0]; const locs = new Set(rows.map(r => r.location).filter(Boolean));
-      return { ...first, count: rows.length, checked: rows.filter(x => completedInspectionFor(s, x.hu)).length, location: locs.size <= 1 ? first.location : `${locs.size} locations` }; }).sort((a, b) => `${a.arrived} ${a.arrivedTime}`.localeCompare(`${b.arrived} ${b.arrivedTime}`)); })();
+      const mixedPO = new Set(rows.map(r => (r.po || "").trim()).filter(Boolean)).size > 1;
+      return { ...first, count: rows.length, checked: rows.filter(x => completedInspectionFor(s, x.hu)).length, mixedPO, location: locs.size <= 1 ? first.location : `${locs.size} locations` }; }).sort((a, b) => `${a.arrived} ${a.arrivedTime}`.localeCompare(`${b.arrived} ${b.arrivedTime}`)); })();
   const Tile = ({ label, value, sub, color, onClick, active }) => <button onClick={onClick} disabled={!onClick} className="rounded-2xl p-4 text-left" style={{ background: active ? C.accentSoft : C.surface, border: `1px solid ${active ? C.accent : C.line}`, borderLeft: `3px solid ${color || C.line}`, cursor: onClick ? "pointer" : "default" }}><p className="text-xs" style={{ color: C.muted }}>{label}</p><p className="text-[26px] leading-tight font-semibold mt-0.5" style={{ color: value > 0 && color ? color : C.ink }}>{value}</p>{sub && <p className="text-[11px]" style={{ color: C.muted }}>{sub}</p>}</button>;
   return (
     <div>
@@ -1130,7 +1139,7 @@ function Dashboard({ s, setPage, seed, user, openProduct, onAssign, set }) {
           <thead><tr className="text-xs text-left" style={{ color: C.muted }}>{["Product", "Article", "Location", "Arrived", "Transporter", "History"].map(h => <th key={h} className="py-1.5 pr-3 font-medium" style={{ borderBottom: `1px solid ${C.line}` }}>{h}</th>)}</tr></thead>
           <tbody>{prioGroups.map(r => { const prod = s.products.find(p => p.articleId === r.article); const hist = recentProblemsFor(s, prod?.id); return (
             <tr key={r.article || r.hu} style={{ borderBottom: `1px solid ${C.line}` }}>
-              <td className="py-1.5 pr-3">{prod ? <button onClick={() => openProduct(prod.id)} className="text-left font-medium" style={{ color: C.ink }}>{r.name || prod.name}</button> : <span>{r.name || r.article}<span className="text-[11px] ml-1" style={{ color: C.warn }}>no profile</span></span>}{r.count > 1 && <span className="text-[10px] ml-1.5 px-1.5 py-0.5 rounded-full" style={{ background: C.accentSoft, color: C.accent }}>×{r.count} on docks</span>}{r.checked > 0 && <span className="text-[10px] ml-1.5 px-1.5 py-0.5 rounded-full" style={{ background: C.okBg, color: C.ok }}>✓ {r.checked === r.count ? "already inspected" : `${r.checked}/${r.count} inspected`}</span>}{r.blocking && <span className="text-[10px] ml-1.5 px-1.5 py-0.5 rounded" style={{ background: C.badBg, color: C.bad }}>needed today</span>}</td>
+              <td className="py-1.5 pr-3">{prod ? <button onClick={() => openProduct(prod.id)} className="text-left font-medium" style={{ color: C.ink }}>{r.name || prod.name}</button> : <span>{r.name || r.article}<span className="text-[11px] ml-1" style={{ color: C.warn }}>no profile</span></span>}{r.count > 1 && <span className="text-[10px] ml-1.5 px-1.5 py-0.5 rounded-full" style={{ background: C.accentSoft, color: C.accent }}>×{r.count} on docks</span>}{r.mixedPO && <span className="text-[10px] ml-1.5 px-1.5 py-0.5 rounded-full" style={{ background: C.warnBg, color: C.warn }}>⚠ mixed PO</span>}{r.checked > 0 && <span className="text-[10px] ml-1.5 px-1.5 py-0.5 rounded-full" style={{ background: C.okBg, color: C.ok }}>✓ {r.checked === r.count ? "already inspected" : `${r.checked}/${r.count} inspected`}</span>}{r.blocking && <span className="text-[10px] ml-1.5 px-1.5 py-0.5 rounded" style={{ background: C.badBg, color: C.bad }}>needed today</span>}</td>
               <td className="py-1.5 pr-3 font-mono text-xs">{r.article}</td><td className="py-1.5 pr-3">{r.location}</td><td className="py-1.5 pr-3 text-xs">{r.arrived} {r.arrivedTime}</td><td className="py-1.5 pr-3 text-xs">{r.transporter}</td>
               <td className="py-1.5 text-xs" style={{ color: hist.count ? C.bad : C.muted }}>{hist.count ? `${hist.count} rejected · ${hist.problems.slice(0, 2).map(x => x.name).join(", ")}` : "clean"}</td>
             </tr>); })}</tbody>
@@ -3373,8 +3382,11 @@ const sameDeliveryPallets = (product, insp) => {
   const anchorRow = rows.find(r => mine.some(m => same(m, r.hu)));
   // delivery day: from the sheet if the sampled pallet is on it; otherwise assume today's delivery (a fresh arrival); unknown if no pallet entered yet
   const day = anchorRow ? anchorRow.arrived : mine.length ? new Date().toISOString().slice(0, 10) : null;
-  const list = rows.filter(r => !mine.some(m => same(m, r.hu))).map(r => ({ ...r, sameDay: day ? r.arrived === day : null }));
-  return Object.assign(list, { basis: anchorRow ? "sheet" : mine.length ? "today" : "none" });
+  // Same day doesn't guarantee same delivery — a different PO usually means a separate order that just happened to land
+  // the same day, so it's kept out of the one-tap "Add all" and flagged instead of silently pooled into this report.
+  const anchorPO = (anchorRow?.po || "").trim();
+  const list = rows.filter(r => !mine.some(m => same(m, r.hu))).map(r => ({ ...r, sameDay: day ? r.arrived === day : null, poMismatch: !!(anchorPO && r.po && r.po.trim() !== anchorPO) }));
+  return Object.assign(list, { basis: anchorRow ? "sheet" : mine.length ? "today" : "none", anchorPO });
 };
 const STORAGE_KEY = "qcteam-portal-state-v2-clean"; // clean start: a fresh key, so the previous test data stays untouched under v1
 const CLEAN_START = true; // no dock mock until the Head maps a sheet in Integrations

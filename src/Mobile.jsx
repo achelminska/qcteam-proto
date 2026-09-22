@@ -507,14 +507,22 @@ function PdfViewer({ insp, s, onClose }) {
 function DeliveryPallets({ product, insp, onAdd, compact }) {
   const rows = product ? sameDeliveryPallets(product, insp) : [];
   if (!rows.length) return null;
-  const same = rows.filter(r => r.sameDay !== false), other = rows.filter(r => r.sameDay === false);
+  const same = rows.filter(r => r.sameDay !== false && !r.poMismatch);
+  const poMismatch = rows.filter(r => r.sameDay !== false && r.poMismatch);
+  const other = rows.filter(r => r.sameDay === false);
   const known = rows.basis !== "none";
   return (
     <div className="rounded-xl mt-2 mb-2" style={{ background: C.surface, border: `1px solid ${C.line}`, borderLeft: `3px solid ${same.length ? C.accent : C.line}` }}>
       <div className="px-3 pt-2.5 pb-1 flex items-center gap-2"><span style={{ color: C.accent }}><Ic i={Truck} s={14} mr={0} /></span><span className="text-sm flex-1"><b>More pallets of this product on the docks</b>{known ? ` — ${same.length} from this delivery` : ""}</span>{known && same.length > 1 && <button onClick={() => onAdd(same.map(r => r.hu))} className="text-xs font-semibold px-2.5 py-1 rounded-lg" style={{ background: C.accentSoft, color: C.accent }}>Add all {same.length}</button>}</div>
       {rows.basis === "none" && <p className="px-3 pb-1 text-[11px]" style={{ color: C.muted }}>Enter or scan the pallet you sampled first — then I can tell which of these are from the same delivery.</p>}
       {rows.basis === "today" && <p className="px-3 pb-1 text-[11px]" style={{ color: C.muted }}>The sampled pallet isn't on the dock sheet yet — assuming today's delivery.</p>}
-      {same.map(r => <div key={r.hu} className="flex items-center gap-2 px-3 py-1.5" style={{ borderTop: `1px solid ${C.line}` }}><span className="flex-1 min-w-0"><span className="block text-xs font-mono">HU {r.hu}</span><span className="block text-[11px]" style={{ color: C.muted }}>{r.location} · {r.onDock} on dock / {r.inBuffer} in buffer · arrived {r.arrived}</span></span>{known && <button onClick={() => onAdd([r.hu])} className="text-xs font-medium px-2.5 py-1 rounded-lg" style={{ background: C.ink, color: C.onDark }}>Add</button>}</div>)}
+      {same.map(r => <div key={r.hu} className="flex items-center gap-2 px-3 py-1.5" style={{ borderTop: `1px solid ${C.line}` }}><span className="flex-1 min-w-0"><span className="block text-xs font-mono">HU {r.hu}</span><span className="block text-[11px]" style={{ color: C.muted }}>{r.location} · {r.onDock} on dock / {r.inBuffer} in buffer · arrived {r.arrived}{r.po ? ` · PO ${r.po}` : ""}</span></span>{known && <button onClick={() => onAdd([r.hu])} className="text-xs font-medium px-2.5 py-1 rounded-lg" style={{ background: C.ink, color: C.onDark }}>Add</button>}</div>)}
+      {/* Same day, different PO — kept out of "Add all" on purpose: a different PO is usually a separate order, so
+          pooling it into this report without a deliberate tap risks reporting on the wrong batch. */}
+      {poMismatch.length > 0 && <div className="px-3 py-1.5" style={{ borderTop: `1px solid ${C.line}`, background: C.warnBg }}>
+        <p className="text-[11px] mb-1 flex items-center" style={{ color: C.warn }}><Ic i={AlertTriangle} s={11} mr={4} />Same day, different PO ({rows.anchorPO || "?"} vs below) — likely a separate delivery:</p>
+        {poMismatch.map(r => <div key={r.hu} className="flex items-center gap-2 py-1"><span className="flex-1 min-w-0"><span className="block text-xs font-mono">HU {r.hu}</span><span className="block text-[11px]" style={{ color: C.warn }}>{r.location} · PO {r.po} · arrived {r.arrived}</span></span>{known && <button onClick={() => onAdd([r.hu])} className="text-xs font-medium px-2.5 py-1 rounded-lg" style={{ background: C.surface, border: `1px solid ${C.warn}`, color: C.warn }}>Add anyway</button>}</div>)}
+      </div>}
       {other.length > 0 && <div className="px-3 py-1.5" style={{ borderTop: `1px solid ${C.line}` }}><p className="text-[11px] mb-1" style={{ color: C.muted }}>Different delivery day — not part of this report:</p>{other.map(r => <p key={r.hu} className="text-[11px] font-mono" style={{ color: C.muted, opacity: .8 }}>HU {r.hu} · {r.location} · arrived {r.arrived}</p>)}</div>}
     </div>
   );
@@ -1087,8 +1095,11 @@ const sameDeliveryPallets = (product, insp) => {
   const anchorRow = rows.find(r => mine.some(m => same(m, r.hu)));
   // delivery day: from the sheet if the sampled pallet is on it; otherwise assume today's delivery (a fresh arrival); unknown if no pallet entered yet
   const day = anchorRow ? anchorRow.arrived : mine.length ? new Date().toISOString().slice(0, 10) : null;
-  const list = rows.filter(r => !mine.some(m => same(m, r.hu))).map(r => ({ ...r, sameDay: day ? r.arrived === day : null }));
-  return Object.assign(list, { basis: anchorRow ? "sheet" : mine.length ? "today" : "none" });
+  // Same day doesn't guarantee same delivery — a different PO usually means a separate order that just happened to land
+  // the same day, so it's kept out of the one-tap "Add all" and flagged instead of silently pooled into this report.
+  const anchorPO = (anchorRow?.po || "").trim();
+  const list = rows.filter(r => !mine.some(m => same(m, r.hu))).map(r => ({ ...r, sameDay: day ? r.arrived === day : null, poMismatch: !!(anchorPO && r.po && r.po.trim() !== anchorPO) }));
+  return Object.assign(list, { basis: anchorRow ? "sheet" : mine.length ? "today" : "none", anchorPO });
 };
 
 function Card({ children, style }) { return <section className="rounded-2xl p-5" style={{ background: C.surface, border: `1px solid ${C.line}`, ...style }}>{children}</section>; }
@@ -1871,7 +1882,10 @@ function MPriorityList({ s, user, go, priority }) {
       // The dock sheet still lists these pallets even once they're reported — it just hasn't refreshed yet — so count
       // how many of the group already have a completed report and flag it, instead of letting them look untouched.
       const checked = g.rows.filter(x => completedInspectionFor(s, x.hu)).length;
-      return { key: first.article || first.hu, name: first.name || product?.name || first.article, count: g.rows.length, checked, hu: earliest.hu, productId: product?.id || null,
+      // Different PO numbers under the same SKU usually mean separate deliveries — worth a flag before assuming
+      // every pallet here is the same batch.
+      const mixedPO = new Set(g.rows.map(r => (r.po || "").trim()).filter(Boolean)).size > 1;
+      return { key: first.article || first.hu, name: first.name || product?.name || first.article, count: g.rows.length, checked, mixedPO, hu: earliest.hu, productId: product?.id || null,
         location: locs.size <= 1 ? first.location : `${locs.size} locations`, transporter: earliest.transporter, arrivedTime: earliest.arrivedTime, blocking: g.rows.some(r => r.blocking), hist, priority: first.priority };
     // recent rejections first, then chronological by arrival time (oldest on top) — a ×N group counts as its earliest pallet
     }).sort((a, b) => (b.hist.count > 0) - (a.hist.count > 0) || (a.arrivedTime || "99").localeCompare(b.arrivedTime || "99")); };
@@ -1895,7 +1909,7 @@ function MPriorityList({ s, user, go, priority }) {
             </div>
             {items.map(it => (
               <button key={it.key} onClick={() => it.count > 1 && it.productId ? go("catalog", it.productId) : go("palletInfo", it.hu)} className="w-full text-left py-3 active:opacity-60" style={{ borderBottom: `1px solid ${C.line}` }}>
-                <div className="flex items-center gap-2">{isAll && subTab === "regular" && it.priority && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ background: PRIORITY[it.priority]?.[1] || C.line, color: PRIORITY[it.priority]?.[0] || C.muted }}>{it.priority}</span>}<p className="text-sm font-medium flex-1 truncate">{it.name}</p>{it.count > 1 && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ background: C.accentSoft, color: C.accent }}>×{it.count} on docks</span>}{it.checked > 0 && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0 inline-flex items-center gap-1" style={{ background: C.okBg, color: C.ok }}><Ic i={Check} s={10} mr={0} />{it.checked === it.count ? "already inspected" : `${it.checked}/${it.count} inspected`}</span>}{it.hist.count > 0 && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ background: C.badBg, color: C.bad }}>{it.hist.count} rejected recently</span>}</div>
+                <div className="flex items-center gap-2">{isAll && subTab === "regular" && it.priority && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ background: PRIORITY[it.priority]?.[1] || C.line, color: PRIORITY[it.priority]?.[0] || C.muted }}>{it.priority}</span>}<p className="text-sm font-medium flex-1 truncate">{it.name}</p>{it.count > 1 && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ background: C.accentSoft, color: C.accent }}>×{it.count} on docks</span>}{it.mixedPO && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0 inline-flex items-center gap-1" style={{ background: C.warnBg, color: C.warn }}><Ic i={AlertTriangle} s={10} mr={0} />mixed PO</span>}{it.checked > 0 && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0 inline-flex items-center gap-1" style={{ background: C.okBg, color: C.ok }}><Ic i={Check} s={10} mr={0} />{it.checked === it.count ? "already inspected" : `${it.checked}/${it.count} inspected`}</span>}{it.hist.count > 0 && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ background: C.badBg, color: C.bad }}>{it.hist.count} rejected recently</span>}</div>
                 <p className="text-xs mt-0.5" style={{ color: C.muted }}>{it.location} · {it.transporter} · {it.arrivedTime}{it.blocking ? " · needed today" : ""}</p>
                 {it.hist.count > 0 && <p className="text-xs mt-1" style={{ color: C.bad }}>Was rejected for: {it.hist.problems.slice(0, 3).map(p => `${p.name} ×${p.count}`).join(", ")}{it.hist.problems.length > 3 ? "…" : ""} · last {dayLabel(it.hist.lastAt)}</p>}
               </button>
@@ -2171,6 +2185,9 @@ function DockPresence({ s, set, user, product, onPickPallet, showLost, compact }
   const blocked = blockedRowsLive(_S).filter(b => b.article === product?.articleId && b.status !== "Completed");
   if (!rows.length && !blocked.length) return <div className="rounded-xl px-3 py-2 mb-2 text-xs flex items-center" style={{ background: C.bg, color: C.muted }}><Ic i={Truck} s={13} />Not on the docks right now.</div>;
   if (!rows.length) return <div className="rounded-xl px-3 py-2 mb-2 text-xs flex items-center" style={{ background: C.badBg, color: C.bad }}><Ic i={LockIcon} s={13} />Blocked for picking — {blocked.length} pallet{blocked.length === 1 ? "" : "s"} at {[...new Set(blocked.map(b => b.location))].join(", ")} ({blocked.map(b => b.status).join(", ")}).</div>;
+  // Different PO numbers under the same product usually mean separate deliveries, possibly different quality — flagged
+  // up front so it's seen before picking a pallet to inspect, not discovered later.
+  const pos = [...new Set(rows.map(r => (r.po || "").trim()).filter(Boolean))];
   return (
     <div className="rounded-xl mb-2" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
       <button onClick={() => setOpen(o => !o)} className="w-full flex items-center gap-2 px-3 py-2.5 text-left">
@@ -2178,10 +2195,11 @@ function DockPresence({ s, set, user, product, onPickPallet, showLost, compact }
         <span className="text-sm flex-1"><b>On the docks now</b> — {pallets} pallet{pallets === 1 ? "" : "s"} · {rows.length} HU{(rows.some(r => r.blocking) || blocked.length) ? <span style={{ color: C.bad }}> · blocked for picking{blocked.length ? ` (${blocked.length})` : ""}</span> : ""}</span>
         <span className="text-xs" style={{ color: C.muted }}>{open ? "hide" : "where?"}</span>
       </button>
+      {pos.length > 1 && <p className="mx-3 mb-2 px-2.5 py-1.5 rounded-lg text-[11px] flex items-center" style={{ background: C.warnBg, color: C.warn }}><Ic i={AlertTriangle} s={11} mr={4} />Different PO numbers on these pallets ({pos.join(", ")}) — likely separate deliveries, don't assume one inspection covers all.</p>}
       {open && <div className="px-3 pb-2">{rows.map(r => (
         <div key={r.hu} className="py-2" style={{ borderTop: `1px solid ${C.line}` }}>
           <button onClick={() => onPickPallet && onPickPallet(r.hu)} className="w-full text-left flex items-center gap-2">
-            <span className="flex-1 min-w-0"><span className="block text-xs font-mono truncate">HU {r.hu}</span><span className="block text-[11px]" style={{ color: C.muted }}>{r.location} · {r.priority} · {r.transporter} {r.arrivedTime}{r.blocking ? " · needed today" : ""}</span></span>
+            <span className="flex-1 min-w-0"><span className="block text-xs font-mono truncate">HU {r.hu}</span><span className="block text-[11px]" style={{ color: C.muted }}>{r.location} · {r.priority} · {r.transporter} {r.arrivedTime}{r.po ? ` · PO ${r.po}` : ""}{r.blocking ? " · needed today" : ""}</span></span>
             {onPickPallet && <span className="text-xs font-medium" style={{ color: C.accent }}>Inspect ›</span>}
           </button>
           {showLost && <MLostControls s={s} set={set} user={user} row={r} />}
