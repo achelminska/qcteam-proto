@@ -47,7 +47,7 @@ const notifLook = t => { const [I, tone] = NOTIF[t] || [Bell, "info"]; const fg 
 const cleanMsg = m => String(m || "").replace(/^[\p{Extended_Pictographic}\uFE0F\s]+/u, "");
 const NotifIcon = ({ type, size = 32 }) => { const { I, fg, bg } = notifLook(type); return <span className="rounded-full flex items-center justify-center flex-shrink-0" style={{ width: size, height: size, background: bg, color: fg }}><I size={Math.round(size * 0.5)} strokeWidth={2} /></span>; };
 const Dot = ({ on }) => <span className="inline-block rounded-full ml-2 align-middle" style={{ width: 7, height: 7, background: on ? C.ok : C.line }} />;
-const NAV_ICON = { blocked: LockIcon, lost: Search, integrations: Link2, lists: ListIcon, analytics: BarChart3, settings: SlidersHorizontal, dashboard: LayoutDashboard, inspections: ClipboardList, flags: Flag, notifications: Bell, categories: FolderTree, problems: ListTree, products: Package, forms: LayoutTemplate, suppliers: Truck, countries: Globe, announcements: Megaphone, messages: MessageSquare, users: Users, catalog: Package, home: Home, chat: MessageSquare, menu: MenuIcon };
+const NAV_ICON = { blocked: LockIcon, lost: Search, unreported: ShieldAlert, integrations: Link2, lists: ListIcon, analytics: BarChart3, settings: SlidersHorizontal, dashboard: LayoutDashboard, inspections: ClipboardList, flags: Flag, notifications: Bell, categories: FolderTree, problems: ListTree, products: Package, forms: LayoutTemplate, suppliers: Truck, countries: Globe, announcements: Megaphone, messages: MessageSquare, users: Users, catalog: Package, home: Home, chat: MessageSquare, menu: MenuIcon };
 const EMPTY_ICON = { "📁": FolderTree, "🌳": ListTree, "📦": Package, "🧩": LayoutTemplate, "📖": BookOpen, "📏": Ruler, "📋": ClipboardList, "🚩": Flag, "🔔": Bell, "📣": Megaphone, "💬": MessageSquare, "🔒": LockIcon };
 
 
@@ -96,6 +96,7 @@ const metricKey = f => f.key || slugKey(f.specName || f.label);
 const STATUS = { Draft: ["Draft", C.muted, C.line], PendingReview: ["Awaiting Head", C.warn, C.warnBg], Completed: ["Completed", C.ok, C.okBg], Cancelled: ["Cancelled", C.muted, C.line] };
 const nowISO = () => new Date().toISOString();
 const fmtTime = iso => { const d = new Date(iso); return isNaN(d) ? "" : d.toLocaleString("en-GB", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }); };
+const dayLabel = iso => { if (!iso) return "—"; const d = new Date(iso), t = new Date(); const day = x => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime(); const diff = Math.round((day(t) - day(d)) / 86400000); return diff === 0 ? "Today" : diff === 1 ? "Yesterday" : d.toLocaleDateString("en-GB", { day: "numeric", month: "short" }); };
 const truncate = (t, n = 90) => t && t.length > n ? t.slice(0, n).trimEnd() + "…" : t;
 
 // ── Pomocnicze na drzewach ──────────────────────────────────────────────────
@@ -667,6 +668,15 @@ const lostOf = (s, b) => { const m = (s.lostPallets || {})[lostKey(b)]; if (!m) 
 const notifyHeads = (x, type, message, entityType, entityId, exceptUserId) => ({ ...x, notifications: [...(x.notifications || []), ...x.users.filter(u => u.role === "Head" && u.id !== exceptUserId).map(u => ({ id: uid(), userId: u.id, type, message, entityType, entityId, createdAt: nowISO(), readAt: null }))] });
 const markLost = (set, b, user, note = "") => set(x => { const lp = { ...(x.lostPallets || {}) }; lp[lostKey(b)] = { byUserId: user.id, at: nowISO(), note: String(note || "").trim(), hu: b.hu || "", article: b.article || "", name: b.name || "", location: b.location || "" }; const pc = { ...(x.palletClaims || {}) }; delete pc[claimKey(b)]; return notifyHeads({ ...x, lostPallets: lp, palletClaims: pc }, "Lost", `${b.name || b.article} (${b.location || "?"}${b.hu ? `, HU …${String(b.hu).slice(-6)}` : ""}) marked lost by ${user.name.split(" ")[0]}${note ? ` — ${note}` : ""}`, "pallet", b.hu || lostKey(b), user.id); });
 const markFound = (set, b, user) => set(x => { const lp = { ...(x.lostPallets || {}) }; if (!lp[lostKey(b)]) return x; delete lp[lostKey(b)]; return notifyHeads({ ...x, lostPallets: lp }, "Found", `${b.name || b.article} (${b.location || "?"}) found again by ${user.name.split(" ")[0]}`, "pallet", b.hu || lostKey(b), user.id); });
+// Unreported pallets: left the dock sheet and were never covered by a completed report. Detected server-side
+// (server/misslogic.mjs) on every dock push, independent of any open app — this client only reads and reviews the
+// resulting log (s.unreportedPallets). "Reviewing" one is purely a Head record ("looked into it, here's why") —
+// it never removes the incident, since the point is a permanent audit trail, not a to-do list to clear.
+const unreportedList = s => [...(s.unreportedPallets || [])].sort((a, b) => (b.detectedAt || "").localeCompare(a.detectedAt || ""));
+const unreportedStats = (s, now = Date.now()) => { const list = unreportedList(s); const today = new Date(now).toISOString().slice(0, 10); const weekAgo = now - 7 * 86400000;
+  return { total: list.length, open: list.filter(x => !x.reviewedAt).length, today: list.filter(x => (x.detectedAt || "").slice(0, 10) === today).length, week: list.filter(x => new Date(x.detectedAt).getTime() >= weekAgo).length }; };
+const reviewUnreported = (set, id, user, note = "") => set(x => ({ ...x, unreportedPallets: (x.unreportedPallets || []).map(u => u.id === id ? { ...u, reviewedAt: nowISO(), reviewedByUserId: user.id, reviewNote: String(note || "").trim() } : u) }));
+const unreviewUnreported = (set, id) => set(x => ({ ...x, unreportedPallets: (x.unreportedPallets || []).map(u => u.id === id ? { ...u, reviewedAt: null, reviewedByUserId: null, reviewNote: "" } : u) }));
 // QC status: from the sheet when it has one; otherwise derived from the queue (claim) and finished inspections of that pallet/article.
 const blockedQueue = s => blockedRowsLive(s).map(b => { const claim = claimOf(s, b); let status = b.status; if (!status) { const done = s.inspections.some(i => i.status === "Completed" && ((b.hu && (i.pallets || []).some(h => String(h).replace(/\D/g, "").endsWith(b.hu.replace(/^0+/, "")))) || (!b.hu && (s.products.find(p => p.id === i.productId)?.articleId === b.article) && (i.completedAt || "") > (claim?.at || "1970")))); status = done ? "Completed" : claim?.status === "taken" ? "Started" : "Not started"; } return { ...b, claim, status, key: claimKey(b), lost: lostOf(s, b) }; });
 const dockRowsLive = s => { const it = (s.integrations || []).find(i => i.purpose === "Dock" && i.rows?.length); if (!it) return CLEAN_START ? [] : SHEET.dock; return dedupeByHu(it.rows.filter(r => !r._errors?.length)).map(r => ({ hu: String(r.hu || "").trim(), article: String(r.article || ""), name: r.name || "", location: r.location || "", priority: r.priority || (r.skippable ? "Skippable" : "Inspection due"), blocking: !!r.blocking, skippable: !!r.skippable, arrived: r.arrived || "", arrivedTime: r.arrivedTime || "", transporter: r.transporter || "", po: r.po || "", cusPerTu: r.cusPerTu ? Number(r.cusPerTu) : null, sortable: !!r.sortable, onDock: 0, inBuffer: 0 })); };
@@ -1033,14 +1043,14 @@ function Note({ tone: t = "info", children }) {
 
 // ═══════════════════ SHELL: top bar + sidebar ═══════════════════
 const NAV_HEAD = [
-  { group: null, items: [["dashboard", "🏠", "Dashboard"], ["inspections", "📋", "Inspections"], ["blocked", "🔒", "Blocked pallets"], ["lost", "🔍", "Lost pallets"], ["analytics", "📊", "Analytics"], ["flags", "🚩", "Flags"], ["notifications", "🔔", "Notifications"]] },
+  { group: null, items: [["dashboard", "🏠", "Dashboard"], ["inspections", "📋", "Inspections"], ["blocked", "🔒", "Blocked pallets"], ["lost", "🔍", "Lost pallets"], ["unreported", "🛡️", "Unreported pallets"], ["analytics", "📊", "Analytics"], ["flags", "🚩", "Flags"], ["notifications", "🔔", "Notifications"]] },
   { group: "Catalog", items: [["categories", "📁", "Categories"], ["problems", "🌳", "Problem types"], ["products", "📦", "Products"], ["forms", "🧩", "Forms"]] },
   { group: "Dictionaries", items: [["suppliers", "🚚", "Suppliers"], ["lists", "📋", "Lists"]] },
   { group: "Communication", items: [["announcements", "📣", "Announcements"], ["messages", "💬", "Messages"]] },
   { group: "Administration", items: [["integrations", "🔗", "Integrations"], ["settings", "⚙️", "Settings"], ["users", "👤", "Users"]] },
 ];
 const NAV_CONTROLLER = [
-  { group: null, items: [["dashboard", "🏠", "Dashboard"], ["inspections", "📋", "Inspections"], ["catalog", "📦", "Products"], ["messages", "💬", "Messages"], ["flags", "🚩", "My flags"], ["notifications", "🔔", "Notifications"]] },
+  { group: null, items: [["dashboard", "🏠", "Dashboard"], ["inspections", "📋", "Inspections"], ["catalog", "📦", "Products"], ["unreported", "🛡️", "Unreported pallets"], ["messages", "💬", "Messages"], ["flags", "🚩", "My flags"], ["notifications", "🔔", "Notifications"]] },
 ];
 
 function Shell({ page, setPage, children, badge, topRight, users, user, setUser, onLogout, unread, onBell, onSearch }) {
@@ -1103,7 +1113,7 @@ const floorStats = (s, now = Date.now()) => { const today = new Date().toISOStri
     return { user: u, taken: mine.filter(r => r.claim.status === "taken"), inProgress, doneToday: doneToday.length, lastAt };
   }).sort((a, b) => (b.lastAt || "").localeCompare(a.lastAt || ""));
   const alerts = computeDeadlineAlerts(s, now);
-  return { dock, dockLost, prio, skippable, blocking, skus: new Set(dock.map(r => r.article)).size, bl, lostOpen, people, alerts, fresh: sheetFreshness(s), doneToday: s.inspections.filter(i => i.status === "Completed" && (i.completedAt || "").slice(0, 10) === today).length };
+  return { dock, dockLost, prio, skippable, blocking, skus: new Set(dock.map(r => r.article)).size, bl, lostOpen, people, alerts, fresh: sheetFreshness(s), doneToday: s.inspections.filter(i => i.status === "Completed" && (i.completedAt || "").slice(0, 10) === today).length, unreported: unreportedStats(s, now) };
 };
 const agoShort = t => { if (!t) return "—"; const m = Math.round((Date.now() - new Date(t).getTime()) / 60000); return m < 1 ? "now" : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : fmtTime(t); };
 
@@ -1162,6 +1172,14 @@ function Dashboard({ s, setPage, seed, user, openProduct, onAssign, set }) {
           {list.length === 0 ? <p className="text-xs py-3" style={{ color: C.muted }}>Nothing here.</p> : list.map(b => { const prod = s.products.find(p => p.articleId === b.article); return <QueueRow key={b.key} s={s} set={set} user={user} b={b} onOpen={() => prod && openProduct(prod.id)} />; })}
         </Card>); })()}
       {f.lostOpen > f.bl.lost && <p className="text-[11px] mb-3" style={{ color: C.muted }}>{f.lostOpen - f.bl.lost} more lost on the dock lists — see <button onClick={() => setPage("lost")} className="underline" style={{ color: C.accent }}>Lost pallets</button>.</p>}
+
+      <p className="label-sm mt-4 mb-1.5 flex items-center" style={{ color: C.muted }}><Ic i={ShieldAlert} s={12} />Unreported pallets · left the dock without a report</p>
+      <div className="grid gap-3 mb-1" style={{ gridTemplateColumns: "repeat(3, 1fr)" }}>
+        <Tile label="Today" value={f.unreported.today} color={f.unreported.today ? C.bad : C.muted} onClick={() => setPage("unreported")} />
+        <Tile label="This week" value={f.unreported.week} color={f.unreported.week ? C.warn : C.muted} onClick={() => setPage("unreported")} />
+        <Tile label="Open (not reviewed)" value={f.unreported.open} color={f.unreported.open ? C.warn : C.muted} onClick={() => setPage("unreported")} />
+      </div>
+      {f.unreported.open > 0 && <p className="text-[11px] mb-3" style={{ color: C.muted }}>{f.unreported.open} pallet{f.unreported.open === 1 ? "" : "s"} left the dock without ever being inspected — see <button onClick={() => setPage("unreported")} className="underline" style={{ color: C.accent }}>Unreported pallets</button>.</p>}
 
       <p className="label-sm mt-4 mb-1.5" style={{ color: C.muted }}>Team · {f.doneToday} inspection{f.doneToday === 1 ? "" : "s"} done today</p>
       <Card style={{ marginBottom: 16 }}>
@@ -1247,6 +1265,8 @@ function ControllerDashboard({ s, user, setPage, setOpenId, openProduct }) {
       <p className="text-sm mb-5" style={{ color: C.muted, maxWidth: 640 }}>Controller view (on the phone this is the mobile app). Only what's yours.</p>
       {/* One gets its full preview text; several collapse to titles only so they don't take over the dashboard. */}
       {dashAnns.length > 0 && <Card style={{ marginBottom: 16, borderColor: C.accent }}><p className="text-xs font-medium mb-2" style={{ color: C.accent }}>📣 ANNOUNCEMENTS</p>{dashAnns.length === 1 ? <button onClick={() => openAnn(dashAnns[0])} className="w-full text-left py-2" style={{ borderTop: `1px solid ${C.line}` }}><p className="text-sm font-medium">{dashAnns[0].title}</p><p className="text-sm truncate" style={{ color: C.muted }}>{truncate(dashAnns[0].body)}</p><p className="text-xs" style={{ color: C.muted }}>{fmtTime(dashAnns[0].createdAt)}{dashAnns[0].validTo && ` · to ${dashAnns[0].validTo}`}</p></button> : dashAnns.map(a => <button key={a.id} onClick={() => openAnn(a)} className="w-full text-left py-2" style={{ borderTop: `1px solid ${C.line}` }}><p className="text-sm font-medium">{a.title}</p></button>)}</Card>}
+      {/* Controllers see this too, not just the Head — a pallet that left without a report is something everyone on the floor should be aware of. */}
+      {unreportedStats(s).open > 0 && <button onClick={() => setPage("unreported")} className="w-full flex items-center gap-2.5 text-left mb-4 rounded-xl px-3.5 py-2.5" style={{ background: C.warnBg, border: `1px solid ${C.warn}` }}><Ic i={ShieldAlert} s={16} style={{ color: C.warn }} /><span className="text-sm flex-1">{unreportedStats(s).open} pallet{unreportedStats(s).open === 1 ? "" : "s"} left the dock without a report</span><span className="text-xs underline" style={{ color: C.warn }}>see all</span></button>}
       <div className="mb-4"><Primary onClick={() => { setOpenId(null); setPage("inspections"); }}>+ New inspection</Primary></div>
       {open.length > 0 && <Card style={{ marginBottom: 16 }}><p className="font-medium text-sm mb-2">Unfinished</p>{open.map(i => <button key={i.id} onClick={() => { setOpenId(i.id); setPage("inspections"); }} className="w-full text-left flex items-center gap-2 py-2" style={{ borderTop: `1px solid ${C.line}` }}><span className="text-xs px-2 py-0.5 rounded-full" style={{ background: STATUS[i.status][2], color: STATUS[i.status][1] }}>{STATUS[i.status][0]}</span><span className="flex-1 text-sm">{s.products.find(p => p.id === i.productId)?.name}</span><span className="text-xs" style={{ color: C.muted }}>{fmtTime(i.startedAt)}</span></button>)}</Card>}
       <Card><p className="font-medium text-sm mb-2">My recent</p>{mine.filter(i => i.status === "Completed").slice(0, 8).map(i => <button key={i.id} onClick={() => { setOpenId(i.id); setPage("inspections"); }} className="w-full text-left flex items-center gap-2 py-2" style={{ borderTop: `1px solid ${C.line}` }}><span className="text-xs px-2 py-0.5 rounded-full" style={{ background: i.result === "Accepted" ? C.okBg : C.badBg, color: i.result === "Accepted" ? C.ok : C.bad }}>{i.result === "Accepted" ? "Accepted" : "Rejected"}</span><span className="flex-1 text-sm">{s.products.find(p => p.id === i.productId)?.name}</span><span className="text-xs" style={{ color: C.muted }}>{fmtTime(i.completedAt)}</span></button>)}{mine.filter(i => i.status === "Completed").length === 0 && <p className="text-xs" style={{ color: C.muted }}>Nothing yet.</p>}</Card>
@@ -3091,6 +3111,62 @@ function LostPalletsPage({ s, set, user, setSel, setPage }) {
     </div>
   );
 }
+// Unreported pallets: the audit trail for "who moved this without QC ever seeing it". Detected server-side on every
+// dock push (server/misslogic.mjs) — a pallet lands here once it has been missing from the dock sheet for a full
+// push cycle with no completed report covering it, so this page updates itself even with nobody's app open.
+// Both roles can see it (the Head from here and Controllers from their own nav item / phone); only the Head can
+// mark an incident reviewed — a permanent note, not a dismissal, since the point is a record, not a to-do list.
+function UnreportedPalletsPage({ s, set, user, setSel, setPage }) {
+  const [view, setView] = useState("open");
+  const [notes, setNotes] = useState({});
+  const isHead = user.role === "Head";
+  const stats = unreportedStats(s);
+  const shown = (view === "open" ? unreportedList(s).filter(x => !x.reviewedAt) : unreportedList(s));
+  const groups = []; shown.forEach(x => { const k = dayLabel(x.detectedAt); let g = groups.find(g => g.k === k); if (!g) { g = { k, items: [] }; groups.push(g); } g.items.push(x); });
+  const review = id => { reviewUnreported(set, id, user, notes[id] || ""); setNotes(n => { const { [id]: _, ...rest } = n; return rest; }); };
+  return (
+    <div>
+      <h1 className="mb-1">Unreported pallets</h1>
+      <p className="text-sm mb-4" style={{ color: C.muted, maxWidth: 680 }}>Pallets that dropped off the dock sheet — picked or moved on — before QC ever inspected them. Nobody scans a pallet that leaves this way, so without this list nobody would know it happened. Detected automatically from the dock pushes, independent of anyone having the app open; a pallet is only logged once it has stayed missing for a full push cycle, so a brief sheet hiccup (a formula recalculating) doesn't get logged as a real incident.</p>
+      <div className="grid gap-3 mb-4" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))" }}>
+        {[["Today", stats.today, C.bad], ["This week", stats.week, C.warn], ["Open", stats.open, C.warn], ["Total logged", stats.total, C.muted]].map(([l, v, col]) => (
+          <div key={l} className="rounded-2xl p-4" style={{ background: C.surface, border: `1px solid ${C.line}`, borderLeft: `3px solid ${col}` }}><p className="text-xs" style={{ color: C.muted }}>{l}</p><p className="text-[26px] leading-tight font-semibold">{v}</p></div>
+        ))}
+      </div>
+      <div className="flex gap-1.5 mb-3">{[["open", "Open"], ["all", "All incl. reviewed"]].map(([k, l]) => <button key={k} onClick={() => setView(k)} className="text-xs px-3 py-1.5 rounded-full" style={{ background: view === k ? C.ink : "transparent", color: view === k ? C.onDark : C.ink, border: `1px solid ${view === k ? C.ink : C.line}` }}>{l}</button>)}</div>
+      {!shown.length ? <Card><Empty icon="🛡️" title={view === "open" ? "Nothing open" : "Nothing logged yet"} hint={view === "open" ? "Every disappearance so far has been reviewed." : "As soon as a pallet leaves the dock sheet without ever being reported, it shows up here."} /></Card> : groups.map(g => (
+        <div key={g.k} className="mb-5">
+          <p className="label-sm mb-2" style={{ color: C.muted }}>{g.k} · {g.items.length} pallet{g.items.length === 1 ? "" : "s"}</p>
+          <Card>
+            <table className="w-full text-sm" style={{ borderCollapse: "collapse" }}>
+              <thead><tr style={{ color: C.muted }} className="text-xs text-left">{["Product", "Article", "HU", "Location", "Priority", "PO", "Transporter", "Last seen", "Gone since", isHead ? "Review" : "Status"].map(h => <th key={h} className="py-2 pr-3 font-medium" style={{ borderBottom: `1px solid ${C.line}` }}>{h}</th>)}</tr></thead>
+              <tbody>
+                {g.items.map(x => { const product = s.products.find(p => p.articleId === x.article); const reviewer = s.users.find(u => u.id === x.reviewedByUserId); return (
+                  <tr key={x.id} style={{ borderBottom: `1px solid ${C.line}`, opacity: x.reviewedAt ? .6 : 1 }}>
+                    <td className="py-2 pr-3">{product ? <button onClick={() => { setSel(product.id); setPage("products"); }} className="underline text-left" style={{ color: C.accent }}>{x.name || product.name}</button> : (x.name || x.article || "—")}</td>
+                    <td className="py-2 pr-3 font-mono text-xs">{x.article || "—"}</td>
+                    <td className="py-2 pr-3 font-mono text-xs">{x.hu ? `…${String(x.hu).slice(-8)}` : "—"}</td>
+                    <td className="py-2 pr-3">{x.location || "—"}</td>
+                    <td className="py-2 pr-3 text-xs">{x.priority || "—"}</td>
+                    <td className="py-2 pr-3 text-xs">{x.po || "—"}</td>
+                    <td className="py-2 pr-3 text-xs">{x.transporter || "—"}</td>
+                    <td className="py-2 pr-3 text-xs">{fmtTime(x.lastSeenAt)}</td>
+                    <td className="py-2 pr-3 text-xs">{fmtTime(x.detectedAt)}</td>
+                    <td className="py-2 text-right whitespace-nowrap">
+                      {x.reviewedAt ? <span className="text-xs"><span style={{ color: C.ok }}>✓ reviewed</span>{reviewer ? ` by ${reviewer.name.split(" ")[0]}` : ""}{x.reviewNote ? ` — “${x.reviewNote}”` : ""}{isHead && <button onClick={() => unreviewUnreported(set, x.id)} className="ml-2 underline" style={{ color: C.muted }}>undo</button>}</span>
+                        : isHead ? <span className="inline-flex items-center gap-1"><input value={notes[x.id] || ""} onChange={e => setNotes(n => ({ ...n, [x.id]: e.target.value }))} onKeyDown={e => e.key === "Enter" && review(x.id)} placeholder="note (optional)" className="text-xs" style={{ width: 120, padding: "3px 6px" }} /><button onClick={() => review(x.id)} className="text-xs px-2 py-1 rounded-lg" style={{ border: `1px solid ${C.line}` }}>Mark reviewed</button></span>
+                          : <span className="text-xs" style={{ color: C.warn }}>open</span>}
+                    </td>
+                  </tr>
+                ); })}
+              </tbody>
+            </table>
+          </Card>
+        </div>
+      ))}
+    </div>
+  );
+}
 function BlockedQueuePage({ s, set, user, setSel, setPage }) {
   const [view, setView] = useState("open");
   const q = blockedQueue(s); const order = { "Not started": 0, "Started": 1, "Completed": 2 };
@@ -3530,6 +3606,7 @@ export default function App() {
       {safePage === "lists" && <ListsPage s={s} set={set} />}
       {safePage === "blocked" && <BlockedQueuePage s={s} set={set} user={user} setSel={setSelProduct} setPage={setPage} />}
       {safePage === "lost" && <LostPalletsPage s={s} set={set} user={user} setSel={setSelProduct} setPage={setPage} />}
+      {safePage === "unreported" && <UnreportedPalletsPage s={s} set={set} user={user} setSel={setSelProduct} setPage={setPage} />}
       {safePage === "inspections" && <InspectionsPage s={s} set={set} user={user} notify={notify} openId={openInspId} setOpenId={setOpenInspId} preset={presetProduct} clearPreset={() => setPresetProduct("")} />}
       {safePage === "catalog" && <CatalogPage s={s} set={set} user={user} notify={notify} onStartInspection={pid => { setPresetProduct(pid); setOpenInspId(null); setPage("inspections"); }} />}
       {safePage === "flags" && <FlagsPage s={s} set={set} user={user} />}

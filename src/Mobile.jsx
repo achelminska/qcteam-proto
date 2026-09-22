@@ -696,6 +696,15 @@ const lostOf = (s, b) => { const m = (s.lostPallets || {})[lostKey(b)]; if (!m) 
 const notifyHeads = (x, type, message, entityType, entityId, exceptUserId) => ({ ...x, notifications: [...(x.notifications || []), ...x.users.filter(u => u.role === "Head" && u.id !== exceptUserId).map(u => ({ id: uid(), userId: u.id, type, message, entityType, entityId, createdAt: nowISO(), readAt: null }))] });
 const markLost = (set, b, user, note = "") => set(x => { const lp = { ...(x.lostPallets || {}) }; lp[lostKey(b)] = { byUserId: user.id, at: nowISO(), note: String(note || "").trim(), hu: b.hu || "", article: b.article || "", name: b.name || "", location: b.location || "" }; const pc = { ...(x.palletClaims || {}) }; delete pc[claimKey(b)]; return notifyHeads({ ...x, lostPallets: lp, palletClaims: pc }, "Lost", `${b.name || b.article} (${b.location || "?"}${b.hu ? `, HU …${String(b.hu).slice(-6)}` : ""}) marked lost by ${user.name.split(" ")[0]}${note ? ` — ${note}` : ""}`, "pallet", b.hu || lostKey(b), user.id); });
 const markFound = (set, b, user) => set(x => { const lp = { ...(x.lostPallets || {}) }; if (!lp[lostKey(b)]) return x; delete lp[lostKey(b)]; return notifyHeads({ ...x, lostPallets: lp }, "Found", `${b.name || b.article} (${b.location || "?"}) found again by ${user.name.split(" ")[0]}`, "pallet", b.hu || lostKey(b), user.id); });
+// Unreported pallets: left the dock sheet and were never covered by a completed report. Detected server-side
+// (server/misslogic.mjs) on every dock push, independent of any open app — this client only reads and reviews the
+// resulting log (s.unreportedPallets). "Reviewing" one is purely a Head record ("looked into it, here's why") —
+// it never removes the incident, since the point is a permanent audit trail, not a to-do list to clear.
+const unreportedList = s => [...(s.unreportedPallets || [])].sort((a, b) => (b.detectedAt || "").localeCompare(a.detectedAt || ""));
+const unreportedStats = (s, now = Date.now()) => { const list = unreportedList(s); const today = new Date(now).toISOString().slice(0, 10); const weekAgo = now - 7 * 86400000;
+  return { total: list.length, open: list.filter(x => !x.reviewedAt).length, today: list.filter(x => (x.detectedAt || "").slice(0, 10) === today).length, week: list.filter(x => new Date(x.detectedAt).getTime() >= weekAgo).length }; };
+const reviewUnreported = (set, id, user, note = "") => set(x => ({ ...x, unreportedPallets: (x.unreportedPallets || []).map(u => u.id === id ? { ...u, reviewedAt: nowISO(), reviewedByUserId: user.id, reviewNote: String(note || "").trim() } : u) }));
+const unreviewUnreported = (set, id) => set(x => ({ ...x, unreportedPallets: (x.unreportedPallets || []).map(u => u.id === id ? { ...u, reviewedAt: null, reviewedByUserId: null, reviewNote: "" } : u) }));
 // QC status: from the sheet when it has one; otherwise derived from the queue (claim) and finished inspections of that pallet/article.
 const blockedQueue = s => blockedRowsLive(s).map(b => { const claim = claimOf(s, b); let status = b.status; if (!status) { const done = s.inspections.some(i => i.status === "Completed" && ((b.hu && (i.pallets || []).some(h => String(h).replace(/\D/g, "").endsWith(b.hu.replace(/^0+/, "")))) || (!b.hu && (s.products.find(p => p.id === i.productId)?.articleId === b.article) && (i.completedAt || "") > (claim?.at || "1970")))); status = done ? "Completed" : claim?.status === "taken" ? "Started" : "Not started"; } return { ...b, claim, status, key: claimKey(b), lost: lostOf(s, b) }; });
 const dockRowsLive = s => { const it = (s.integrations || []).find(i => i.purpose === "Dock" && i.rows?.length); if (!it) return CLEAN_START ? [] : SHEET.dock; return dedupeByHu(it.rows.filter(r => !r._errors?.length)).map(r => ({ hu: String(r.hu || "").trim(), article: String(r.article || ""), name: r.name || "", location: r.location || "", priority: r.priority || (r.skippable ? "Skippable" : "Inspection due"), blocking: !!r.blocking, skippable: !!r.skippable, arrived: r.arrived || "", arrivedTime: r.arrivedTime || "", transporter: r.transporter || "", po: r.po || "", cusPerTu: r.cusPerTu ? Number(r.cusPerTu) : null, sortable: !!r.sortable, onDock: 0, inBuffer: 0 })); };
@@ -2003,6 +2012,8 @@ function MDashboard({ s, set, user, go, dismissed, setDismissed, onAssign }) {
       </div>
       {sheetStats(s).lost > 0 && <p className="text-[11px] px-5 mt-1.5" style={{ color: C.muted }}>{sheetStats(s).lost} pallet{sheetStats(s).lost === 1 ? "" : "s"} marked lost — not counted above, listed at the bottom of each priority.</p>}
       {dockRowsLive(s).length === 0 && <p className="text-[11px] px-5 mt-1.5" style={{ color: C.warn }}>{(s.integrations || []).some(i => i.purpose === "Dock" && i.needsRemap) ? "Dock sheet columns changed — the Head needs to re-map it in the portal." : (s.integrations || []).some(i => i.purpose === "Dock" && i.pushMode) ? "The last push from the dock sheet had no usable rows — showing zeros until the next one." : "No dock sheet connected yet."}</p>}
+      {/* Everyone sees this, not just the Head — a pallet that left without a report is something the whole floor should know about. */}
+      {unreportedStats(s).open > 0 && <button onClick={() => go("unreported")} className="mx-5 mt-2.5 rounded-xl px-3.5 py-2.5 flex items-center gap-2.5 text-left active:scale-[0.98]" style={{ background: C.warnBg, border: `1px solid ${C.warn}`, width: "calc(100% - 40px)" }}><Ic i={ShieldAlert} s={16} mr={0} style={{ color: C.warn }} /><span className="text-sm flex-1">{unreportedStats(s).open} pallet{unreportedStats(s).open === 1 ? "" : "s"} left the dock without a report</span><span style={{ color: C.muted }}>›</span></button>}
       <div className="flex gap-1 mx-5 mt-4" style={{ borderBottom: `1px solid ${C.line}` }}>
         {[["history", "History"], ["blocked", "Blocked pallets"]].map(([k, l]) => <button key={k} onClick={() => setTab(k)} className="px-1 py-2 text-sm" style={{ marginRight: 14, borderBottom: tab === k ? `2px solid ${C.ink}` : "2px solid transparent", color: tab === k ? C.ink : C.muted, fontWeight: tab === k ? 500 : 400 }}>{l}</button>)}
         <div className="flex-1" />
@@ -2484,7 +2495,7 @@ function MChat({ s, set, user, go, initialContext, clearInitialContext }) {
 
 // ── Menu / profile / notifications / announcements ──
 function MMenu({ s, set, user, go, users, setUser, onLogout, dark, onTheme, simOffline, onSimOffline, onSync, syncMsg }) {
-  const items = user.role === "Head" ? [["profile", User, "Profile and statistics"], ["head-escalations", HelpCircle, "Questions from controllers"], ["head-flags", Flag, "Flags to resolve"], ["head-announce", Megaphone, "New announcement"], ["announcements", Megaphone, "Announcements"], ["notifications", Bell, "Notifications"], ["history", ClipboardList, "Inspection history"]] : [["profile", User, "Profile and statistics"], ["announcements", Megaphone, "Announcements"], ["notifications", Bell, "Notifications"], ["flags", Flag, "My flags"], ["history", ClipboardList, "Inspection history"]];
+  const items = user.role === "Head" ? [["profile", User, "Profile and statistics"], ["head-escalations", HelpCircle, "Questions from controllers"], ["head-flags", Flag, "Flags to resolve"], ["head-announce", Megaphone, "New announcement"], ["announcements", Megaphone, "Announcements"], ["unreported", ShieldAlert, "Unreported pallets"], ["notifications", Bell, "Notifications"], ["history", ClipboardList, "Inspection history"]] : [["profile", User, "Profile and statistics"], ["announcements", Megaphone, "Announcements"], ["unreported", ShieldAlert, "Unreported pallets"], ["notifications", Bell, "Notifications"], ["flags", Flag, "My flags"], ["history", ClipboardList, "Inspection history"]];
   const [dataOpen, setDataOpen] = useState(false); const [io, setIo] = useState(""); const [msg, setMsg] = useState("");
   const exportState = async () => { const json = JSON.stringify(s, null, 2); setIo(json); try { await navigator.clipboard.writeText(json); setMsg("Copied."); } catch { setMsg("Copy manually from the field."); } };
   const importState = () => { try { const p = JSON.parse(io); if (!p || !Array.isArray(p.categories)) throw 0; set(normalize(p)); setMsg("Loaded — portal data is on the phone."); } catch { setMsg("Not a valid export."); } };
@@ -2541,6 +2552,51 @@ function MAnnouncements({ s, set, user, go }) {
   // Same "×" as the web portal — Head can publish from the phone, so Head needs to be able to take one back from here too.
   const remove = id => set(x => ({ ...x, announcements: x.announcements.filter(a => a.id !== id) }));
   return <div><TopBar title="Announcements" onBack={() => go("home")} /><div className="px-4">{list.length === 0 ? <p className="text-sm py-8 text-center" style={{ color: C.muted }}>No announcements.</p> : list.map(a => <div key={a.id} className="py-3" style={{ borderBottom: `1px solid ${C.line}` }}><div className="flex items-center gap-2 mb-1">{a.isBlocking && <span className="text-[10px] px-1.5 rounded" style={{ background: C.badBg, color: C.bad }}>blocking</span>}{a.productId && <span className="text-[10px] px-1.5 rounded" style={{ background: C.warnBg, color: C.warn }}>{s.products.find(p => p.id === a.productId)?.name}</span>}{a.categoryId && <span className="text-[10px] px-1.5 rounded" style={{ background: C.okBg, color: C.ok }}>{catPath(a.categoryId)}</span>}<p className="text-sm font-medium flex-1">{a.title}</p>{user.role === "Head" && <button onClick={() => remove(a.id)} className="text-sm px-1" style={{ color: C.muted }}>×</button>}</div><p className="text-sm">{a.body}</p><p className="text-xs" style={{ color: C.muted }}>{dayLabel(a.createdAt)}{(a.acks || {})[user.id] && " · acknowledged ✓"}</p></div>)}</div></div>;
+}
+// Unreported pallets: the audit trail for "who moved this without QC ever seeing it" — detected server-side on
+// every dock push (server/misslogic.mjs), so this list updates itself even with nobody's app open. Both roles see
+// it; only the Head can mark an incident reviewed (a permanent note, not a dismissal — the point is a record).
+function MUnreported({ s, set, user, go }) {
+  const [view, setView] = useState("open");
+  const [notes, setNotes] = useState({}); const [noteFor, setNoteFor] = useState(null);
+  const isHead = user.role === "Head";
+  const stats = unreportedStats(s);
+  const shown = view === "open" ? unreportedList(s).filter(x => !x.reviewedAt) : unreportedList(s);
+  const groups = []; shown.forEach(x => { const k = dayLabel(x.detectedAt); let g = groups.find(g => g.k === k); if (!g) { g = { k, items: [] }; groups.push(g); } g.items.push(x); });
+  const review = id => { reviewUnreported(set, id, user, notes[id] || ""); setNotes(n => { const { [id]: _, ...rest } = n; return rest; }); setNoteFor(null); };
+  return (
+    <div>
+      <TopBar title="Unreported pallets" onBack={() => go("home")} />
+      <div className="px-4 pt-3">
+        <p className="text-sm mb-3" style={{ color: C.muted }}>Pallets that dropped off the dock sheet before QC ever inspected them — picked or moved on. Logged automatically once a pallet has stayed missing for a full push cycle, so a brief sheet hiccup doesn't count.</p>
+        <div className="grid grid-cols-4 gap-2 mb-3">
+          {[["Today", stats.today], ["Week", stats.week], ["Open", stats.open], ["Total", stats.total]].map(([l, v]) => <div key={l} className="rounded-2xl p-2.5 text-center" style={{ background: C.bg, border: `1px solid ${C.line}` }}><p className="text-lg font-semibold leading-tight">{v}</p><p className="text-[10px]" style={{ color: C.muted }}>{l}</p></div>)}
+        </div>
+        <div className="flex gap-1.5 mb-3">{[["open", "Open"], ["all", "All"]].map(([k, l]) => <button key={k} onClick={() => setView(k)} className="text-xs px-3 py-1.5 rounded-full" style={{ background: view === k ? C.ink : "transparent", color: view === k ? C.onDark : C.ink, border: `1px solid ${view === k ? C.ink : C.line}` }}>{l}</button>)}</div>
+        {!shown.length ? <p className="text-sm py-8 text-center" style={{ color: C.muted }}>{view === "open" ? "Nothing open — every disappearance so far has been reviewed." : "Nothing logged yet."}</p> : groups.map(g => (
+          <div key={g.k} className="mb-4">
+            <p className="label-sm mb-1.5" style={{ color: C.muted }}>{g.k} · {g.items.length} pallet{g.items.length === 1 ? "" : "s"}</p>
+            {g.items.map(x => { const product = s.products.find(p => p.articleId === x.article); const reviewer = s.users.find(u => u.id === x.reviewedByUserId); return (
+              <div key={x.id} className="py-2.5" style={{ borderTop: `1px solid ${C.line}`, opacity: x.reviewedAt ? .6 : 1 }}>
+                <div className="flex items-start gap-2">
+                  <div className="flex-1 min-w-0">
+                    {product ? <button onClick={() => go("catalog", product.id)} className="text-sm font-medium underline text-left" style={{ color: C.accent }}>{x.name || product.name}</button> : <p className="text-sm font-medium">{x.name || x.article || "—"}</p>}
+                    <p className="text-xs mt-0.5" style={{ color: C.muted }}>{x.article || "—"}{x.location ? ` · ${x.location}` : ""}{x.priority ? ` · ${x.priority}` : ""}{x.hu ? ` · HU …${String(x.hu).slice(-8)}` : ""}</p>
+                    <p className="text-xs" style={{ color: C.muted }}>last seen {fmtTime(x.lastSeenAt)} · gone since {fmtTime(x.detectedAt)}{x.po ? ` · PO ${x.po}` : ""}{x.transporter ? ` · ${x.transporter}` : ""}</p>
+                  </div>
+                  {x.reviewedAt ? <span className="text-xs flex-shrink-0" style={{ color: C.ok }}>✓ reviewed</span> : !isHead ? <span className="text-xs flex-shrink-0" style={{ color: C.warn }}>open</span> : null}
+                </div>
+                {x.reviewedAt && (x.reviewNote || reviewer) && <p className="text-xs mt-1" style={{ color: C.muted }}>{reviewer ? `by ${reviewer.name.split(" ")[0]}` : ""}{x.reviewNote ? ` — “${x.reviewNote}”` : ""}{isHead && <button onClick={() => unreviewUnreported(set, x.id)} className="ml-2 underline">undo</button>}</p>}
+                {isHead && !x.reviewedAt && (noteFor === x.id ? (
+                  <div className="flex gap-1.5 mt-1.5"><input autoFocus value={notes[x.id] || ""} onChange={e => setNotes(n => ({ ...n, [x.id]: e.target.value }))} onKeyDown={e => e.key === "Enter" && review(x.id)} placeholder="note (optional)" className="flex-1 text-xs" style={{ padding: "4px 8px" }} /><button onClick={() => review(x.id)} className="text-xs px-2.5 py-1 rounded-lg" style={{ background: C.ink, color: C.onDark }}>Mark reviewed</button></div>
+                ) : <button onClick={() => setNoteFor(x.id)} className="text-xs mt-1.5 px-2.5 py-1 rounded-lg" style={{ border: `1px solid ${C.line}` }}>Mark reviewed</button>)}
+              </div>
+            ); })}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
 function MFlags({ s, user, go }) {
   const mine = s.flags.filter(f => f.raisedBy === user.id).sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
@@ -2732,6 +2788,7 @@ export default function App() {
       {page === "notifications" && <MNotifications s={s} set={set} user={user} go={go} />}
       {page === "announcements" && <MAnnouncements s={s} set={set} user={user} go={go} />}
       {page === "flags" && <MFlags s={s} user={user} go={go} />}
+      {page === "unreported" && <MUnreported s={s} set={set} user={user} go={go} />}
       {page === "head-escalations" && <MHeadEscalations s={s} set={set} user={user} go={go} notify={notify} />}
       {page === "head-flags" && <MHeadFlags s={s} set={set} user={user} go={go} notify={notify} />}
       {page === "head-announce" && <MHeadAnnounce s={s} set={set} user={user} go={go} notify={notify} />}

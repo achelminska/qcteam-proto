@@ -4,6 +4,7 @@
 import http from "node:http"; import https from "node:https"; import fs from "node:fs"; import os from "node:os"; import path from "node:path"; import zlib from "node:zlib";
 import { targetsFor, suggestMappings, applyMapping, detectTable, extractSummary } from "./sheetlogic.mjs";
 import { applyDeadlineAlerts } from "./alertlogic.mjs";
+import { computeMissingPalletUpdate } from "./misslogic.mjs";
 const STATE_KEY = "qcteam-portal-state-v2-clean";
 // Static hosting of the built app (dist/) so one service = API + portal + phone app. Any unknown path falls back to index.html.
 const DIST = new URL("../dist/", import.meta.url).pathname;
@@ -39,6 +40,18 @@ const checkDeadlines = (reason) => {
     const added = (next.notifications || []).length - (st.notifications || []).length;
     if (added > 0) console.log(`[deadlines] ${reason}: ${added} notification(s) sent`);
   } catch (e) { console.log("[deadlines] check failed:", e.message); }
+};
+// prevDockRows must be captured by the caller BEFORE applyPushToState runs this push (see the /sheet/ handler below) —
+// by the time this is called, store[STATE_KEY] already reflects the new push, so the "before" snapshot would be lost otherwise.
+const checkMissingPallets = (prevDockRows, pushAt) => {
+  try {
+    const raw = store[STATE_KEY]; if (!raw) return;
+    const st = JSON.parse(raw); const next = computeMissingPalletUpdate(st, prevDockRows, pushAt);
+    if (!next) return;
+    store[STATE_KEY] = JSON.stringify(next); (store.__meta = store.__meta || {})[STATE_KEY] = Math.max(Date.now(), (store.__meta?.[STATE_KEY] || 0) + 1);
+    const added = (next.unreportedPallets || []).length - (st.unreportedPallets || []).length;
+    if (added > 0) console.log(`[missing] ${added} pallet(s) confirmed gone without a report`);
+  } catch (e) { console.log("[missing] check failed:", e.message); }
 };
 const applyPushToState = (purpose, sheet) => {
   try {
@@ -99,7 +112,11 @@ const handler = async (req, res) => {
         // resolved). It carries no header, so reuse the last one we saw for this purpose (or the bot's default). Rejecting it froze
         // the server on the last non-empty push and the phones kept showing pallets that were long gone.
         else if (Array.isArray(j.rows) && j.rows.length === 0 && !Array.isArray(j.header)) { const prev = store.__sheets?.[purpose]?.header; j = { header: prev && prev.length ? prev : Object.values(pretty), rows: [], from: j.from || "priority-bot payload (empty)" }; }
-        if (!Array.isArray(j.header) || !Array.isArray(j.rows)) throw new Error("expected {header, rows}"); store.__sheets = store.__sheets || {}; store.__sheets[purpose] = { header: j.header, rows: j.rows, receivedAt: new Date().toISOString(), from: j.from || "" }; const applied = applyPushToState(purpose, store.__sheets[purpose]); save(); if (purpose === "dock") checkDeadlines("after dock push"); console.log(`[sheet] ${purpose}: ${j.rows.length} rows pushed at ${new Date().toLocaleTimeString()}${applied}`); res.writeHead(200, cors).end(JSON.stringify({ ok: true, rows: j.rows.length })); } catch (e) { res.writeHead(400, cors).end(String(e.message || e)); } }); return; }
+        if (!Array.isArray(j.header) || !Array.isArray(j.rows)) throw new Error("expected {header, rows}"); store.__sheets = store.__sheets || {}; store.__sheets[purpose] = { header: j.header, rows: j.rows, receivedAt: new Date().toISOString(), from: j.from || "" };
+        // Captured BEFORE applying this push — computeMissingPalletUpdate needs to diff against what the dock looked
+        // like a moment ago, and applyPushToState is about to overwrite that.
+        let prevDockRows = []; if (purpose === "dock" && store[STATE_KEY]) { try { prevDockRows = (JSON.parse(store[STATE_KEY]).integrations || []).find(i => i.purpose === "Dock" && i.pushMode)?.rows || []; } catch {} }
+        const applied = applyPushToState(purpose, store.__sheets[purpose]); if (purpose === "dock") checkMissingPallets(prevDockRows, store.__sheets[purpose].receivedAt); save(); if (purpose === "dock") checkDeadlines("after dock push"); console.log(`[sheet] ${purpose}: ${j.rows.length} rows pushed at ${new Date().toLocaleTimeString()}${applied}`); res.writeHead(200, cors).end(JSON.stringify({ ok: true, rows: j.rows.length })); } catch (e) { res.writeHead(400, cors).end(String(e.message || e)); } }); return; }
     if (req.method === "GET" && purpose.endsWith("/log")) { res.writeHead(200, { ...cors, "Content-Type": "application/json" }); return res.end(JSON.stringify(store.__pushlog?.[purpose.replace(/\/log$/, "")] || [])); }
     if (req.method === "GET") { const sh = store.__sheets?.[purpose]; if (!sh) { res.writeHead(404, cors); return res.end(""); } return sendJson(req, res, 200, sh); }
   }
