@@ -191,6 +191,10 @@ const problemSuggestions = (s, scope, visible) => {
 // Full "Parent › Child" label for a node id, and a tree-ordered flat list for a "pick a parent" dropdown.
 const problemPath = (problems, id) => { const node = problems.find(p => p.id === id); if (!node) return ""; const parent = node.parentId ? problemPath(problems, node.parentId) : ""; return parent ? `${parent} › ${node.name}` : node.name; };
 const problemParentOptions = problems => { const out = []; const walk = parentId => { problems.filter(p => (p.parentId || null) === parentId).forEach(p => { out.push({ id: p.id, label: problemPath(problems, p.id) }); walk(p.id); }); }; walk(null); return out; };
+// Reference guide (knowledge base): a Head-curated note (description + photos) per product×problem-type, so controllers
+// know what a given remark actually looks like. Only leaf problem types get notes — those are what's reported against.
+const noteFor = (notes, problemId) => (notes || []).find(n => n.problemId === problemId);
+const hasNoteContent = n => !!(n && (n.description || "").trim() || asPhotoList(n?.photos).length);
 // Required inspection level: Full (raport) < Visual (visual is enough) < Skip (can be skipped). Product → category → system setting.
 // Inspection types are Head-defined (InspectionTypes). Behaviour comes from flags, not from the name.
 // No default inspection types: the Head defines them (Forms → + new type). Legacy ids below only keep old records readable.
@@ -1838,6 +1842,16 @@ const FastInput = ({ value, onCommit, ...props }) => {
   const commit = v => { if (v !== lastCommitted.current) { lastCommitted.current = v; onCommit(v); } };
   return <Input {...props} value={local} onChange={e => { const v = e.target.value; setLocal(v); if (timerRef.current) clearTimeout(timerRef.current); timerRef.current = setTimeout(() => commit(v), 250); }} onBlur={e => { if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; } commit(local); props.onBlur && props.onBlur(e); }} onKeyDown={e => { if (e.key === "Enter") { if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; } commit(local); e.currentTarget.blur(); } props.onKeyDown && props.onKeyDown(e); }} />;
 };
+// Same debounced-commit idea as FastInput, for a multi-line textarea (e.g. the reference-guide description).
+const FastTextarea = ({ value, onCommit, className = "", ...props }) => {
+  const [local, setLocal] = useState(value || "");
+  const lastCommitted = useRef(value || "");
+  const timerRef = useRef(null);
+  useEffect(() => { if ((value || "") !== lastCommitted.current) { setLocal(value || ""); lastCommitted.current = value || ""; } }, [value]);
+  useEffect(() => () => { if (timerRef.current) clearTimeout(timerRef.current); }, []);
+  const commit = v => { if (v !== lastCommitted.current) { lastCommitted.current = v; onCommit(v); } };
+  return <textarea {...props} value={local} className={`w-full text-sm rounded-md px-2 py-1.5 outline-none ${className}`} style={{ ...inp, ...(props.style || {}) }} onChange={e => { const v = e.target.value; setLocal(v); if (timerRef.current) clearTimeout(timerRef.current); timerRef.current = setTimeout(() => commit(v), 250); }} onBlur={e => { if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; } commit(local); props.onBlur && props.onBlur(e); }} />;
+};
 
 // ═══════════════════ STRONA: Products ═══════════════════
 function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset, onMessage }) {
@@ -1894,7 +1908,8 @@ function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset, onMessag
   const allSup = s.suppliers || [];
   const visibleSup = allSup.filter(x => x.name.toLowerCase().includes(supQ.toLowerCase()));
   const thumb = pr => { const ph = asPhotoList(pr.photos)[0]; return ph ? <img src={ph.dataUrl} alt="" className="rounded-md object-cover flex-shrink-0" style={{ width: 30, height: 30 }} /> : <span className="rounded-md flex items-center justify-center flex-shrink-0" style={{ width: 30, height: 30, background: C.bg, color: C.muted }}><Ic i={Package} s={14} mr={0} /></span>; };
-  const tabs = product ? [["profile", "Profile"], ["photos", `Photos${asPhotoList(product.photos).length ? ` · ${asPhotoList(product.photos).length}` : ""}`], ["specs", `Specifications${effectiveSpecs(s, product).length ? ` · ${effectiveSpecs(s, product).length}` : ""}`], ["attrs", `Properties${effectiveAttributes(s, product).length ? ` · ${effectiveAttributes(s, product).length}` : ""}`], ["supply", `Suppliers${(product.supplierIds || []).length ? ` · ${(product.supplierIds || []).length}` : ""}`], ["policy", "Inspection types"]] : [];
+  const refCount = product ? (s.problemNotes || []).filter(n => n.productId === product.id && hasNoteContent(n)).length : 0;
+  const tabs = product ? [["profile", "Profile"], ["photos", `Photos${asPhotoList(product.photos).length ? ` · ${asPhotoList(product.photos).length}` : ""}`], ["specs", `Specifications${effectiveSpecs(s, product).length ? ` · ${effectiveSpecs(s, product).length}` : ""}`], ["attrs", `Properties${effectiveAttributes(s, product).length ? ` · ${effectiveAttributes(s, product).length}` : ""}`], ["supply", `Suppliers${(product.supplierIds || []).length ? ` · ${(product.supplierIds || []).length}` : ""}`], ["reference", `Reference guide${refCount ? ` · ${refCount}` : ""}`], ["policy", "Inspection types"]] : [];
   const missing = product ? [!product.articleId && "article ID", !product.barcodeCu && !product.barcodeTu && "barcode", !product.categoryId && "category", !asPhotoList(product.photos).length && "photo"].filter(Boolean) : [];
   return (
     <div>
@@ -2006,6 +2021,33 @@ function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset, onMessag
                     {effectiveVarieties(s, product).filter(v => v.source !== "product").length > 0 && <><p className="label-sm mt-3 mb-1" style={{ color: C.muted }}>inherited</p>{effectiveVarieties(s, product).filter(v => v.source !== "product").map(v => <div key={v.id} className="text-sm py-1.5" style={{ borderTop: `1px solid ${C.line}`, opacity: .65 }}>{v.name} <span className="text-xs" style={{ color: C.muted }}>· {v.source}</span></div>)}</>}
                   </div>
                 </div>}
+                {tab === "reference" && (() => {
+                  const refProblems = problemsFor(s, { kind: "Product", id: product.id }, new Set(product.hiddenProblemIds || []));
+                  const leaves = refProblems.filter(p => isLeaf(refProblems, p.id));
+                  const notes = (s.problemNotes || []).filter(n => n.productId === product.id);
+                  const patchNote = (problemId, patch) => set(x => {
+                    const list = x.problemNotes || [];
+                    const idx = list.findIndex(n => n.productId === product.id && n.problemId === problemId);
+                    if (idx === -1) return { ...x, problemNotes: [...list, { id: uid(), productId: product.id, problemId, description: "", photos: [], ...patch }] };
+                    const next = [...list]; next[idx] = { ...next[idx], ...patch }; return { ...x, problemNotes: next };
+                  });
+                  return (
+                    <div style={{ maxWidth: 760 }}>
+                      <p className="text-xs mb-3" style={{ color: C.muted }}>A short description and reference photos per problem type, so controllers know exactly what to look for. Shown during inspection and on the product profile in the phone app.</p>
+                      {leaves.length === 0 ? <p className="text-xs" style={{ color: C.warn }}>No problem types apply to this product yet — add them in Problems.</p> : (
+                        <div className="flex flex-col gap-2.5">
+                          {leaves.map(leaf => { const note = noteFor(notes, leaf.id); return (
+                            <div key={leaf.id} className="rounded-xl p-3" style={{ border: `1px solid ${C.line}` }}>
+                              <p className="text-sm font-medium mb-2">{problemPath(refProblems, leaf.id)}</p>
+                              <FastTextarea value={note?.description || ""} onCommit={v => patchNote(leaf.id, { description: v })} rows={2} placeholder="What this problem looks like, how to judge it…" className="mb-2" style={{ resize: "vertical" }} />
+                              <PhotoStrip photos={note?.photos} onAdd={got => patchNote(leaf.id, { photos: [...asPhotoList(note?.photos), ...got] })} onRemove={id => patchNote(leaf.id, { photos: asPhotoList(note?.photos).filter(x => x.id !== id) })} size={56} />
+                            </div>
+                          ); })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
                 {tab === "policy" && <div style={{ maxWidth: 720 }}>
                   <p className="text-xs mb-3" style={{ color: C.muted }}>Which inspection types a controller can start on this product. Inherited from the category / type settings unless overridden here.</p>
                   <PolicyEditor s={s} own={Array.isArray(product.allowedTypeIds) ? product.allowedTypeIds : null} inherited={effectivePolicy(s, { ...product, allowedTypeIds: undefined }).typeIds} inheritedSource={effectivePolicy(s, { ...product, allowedTypeIds: undefined }).source} onChange={v => patchP({ allowedTypeIds: v })} />
@@ -2401,8 +2443,9 @@ function NumberInput({ f, problems, overrides, specs, totals, value, onChange, o
     </div>
   );
 }
-function ProblemTreeView({ root, problems, overrides, remarks, onReport, onDelete, onPhoto, onRemovePhoto, totals, disabled }) {
+function ProblemTreeView({ root, problems, overrides, remarks, onReport, onDelete, onPhoto, onRemovePhoto, totals, disabled, notes }) {
   const [open, setOpen] = useState(null);
+  const [refOpen, setRefOpen] = useState(null);
   const [mode, setMode] = useState(totals.pieces > 0 ? "PieceCount" : totals.weight > 0 ? "DirectWeight" : "WholeUnitCount");
   const [raw, setRaw] = useState("");
   const unitOf = m => m === "PieceCount" ? "pcs" : m === "DirectWeight" ? "g" : m === "Presence" ? "" : "CU";
@@ -2412,15 +2455,23 @@ function ProblemTreeView({ root, problems, overrides, remarks, onReport, onDelet
     const s = statusOf(problems, overrides, remarks, node.id, totals), [fg, bg] = tone(s), t = effTol(problems, overrides, node.id);
     const mine = leaf ? remarks.filter(r => r.leafId === node.id) : [];
     const isOpen = open === node.id, zero = t === 0;
+    const note = leaf ? noteFor(notes, node.id) : null, hasNote = hasNoteContent(note), refIsOpen = refOpen === node.id;
     return (
       <div key={node.id}>
         <div className="flex items-center gap-2 py-1 text-sm" style={{ paddingLeft: dep * 14, borderTop: `1px solid ${C.line}` }}>
           {leaf && !disabled
             ? <button onClick={() => { setOpen(isOpen ? null : node.id); setRaw(""); }} className="flex-1 text-left rounded px-1 -mx-1" style={{ color: isOpen ? C.accent : C.ink, fontWeight: isOpen ? 500 : 400, background: isOpen ? C.accentSoft : "transparent" }}>{node.name} <span className="text-xs" style={{ color: C.muted }}>{isOpen ? "▾" : "+"}</span></button>
             : <span className="flex-1" style={{ fontWeight: dep === 0 ? 600 : dep === 1 ? 500 : 400 }}>{node.name}</span>}
+          {hasNote && <button onClick={() => setRefOpen(refIsOpen ? null : node.id)} className="inline-flex items-center rounded-full px-1.5 py-0.5" style={{ background: refIsOpen ? C.accent : C.accentSoft, color: refIsOpen ? C.onDark : C.accent }} title="reference guide — what this looks like"><Ic i={BookOpen} s={12} mr={0} /></button>}
           {t !== null && <span className="text-xs" style={{ color: C.muted }}>tol. {t}%{zero && "⚡"}</span>}
           <span className="text-xs px-2 py-0.5 rounded-full min-w-[3.2rem] text-center" style={{ background: bg, color: fg, fontWeight: 500 }}>{presenceIn(problems, remarks, node.id) && zero ? "present" : `${fmt(aggregate(problems, remarks, node.id, totals))}%`}</span>
         </div>
+        {leaf && hasNote && refIsOpen && (
+          <div className="rounded-lg p-2 my-1" style={{ marginLeft: dep * 14 + 12, background: C.accentSoft }}>
+            {note.description && <p className="text-xs mb-1.5" style={{ color: C.ink }}>{note.description}</p>}
+            {asPhotoList(note.photos).length > 0 && <PhotoStrip photos={note.photos} size={48} />}
+          </div>
+        )}
         {leaf && mine.map(r => (
           <div key={r.id} className="flex items-center gap-2 text-xs py-1" style={{ paddingLeft: dep * 14 + 12, color: C.muted }}>
             <span>↳ {r.mode === "Presence" ? "present" : `${r.raw} ${unitOf(r.mode)}`}{r.auto && " · of pomiaru"}</span>
@@ -2603,7 +2654,7 @@ function InspectionRunner({ insp, patch, t, problems, product, suppliers, dictio
             </div>
           ))}
           {t.problemRefs.filter(r => r.moduleId === m.id).length > 0 && !sampleReady && <Note tone="bad">{hasSampleBlock ? "Sample size gives 0 CU — fill in the “Sample size” block to compute percentages." : "This template has no “Sample size” block — the Head must add it."}</Note>}
-          {t.problemRefs.filter(r => r.moduleId === m.id).sort(bySort).map(r => pm[r.problemTypeId] && <ProblemTreeView key={r.id} root={pm[r.problemTypeId]} problems={problems} overrides={t.overrides} remarks={remarks} totals={totals} disabled={!sampleReady} onReport={rem => setRemarks(x => [...x, { id: uid(), ...rem }])} onDelete={id => setRemarks(x => x.filter(q => q.id !== id))} onPhoto={async id => { const got = await pickPhotos(); if (got.length) setRemarks(x => x.map(q => q.id === id ? { ...q, photos: [...asPhotoList(q.photos), ...got] } : q)); }} onRemovePhoto={(id, pid) => setRemarks(x => x.map(q => q.id === id ? { ...q, photos: asPhotoList(q.photos).filter(ph => ph.id !== pid) } : q))} />)}
+          {t.problemRefs.filter(r => r.moduleId === m.id).sort(bySort).map(r => pm[r.problemTypeId] && <ProblemTreeView key={r.id} root={pm[r.problemTypeId]} problems={problems} overrides={t.overrides} remarks={remarks} totals={totals} disabled={!sampleReady} notes={product ? (sctx.problemNotes || []).filter(n => n.productId === product.id) : []} onReport={rem => setRemarks(x => [...x, { id: uid(), ...rem }])} onDelete={id => setRemarks(x => x.filter(q => q.id !== id))} onPhoto={async id => { const got = await pickPhotos(); if (got.length) setRemarks(x => x.map(q => q.id === id ? { ...q, photos: [...asPhotoList(q.photos), ...got] } : q)); }} onRemovePhoto={(id, pid) => setRemarks(x => x.map(q => q.id === id ? { ...q, photos: asPhotoList(q.photos).filter(ph => ph.id !== pid) } : q))} />)}
           {t.fields.filter(f => f.moduleId === m.id).length + t.problemRefs.filter(r => r.moduleId === m.id).length === 0 && <p className="text-sm" style={{ color: C.muted }}>Empty module.</p>}
         </div>
       )}
@@ -3319,7 +3370,7 @@ function UsersPage({ s, set }) {
 
 // ═══════════════════ APLIKACJA ═══════════════════
 const SEED_USERS = () => [{ id: "u-head", name: "Aleksandra Chełmińska", firstName: "Aleksandra", lastName: "Chełmińska", email: "aleksandra.chelminska@qc.local", role: "Head", active: true }, { id: "u-anna", name: "Damian Mrówka", firstName: "Damian", lastName: "Mrówka", email: "damian.mrowka@qc.local", role: "Controller", active: true }, { id: "u-jakub", name: "Snizhana Myshkina", firstName: "Snizhana", lastName: "Myshkina", email: "snizhana.myshkina@qc.local", role: "Controller", active: true }];
-const EMPTY = { categories: [], problems: [], products: [], templates: [], suppliers: [], countries: [], users: SEED_USERS(), inspections: [], flags: [], notifications: [], announcements: [], conversations: [], dictionaries: [], inspectionTypes: SEED_TYPES(), settings: { defaultPolicy: "Visual", skipReasonRequired: false } };
+const EMPTY = { categories: [], problems: [], problemNotes: [], products: [], templates: [], suppliers: [], countries: [], users: SEED_USERS(), inspections: [], flags: [], notifications: [], announcements: [], conversations: [], dictionaries: [], inspectionTypes: SEED_TYPES(), settings: { defaultPolicy: "Visual", skipReasonRequired: false } };
 
 // Migration of older exports: product.suppliers as names → global list + supplierIds
 const normalize = raw => {
@@ -3351,6 +3402,8 @@ const normalize = raw => {
   s.categories = (s.categories || []).map(c => ({ ...c, specs: c.specs || [], varieties: c.varieties || [] }));
   s.problems = (s.problems || []).map(p => ({ ...p, categoryId: p.categoryId || null, productId: p.productId || null }));
   s.categories = s.categories.map(c => ({ ...c, hiddenProblemIds: c.hiddenProblemIds || [] }));
+  // Reference guide: per-product notes (description + photos) on a problem type, written by the Head, shown to controllers.
+  s.problemNotes = (Array.isArray(s.problemNotes) ? s.problemNotes : []).map(n => ({ ...n, photos: asPhotoList(n.photos), description: n.description || "" }));
   s.countries = Array.isArray(s.countries) ? s.countries : [];
   s.dictionaries = Array.isArray(s.dictionaries) ? s.dictionaries : [];
   if (!s.dictionaries.length && s.countries.length) s.dictionaries = [{ id: "dict-countries", name: "Countries", items: s.countries.map(c => ({ id: c.id, value: c.name })), isActive: true }];

@@ -163,6 +163,10 @@ const isLeaf = (arr, id) => kidsOf(arr, id).length === 0;
 const depthOf = (arr, id) => { const m = byId(arr); let d = 0, n = m[id]; while (n?.parentId) { d++; n = m[n.parentId]; } return d; };
 const pathOf = (arr, id) => { const m = byId(arr); const o = []; let n = m[id]; while (n) { o.unshift(n.name); n = m[n.parentId]; } return o.join(" › "); };
 const subtree = (arr, id) => { const s = new Set([id]); let g = true; while (g) { g = false; arr.forEach(x => { if (x.parentId && s.has(x.parentId) && !s.has(x.id)) { s.add(x.id); g = true; } }); } return s; };
+// Reference guide (knowledge base): a Head-curated note (description + photos) per product×problem-type, so controllers
+// know what a given remark actually looks like. Only leaf problem types get notes — those are what's reported against.
+const noteFor = (notes, problemId) => (notes || []).find(n => n.problemId === problemId);
+const hasNoteContent = n => !!(n && (n.description || "").trim() || asPhotoList(n?.photos).length);
 
 // Tolerancja: najpierw nadpisanie w szablonie, potem katalog; up drzewa.
 const effTol = (problems, overrides, id) => {
@@ -1213,8 +1217,9 @@ function NumberInput({ f, problems, overrides, specs, totals, value, onChange, o
   );
 }
 
-function ProblemTreeView({ root, problems, overrides, remarks, onReport, onDelete, onPhoto, onRemovePhoto, totals, disabled }) {
+function ProblemTreeView({ root, problems, overrides, remarks, onReport, onDelete, onPhoto, onRemovePhoto, totals, disabled, notes }) {
   const [open, setOpen] = useState(null);
+  const [refOpen, setRefOpen] = useState(null);
   const [mode, setMode] = useState(totals.pieces > 0 ? "PieceCount" : totals.weight > 0 ? "DirectWeight" : "WholeUnitCount");
   const [raw, setRaw] = useState("");
   const unitOf = m => m === "PieceCount" ? "pcs" : m === "DirectWeight" ? "g" : m === "Presence" ? "" : "CU";
@@ -1224,15 +1229,23 @@ function ProblemTreeView({ root, problems, overrides, remarks, onReport, onDelet
     const s = statusOf(problems, overrides, remarks, node.id, totals), [fg, bg] = tone(s), t = effTol(problems, overrides, node.id);
     const mine = leaf ? remarks.filter(r => r.leafId === node.id) : [];
     const isOpen = open === node.id, zero = t === 0;
+    const note = leaf ? noteFor(notes, node.id) : null, hasNote = hasNoteContent(note), refIsOpen = refOpen === node.id;
     return (
       <div key={node.id}>
         <div className="flex items-center gap-2 py-1 text-sm" style={{ paddingLeft: dep * 14, borderTop: `1px solid ${C.line}` }}>
           {leaf && !disabled
             ? <button onClick={() => { setOpen(isOpen ? null : node.id); setRaw(""); }} className="flex-1 text-left rounded px-1 -mx-1" style={{ color: isOpen ? C.accent : C.ink, fontWeight: isOpen ? 500 : 400, background: isOpen ? C.accentSoft : "transparent" }}>{node.name} <span className="text-xs" style={{ color: C.muted }}>{isOpen ? "▾" : "+"}</span></button>
             : <span className="flex-1" style={{ fontWeight: dep === 0 ? 600 : dep === 1 ? 500 : 400 }}>{node.name}</span>}
+          {hasNote && <button onClick={() => setRefOpen(refIsOpen ? null : node.id)} className="inline-flex items-center rounded-full px-1.5 py-0.5" style={{ background: refIsOpen ? C.accent : C.accentSoft, color: refIsOpen ? C.onDark : C.accent }} title="reference guide — what this looks like"><Ic i={BookOpen} s={12} mr={0} /></button>}
           {t !== null && <span className="text-xs" style={{ color: C.muted }}>tol. {t}%{zero && "⚡"}</span>}
           <span className="text-xs px-2 py-0.5 rounded-full min-w-[3.2rem] text-center" style={{ background: bg, color: fg, fontWeight: 500 }}>{presenceIn(problems, remarks, node.id) && zero ? "present" : `${fmt(aggregate(problems, remarks, node.id, totals))}%`}</span>
         </div>
+        {leaf && hasNote && refIsOpen && (
+          <div className="rounded-lg p-2 my-1" style={{ marginLeft: dep * 14 + 12, background: C.accentSoft }}>
+            {note.description && <p className="text-xs mb-1.5" style={{ color: C.ink }}>{note.description}</p>}
+            {asPhotoList(note.photos).length > 0 && <PhotoStrip photos={note.photos} size={48} />}
+          </div>
+        )}
         {leaf && mine.map(r => (
           <div key={r.id} className="flex items-center gap-2 text-xs py-1" style={{ paddingLeft: dep * 14 + 12, color: C.muted }}>
             <span>↳ {r.mode === "Presence" ? "present" : `${r.raw} ${unitOf(r.mode)}`}{r.auto && " · of pomiaru"}</span>
@@ -1427,7 +1440,7 @@ function InspectionRunner({ insp, patch, t, problems, product, suppliers, dictio
             </div>
           ))}
           {t.problemRefs.filter(r => r.moduleId === m.id).length > 0 && !sampleReady && <Note tone="bad">{hasSampleBlock ? "Sample size gives 0 CU — fill in the “Sample size” block to compute percentages." : "This template has no “Sample size” block — the Head must add it."}</Note>}
-          {t.problemRefs.filter(r => r.moduleId === m.id).sort(bySort).map(r => pm[r.problemTypeId] && <ProblemTreeView key={r.id} root={pm[r.problemTypeId]} problems={problems} overrides={t.overrides} remarks={remarks} totals={totals} disabled={!sampleReady} onReport={rem => setRemarks(x => [...x, { id: uid(), ...rem }])} onDelete={id => setRemarks(x => x.filter(q => q.id !== id))} onPhoto={async id => { const got = await pickPhotos(); if (got.length) setRemarks(x => x.map(q => q.id === id ? { ...q, photos: [...asPhotoList(q.photos), ...got] } : q)); }} onRemovePhoto={(id, pid) => setRemarks(x => x.map(q => q.id === id ? { ...q, photos: asPhotoList(q.photos).filter(ph => ph.id !== pid) } : q))} />)}
+          {t.problemRefs.filter(r => r.moduleId === m.id).sort(bySort).map(r => pm[r.problemTypeId] && <ProblemTreeView key={r.id} root={pm[r.problemTypeId]} problems={problems} overrides={t.overrides} remarks={remarks} totals={totals} disabled={!sampleReady} notes={product ? (sctx.problemNotes || []).filter(n => n.productId === product.id) : []} onReport={rem => setRemarks(x => [...x, { id: uid(), ...rem }])} onDelete={id => setRemarks(x => x.filter(q => q.id !== id))} onPhoto={async id => { const got = await pickPhotos(); if (got.length) setRemarks(x => x.map(q => q.id === id ? { ...q, photos: [...asPhotoList(q.photos), ...got] } : q)); }} onRemovePhoto={(id, pid) => setRemarks(x => x.map(q => q.id === id ? { ...q, photos: asPhotoList(q.photos).filter(ph => ph.id !== pid) } : q))} />)}
           {t.fields.filter(f => f.moduleId === m.id).length + t.problemRefs.filter(r => r.moduleId === m.id).length === 0 && <p className="text-sm" style={{ color: C.muted }}>Empty module.</p>}
         </div>
       )}
@@ -1524,7 +1537,7 @@ const convName = (conv, s, userId) => conv.name || conv.participantIds.filter(id
 
 const SEED_USERS = () => [{ id: "u-head", name: "Aleksandra Chełmińska", firstName: "Aleksandra", lastName: "Chełmińska", email: "aleksandra.chelminska@qc.local", role: "Head", active: true }, { id: "u-anna", name: "Damian Mrówka", firstName: "Damian", lastName: "Mrówka", email: "damian.mrowka@qc.local", role: "Controller", active: true }, { id: "u-jakub", name: "Snizhana Myshkina", firstName: "Snizhana", lastName: "Myshkina", email: "snizhana.myshkina@qc.local", role: "Controller", active: true }];
 
-const EMPTY = { categories: [], problems: [], products: [], templates: [], suppliers: [], countries: [], users: SEED_USERS(), inspections: [], flags: [], notifications: [], announcements: [], conversations: [], dictionaries: [], inspectionTypes: SEED_TYPES(), settings: { defaultPolicy: "Visual", skipReasonRequired: false } };
+const EMPTY = { categories: [], problems: [], problemNotes: [], products: [], templates: [], suppliers: [], countries: [], users: SEED_USERS(), inspections: [], flags: [], notifications: [], announcements: [], conversations: [], dictionaries: [], inspectionTypes: SEED_TYPES(), settings: { defaultPolicy: "Visual", skipReasonRequired: false } };
 
 // Migration of older exports: product.suppliers as names → global list + supplierIds
 
@@ -1557,6 +1570,8 @@ const normalize = raw => {
   s.categories = (s.categories || []).map(c => ({ ...c, specs: c.specs || [], varieties: c.varieties || [] }));
   s.problems = (s.problems || []).map(p => ({ ...p, categoryId: p.categoryId || null, productId: p.productId || null }));
   s.categories = s.categories.map(c => ({ ...c, hiddenProblemIds: c.hiddenProblemIds || [] }));
+  // Reference guide: per-product notes (description + photos) on a problem type, written by the Head, shown to controllers.
+  s.problemNotes = (Array.isArray(s.problemNotes) ? s.problemNotes : []).map(n => ({ ...n, photos: asPhotoList(n.photos), description: n.description || "" }));
   s.countries = Array.isArray(s.countries) ? s.countries : [];
   s.dictionaries = Array.isArray(s.dictionaries) ? s.dictionaries : [];
   if (!s.dictionaries.length && s.countries.length) s.dictionaries = [{ id: "dict-countries", name: "Countries", items: s.countries.map(c => ({ id: c.id, value: c.name })), isActive: true }];
@@ -2190,6 +2205,23 @@ function MProductCard({ s, user, product, onBack, onStart, go, setState, notify,
 
         {specs.length > 0 && <Section title="Specifications">{specs.map((q, ix) => <Row key={q.id} k={q.name} v={specLabel(q)} last={ix === specs.length - 1} />)}</Section>}
         {attrs.length > 0 && <Section title="Properties">{attrs.map((a, ix) => <Row key={a.dictionaryId} k={a.list} v={a.value} last={ix === attrs.length - 1} />)}</Section>}
+        {(() => {
+          const refProblems = problemsFor(s, { kind: "Product", id: product.id }, new Set(product.hiddenProblemIds || []));
+          const leafIds = new Set(refProblems.filter(p => isLeaf(refProblems, p.id)).map(p => p.id));
+          const refNotes = (s.problemNotes || []).filter(n => n.productId === product.id && leafIds.has(n.problemId) && hasNoteContent(n));
+          if (!refNotes.length) return null;
+          return (
+            <Section title="Reference guide"><div className="flex flex-col gap-3">
+              {refNotes.map(n => (
+                <div key={n.id}>
+                  <p className="text-sm font-medium mb-1">{pathOf(refProblems, n.problemId)}</p>
+                  {n.description && <p className="text-sm mb-1.5" style={{ color: C.muted }}>{n.description}</p>}
+                  {asPhotoList(n.photos).length > 0 && <PhotoStrip photos={n.photos} size={56} />}
+                </div>
+              ))}
+            </div></Section>
+          );
+        })()}
         {last3.length > 0 && <Section title="Recent inspections">{last3.map((i, ix) => <button key={i.id} onClick={() => go("inspection", i.id)} className="w-full flex items-center gap-2 py-2 text-left" style={{ borderBottom: ix === last3.length - 1 ? "none" : `1px solid ${C.line}` }}><span className="text-sm flex-1"><span>{dayLabel(i.completedAt)}, {hhmm(i.completedAt)}</span><span className="text-xs ml-1.5" style={{ color: C.muted }}>{s.users.find(u => u.id === i.controllerId)?.name.split(" ")[0]}</span></span><ResultPill i={i} s={s} /></button>)}</Section>}
         {product.consumerAppUrl && <a href={product.consumerAppUrl} className="block text-xs underline mb-3" style={{ color: C.accent }}>Open in the consumer app ↗</a>}
 
