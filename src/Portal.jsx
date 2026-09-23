@@ -1125,7 +1125,7 @@ function Dashboard({ s, setPage, seed, user, openProduct, onAssign, set }) {
   ];
   const nextStep = steps.find(x => !x.done);
   const hasDock = (s.integrations || []).some(i => i.purpose === "Dock" && i.rows?.length);
-  const prioRows = prioSel ? f.dock.filter(r => prioSel === "Skippable" ? r.skippable : r.priority === prioSel).sort((a, b) => `${a.arrived} ${a.arrivedTime}`.localeCompare(`${b.arrived} ${b.arrivedTime}`)) : [];
+  const prioRows = prioSel ? f.dock.filter(r => prioSel === "Skippable" ? r.skippable : prioSel === "Needed today" ? r.blocking : r.priority === prioSel).sort((a, b) => `${a.arrived} ${a.arrivedTime}`.localeCompare(`${b.arrived} ${b.arrivedTime}`)) : [];
   // Same collapse-by-SKU the phone uses: one row per article, "×N" when more than one pallet is on the dock.
   const prioGroups = (() => { const map = new Map(); prioRows.forEach(r => { const k = r.article || r.hu; if (!map.has(k)) map.set(k, []); map.get(k).push(r); });
     // The dock sheet still lists a pallet even once it's reported — it just hasn't refreshed yet — so count how many
@@ -1145,18 +1145,19 @@ function Dashboard({ s, setPage, seed, user, openProduct, onAssign, set }) {
       <DeadlineBanner s={s} alerts={f.alerts} now={now} onOpen={a => a.productId && openProduct && openProduct(a.productId)} onMessage={onAssign} />
 
       <p className="label-sm mt-2 mb-1.5" style={{ color: C.muted }}>Docks · {f.dock.length} pallets · {f.skus} SKUs{f.blocking ? ` · ${f.blocking} needed today` : ""}{f.skippable ? ` · ${f.skippable} skippable` : ""}{f.dockLost ? ` · ${f.dockLost} lost` : ""}</p>
-      <div className="grid gap-3 mb-3" style={{ gridTemplateColumns: "repeat(6, 1fr)" }}>
+      <div className="grid gap-3 mb-3" style={{ gridTemplateColumns: "repeat(7, 1fr)" }}>
+        <Tile label="Needed today" value={f.blocking} sub={f.blocking ? "blocks picking" : "nothing blocking"} color={f.blocking ? C.bad : C.muted} onClick={hasDock ? () => setPrioSel(prioSel === "Needed today" ? null : "Needed today") : undefined} active={prioSel === "Needed today"} />
         {PRIO_ORDER.map(k => <Tile key={k} label={k} value={f.prio[k]} color={k === "Now needed" || k === "High risk" ? C.bad : k === "High issues" || k === "Late inspection" ? C.warn : C.muted} onClick={hasDock ? () => setPrioSel(prioSel === k ? null : k) : undefined} active={prioSel === k} />)}
         <Tile label="Skippable" value={f.skippable} color={C.muted} onClick={hasDock ? () => setPrioSel(prioSel === "Skippable" ? null : "Skippable") : undefined} active={prioSel === "Skippable"} />
       </div>
       {prioSel && <Card style={{ marginBottom: 12 }}>
-        <div className="flex items-center gap-2 mb-2"><p className="font-medium text-sm flex-1">{prioSel} · {prioRows.length} pallet{prioRows.length === 1 ? "" : "s"} · oldest first</p><button onClick={() => setPrioSel(null)} className="text-xs" style={{ color: C.muted }}>close</button></div>
+        <div className="flex items-center gap-2 mb-2"><p className="font-medium text-sm flex-1">{prioSel} · {prioRows.length} pallet{prioRows.length === 1 ? "" : "s"} · {prioGroups.length} product{prioGroups.length === 1 ? "" : "s"} · oldest first{prioSel === "Needed today" ? " · flagged on the dock sheet — picking waits for these" : ""}</p><button onClick={() => setPrioSel(null)} className="text-xs" style={{ color: C.muted }}>close</button></div>
         {prioRows.length === 0 ? <p className="text-xs py-3" style={{ color: C.muted }}>Nothing at this priority.</p> : <table className="w-full text-sm" style={{ borderCollapse: "collapse" }}>
-          <thead><tr className="text-xs text-left" style={{ color: C.muted }}>{["Product", "Article", "Location", "Arrived", "Transporter", "History"].map(h => <th key={h} className="py-1.5 pr-3 font-medium" style={{ borderBottom: `1px solid ${C.line}` }}>{h}</th>)}</tr></thead>
+          <thead><tr className="text-xs text-left" style={{ color: C.muted }}>{["Product", ...(prioSel === "Needed today" ? ["Priority"] : []), "Article", "Location", "Arrived", "Transporter", "History"].map(h => <th key={h} className="py-1.5 pr-3 font-medium" style={{ borderBottom: `1px solid ${C.line}` }}>{h}</th>)}</tr></thead>
           <tbody>{prioGroups.map(r => { const prod = s.products.find(p => p.articleId === r.article); const hist = recentProblemsFor(s, prod?.id); return (
             <tr key={r.article || r.hu} style={{ borderBottom: `1px solid ${C.line}` }}>
               <td className="py-1.5 pr-3">{prod ? <button onClick={() => openProduct(prod.id)} className="text-left font-medium" style={{ color: C.ink }}>{r.name || prod.name}</button> : <span>{r.name || r.article}<span className="text-[11px] ml-1" style={{ color: C.warn }}>no profile</span></span>}{r.count > 1 && <span className="text-[10px] ml-1.5 px-1.5 py-0.5 rounded-full" style={{ background: C.accentSoft, color: C.accent }}>×{r.count} on docks</span>}{r.totalOnDock > r.count && <span className="text-[10px] ml-1.5" style={{ color: C.muted }}>+{r.totalOnDock - r.count} elsewhere</span>}{r.mixedPO && <span className="text-[10px] ml-1.5 px-1.5 py-0.5 rounded-full" style={{ background: C.warnBg, color: C.warn }}>⚠ mixed PO</span>}{r.checked > 0 && <span className="text-[10px] ml-1.5 px-1.5 py-0.5 rounded-full" style={{ background: C.okBg, color: C.ok }}>✓ {r.checked === r.count ? "already inspected" : `${r.checked}/${r.count} inspected`}</span>}{r.blocking && <span className="text-[10px] ml-1.5 px-1.5 py-0.5 rounded" style={{ background: C.badBg, color: C.bad }}>needed today</span>}</td>
-              <td className="py-1.5 pr-3 font-mono text-xs">{r.article}</td><td className="py-1.5 pr-3">{r.location}</td><td className="py-1.5 pr-3 text-xs">{r.arrived} {r.arrivedTime}</td><td className="py-1.5 pr-3 text-xs">{r.transporter}</td>
+              {prioSel === "Needed today" && <td className="py-1.5 pr-3 text-xs">{r.priority || "—"}</td>}<td className="py-1.5 pr-3 font-mono text-xs">{r.article}</td><td className="py-1.5 pr-3">{r.location}</td><td className="py-1.5 pr-3 text-xs">{r.arrived} {r.arrivedTime}</td><td className="py-1.5 pr-3 text-xs">{r.transporter}</td>
               <td className="py-1.5 text-xs" style={{ color: hist.count ? C.bad : C.muted }}>{hist.count ? `${hist.count} rejected · ${hist.problems.slice(0, 2).map(x => x.name).join(", ")}` : "clean"}</td>
             </tr>); })}</tbody>
         </table>}
