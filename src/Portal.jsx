@@ -1854,14 +1854,15 @@ const FastTextarea = ({ value, onCommit, className = "", ...props }) => {
 };
 
 // ═══════════════════ STRONA: Products ═══════════════════
-function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset, onMessage }) {
+function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset, onMessage, onOpenInspection }) {
   const [d, setD] = useState({ name: "", articleId: "", categoryId: "", isBio: false, cusPerTu: "", piecesPerCu: "", weightPerCu: "" });
   const [filter, setFilter] = useState(""); const [importOpen, setImportOpen] = useState(false); const [importText, setImportText] = useState(""); const [importMsg, setImportMsg] = useState("");
   useEffect(() => { if (presetFilter) { setFilter(presetFilter); clearPreset && clearPreset(); } }, [presetFilter]);
   const [supQ, setSupQ] = useState("");
   const [tab, setTab] = useState("profile"); const [newOpen, setNewOpen] = useState(false);
   const [refPick, setRefPick] = useState(null);
-  useEffect(() => { setTab("profile"); setRefPick(null); }, [sel]);
+  const [histResult, setHistResult] = useState("all"); const [histProblem, setHistProblem] = useState("");
+  useEffect(() => { setTab("profile"); setRefPick(null); setHistResult("all"); setHistProblem(""); }, [sel]);
   const [varName, setVarName] = useState(""); const [varOpen, setVarOpen] = useState(false);
   const product = s.products.find(p => p.id === sel);
   const catPath = id => { const c = s.categories.find(x => x.id === id); if (!c) return "—"; const p = c.parentId && s.categories.find(x => x.id === c.parentId); return p ? `${p.name} › ${c.name}` : c.name; };
@@ -1910,7 +1911,10 @@ function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset, onMessag
   const visibleSup = allSup.filter(x => x.name.toLowerCase().includes(supQ.toLowerCase()));
   const thumb = pr => { const ph = asPhotoList(pr.photos)[0]; return ph ? <img src={ph.dataUrl} alt="" className="rounded-md object-cover flex-shrink-0" style={{ width: 30, height: 30 }} /> : <span className="rounded-md flex items-center justify-center flex-shrink-0" style={{ width: 30, height: 30, background: C.bg, color: C.muted }}><Ic i={Package} s={14} mr={0} /></span>; };
   const refCount = product ? (s.problemNotes || []).filter(n => n.productId === product.id && hasNoteContent(n)).length : 0;
-  const tabs = product ? [["profile", "Profile"], ["photos", `Photos${asPhotoList(product.photos).length ? ` · ${asPhotoList(product.photos).length}` : ""}`], ["specs", `Specifications${effectiveSpecs(s, product).length ? ` · ${effectiveSpecs(s, product).length}` : ""}`], ["attrs", `Properties${effectiveAttributes(s, product).length ? ` · ${effectiveAttributes(s, product).length}` : ""}`], ["supply", `Suppliers${(product.supplierIds || []).length ? ` · ${(product.supplierIds || []).length}` : ""}`], ["reference", `Reference guide${refCount ? ` · ${refCount}` : ""}`], ["policy", "Inspection types"]] : [];
+  const histAll = product ? s.inspections.filter(i => i.productId === product.id && i.status === "Completed" && countsAs(s, i)) : [];
+  const histVerdict = histAll.filter(i => isVerdictType(s, i));
+  const histInfo = histAll.filter(i => !isVerdictType(s, i));
+  const tabs = product ? [["profile", "Profile"], ["photos", `Photos${asPhotoList(product.photos).length ? ` · ${asPhotoList(product.photos).length}` : ""}`], ["specs", `Specifications${effectiveSpecs(s, product).length ? ` · ${effectiveSpecs(s, product).length}` : ""}`], ["attrs", `Properties${effectiveAttributes(s, product).length ? ` · ${effectiveAttributes(s, product).length}` : ""}`], ["supply", `Suppliers${(product.supplierIds || []).length ? ` · ${(product.supplierIds || []).length}` : ""}`], ["reference", `Reference guide${refCount ? ` · ${refCount}` : ""}`], ["history", `Inspection history${histAll.length ? ` · ${histAll.length}` : ""}`], ["policy", "Inspection types"]] : [];
   const missing = product ? [!product.articleId && "article ID", !product.barcodeCu && !product.barcodeTu && "barcode", !product.categoryId && "category", !asPhotoList(product.photos).length && "photo"].filter(Boolean) : [];
   return (
     <div>
@@ -2069,6 +2073,48 @@ function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset, onMessag
                               <PhotoStrip photos={selNote?.photos} onAdd={got => patchNote(selLeaf.id, { photos: [...asPhotoList(selNote?.photos), ...got] })} onRemove={id => patchNote(selLeaf.id, { photos: asPhotoList(selNote?.photos).filter(x => x.id !== id) })} size={64} />
                             </div>
                           )}
+                        </>
+                      )}
+                    </div>
+                  );
+                })()}
+                {tab === "history" && (() => {
+                  const pm = byId(s.problems);
+                  const acceptedCount = histVerdict.filter(i => i.result === "Accepted").length;
+                  const rejectedCount = histVerdict.filter(i => i.result === "Rejected").length;
+                  const resultFiltered = histResult === "all" ? histVerdict : histVerdict.filter(i => i.result === histResult);
+                  const problemTally = Object.values(resultFiltered.flatMap(i => i.remarks || []).reduce((m, r) => { const name = pm[r.leafId]?.name || "?"; m[name] = m[name] || { name, count: 0 }; m[name].count++; return m; }, {})).sort((a, b) => b.count - a.count);
+                  const rows = (histProblem ? resultFiltered.filter(i => (i.remarks || []).some(r => (pm[r.leafId]?.name || "?") === histProblem)) : resultFiltered)
+                    .sort((a, b) => (b.completedAt || "").localeCompare(a.completedAt || ""));
+                  return (
+                    <div style={{ maxWidth: 720 }}>
+                      <p className="text-xs mb-3" style={{ color: C.muted }}>{histVerdict.length} completed inspection{histVerdict.length === 1 ? "" : "s"} with a verdict for this product — {acceptedCount} accepted, {rejectedCount} rejected{histInfo.length ? ` · ${histInfo.length} more without a verdict (visual / auto-accept checks)` : ""}.</p>
+                      {histVerdict.length === 0 ? (
+                        <Empty icon="📋" title="No inspections yet" hint="They'll show up here once a controller completes one for this product." />
+                      ) : (
+                        <>
+                          <div className="flex gap-1.5 mb-3 flex-wrap">
+                            {[["all", `all · ${histVerdict.length}`], ["Accepted", `accepted · ${acceptedCount}`], ["Rejected", `rejected · ${rejectedCount}`]].map(([k, l]) => (
+                              <button key={k} onClick={() => { setHistResult(k); setHistProblem(""); }} className="text-xs px-2.5 py-1 rounded-full" style={{ background: histResult === k ? C.accent : C.accentSoft, color: histResult === k ? C.onDark : C.accent }}>{l}</button>
+                            ))}
+                          </div>
+                          {problemTally.length > 0 && (
+                            <div className="flex flex-wrap gap-1.5 mb-3">
+                              <button onClick={() => setHistProblem("")} className="text-[11px] px-2 py-1 rounded-full" style={{ background: !histProblem ? C.ink : "transparent", color: !histProblem ? C.onDark : C.ink, border: `1px solid ${C.line}` }}>all remark types</button>
+                              {problemTally.map(pr => <button key={pr.name} onClick={() => setHistProblem(pr.name)} className="text-[11px] px-2 py-1 rounded-full" style={{ background: histProblem === pr.name ? C.ink : "transparent", color: histProblem === pr.name ? C.onDark : C.ink, border: `1px solid ${C.line}` }}>{pr.name} · {pr.count}</button>)}
+                            </div>
+                          )}
+                          {rows.length === 0 ? <p className="text-xs py-4" style={{ color: C.muted }}>Nothing matches.</p> : rows.map(i => {
+                            const [fg, bg] = i.result === "Accepted" ? [C.ok, C.okBg] : [C.bad, C.badBg];
+                            const rem = (i.remarks || []).map(r => pm[r.leafId]?.name).filter(Boolean);
+                            return (
+                              <button key={i.id} onClick={() => onOpenInspection && onOpenInspection(i.id)} className="w-full text-left flex items-center gap-3 px-2 py-2 rounded-lg row" style={{ borderTop: `1px solid ${C.line}` }}>
+                                <span className="text-xs px-2.5 py-0.5 rounded-full whitespace-nowrap" style={{ background: bg, color: fg, fontWeight: 500 }}>{i.result}</span>
+                                <span className="flex-1 text-xs min-w-0 truncate" style={{ color: rem.length ? C.ink : C.muted }}>{rem.length ? rem.join(", ") : "no remarks"}</span>
+                                <span className="text-xs whitespace-nowrap" style={{ color: C.muted }}>{s.users.find(u => u.id === i.controllerId)?.name} · {fmtTime(i.completedAt)}</span>
+                              </button>
+                            );
+                          })}
                         </>
                       )}
                     </div>
@@ -3729,7 +3775,7 @@ export default function App() {
       {safePage === "dashboard" && (user.role === "Head" ? <Dashboard s={s} user={user} set={set} setPage={setPage} seed={() => set(olaState())} openProduct={id => { setSelProduct(id); setPage("products"); }} onAssign={a => { setPendingChatContext({ kind: "pallet", id: a.hu, label: `${a.name} · ${a.location}` }); setPage("messages"); }} /> : <ControllerDashboard s={s} user={user} setPage={setPage} setOpenId={setOpenInspId} openProduct={id => { setSelProduct(id); setPage("products"); }} />)}
       {safePage === "categories" && <CategoriesPage s={s} set={set} onMessage={ctx => { setPendingChatContext(ctx); setPage("messages"); }} onOpenProduct={id => { setSelProduct(id); setPage("products"); }} presetSel={presetCategory} clearPresetSel={() => setPresetCategory(null)} />}
       {safePage === "problems" && <ProblemsPage s={s} set={set} />}
-      {safePage === "products" && <ProductsPage s={s} set={set} sel={selProduct} setSel={setSelProduct} presetFilter={productsQuery} clearPreset={() => setProductsQuery("")} onMessage={ctx => { setPendingChatContext(ctx); setPage("messages"); }} />}
+      {safePage === "products" && <ProductsPage s={s} set={set} sel={selProduct} setSel={setSelProduct} presetFilter={productsQuery} clearPreset={() => setProductsQuery("")} onMessage={ctx => { setPendingChatContext(ctx); setPage("messages"); }} onOpenInspection={id => { setOpenInspId(id); setPage("inspections"); }} />}
       {safePage === "forms" && <FormsPage s={s} set={set} />}
       {safePage === "suppliers" && <DictionaryPage s={s} set={set} listKey="suppliers" title="Suppliers" hint="One global list of all suppliers (Suppliers). Assign to products in Products." placeholder="e.g. El Ciruelo" usageOf={id => s.products.filter(p => (p.supplierIds || []).includes(id)).length} />}
       {safePage === "lists" && <ListsPage s={s} set={set} />}
