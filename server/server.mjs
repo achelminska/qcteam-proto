@@ -130,8 +130,19 @@ const handler = async (req, res) => {
       // Guard: an (almost) empty app state must not overwrite a populated one — a fresh device would otherwise wipe everyone's data.
       if (key === STATE_KEY && store[key] && !req.headers["x-force"]) { const size = v => { try { const j = JSON.parse(v); return (j.categories || []).length + (j.products || []).length + (j.inspections || []).length + (j.integrations || []).length + (j.templates || []).length; } catch { return 0; } }; const incoming = size(body), current = size(store[key]); if (incoming === 0 && current > 0 || incoming < current * 0.5 && current > 20) { console.log(`[state] rejected write: incoming ${incoming} objects vs current ${current}`); res.writeHead(409, { ...cors, "Content-Type": "application/json" }).end(JSON.stringify({ rejected: true, reason: "incoming state is much smaller than the stored one", incoming, current })); return; } }
       // Optimistic concurrency: If-Match must equal the stored version (updatedAt); otherwise 409 with the current copy so the client can merge.
+      // Bug fixed here: for the shared app state (STATE_KEY) this used to require BOTH ifMatch and currentVersion to be truthy
+      // before comparing them, so a client that PUT with no If-Match header at all (e.g. it never captured a version — right
+      // after the "server was empty, restore from this device" recovery path in storage-shim.js, or any other codepath that
+      // forgot to pass one) sailed straight through with no check at all, silently overwriting whatever another device had
+      // just saved. Confirmed with a repro: device A saves with a correct If-Match, device B then PUTs with no version header,
+      // and B's write went through with 200 — not 409 — wiping A's edit with zero warning. Now, for STATE_KEY specifically, any
+      // PUT against a key that already has a stored version must present a matching If-Match (or X-Force) — a missing header
+      // is treated the same as a mismatched one, not as "skip the check". Other keys (e.g. the per-device theme toggle) were
+      // never part of this optimistic-concurrency contract — their clients never send If-Match at all — so they keep the old
+      // "only check when both sides sent a version" behavior and aren't affected.
       const ifMatch = req.headers["if-match"]; const currentVersion = store.__meta?.[key] ? String(store.__meta[key]) : null;
-      if (ifMatch && currentVersion && ifMatch !== currentVersion && !req.headers["x-force"]) { res.writeHead(409, { ...cors, "Content-Type": "application/json" }); res.end(JSON.stringify({ conflict: true, value: store[key], updatedAt: store.__meta[key] })); return; }
+      const versionConflict = key === STATE_KEY ? (currentVersion && ifMatch !== currentVersion) : (ifMatch && currentVersion && ifMatch !== currentVersion);
+      if (versionConflict && !req.headers["x-force"]) { res.writeHead(409, { ...cors, "Content-Type": "application/json" }); res.end(JSON.stringify({ conflict: true, value: store[key], updatedAt: store.__meta[key] })); return; }
       if (store[key] === body) { res.writeHead(200, { ...cors, "Content-Type": "application/json" }).end(JSON.stringify({ key, updatedAt: store.__meta?.[key] || null, unchanged: true })); return; }
       snapshot(key, body); store[key] = body; const now = Math.max(Date.now(), (store.__meta?.[key] || 0) + 1); (store.__meta = store.__meta || {})[key] = now; save(); res.writeHead(200, { ...cors, "Content-Type": "application/json" }).end(JSON.stringify({ key, updatedAt: now })); }); return; }
   if (req.method === "DELETE") { delete store[key]; save(); return res.writeHead(200, cors).end(); }
