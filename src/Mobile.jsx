@@ -2155,6 +2155,7 @@ function MProductCard({ s, user, product, onBack, onStart, go, setState, notify,
     setAsk(""); setAskOpen(false); go && go("chat");
   };
   const specs = effectiveSpecs(s, product), vars = effectiveVarieties(s, product);
+  const allCompleted = s.inspections.filter(i => i.productId === product.id && i.status === "Completed" && countsAs(s, i));
   const last3 = s.inspections.filter(i => i.productId === product.id && i.status === "Completed").sort((a, b) => (b.completedAt || "").localeCompare(a.completedAt || "")).slice(0, 3);
   const anns = s.announcements.filter(a => annMatchesProduct(s, a, product));
   const ref = s.inspections.find(i => i.productId === product.id && i.isReference);
@@ -2225,7 +2226,17 @@ function MProductCard({ s, user, product, onBack, onStart, go, setState, notify,
             </div></Section>
           );
         })()}
-        {last3.length > 0 && <Section title="Recent inspections">{last3.map((i, ix) => <button key={i.id} onClick={() => go("inspection", i.id)} className="w-full flex items-center gap-2 py-2 text-left" style={{ borderBottom: ix === last3.length - 1 ? "none" : `1px solid ${C.line}` }}><span className="text-sm flex-1"><span>{dayLabel(i.completedAt)}, {hhmm(i.completedAt)}</span><span className="text-xs ml-1.5" style={{ color: C.muted }}>{s.users.find(u => u.id === i.controllerId)?.name.split(" ")[0]}</span></span><ResultPill i={i} s={s} /></button>)}</Section>}
+        {last3.length > 0 && (
+          <div className="rounded-2xl mb-3 overflow-hidden" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+            <div className="flex items-center justify-between px-3.5 pt-3 pb-1">
+              <p className="label-sm" style={{ color: C.muted }}>Recent inspections</p>
+              <button onClick={() => go("productHistory", product.id)} className="text-xs" style={{ color: C.accent }}>all{allCompleted.length ? ` · ${allCompleted.length}` : ""} ›</button>
+            </div>
+            <div className="px-3.5 pb-3">
+              {last3.map((i, ix) => <button key={i.id} onClick={() => go("inspection", i.id)} className="w-full flex items-center gap-2 py-2 text-left" style={{ borderBottom: ix === last3.length - 1 ? "none" : `1px solid ${C.line}` }}><span className="text-sm flex-1"><span>{dayLabel(i.completedAt)}, {hhmm(i.completedAt)}</span><span className="text-xs ml-1.5" style={{ color: C.muted }}>{s.users.find(u => u.id === i.controllerId)?.name.split(" ")[0]}</span></span><ResultPill i={i} s={s} /></button>)}
+            </div>
+          </div>
+        )}
         {product.consumerAppUrl && <a href={product.consumerAppUrl} className="block text-xs underline mb-3" style={{ color: C.accent }}>Open in the consumer app ↗</a>}
 
         <div className="mt-2 flex flex-col gap-2">
@@ -2475,6 +2486,57 @@ function MHistory({ s, user, go }) {
         <select value={f.category} onChange={e => setF(x => ({ ...x, category: e.target.value }))} className="w-full text-sm rounded-lg px-2 py-2 outline-none mb-4" style={{ ...inp }}><option value="">all</option>{s.categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select>
         <button onClick={() => setOpen(false)} className="w-full py-3 rounded-xl text-sm font-medium" style={{ background: C.ink, color: C.onDark }}>Show results ({list.length})</button>
       </Sheet>
+    </div>
+  );
+}
+
+// Per-product inspection history: all completed inspections for one product, segregated by result and by remark type.
+function MProductHistory({ s, user, go, productId }) {
+  const product = s.products.find(p => p.id === productId);
+  const [result, setResult] = useState("all"); const [problem, setProblem] = useState("");
+  const pm = byId(s.problems);
+  const histAll = product ? s.inspections.filter(i => i.productId === product.id && i.status === "Completed" && countsAs(s, i)) : [];
+  const histVerdict = histAll.filter(i => isVerdictType(s, i));
+  const histInfo = histAll.filter(i => !isVerdictType(s, i));
+  const acceptedCount = histVerdict.filter(i => i.result === "Accepted").length;
+  const rejectedCount = histVerdict.filter(i => i.result === "Rejected").length;
+  const resultFiltered = result === "all" ? histVerdict : histVerdict.filter(i => i.result === result);
+  const problemTally = Object.values(resultFiltered.flatMap(i => i.remarks || []).reduce((m, r) => { const name = pm[r.leafId]?.name || "?"; m[name] = m[name] || { name, count: 0 }; m[name].count++; return m; }, {})).sort((a, b) => b.count - a.count);
+  const rows = (problem ? resultFiltered.filter(i => (i.remarks || []).some(r => (pm[r.leafId]?.name || "?") === problem)) : resultFiltered).sort((a, b) => (b.completedAt || "").localeCompare(a.completedAt || ""));
+  const Chip = ({ on, onClick, children }) => <button onClick={onClick} className="text-xs px-3 py-1.5 rounded-full whitespace-nowrap" style={{ background: on ? C.ink : "transparent", color: on ? C.onDark : C.ink, border: `1px solid ${on ? C.ink : C.line}` }}>{children}</button>;
+  return (
+    <div className="pb-4">
+      <TopBar title={product ? product.name : "Inspection history"} onBack={() => go("catalog", productId)} />
+      <div className="px-4 pt-3">
+        {histVerdict.length === 0 ? (
+          <p className="text-sm py-8 text-center" style={{ color: C.muted }}>No inspections yet for this product.</p>
+        ) : (
+          <>
+            <p className="text-sm mb-3" style={{ color: C.muted }}>{histVerdict.length} completed inspection{histVerdict.length === 1 ? "" : "s"} with a verdict — {acceptedCount} accepted, {rejectedCount} rejected{histInfo.length ? ` · ${histInfo.length} more without a verdict` : ""}.</p>
+            <div className="flex flex-wrap gap-1.5 mb-3">
+              {[["all", `all · ${histVerdict.length}`], ["Accepted", `accepted · ${acceptedCount}`], ["Rejected", `rejected · ${rejectedCount}`]].map(([k, l]) => <Chip key={k} on={result === k} onClick={() => { setResult(k); setProblem(""); }}>{l}</Chip>)}
+            </div>
+            {problemTally.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 mb-3">
+                <Chip on={!problem} onClick={() => setProblem("")}>all remark types</Chip>
+                {problemTally.map(pr => <Chip key={pr.name} on={problem === pr.name} onClick={() => setProblem(pr.name)}>{pr.name} · {pr.count}</Chip>)}
+              </div>
+            )}
+            {rows.length === 0 ? <p className="text-sm py-8 text-center" style={{ color: C.muted }}>Nothing matches.</p> : rows.map((i, ix) => {
+              const rem = (i.remarks || []).map(r => pm[r.leafId]?.name).filter(Boolean);
+              return (
+                <button key={i.id} onClick={() => go("inspection", i.id)} className="w-full flex items-center gap-2 py-2.5 text-left" style={{ borderBottom: ix === rows.length - 1 ? "none" : `1px solid ${C.line}` }}>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm truncate">{rem.length ? rem.join(", ") : "no remarks"}</p>
+                    <p className="text-xs" style={{ color: C.muted }}>{dayLabel(i.completedAt)}, {hhmm(i.completedAt)} · {s.users.find(u => u.id === i.controllerId)?.name.split(" ")[0]}</p>
+                  </div>
+                  <ResultPill i={i} s={s} />
+                </button>
+              );
+            })}
+          </>
+        )}
+      </div>
     </div>
   );
 }
@@ -2873,6 +2935,7 @@ export default function App() {
       {page === "blockedInfo" && <MBlockedInfo s={s} set={set} user={user} go={go} itemKey={param} />}
       {page === "palletInfo" && <MPalletInfo s={s} set={set} user={user} go={go} hu={param} onAssign={r => { setPendingChatContext({ kind: "pallet", id: r.hu, label: `${r.name || r.article} · ${r.location}` }); go("chat"); }} />}
       {page === "catalog" && <MCatalog key={param || "catalog"} s={s} user={user} go={go} onStart={(pid, palletNo, typeId) => startInspection(pid, palletNo, false, typeId)} setState={set} notify={notify} onVisual={visualInspection} preset={param} />}
+      {page === "productHistory" && <MProductHistory s={s} user={user} go={go} productId={param} />}
       {page === "chat" && <MChat s={s} set={set} user={user} go={go} initialContext={pendingChatContext} clearInitialContext={() => setPendingChatContext(null)} />}
       {page === "menu" && <MMenu s={s} set={set} user={user} go={go} users={s.users} setUser={id => { setUserId(id); go("home"); }} onLogout={() => { writeSession(null); setUserId(null); }} dark={dark} onTheme={toggleTheme} simOffline={simOffline} onSimOffline={() => setSimOffline(o => !o)} onSync={() => pullState(true)} syncMsg={syncMsg} />}
       {page === "profile" && <MProfile s={s} set={set} user={user} go={go} />}
