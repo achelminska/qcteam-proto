@@ -2414,9 +2414,9 @@ function FormsPage({ s, set }) {
           {scope.kind !== "Global" && !globalT && <Empty icon="🧩" title="Global template first" hint="Without a global template there is nothing to inherit from." action={<Primary onClick={() => setScope({ kind: "Global" })}>Go to global</Primary>} />}
           {globalT && scope.kind !== "Global" && !own && eff && (
             <>
+              <div className="flex items-center gap-3 mb-3 flex-wrap"><Primary onClick={create}>Add own layer</Primary><span className="text-xs" style={{ color: C.muted }}>The inherited form below is read-only until this level has a layer of its own.</span></div>
               <Note tone="warn">This level <b>has no layer of its own</b> — you see the composition: {chainLabel(chain, s)}. Everything works as is. Add a layer only if you want to add, hide or override something here{scope.kind === "Product" ? " (e.g. explicitly link a field to this product's specification)" : ""}.</Note>
               <Builder eff={eff} own={null} setOwn={() => {}} problems={s.problems} specs={null} specsHint="—" readOnly s={s} scope={scope} />
-              <div className="mt-4"><Primary onClick={create}>Add own layer</Primary></div>
             </>
           )}
           {own && eff && (
