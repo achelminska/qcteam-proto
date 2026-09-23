@@ -1826,7 +1826,7 @@ function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset, onMessag
   const [supQ, setSupQ] = useState("");
   const [tab, setTab] = useState("profile"); const [newOpen, setNewOpen] = useState(false);
   const [refPick, setRefPick] = useState(null);
-  const [guideNew, setGuideNew] = useState(null);
+  const [guideNew, setGuideNew] = useState(null); const [guidePick, setGuidePick] = useState(null); const [guideQ, setGuideQ] = useState("");
   const [refQ, setRefQ] = useState(""); const [refFilter, setRefFilter] = useState("all"); const [refShowHidden, setRefShowHidden] = useState(false);
   const [histResult, setHistResult] = useState("all"); const [histProblem, setHistProblem] = useState("");
   useEffect(() => { setTab("profile"); setRefPick(null); setHistResult("all"); setHistProblem(""); }, [sel]);
@@ -2095,31 +2095,86 @@ function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset, onMessag
                 {tab === "guide" && (() => {
                   // Product encyclopedia: free-form knowledge about the product — what a good one looks like, packaging,
                   // label, ripeness stages, typical faults — as named entries with text and photos. Controllers read it on
-                  // the phone (product profile). Edits go through set(x => …) on the product id so they replay safely.
+                  // the phone (product profile). Same two-pane layout as the Reference guide: entries on the left, one
+                  // editor on the right. Edits go through set(x => …) on the product id so they replay safely.
                   const entries = product.guide || [];
                   const updGuide = fn => set(x => ({ ...x, products: x.products.map(q => q.id === product.id ? { ...q, guide: fn(q.guide || []) } : q) }));
-                  const addEntry = () => { const id = uid(); updGuide(g => [{ id, title: "", body: "", photos: [], createdAt: nowISO(), updatedAt: nowISO() }, ...g]); setGuideNew(id); };
+                  const addEntry = (title = "") => { const id = uid(); updGuide(g => [...g, { id, title, body: "", photos: [], createdAt: nowISO(), updatedAt: nowISO() }]); setGuidePick(id); setGuideNew(id); setGuideQ(""); };
                   const patchEntry = (id, ch) => updGuide(g => g.map(e => e.id === id ? { ...e, ...ch, updatedAt: nowISO() } : e));
-                  const removeEntry = id => updGuide(g => g.filter(e => e.id !== id));
+                  const removeEntry = id => { const i = entries.findIndex(e => e.id === id); updGuide(g => g.filter(e => e.id !== id)); const rest = entries.filter(e => e.id !== id); setGuidePick(rest[Math.min(i, rest.length - 1)]?.id || null); };
                   const moveEntry = (id, dir) => updGuide(g => { const i = g.findIndex(e => e.id === id); const j = i + dir; if (i < 0 || j < 0 || j >= g.length) return g; const n = [...g]; [n[i], n[j]] = [n[j], n[i]]; return n; });
+                  const hasContent = e => !!((e.title || "").trim() || (e.body || "").trim() || asPhotoList(e.photos).length);
+                  const photoTotal = entries.reduce((a, e) => a + asPhotoList(e.photos).length, 0);
+                  const selId = guidePick && entries.some(e => e.id === guidePick) ? guidePick : (entries[0]?.id || null);
+                  const sel = entries.find(e => e.id === selId);
+                  const q = guideQ.trim().toLowerCase();
+                  const visible = entries.filter(e => !q || `${e.title || ""} ${e.body || ""}`.toLowerCase().includes(q));
+                  const idx = entries.findIndex(e => e.id === selId); const prev = idx > 0 ? entries[idx - 1] : null, next = idx >= 0 && idx < entries.length - 1 ? entries[idx + 1] : null;
+                  const STARTERS = ["What a good pallet looks like", "Label and packaging", "Ripeness stages", "Storage and temperature", "Typical faults", "Calibre and sizing"];
+                  const starters = STARTERS.filter(t => !entries.some(e => (e.title || "").trim().toLowerCase() === t.toLowerCase()));
+                  const snippet = e => (e.body || "").replace(/\s+/g, " ").trim().slice(0, 70);
                   return (
-                    <div style={{ maxWidth: 720 }}>
-                      <div className="flex items-center gap-3 mb-2 flex-wrap"><Primary small onClick={addEntry}><Ic i={Plus} s={13} />Add entry</Primary><span className="text-xs" style={{ color: C.muted }}>{entries.length === 0 ? "Nothing written yet." : `${entries.length} entr${entries.length === 1 ? "y" : "ies"} · ${entries.reduce((a, e) => a + asPhotoList(e.photos).length, 0)} photos`}</span></div>
-                      <p className="text-xs mb-4" style={{ color: C.muted }}>Everything a controller should know about this product: what a good one looks like, packaging and label, ripeness stages, storage, typical faults. Each entry has a name, a description and photos. Shown on the product profile in the phone app.</p>
-                      {entries.length === 0 && <Empty icon="📖" title="No encyclopedia entries" hint="Start with the basics — e.g. “What a good pallet looks like”, “Label and packaging”, “Ripeness”." />}
-                      {entries.map((e, ix) => (
-                        <div key={e.id} className="rounded-xl p-3 mb-3" style={{ border: `1px solid ${C.line}`, background: C.surface }}>
-                          <div className="flex items-center gap-2 mb-2">
-                            <FastInput autoFocus={guideNew === e.id} value={e.title || ""} onCommit={v => patchEntry(e.id, { title: v })} placeholder="Entry name — e.g. Label and packaging" className="flex-1 text-sm font-semibold" />
-                            <button onClick={() => moveEntry(e.id, -1)} disabled={ix === 0} className="text-xs px-1" style={{ color: C.muted }} title="up">↑</button>
-                            <button onClick={() => moveEntry(e.id, 1)} disabled={ix === entries.length - 1} className="text-xs px-1" style={{ color: C.muted }} title="down">↓</button>
-                            <button onClick={() => { if (!e.title && !e.body && !asPhotoList(e.photos).length || window.confirm(`Delete “${e.title || "this entry"}”?`)) removeEntry(e.id); }} className="text-xs px-1" style={{ color: C.muted }} title="delete">×</button>
-                          </div>
-                          <FastTextarea value={e.body || ""} onCommit={v => patchEntry(e.id, { body: v })} rows={3} placeholder="Description — what to look for, how to judge it, what is normal and what is not…" className="mb-2" style={{ resize: "vertical" }} />
-                          <PhotoStrip photos={e.photos} onAdd={got => patchEntry(e.id, { photos: [...asPhotoList(e.photos), ...got] })} onRemove={pid => patchEntry(e.id, { photos: asPhotoList(e.photos).filter(x => x.id !== pid) })} size={72} />
-                          {e.updatedAt && <p className="text-[10px] mt-2" style={{ color: C.muted }}>updated {new Date(e.updatedAt).toLocaleString("en-GB", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</p>}
+                    <div style={{ maxWidth: 960 }}>
+                      <div className="flex items-center gap-3 mb-3 flex-wrap">
+                        <p className="text-xs" style={{ color: C.muted, maxWidth: 560 }}>Everything a controller should know about <b>this product</b> — what a good one looks like, packaging and label, ripeness, storage, typical faults. Each entry has a name, a description and photos; controllers read it on the phone's product profile and during the inspection.</p>
+                        {entries.length > 0 && <span className="ml-auto text-xs" style={{ color: C.muted }}>{entries.length} entr{entries.length === 1 ? "y" : "ies"} · {photoTotal} photo{photoTotal === 1 ? "" : "s"}</span>}
+                      </div>
+                      {entries.length === 0 ? (
+                        <div className="rounded-xl p-5" style={{ border: `1px solid ${C.line}`, background: C.surface }}>
+                          <Empty icon="📖" title="No encyclopedia entries yet" hint="Start with one of the usual topics or write your own." />
+                          <div className="flex gap-1.5 flex-wrap justify-center mt-2">{starters.map(t => <button key={t} onClick={() => addEntry(t)} className="text-xs px-2.5 py-1.5 rounded-full" style={{ background: C.accentSoft, color: C.accent }}><Ic i={Plus} s={11} mr={3} />{t}</button>)}<button onClick={() => addEntry("")} className="text-xs px-2.5 py-1.5 rounded-full" style={{ background: C.ink, color: C.onDark }}><Ic i={Plus} s={11} mr={3} />Own entry</button></div>
                         </div>
-                      ))}
+                      ) : (
+                        <div className="flex gap-4 items-start">
+                          <aside className="flex-shrink-0 rounded-xl overflow-hidden" style={{ width: 300, border: `1px solid ${C.line}`, background: C.surface }}>
+                            <div className="p-2" style={{ borderBottom: `1px solid ${C.line}` }}>
+                              <div className="flex gap-2"><div className="flex-1 min-w-0"><SearchBox value={guideQ} onChange={setGuideQ} placeholder="Search entries" size={13} /></div><Primary small onClick={() => addEntry("")}><Ic i={Plus} s={13} />Add</Primary></div>
+                            </div>
+                            <div style={{ maxHeight: 520, overflowY: "auto" }}>
+                              {visible.length === 0 && <p className="text-xs p-3" style={{ color: C.muted }}>Nothing matches.</p>}
+                              {visible.map(e => { const ph = asPhotoList(e.photos).length; const on = e.id === selId; const n = entries.indexOf(e) + 1; return (
+                                <button key={e.id} onClick={() => setGuidePick(e.id)} className="w-full text-left px-3 py-2 flex items-start gap-2" style={{ background: on ? C.accentSoft : "transparent", borderLeft: `3px solid ${on ? C.accent : "transparent"}`, borderBottom: `1px solid ${C.line}` }}>
+                                  <span className="text-[10px] mt-0.5 flex-shrink-0 inline-flex items-center justify-center rounded-md" style={{ width: 18, height: 18, background: hasContent(e) ? C.bg : C.warnBg, color: hasContent(e) ? C.muted : C.warn, fontVariantNumeric: "tabular-nums" }}>{n}</span>
+                                  <span className="flex-1 min-w-0">
+                                    <span className="block text-sm truncate" style={{ fontWeight: on ? 600 : 450, color: e.title ? C.ink : C.muted, fontStyle: e.title ? "normal" : "italic" }}>{e.title || "Untitled entry"}</span>
+                                    {(snippet(e) || ph > 0) && <span className="block text-[11px] truncate" style={{ color: C.muted }}>{ph > 0 && <><Ic i={Camera} s={10} mr={3} />{ph}{snippet(e) ? " · " : ""}</>}{snippet(e)}</span>}
+                                  </span>
+                                </button>); })}
+                              {starters.length > 0 && !q && (
+                                <div className="px-3 py-2.5">
+                                  <p className="label-sm mb-1.5" style={{ color: C.muted }}>Suggested topics</p>
+                                  <div className="flex gap-1 flex-wrap">{starters.map(t => <button key={t} onClick={() => addEntry(t)} className="text-[11px] px-2 py-0.5 rounded-full" style={{ background: C.bg, color: C.muted, border: `1px solid ${C.line}` }}>+ {t}</button>)}</div>
+                                </div>
+                              )}
+                            </div>
+                          </aside>
+                          <div className="flex-1 min-w-0">
+                            {sel ? (
+                              <div className="rounded-xl p-4" style={{ border: `1px solid ${C.line}`, background: C.surface }}>
+                                <div className="flex items-center gap-3 mb-3">
+                                  <p className="text-[11px]" style={{ color: C.muted }}>Entry {idx + 1} of {entries.length}</p>
+                                  <span className="flex-1" />
+                                  <button onClick={() => moveEntry(sel.id, -1)} disabled={!prev} className="text-xs px-2 py-1 rounded-lg" style={{ border: `1px solid ${C.line}`, color: prev ? C.ink : C.line }} title="Move up in the list">↑ up</button>
+                                  <button onClick={() => moveEntry(sel.id, 1)} disabled={!next} className="text-xs px-2 py-1 rounded-lg" style={{ border: `1px solid ${C.line}`, color: next ? C.ink : C.line }} title="Move down in the list">↓ down</button>
+                                </div>
+                                <p className="label-sm mb-1" style={{ color: C.muted }}>Entry name</p>
+                                <FastInput key={sel.id + ":t"} autoFocus={guideNew === sel.id} value={sel.title || ""} onCommit={v => patchEntry(sel.id, { title: v })} placeholder="e.g. Label and packaging" className="mb-3 text-base font-semibold" style={{ height: 38 }} />
+                                <p className="label-sm mb-1" style={{ color: C.muted }}>Description</p>
+                                <FastTextarea key={sel.id + ":b"} value={sel.body || ""} onCommit={v => patchEntry(sel.id, { body: v })} rows={7} placeholder="What to look for, how to judge it, what is normal and what is not…" className="mb-4" style={{ resize: "vertical" }} />
+                                <p className="label-sm mb-1" style={{ color: C.muted }}>Photos {asPhotoList(sel.photos).length > 0 && `· ${asPhotoList(sel.photos).length}`}</p>
+                                <PhotoStrip photos={sel.photos} onAdd={got => patchEntry(sel.id, { photos: [...asPhotoList(sel.photos), ...got] })} onRemove={pid => patchEntry(sel.id, { photos: asPhotoList(sel.photos).filter(x => x.id !== pid) })} size={96} />
+                                <div className="flex items-center gap-2 mt-4 pt-3" style={{ borderTop: `1px solid ${C.line}` }}>
+                                  <button onClick={() => prev && setGuidePick(prev.id)} disabled={!prev} className="text-xs px-3 py-1.5 rounded-lg truncate" style={{ border: `1px solid ${C.line}`, color: prev ? C.ink : C.line, maxWidth: 200 }}>← {prev ? (prev.title || "Untitled") : "previous"}</button>
+                                  <button onClick={() => next && setGuidePick(next.id)} disabled={!next} className="text-xs px-3 py-1.5 rounded-lg truncate" style={{ border: `1px solid ${C.line}`, color: next ? C.ink : C.line, maxWidth: 200 }}>{next ? (next.title || "Untitled") : "next"} →</button>
+                                  <span className="flex-1" />
+                                  {sel.updatedAt && <span className="text-[10px]" style={{ color: C.muted }}>updated {fmtTime(sel.updatedAt)}</span>}
+                                  <button onClick={() => { if (!hasContent(sel) || window.confirm(`Delete “${sel.title || "this entry"}”?`)) removeEntry(sel.id); }} className="text-xs" style={{ color: C.bad }}>Delete entry</button>
+                                </div>
+                              </div>
+                            ) : <Empty icon="👈" title="Pick an entry" hint="Choose one on the left to edit it." />}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   );
                 })()}
