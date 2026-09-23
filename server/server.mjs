@@ -127,8 +127,13 @@ const handler = async (req, res) => {
   if (!req.url.startsWith("/storage/")) return serveStatic(req, res);
   if (req.method === "GET") { const v = store[key]; if (v == null) { res.writeHead(404, cors); return res.end(""); } return sendJson(req, res, 200, { key, value: v, updatedAt: store.__meta?.[key] }); }
   if (req.method === "PUT") { const chunks = []; req.on("data", c => chunks.push(c)); req.on("end", () => { const body = Buffer.concat(chunks).toString("utf8");
+      const ifMatch = req.headers["if-match"]; const currentVersion = store.__meta?.[key] ? String(store.__meta[key]) : null;
       // Guard: an (almost) empty app state must not overwrite a populated one — a fresh device would otherwise wipe everyone's data.
-      if (key === STATE_KEY && store[key] && !req.headers["x-force"]) { const size = v => { try { const j = JSON.parse(v); return (j.categories || []).length + (j.products || []).length + (j.inspections || []).length + (j.integrations || []).length + (j.templates || []).length; } catch { return 0; } }; const incoming = size(body), current = size(store[key]); if (incoming === 0 && current > 0 || incoming < current * 0.5 && current > 20) { console.log(`[state] rejected write: incoming ${incoming} objects vs current ${current}`); res.writeHead(409, { ...cors, "Content-Type": "application/json" }).end(JSON.stringify({ rejected: true, reason: "incoming state is much smaller than the stored one", incoming, current })); return; } }
+      // A write that carries the CURRENT version comes from a client that has the latest copy, so shrinking it is a deliberate
+      // edit (the Head deleting half the products) — only the "nothing over something" case is refused for those. Writes without
+      // a matching version (no If-Match at all) are the risky ones and get the stricter "much smaller" rule too. X-Force (the
+      // user-confirmed "Clear everything") skips the guard but NOT the version check below.
+      if (key === STATE_KEY && store[key] && !req.headers["x-force"]) { const size = v => { try { const j = JSON.parse(v); return (j.categories || []).length + (j.products || []).length + (j.inspections || []).length + (j.integrations || []).length + (j.templates || []).length; } catch { return 0; } }; const incoming = size(body), current = size(store[key]); const versionMatches = !!ifMatch && ifMatch === currentVersion; if (incoming === 0 && current > 0 || !versionMatches && incoming < current * 0.5 && current > 20) { console.log(`[state] rejected write: incoming ${incoming} objects vs current ${current}`); res.writeHead(409, { ...cors, "Content-Type": "application/json" }).end(JSON.stringify({ rejected: true, reason: "incoming state is much smaller than the stored one", incoming, current })); return; } }
       // Optimistic concurrency: If-Match must equal the stored version (updatedAt); otherwise 409 with the current copy so the client can merge.
       // Bug fixed here: for the shared app state (STATE_KEY) this used to require BOTH ifMatch and currentVersion to be truthy
       // before comparing them, so a client that PUT with no If-Match header at all (e.g. it never captured a version — right
@@ -140,12 +145,11 @@ const handler = async (req, res) => {
       // is treated the same as a mismatched one, not as "skip the check". Other keys (e.g. the per-device theme toggle) were
       // never part of this optimistic-concurrency contract — their clients never send If-Match at all — so they keep the old
       // "only check when both sides sent a version" behavior and aren't affected.
-      const ifMatch = req.headers["if-match"]; const currentVersion = store.__meta?.[key] ? String(store.__meta[key]) : null;
       const versionConflict = key === STATE_KEY ? (currentVersion && ifMatch !== currentVersion) : (ifMatch && currentVersion && ifMatch !== currentVersion);
-      if (versionConflict && !req.headers["x-force"]) { res.writeHead(409, { ...cors, "Content-Type": "application/json" }); res.end(JSON.stringify({ conflict: true, value: store[key], updatedAt: store.__meta[key] })); return; }
+      if (versionConflict) { res.writeHead(409, { ...cors, "Content-Type": "application/json" }); res.end(JSON.stringify({ conflict: true, value: store[key], updatedAt: store.__meta[key] })); return; }
       if (store[key] === body) { res.writeHead(200, { ...cors, "Content-Type": "application/json" }).end(JSON.stringify({ key, updatedAt: store.__meta?.[key] || null, unchanged: true })); return; }
       snapshot(key, body); store[key] = body; const now = Math.max(Date.now(), (store.__meta?.[key] || 0) + 1); (store.__meta = store.__meta || {})[key] = now; save(); res.writeHead(200, { ...cors, "Content-Type": "application/json" }).end(JSON.stringify({ key, updatedAt: now })); }); return; }
-  if (req.method === "DELETE") { delete store[key]; save(); return res.writeHead(200, cors).end(); }
+  if (req.method === "DELETE") { delete store[key]; if (store.__meta) delete store.__meta[key]; save(); return res.writeHead(200, cors).end(); }
   res.writeHead(405, cors).end();
 };
 const ips = Object.values(os.networkInterfaces()).flat().filter(i => i.family === "IPv4" && !i.internal).map(i => i.address);
