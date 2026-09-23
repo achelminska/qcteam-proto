@@ -2105,38 +2105,25 @@ function MSearch({ s, user, go, onStart, setState, notify, onVisual }) {
     </div>
   );
 }
-function MProductCard({ s, user, product, onBack, onStart, go, setState, notify, onVisual }) {
-  const [askOpen, setAskOpen] = useState(false); const [ask, setAsk] = useState("");
-  const askHead = () => {
-    if (!ask.trim() || !setState) return;
-    const head = s.users.find(u => u.role === "Head" && u.active !== false); if (!head) return;
-    setState(x => {
-      let conv = x.conversations.find(c => !c.isGroup && c.participantIds.length === 2 && c.participantIds.includes(user.id) && c.participantIds.includes(head.id));
-      const msg = { id: uid(), senderId: user.id, text: ask.trim(), at: nowISO(), productId: product.id };
-      if (conv) return { ...x, conversations: x.conversations.map(c => c.id === conv.id ? { ...c, messages: [...(c.messages || []), msg], lastRead: { ...(c.lastRead || {}), [user.id]: nowISO() } } : c) };
-      return { ...x, conversations: [...x.conversations, { id: uid(), isGroup: false, name: null, participantIds: [user.id, head.id], createdBy: user.id, createdAt: nowISO(), messages: [msg], lastRead: { [user.id]: nowISO() }, isActive: true }] };
-    });
-    notify && notify("Question", `${user.name} asks about ${product.name}: „${ask.trim()}"`, "Conversation", null, head.id);
-    setAsk(""); setAskOpen(false); go && go("chat");
-  };
+// Everything a controller may want to know about a product, in one scrollable column: hero photo, facts, what's on
+// the docks, recent rejections, announcements, encyclopedia, specs, properties, reference guide, recent inspections.
+// Used by the product profile screen and — via a sheet — from inside a running inspection, so nothing has to be left
+// to look something up.
+function MProductInfo({ s, user, product, go, setState, embedded }) {
   const specs = effectiveSpecs(s, product), vars = effectiveVarieties(s, product);
   const allCompleted = s.inspections.filter(i => i.productId === product.id && i.status === "Completed" && countsAs(s, i));
   const last3 = s.inspections.filter(i => i.productId === product.id && i.status === "Completed").sort((a, b) => (b.completedAt || "").localeCompare(a.completedAt || "")).slice(0, 3);
   const anns = s.announcements.filter(a => annMatchesProduct(s, a, product));
   const ref = s.inspections.find(i => i.productId === product.id && i.isReference);
-  const [flag, setFlag] = useState(""); const [flagOpen, setFlagOpen] = useState(false);
-  const catPath = id => { const c = s.categories.find(x => x.id === id); if (!c) return "uncategorised"; const p = c.parentId && s.categories.find(x => x.id === c.parentId); return p ? `${p.name} › ${c.name}` : c.name; };
   const photos = asPhotoList(product.photos); const [photoIx, setPhotoIx] = useState(0);
   const [zoomOpen, setZoomOpen] = useState(false);
   const attrs = effectiveAttributes(s, product); const hist = recentProblemsFor(s, product.id);
   const suppliers = (product.supplierIds || []).map(id => (s.suppliers || []).find(x => x.id === id)?.name).filter(Boolean);
-  const types = allowedTypes(s, product);
   const facts = [["CU / TU", product.cusPerTu], ["g / CU", product.weightPerCu], ["pcs / CU", product.piecesPerCu]].filter(([, v]) => v);
   const Section = ({ title, children, tone }) => <div className="rounded-2xl mb-3 overflow-hidden" style={{ background: C.surface, border: `1px solid ${tone === "bad" ? C.bad : C.line}` }}>{title && <p className="label-sm px-3.5 pt-3 pb-1" style={{ color: tone === "bad" ? C.bad : C.muted }}>{title}</p>}<div className="px-3.5 pb-3">{children}</div></div>;
   const Row = ({ k, v, last }) => <div className="flex items-baseline justify-between gap-3 py-2 text-sm" style={{ borderBottom: last ? "none" : `1px solid ${C.line}` }}><span style={{ color: C.muted }}>{k}</span><span className="font-medium text-right">{v}</span></div>;
   return (
-    <div className="pb-4">
-      <TopBar title={catPath(product.categoryId)} onBack={onBack} />
+    <>
       {/* Hero: the picture is the identity — a controller matches what's in front of them to it. */}
       <div className="px-4 pt-3">
         <div className="rounded-2xl overflow-hidden relative" style={{ background: C.bg, height: 220 }} onClick={() => photos.length && setZoomOpen(true)}>
@@ -2167,7 +2154,7 @@ function MProductCard({ s, user, product, onBack, onStart, go, setState, notify,
 
         {/* Inspect jumps straight into scanning that pallet, and Lost is handled right here — no detour through a
             separate pallet-info screen just to do either. */}
-        <div className="mt-4"><DockPresence s={s} set={setState} user={user} product={product} onPickPallet={hu => go("scan", hu)} showLost /></div>
+        <div className="mt-4"><DockPresence s={s} set={setState} user={user} product={product} onPickPallet={embedded ? null : (hu => go("scan", hu))} showLost={!embedded} /></div>
         {hist.count > 0 && <Section title={`${hist.count} rejected in the last 14 days`} tone="bad"><p className="text-sm" style={{ color: C.bad }}>{hist.problems.slice(0, 4).map(x => `${x.name} ×${x.count}`).join(", ")}{hist.problems.length > 4 ? "…" : ""}</p><p className="text-[11px] mt-0.5" style={{ color: C.muted }}>last {dayLabel(hist.lastAt)} — look for these first</p></Section>}
         {anns.map(a => <div key={a.id} className="rounded-2xl px-3.5 py-2.5 mb-3 text-sm" style={{ background: C.accentSoft, borderLeft: `3px solid ${C.accent}` }}><b>{a.title}</b><span style={{ color: C.muted }}> — {a.body}</span></div>)}
         {ref && <button onClick={() => go("inspection", ref.id)} className="w-full rounded-2xl px-3.5 py-3 mb-3 text-sm text-left flex items-center" style={{ background: C.okBg, color: C.ok }}><Ic i={Star} s={15} />Reference inspection — what a good pallet looks like<span className="ml-auto text-xs">open</span></button>}
@@ -2213,6 +2200,33 @@ function MProductCard({ s, user, product, onBack, onStart, go, setState, notify,
             </div>
           </div>
         )}
+      </div>
+    </>
+  );
+}
+
+function MProductCard({ s, user, product, onBack, onStart, go, setState, notify, onVisual }) {
+  const [askOpen, setAskOpen] = useState(false); const [ask, setAsk] = useState("");
+  const askHead = () => {
+    if (!ask.trim() || !setState) return;
+    const head = s.users.find(u => u.role === "Head" && u.active !== false); if (!head) return;
+    setState(x => {
+      let conv = x.conversations.find(c => !c.isGroup && c.participantIds.length === 2 && c.participantIds.includes(user.id) && c.participantIds.includes(head.id));
+      const msg = { id: uid(), senderId: user.id, text: ask.trim(), at: nowISO(), productId: product.id };
+      if (conv) return { ...x, conversations: x.conversations.map(c => c.id === conv.id ? { ...c, messages: [...(c.messages || []), msg], lastRead: { ...(c.lastRead || {}), [user.id]: nowISO() } } : c) };
+      return { ...x, conversations: [...x.conversations, { id: uid(), isGroup: false, name: null, participantIds: [user.id, head.id], createdBy: user.id, createdAt: nowISO(), messages: [msg], lastRead: { [user.id]: nowISO() }, isActive: true }] };
+    });
+    notify && notify("Question", `${user.name} asks about ${product.name}: „${ask.trim()}"`, "Conversation", null, head.id);
+    setAsk(""); setAskOpen(false); go && go("chat");
+  };
+  const [flag, setFlag] = useState(""); const [flagOpen, setFlagOpen] = useState(false);
+  const catPath = id => { const c = s.categories.find(x => x.id === id); if (!c) return "uncategorised"; const p = c.parentId && s.categories.find(x => x.id === c.parentId); return p ? `${p.name} › ${c.name}` : c.name; };
+  const types = allowedTypes(s, product);
+  return (
+    <div className="pb-4">
+      <TopBar title={catPath(product.categoryId)} onBack={onBack} />
+      <MProductInfo s={s} user={user} product={product} go={go} setState={setState} />
+      <div className="px-4">
         {product.consumerAppUrl && <a href={product.consumerAppUrl} className="block text-xs underline mb-3" style={{ color: C.accent }}>Open in the consumer app ↗</a>}
 
         <div className="mt-2 flex flex-col gap-2">
@@ -2786,6 +2800,10 @@ function MHeadAnnounce({ s, set, user, go, notify }) {
 function MInspection({ s, set, user, inspId, go, notify }) {
   const insp = s.inspections.find(i => i.id === inspId);
   const [editing, setEditing] = useState(false);
+  // The whole product profile, one tap away and one tap back — the inspection underneath keeps its state, nothing is left.
+  const [profileOpen, setProfileOpen] = useState(false);
+  useEffect(() => { if (!profileOpen) return; const h = () => setProfileOpen(false); window.addEventListener("popstate", h); try { history.pushState({ ...history.state, __qcProfileSheet: true }, ""); } catch {} return () => window.removeEventListener("popstate", h); }, [profileOpen]);
+  const closeProfile = () => { try { if (history.state && history.state.__qcProfileSheet) { history.back(); return; } } catch {} setProfileOpen(false); };
   if (!insp) return <div><TopBar title="Inspection" onBack={() => go("home")} /><p className="text-sm p-4">No znaleziono.</p></div>;
   if (!insp.template) return <VisualView insp={insp} s={s} go={go} />;
   const product = s.products.find(p => p.id === insp.productId);
@@ -2800,7 +2818,16 @@ function MInspection({ s, set, user, inspId, go, notify }) {
   const problems = problemsFor(s, { kind: "Product", id: product.id }, new Set(insp.template.suppressed || []));
   return (
     <div className="pb-4">
-      <TopBar title={runner ? "Inspection" : "Report"} onBack={() => { setEditing(false); go("home"); }} />
+      <TopBar title={runner ? "Inspection" : "Report"} onBack={() => { setEditing(false); go("home"); }} right={product && <button onClick={() => setProfileOpen(true)} className="text-xs px-2.5 py-1.5 rounded-full inline-flex items-center font-medium" style={{ background: C.accentSoft, color: C.accent }}><Ic i={BookOpen} s={13} mr={4} />Product</button>} />
+      {profileOpen && product && (
+        <div className="fixed inset-0 flex flex-col" style={{ background: C.bg, zIndex: 70 }}>
+          <div className="flex items-center gap-3 px-4 pt-2 pb-3 flex-shrink-0" style={{ borderBottom: `1px solid ${C.line}`, background: C.surface }}>
+            <div className="flex-1 min-w-0"><p className="text-[11px]" style={{ color: C.muted }}>Product profile · inspection stays open</p><p className="text-base font-semibold truncate">{product.name}</p></div>
+            <button onClick={closeProfile} className="text-sm px-3.5 py-2 rounded-full font-semibold" style={{ background: C.ink, color: C.onDark }}>Back to inspection</button>
+          </div>
+          <div className="flex-1 overflow-y-auto pb-6"><MProductInfo s={s} user={user} product={product} go={go} setState={set} embedded /></div>
+        </div>
+      )}
       <div className="px-3 pt-2">
         {runner ? <InspectionRunner key={insp.id} insp={insp} patch={patchInsp} t={insp.template} problems={problems} product={product} suppliers={s.suppliers || []} dictionaries={s.dictionaries || []} sctx={s} user={user} onFinish={finish} onEscalate={escalate} onRaiseFlag={raiseFlag} onCancel={cancel} />
           : <ReportView insp={insp} s={s} user={user} onEdit={() => setEditing(true)} onAnswer={() => {}} />}
