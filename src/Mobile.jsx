@@ -245,6 +245,10 @@ const problemsFor = (s, scope, suppressed) => {
   let changed = true; while (changed) { const ids = new Set(list.map(p => p.id)); const next = list.filter(p => !p.parentId || ids.has(p.parentId)); changed = next.length !== list.length; list = next; }
   return list;
 };
+// Number fields can link a problem ("below raises X") that the product's effective catalog doesn't contain — scoped to
+// another category, or hidden for this product. The form's explicit link wins: pull that node (and its ancestors) in, so
+// the runner raises it and the verdict counts it, instead of silently downgrading to "warning only".
+const withLinkedProblems = (s, problems, t) => { if (!t) return problems; const have = new Set(problems.map(p => p.id)); const out = [...problems]; const addChain = id => { let n = s.problems.find(p => p.id === id); while (n && !have.has(n.id)) { have.add(n.id); out.push(n); n = n.parentId ? s.problems.find(p => p.id === n.parentId) : null; } }; (t.fields || t.allFields || []).forEach(f => { if (f.type === "Number") { if (f.problemBelowId) addChain(f.problemBelowId); if (f.problemAboveId) addChain(f.problemAboveId); } }); return out; };
 const scopeTag = (p, s) => p.productId ? `product: ${s.products.find(x => x.id === p.productId)?.name ?? "?"}` : p.categoryId ? `kat. ${s.categories.find(x => x.id === p.categoryId)?.name ?? "?"}` : null;
 // Required inspection level: Full (raport) < Visual (visual is enough) < Skip (can be skipped). Product → category → system setting.
 // Inspection types are Head-defined (InspectionTypes). Behaviour comes from flags, not from the name.
@@ -452,7 +456,7 @@ const hexRgb = h => { const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.e
 async function buildReportPdf(insp, s) {
   const jsPDF = await ensureJsPdf();
   const settings = settingsOf(s), product = s.products.find(p => p.id === insp.productId) || {}, t = insp.template || { fields: [], modules: [], problemRefs: [], suppressed: [] };
-  const problems = problemsFor(s, { kind: "Product", id: insp.productId }, new Set(t.suppressed || []));
+  const problems = withLinkedProblems(s, problemsFor(s, { kind: "Product", id: insp.productId }, new Set(t.suppressed || [])), t);
   const users = byId(s.users), pm = byId(problems), ctrl = users[insp.controllerId] || {};
   const cu = (Number(insp.sample?.tu) || 0) * (Number(insp.sample?.cusPerTu) || 0);
   const totals = { cu, pieces: cu * (Number(insp.sample?.piecesPerCu) || 0), weight: cu * (Number(insp.sample?.weightPerCu) || 0) };
@@ -1449,7 +1453,7 @@ function InspectionRunner({ insp, patch, t, problems, product, suppliers, dictio
 
 function ReportView({ insp, s, onEdit, onAnswer, user, onMarkReference }) {
   const [printing, setPrinting] = useState(false);
-  const product = s.products.find(p => p.id === insp.productId), t = insp.template, problems = problemsFor(s, { kind: "Product", id: insp.productId }, new Set((t && t.suppressed) || []));
+  const product = s.products.find(p => p.id === insp.productId), t = insp.template, problems = withLinkedProblems(s, problemsFor(s, { kind: "Product", id: insp.productId }, new Set((t && t.suppressed) || [])), t);
   const cu = (Number(insp.sample?.tu) || 0) * (Number(insp.sample?.cusPerTu) || 0);
   const totals = { cu, pieces: cu * (Number(insp.sample?.piecesPerCu) || 0), weight: cu * (Number(insp.sample?.weightPerCu) || 0) };
   const [ans, setAns] = useState("");
@@ -2891,7 +2895,7 @@ function MInspection({ s, set, user, inspId, go, notify }) {
   const raiseFlag = text => { set(x => ({ ...x, flags: [...x.flags, { id: uid(), productId: product.id, inspectionId: insp.id, raisedBy: user.id, description: text, status: "Open", createdAt: nowISO() }] })); notify("Flag", `${user.name}: ${product.name} — ${text}`, "ProductFlag", null); };
   const cancel = () => { patchInsp({ status: "Cancelled" }); log("Cancelled"); go("home"); };
   const runner = insp.status === "Draft" || insp.status === "PendingReview" || editing;
-  const problems = problemsFor(s, { kind: "Product", id: product.id }, new Set(insp.template.suppressed || []));
+  const problems = withLinkedProblems(s, problemsFor(s, { kind: "Product", id: product.id }, new Set(insp.template.suppressed || [])), insp.template);
   return (
     <div className="pb-4">
       <TopBar title={runner ? "Inspection" : "Report"} onBack={() => { setEditing(false); go("home"); }} right={product && <button onClick={() => setProfileOpen(true)} className="text-xs px-2.5 py-1.5 rounded-full inline-flex items-center font-medium" style={{ background: C.accentSoft, color: C.accent }}><Ic i={BookOpen} s={13} mr={4} />Product</button>} />

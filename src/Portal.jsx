@@ -172,6 +172,10 @@ const problemsFor = (s, scope, suppressed) => {
   let changed = true; while (changed) { const ids = new Set(list.map(p => p.id)); const next = list.filter(p => !p.parentId || ids.has(p.parentId)); changed = next.length !== list.length; list = next; }
   return list;
 };
+// Number fields can link a problem ("below raises X") that the product's effective catalog doesn't contain — scoped to
+// another category, or hidden for this product. The form's explicit link wins: pull that node (and its ancestors) in, so
+// the runner raises it and the verdict counts it, instead of silently downgrading to "warning only".
+const withLinkedProblems = (s, problems, t) => { if (!t) return problems; const have = new Set(problems.map(p => p.id)); const out = [...problems]; const addChain = id => { let n = s.problems.find(p => p.id === id); while (n && !have.has(n.id)) { have.add(n.id); out.push(n); n = n.parentId ? s.problems.find(p => p.id === n.parentId) : null; } }; (t.fields || t.allFields || []).forEach(f => { if (f.type === "Number") { if (f.problemBelowId) addChain(f.problemBelowId); if (f.problemAboveId) addChain(f.problemAboveId); } }); return out; };
 const scopeTag = (p, s) => p.productId ? `product: ${s.products.find(x => x.id === p.productId)?.name ?? "?"}` : p.categoryId ? `kat. ${s.categories.find(x => x.id === p.categoryId)?.name ?? "?"}` : null;
 // Suggestions: problem names used in OTHER categories/products (not this scope, not global) that aren't already visible here.
 const problemSuggestions = (s, scope, visible) => {
@@ -419,7 +423,7 @@ const hexRgb = h => { const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.e
 async function buildReportPdf(insp, s) {
   const jsPDF = await ensureJsPdf();
   const settings = settingsOf(s), product = s.products.find(p => p.id === insp.productId) || {}, t = insp.template || { fields: [], modules: [], problemRefs: [], suppressed: [] };
-  const problems = problemsFor(s, { kind: "Product", id: insp.productId }, new Set(t.suppressed || []));
+  const problems = withLinkedProblems(s, problemsFor(s, { kind: "Product", id: insp.productId }, new Set(t.suppressed || [])), t);
   const users = byId(s.users), pm = byId(problems), ctrl = users[insp.controllerId] || {};
   const cu = (Number(insp.sample?.tu) || 0) * (Number(insp.sample?.cusPerTu) || 0);
   const totals = { cu, pieces: cu * (Number(insp.sample?.piecesPerCu) || 0), weight: cu * (Number(insp.sample?.weightPerCu) || 0) };
@@ -1602,7 +1606,7 @@ function AnalyticsPage({ s, setPage, openInspection, initial }) {
 
 // ═══════════════════ PDF report: print-optimised layout (in the real system rendered server-side, same structure) ═══════════════════
 function PrintReport({ insp, s, onClose }) {
-  const product = s.products.find(p => p.id === insp.productId), t = insp.template, problems = problemsFor(s, { kind: "Product", id: insp.productId }, new Set((t && t.suppressed) || []));
+  const product = s.products.find(p => p.id === insp.productId), t = insp.template, problems = withLinkedProblems(s, problemsFor(s, { kind: "Product", id: insp.productId }, new Set((t && t.suppressed) || [])), t);
   const cu = (Number(insp.sample?.tu) || 0) * (Number(insp.sample?.cusPerTu) || 0);
   const totals = { cu, pieces: cu * (Number(insp.sample?.piecesPerCu) || 0), weight: cu * (Number(insp.sample?.weightPerCu) || 0) };
   const pm = byId(problems);
@@ -2352,9 +2356,12 @@ function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset, onMessag
   );
 }
 
-function FieldEditor({ f, onPatch, onRemove, onMove, problems, specs, specsHint, dictionaries, sctxForNames }) {
+function FieldEditor({ f, onPatch, onRemove, onMove, problems, catalog, specs, specsHint, dictionaries, sctxForNames }) {
   const arrows = <><button onClick={() => onMove(-1)} className="text-xs px-1" style={{ color: C.muted }} title="up">↑</button><button onClick={() => onMove(1)} className="text-xs px-1" style={{ color: C.muted }} title="down">↓</button></>;
   const leaves = problems.filter(p => isLeaf(problems, p.id));
+  // catalog = what this form's scope actually sees; a linked problem outside it (other category, or hidden here) still fires — flag it so the Head knows.
+  const inScope = id => !catalog || catalog.some(p => p.id === id);
+  const scopeNote = id => id && !inScope(id) ? <span className="text-[10px] px-1.5 py-0.5 rounded-full" style={{ background: C.warnBg, color: C.warn }} title="This problem type is not in this scope's catalog (scoped to another category or hidden here). The form links it explicitly, so it will still be raised.">outside this scope · still raised</span> : null;
   const setOpts = v => onPatch({ options: v });
   if (isSystem(f.type)) {
     const st = SYSTEM_TYPES[f.type];
@@ -2403,8 +2410,8 @@ function FieldEditor({ f, onPatch, onRemove, onMove, problems, specs, specsHint,
               <option value="">— by name —</option>{specs.map(q => <option key={q.id} value={q.id}>{q.name} ({specLabel(q)})</option>)}
             </select></span>}
           <span className="flex items-center gap-1">or min <input type="number" value={f.min ?? ""} onChange={e => onPatch({ min: e.target.value === "" ? null : e.target.value })} className="w-12 rounded px-1 py-0.5 outline-none" style={{ ...inp }} /> max <input type="number" value={f.max ?? ""} onChange={e => onPatch({ max: e.target.value === "" ? null : e.target.value })} className="w-12 rounded px-1 py-0.5 outline-none" style={{ ...inp }} /></span>
-          <span className="flex items-center gap-1">below raises: <select value={f.problemBelowId || ""} onChange={e => onPatch({ problemBelowId: e.target.value || null })} className="rounded px-1 py-0.5 outline-none" style={{ ...inp, borderColor: f.problemBelowId ? C.accent : C.line }}><option value="">— warning —</option>{leaves.map(l => <option key={l.id} value={l.id}>{pathOf(problems, l.id)}</option>)}</select></span>
-          <span className="flex items-center gap-1">above raises: <select value={f.problemAboveId || ""} onChange={e => onPatch({ problemAboveId: e.target.value || null })} className="rounded px-1 py-0.5 outline-none" style={{ ...inp, borderColor: f.problemAboveId ? C.accent : C.line }}><option value="">— warning —</option>{leaves.map(l => <option key={l.id} value={l.id}>{pathOf(problems, l.id)}</option>)}</select></span>
+          <span className="flex items-center gap-1">below raises: <select value={f.problemBelowId || ""} onChange={e => onPatch({ problemBelowId: e.target.value || null })} className="rounded px-1 py-0.5 outline-none" style={{ ...inp, borderColor: f.problemBelowId ? C.accent : C.line }}><option value="">— warning —</option>{leaves.map(l => <option key={l.id} value={l.id}>{pathOf(problems, l.id)}{inScope(l.id) ? "" : " · outside this scope"}</option>)}</select>{scopeNote(f.problemBelowId)}</span>
+          <span className="flex items-center gap-1">above raises: <select value={f.problemAboveId || ""} onChange={e => onPatch({ problemAboveId: e.target.value || null })} className="rounded px-1 py-0.5 outline-none" style={{ ...inp, borderColor: f.problemAboveId ? C.accent : C.line }}><option value="">— warning —</option>{leaves.map(l => <option key={l.id} value={l.id}>{pathOf(problems, l.id)}{inScope(l.id) ? "" : " · outside this scope"}</option>)}</select>{scopeNote(f.problemAboveId)}</span>
         </div>
       )}
     </div>
@@ -2505,7 +2512,7 @@ function Builder({ eff, own, setOwn, problems, specs, specsHint, readOnly, s, sc
               : own && <button onClick={() => suppress(m.id)} className="text-xs px-1.5" style={{ color: C.muted }} title="hide the whole module at this level">hide</button>}
           </div>
           {eff.fields.filter(f => f.moduleId === m.id).sort(bySort).map(f => isOwn(f)
-            ? <FieldEditor key={f.id} f={f} onPatch={p => patchField(f.id, p)} onRemove={() => removeOwnField(f.id)} onMove={dir => moveItem("fields", f.id, dir)} problems={problems} specs={specs} specsHint={specsHint} dictionaries={s.dictionaries || []} sctxForNames={s} />
+            ? <FieldEditor key={f.id} f={f} onPatch={p => patchField(f.id, p)} onRemove={() => removeOwnField(f.id)} onMove={dir => moveItem("fields", f.id, dir)} problems={problems} catalog={catalog} specs={specs} specsHint={specsHint} dictionaries={s.dictionaries || []} sctxForNames={s} />
             : (
               <div key={f.id} className="rounded-lg p-2.5 mb-1.5" style={{ background: C.bg, border: `1px dashed ${C.line}` }}>
                 <div className="flex items-center gap-2">
@@ -2561,7 +2568,7 @@ function ControllerPreview({ s, typeId, scope, setScope }) {
   const t = product ? resolveTemplate(s, product, typeId) : null;
   const [insp, setInsp] = useState(null);
   useEffect(() => { if (!product || !t) { setInsp(null); return; } setInsp({ id: "preview", typeId, productId: product.id, controllerId: s.users.find(u => u.role === "Controller")?.id, status: "Draft", result: null, startedAt: nowISO(), template: t, values: {}, remarks: [], photos: {}, pallets: [""], sample: { tu: "1", cusPerTu: product.cusPerTu || "", piecesPerCu: product.piecesPerCu || "", weightPerCu: product.weightPerCu || "" }, audit: [] }); }, [pid, typeId, s.templates, s.categories, s.products]);
-  const problems = product ? problemsFor(s, { kind: "Product", id: product.id }, new Set((t && t.suppressed) || [])) : [];
+  const problems = product ? withLinkedProblems(s, problemsFor(s, { kind: "Product", id: product.id }, new Set((t && t.suppressed) || [])), t) : [];
   return (
     <div>
       <div className="flex items-center gap-2 mb-3 flex-wrap"><span className="text-xs" style={{ color: C.muted }}>Preview as the controller would see it for:</span><select value={pid} onChange={e => setPid(e.target.value)} className="text-sm">{products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select><span className="text-xs" style={{ color: C.muted }}>{t ? `composition: ${chainLabel(layerChain(s, { kind: "Product", id: pid }, typeId), s)}` : "no form for this type yet"}</span></div>
@@ -2943,7 +2950,7 @@ function InspectionRunner({ insp, patch, t, problems, product, suppliers, dictio
 
 function ReportView({ insp, s, onEdit, onAnswer, user, onMarkReference }) {
   const [printing, setPrinting] = useState(false);
-  const product = s.products.find(p => p.id === insp.productId), t = insp.template, problems = problemsFor(s, { kind: "Product", id: insp.productId }, new Set((t && t.suppressed) || []));
+  const product = s.products.find(p => p.id === insp.productId), t = insp.template, problems = withLinkedProblems(s, problemsFor(s, { kind: "Product", id: insp.productId }, new Set((t && t.suppressed) || [])), t);
   const cu = (Number(insp.sample?.tu) || 0) * (Number(insp.sample?.cusPerTu) || 0);
   const totals = { cu, pieces: cu * (Number(insp.sample?.piecesPerCu) || 0), weight: cu * (Number(insp.sample?.weightPerCu) || 0) };
   const [ans, setAns] = useState("");
@@ -3093,7 +3100,7 @@ function InspectionsPage({ s, set, user, notify, openId, setOpenId, preset, clea
               <p className="text-xs" style={{ color: C.muted }}>Legacy entry recorded before inspection types had their own forms — trace only.</p>
             </div>
           ) : showRunner
-            ? <InspectionRunner key={insp.id} insp={insp} patch={fn => patchInsp(insp.id, fn)} t={insp.template} problems={problemsFor(s, { kind: "Product", id: product.id }, new Set(insp.template.suppressed || []))} product={product} suppliers={s.suppliers || []} dictionaries={s.dictionaries || []} sctx={s} user={user} onFinish={finish} onEscalate={escalate} onRaiseFlag={raiseFlag} onCancel={cancel} />
+            ? <InspectionRunner key={insp.id} insp={insp} patch={fn => patchInsp(insp.id, fn)} t={insp.template} problems={withLinkedProblems(s, problemsFor(s, { kind: "Product", id: product.id }, new Set(insp.template.suppressed || [])), insp.template)} product={product} suppliers={s.suppliers || []} dictionaries={s.dictionaries || []} sctx={s} user={user} onFinish={finish} onEscalate={escalate} onRaiseFlag={raiseFlag} onCancel={cancel} />
             : <ReportView insp={insp} s={s} user={user} onEdit={() => setEditing(true)} onAnswer={answer} onMarkReference={() => set(x => ({ ...x, inspections: x.inspections.map(i => i.productId === insp.productId ? { ...i, isReference: i.id === insp.id ? !i.isReference : false } : i) }))} />}
         </Card>
       )}
