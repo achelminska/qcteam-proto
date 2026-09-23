@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { createSyncer, guardUnload } from "./sync.js";
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceArea, ReferenceLine, Legend } from "recharts";
-import { Clock, MessageCircle, Link2, List as ListIcon, BarChart3, Printer, SlidersHorizontal, SkipForward, LayoutDashboard, ClipboardList, Flag, Bell, FolderTree, ListTree, Package, LayoutTemplate, Truck, Globe, Megaphone, MessageSquare, Users, Search, Sun, Moon, Database, Home, Menu as MenuIcon, ScanLine, Plus, ChevronLeft, User, Camera, Image as ImageIcon, Paperclip, Send, Star, Pencil, Sparkles, HelpCircle, Download, Lock as LockIcon, AlertTriangle, Inbox, FileText, ShieldAlert, Tag, Layers, BookOpen, Filter, Check, X, Ruler, Boxes } from "lucide-react";
+import { Clock, MessageCircle, Link2, List as ListIcon, BarChart3, Printer, SlidersHorizontal, SkipForward, LayoutDashboard, ClipboardList, Flag, Bell, FolderTree, ListTree, Package, LayoutTemplate, Truck, Globe, Megaphone, MessageSquare, Users, Search, Sun, Moon, Database, Home, Menu as MenuIcon, ScanLine, Plus, ChevronLeft, ChevronRight, ChevronDown, User, Camera, Image as ImageIcon, Paperclip, Send, Star, Pencil, Sparkles, HelpCircle, Download, Lock as LockIcon, AlertTriangle, Inbox, FileText, ShieldAlert, Tag, Layers, BookOpen, Filter, Check, X, Ruler, Boxes } from "lucide-react";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // QCteam — controller mobile app (prototype) — shares the state format with the Head portal
@@ -2109,99 +2109,130 @@ function MSearch({ s, user, go, onStart, setState, notify, onVisual }) {
 // the docks, recent rejections, announcements, encyclopedia, specs, properties, reference guide, recent inspections.
 // Used by the product profile screen and — via a sheet — from inside a running inspection, so nothing has to be left
 // to look something up.
+// Full-screen photo viewer with swipe / arrows / counter — shared by the product header and every photo row below.
+function MPhotoViewer({ photos, index, onIndex, onClose }) {
+  const touch = useRef(null);
+  const n = photos.length, ix = Math.min(index, n - 1);
+  const step = d => onIndex((ix + d + n) % n);
+  return (
+    <div className="fixed inset-0 flex flex-col" style={{ background: "rgba(0,0,0,.94)", zIndex: 80 }} onClick={onClose}
+      onTouchStart={e => { touch.current = e.touches[0].clientX; }} onTouchEnd={e => { if (touch.current == null) return; const dx = e.changedTouches[0].clientX - touch.current; touch.current = null; if (Math.abs(dx) > 40 && n > 1) { step(dx < 0 ? 1 : -1); } }}>
+      <div className="flex items-center justify-between px-4 py-3" style={{ color: "#fff" }}><span className="text-sm font-medium" style={{ fontVariantNumeric: "tabular-nums" }}>{n > 1 ? `${ix + 1} / ${n}` : ""}</span><button onClick={onClose} className="w-9 h-9 rounded-full flex items-center justify-center" style={{ background: "rgba(255,255,255,.14)" }}><Ic i={X} s={18} mr={0} /></button></div>
+      <div className="flex-1 flex items-center justify-center px-3 min-h-0"><img src={photos[ix].dataUrl} alt="" style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain", borderRadius: 10 }} /></div>
+      <div className="flex items-center justify-center gap-6 py-4" onClick={e => e.stopPropagation()}>
+        {n > 1 && <button onClick={() => step(-1)} className="w-11 h-11 rounded-full flex items-center justify-center" style={{ background: "rgba(255,255,255,.14)", color: "#fff" }}><Ic i={ChevronLeft} s={20} mr={0} /></button>}
+        {n > 1 && <div className="flex gap-1.5">{photos.map((_, k) => <button key={k} onClick={() => onIndex(k)} className="rounded-full" style={{ width: 7, height: 7, background: k === ix ? "#fff" : "rgba(255,255,255,.35)" }} />)}</div>}
+        {n > 1 && <button onClick={() => step(1)} className="w-11 h-11 rounded-full flex items-center justify-center" style={{ background: "rgba(255,255,255,.14)", color: "#fff" }}><Ic i={ChevronRight} s={20} mr={0} /></button>}
+      </div>
+    </div>
+  );
+}
+// Read-only photo row: one horizontal line of thumbnails (no wrapping, scrolls sideways) — takes a fixed height however many photos there are.
+function MPhotoRow({ photos, size = 64 }) {
+  const list = asPhotoList(photos); const [view, setView] = useState(null);
+  if (!list.length) return null;
+  return (
+    <>
+      <div className="flex gap-1.5 overflow-x-auto" style={{ scrollbarWidth: "none", WebkitOverflowScrolling: "touch" }}>{list.map((ph, k) => <button key={ph.id || k} onClick={() => setView(k)} className="flex-shrink-0 rounded-lg overflow-hidden" style={{ width: size, height: size, border: `1px solid ${C.line}`, background: PHOTO_BG }}><img src={ph.dataUrl} alt="" className="w-full h-full object-cover" /></button>)}</div>
+      {view != null && <MPhotoViewer photos={list} index={view} onIndex={setView} onClose={() => setView(null)} />}
+    </>
+  );
+}
+// Collapsible profile section: one header line (title · count · chevron), tight body. Module-level so its open state survives re-renders.
+function MSection({ title, count, action, tone, defaultOpen = true, children }) {
+  const [open, setOpen] = useState(defaultOpen);
+  const fg = tone === "bad" ? C.bad : C.ink;
+  return (
+    <div className="rounded-2xl mb-2 overflow-hidden" style={{ background: C.surface, border: `1px solid ${tone === "bad" ? C.bad : C.line}` }}>
+      <div className="flex items-center gap-2 pl-3.5 pr-2" style={{ minHeight: 42 }}>
+        <button onClick={() => setOpen(o => !o)} className="flex-1 flex items-center gap-2 text-left py-2" style={{ color: fg }}><span className="text-[13px] font-semibold">{title}</span>{count != null && <span className="text-[11px] px-1.5 rounded-full leading-[18px]" style={{ background: C.bg, color: C.muted, fontVariantNumeric: "tabular-nums" }}>{count}</span>}</button>
+        {action}
+        <button onClick={() => setOpen(o => !o)} className="w-8 h-8 flex items-center justify-center rounded-lg" style={{ color: C.muted }} aria-label={open ? "collapse" : "expand"}><Ic i={ChevronDown} s={16} mr={0} style={{ transform: open ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform .15s" }} /></button>
+      </div>
+      {open && <div className="px-3.5 pb-3">{children}</div>}
+    </div>
+  );
+}
+const MRow = ({ k, v, last }) => <div className="flex items-baseline justify-between gap-3 py-1.5 text-[13px]" style={{ borderBottom: last ? "none" : `1px solid ${C.line}` }}><span style={{ color: C.muted }}>{k}</span><span className="font-medium text-right" style={{ fontVariantNumeric: "tabular-nums" }}>{v}</span></div>;
+
+// Product profile body (shared by the catalog card and the in-inspection overlay). Compact by design: a small header
+// card with the identity photo, one strip of key numbers, then collapsible sections — a controller scans it on a phone
+// held in one hand, so nothing takes more vertical space than its content needs.
 function MProductInfo({ s, user, product, go, setState, embedded }) {
   const specs = effectiveSpecs(s, product), vars = effectiveVarieties(s, product);
   const allCompleted = s.inspections.filter(i => i.productId === product.id && i.status === "Completed" && countsAs(s, i));
   const last3 = s.inspections.filter(i => i.productId === product.id && i.status === "Completed").sort((a, b) => (b.completedAt || "").localeCompare(a.completedAt || "")).slice(0, 3);
   const anns = s.announcements.filter(a => annMatchesProduct(s, a, product));
   const ref = s.inspections.find(i => i.productId === product.id && i.isReference);
-  const photos = asPhotoList(product.photos); const [photoIx, setPhotoIx] = useState(0);
-  const [zoomOpen, setZoomOpen] = useState(false);
+  const photos = asPhotoList(product.photos); const [photoIx, setPhotoIx] = useState(0); const [zoom, setZoom] = useState(null);
   const attrs = effectiveAttributes(s, product); const hist = recentProblemsFor(s, product.id);
   const suppliers = (product.supplierIds || []).map(id => (s.suppliers || []).find(x => x.id === id)?.name).filter(Boolean);
   const facts = [["CU / TU", product.cusPerTu], ["g / CU", product.weightPerCu], ["pcs / CU", product.piecesPerCu]].filter(([, v]) => v);
-  const Section = ({ title, children, tone }) => <div className="rounded-2xl mb-3 overflow-hidden" style={{ background: C.surface, border: `1px solid ${tone === "bad" ? C.bad : C.line}` }}>{title && <p className="label-sm px-3.5 pt-3 pb-1" style={{ color: tone === "bad" ? C.bad : C.muted }}>{title}</p>}<div className="px-3.5 pb-3">{children}</div></div>;
-  const Row = ({ k, v, last }) => <div className="flex items-baseline justify-between gap-3 py-2 text-sm" style={{ borderBottom: last ? "none" : `1px solid ${C.line}` }}><span style={{ color: C.muted }}>{k}</span><span className="font-medium text-right">{v}</span></div>;
+  const catPath = id => { const c = s.categories.find(x => x.id === id); if (!c) return "uncategorised"; const p = c.parentId && s.categories.find(x => x.id === c.parentId); return p ? `${p.name} › ${c.name}` : c.name; };
+  const guide = (product.guide || []).filter(e => e.title || e.body || asPhotoList(e.photos).length);
+  const refProblems = problemsFor(s, { kind: "Product", id: product.id }, new Set(product.hiddenProblemIds || []));
+  const leafIds = new Set(refProblems.filter(p => isLeaf(refProblems, p.id)).map(p => p.id));
+  const refNotes = (s.problemNotes || []).filter(n => n.productId === product.id && leafIds.has(n.problemId) && hasNoteContent(n));
+  const splitPath = id => { const parts = pathOf(refProblems, id).split(" › "); return [parts.slice(0, -1).join(" › "), parts[parts.length - 1]]; };
+  const thumb = photos[Math.min(photoIx, photos.length - 1)];
   return (
-    <>
-      {/* Hero: the picture is the identity — a controller matches what's in front of them to it. */}
-      <div className="px-4 pt-3">
-        <div className="rounded-2xl overflow-hidden relative" style={{ background: C.bg, height: 220 }} onClick={() => photos.length && setZoomOpen(true)}>
-          {photos.length ? <img src={photos[Math.min(photoIx, photos.length - 1)].dataUrl} alt="" className="w-full h-full object-contain" style={{ cursor: "zoom-in", background: PHOTO_BG }} /> : <div className="w-full h-full flex flex-col items-center justify-center" style={{ color: C.muted }}><Ic i={Package} s={44} mr={0} /><p className="text-[11px] mt-2">No photo yet</p></div>}
-          {product.isBio && <span className="absolute top-2.5 left-2.5 text-[11px] font-semibold px-2 py-0.5 rounded-full" style={{ background: C.okBg, color: C.ok }}>bio</span>}
-          {photos.length > 1 && <div className="absolute bottom-2.5 left-0 right-0 flex justify-center gap-1.5">{photos.map((_, ix) => <button key={ix} onClick={e => { e.stopPropagation(); setPhotoIx(ix); }} className="rounded-full" style={{ width: 7, height: 7, background: ix === photoIx ? C.onDark : "rgba(255,255,255,.5)" }} />)}</div>}
-        </div>
-        {photos.length > 1 && <div className="flex gap-1.5 mt-2 overflow-x-auto">{photos.map((ph, ix) => <button key={ix} onClick={() => setPhotoIx(ix)} className="flex-shrink-0 rounded-lg overflow-hidden" style={{ width: 52, height: 52, outline: ix === photoIx ? `2px solid ${C.accent}` : "none" }}><img src={ph.dataUrl} alt="" className="w-full h-full object-cover" /></button>)}</div>}
-        {zoomOpen && photos.length > 0 && (
-          <div className="fixed inset-0 flex flex-col items-center justify-center p-4" style={{ background: "rgba(0,0,0,.9)", zIndex: 80 }} onClick={() => setZoomOpen(false)}>
-            <img src={photos[Math.min(photoIx, photos.length - 1)].dataUrl} alt="" className="max-w-full max-h-full rounded-xl" style={{ objectFit: "contain" }} />
-            <button onClick={() => setZoomOpen(false)} className="absolute top-4 right-5 text-2xl" style={{ color: "#fff" }}>×</button>
-            {photos.length > 1 && <div className="absolute bottom-6 left-0 right-0 flex justify-center gap-1.5" onClick={e => e.stopPropagation()}>{photos.map((_, ix) => <button key={ix} onClick={() => setPhotoIx(ix)} className="rounded-full" style={{ width: 8, height: 8, background: ix === photoIx ? "#fff" : "rgba(255,255,255,.4)" }} />)}</div>}
+    <div className="px-4 pt-3">
+      {/* Identity: photo + name + codes in one card. Tap the photo for a full-screen viewer (the controller compares the pallet to it). */}
+      <div className="rounded-2xl p-3 flex gap-3" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+        <button onClick={() => photos.length && setZoom(photoIx)} className="flex-shrink-0 rounded-xl overflow-hidden relative" style={{ width: 96, height: 96, background: PHOTO_BG, border: `1px solid ${C.line}` }} aria-label="product photo">
+          {thumb ? <img src={thumb.dataUrl} alt="" className="w-full h-full object-cover" /> : <div className="w-full h-full flex flex-col items-center justify-center" style={{ color: C.muted }}><Ic i={Package} s={28} mr={0} /><span className="text-[10px] mt-1">no photo</span></div>}
+          {photos.length > 1 && <span className="absolute bottom-1 right-1 text-[10px] font-semibold px-1.5 rounded-full leading-[16px]" style={{ background: "rgba(0,0,0,.55)", color: "#fff" }}>{photos.length}</span>}
+        </button>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-start gap-2">
+            <h2 className="flex-1 leading-tight" style={{ fontSize: 17, fontWeight: 650, letterSpacing: "-.01em" }}>{product.name}</h2>
+            {product.isBio && <span className="text-[10px] font-semibold px-1.5 rounded-full leading-[18px] flex-shrink-0" style={{ background: C.okBg, color: C.ok }}>bio</span>}
           </div>
-        )}
-
-        <h2 className="mt-4 leading-tight" style={{ fontSize: 22, fontWeight: 650, letterSpacing: "-.01em" }}>{product.name}</h2>
-        <div className="flex flex-wrap items-center gap-1.5 mt-2">
-          <span className="text-[11px] px-2 py-0.5 rounded-full font-mono" style={{ background: C.bg, border: `1px solid ${C.line}` }}>ID {product.articleId || "—"}</span>
-          {suppliers.map(n => <span key={n} className="text-[11px] px-2 py-0.5 rounded-full inline-flex items-center" style={{ background: C.bg, border: `1px solid ${C.line}` }}><Ic i={Truck} s={11} mr={4} />{n}</span>)}
-          {vars.map(v => <span key={v.id} className="text-[11px] px-2 py-0.5 rounded-full" style={{ background: C.accentSoft, color: C.accent }}>{v.name}</span>)}
+          <p className="text-[12px] mt-1 truncate" style={{ color: C.muted }}>{catPath(product.categoryId)}</p>
+          <p className="text-[12px] mt-0.5 font-mono truncate" style={{ color: C.muted }}>ID {product.articleId || "—"}{product.barcodeCu && <> · CU {product.barcodeCu}</>}{product.barcodeTu && <> · TU {product.barcodeTu}</>}</p>
+          {(suppliers.length > 0 || vars.length > 0) && <div className="flex flex-wrap gap-1 mt-1.5">
+            {suppliers.map(n => <span key={n} className="text-[11px] px-1.5 rounded-md inline-flex items-center leading-[20px]" style={{ background: C.bg, border: `1px solid ${C.line}` }}><Ic i={Truck} s={11} mr={4} />{n}</span>)}
+            {vars.map(v => <span key={v.id} className="text-[11px] px-1.5 rounded-md leading-[20px]" style={{ background: C.accentSoft, color: C.accent }}>{v.name}</span>)}
+          </div>}
         </div>
-
-        {facts.length > 0 && <div className="grid gap-2 mt-4" style={{ gridTemplateColumns: `repeat(${facts.length}, 1fr)` }}>
-          {facts.map(([l, v]) => <div key={l} className="rounded-2xl px-3 py-2.5" style={{ background: C.bg, border: `1px solid ${C.line}` }}><p className="text-xl font-bold tracking-tight leading-none" style={{ fontVariantNumeric: "tabular-nums" }}>{v}</p><p className="text-[10px] mt-1" style={{ color: C.muted }}>{l}</p></div>)}
-        </div>}
-        {(product.barcodeCu || product.barcodeTu) && <p className="text-[11px] mt-2 font-mono" style={{ color: C.muted }}>{product.barcodeCu && <>CU {product.barcodeCu}</>}{product.barcodeCu && product.barcodeTu && " · "}{product.barcodeTu && <>TU {product.barcodeTu}</>}</p>}
-
-        {/* Inspect jumps straight into scanning that pallet, and Lost is handled right here — no detour through a
-            separate pallet-info screen just to do either. */}
-        <div className="mt-4"><DockPresence s={s} set={setState} user={user} product={product} onPickPallet={embedded ? null : (hu => go("scan", hu))} showLost={!embedded} /></div>
-        {hist.count > 0 && <Section title={`${hist.count} rejected in the last 14 days`} tone="bad"><p className="text-sm" style={{ color: C.bad }}>{hist.problems.slice(0, 4).map(x => `${x.name} ×${x.count}`).join(", ")}{hist.problems.length > 4 ? "…" : ""}</p><p className="text-[11px] mt-0.5" style={{ color: C.muted }}>last {dayLabel(hist.lastAt)} — look for these first</p></Section>}
-        {anns.map(a => <div key={a.id} className="rounded-2xl px-3.5 py-2.5 mb-3 text-sm" style={{ background: C.accentSoft, borderLeft: `3px solid ${C.accent}` }}><b>{a.title}</b><span style={{ color: C.muted }}> — {a.body}</span></div>)}
-        {ref && <button onClick={() => go("inspection", ref.id)} className="w-full rounded-2xl px-3.5 py-3 mb-3 text-sm text-left flex items-center" style={{ background: C.okBg, color: C.ok }}><Ic i={Star} s={15} />Reference inspection — what a good pallet looks like<span className="ml-auto text-xs">open</span></button>}
-
-        {(product.guide || []).filter(e => e.title || e.body || asPhotoList(e.photos).length).length > 0 && (
-          <Section title="Encyclopedia"><div className="flex flex-col gap-3">
-            {(product.guide || []).filter(e => e.title || e.body || asPhotoList(e.photos).length).map(e => (
-              <div key={e.id}>
-                {e.title && <p className="text-sm font-medium mb-1">{e.title}</p>}
-                {e.body && <p className="text-sm mb-1.5" style={{ color: C.muted, whiteSpace: "pre-wrap" }}>{e.body}</p>}
-                {asPhotoList(e.photos).length > 0 && <PhotoStrip photos={e.photos} size={72} />}
-              </div>
-            ))}
-          </div></Section>
-        )}
-        {specs.length > 0 && <Section title="Specifications">{specs.map((q, ix) => <Row key={q.id} k={q.name} v={specLabel(q)} last={ix === specs.length - 1} />)}</Section>}
-        {attrs.length > 0 && <Section title="Properties">{attrs.map((a, ix) => <Row key={a.dictionaryId} k={a.list} v={a.value} last={ix === attrs.length - 1} />)}</Section>}
-        {(() => {
-          const refProblems = problemsFor(s, { kind: "Product", id: product.id }, new Set(product.hiddenProblemIds || []));
-          const leafIds = new Set(refProblems.filter(p => isLeaf(refProblems, p.id)).map(p => p.id));
-          const refNotes = (s.problemNotes || []).filter(n => n.productId === product.id && leafIds.has(n.problemId) && hasNoteContent(n));
-          if (!refNotes.length) return null;
-          return (
-            <Section title="Reference guide"><div className="flex flex-col gap-3">
-              {refNotes.map(n => (
-                <div key={n.id}>
-                  <p className="text-sm font-medium mb-1">{pathOf(refProblems, n.problemId)}</p>
-                  {n.description && <p className="text-sm mb-1.5" style={{ color: C.muted }}>{n.description}</p>}
-                  {asPhotoList(n.photos).length > 0 && <PhotoStrip photos={n.photos} size={56} />}
-                </div>
-              ))}
-            </div></Section>
-          );
-        })()}
-        {last3.length > 0 && (
-          <div className="rounded-2xl mb-3 overflow-hidden" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
-            <div className="flex items-center justify-between px-3.5 pt-3 pb-1">
-              <p className="label-sm" style={{ color: C.muted }}>Recent inspections</p>
-              <button onClick={() => go("productHistory", product.id)} className="text-xs" style={{ color: C.accent }}>all{allCompleted.length ? ` · ${allCompleted.length}` : ""} ›</button>
-            </div>
-            <div className="px-3.5 pb-3">
-              {last3.map((i, ix) => <button key={i.id} onClick={() => go("inspection", i.id)} className="w-full flex items-center gap-2 py-2 text-left" style={{ borderBottom: ix === last3.length - 1 ? "none" : `1px solid ${C.line}` }}><span className="text-sm flex-1"><span>{dayLabel(i.completedAt)}, {hhmm(i.completedAt)}</span><span className="text-xs ml-1.5" style={{ color: C.muted }}>{s.users.find(u => u.id === i.controllerId)?.name.split(" ")[0]}</span></span><ResultPill i={i} s={s} /></button>)}
-            </div>
-          </div>
-        )}
       </div>
-    </>
+      {photos.length > 1 && <div className="flex gap-1.5 mt-2 overflow-x-auto" style={{ scrollbarWidth: "none" }}>{photos.map((ph, ix) => <button key={ph.id || ix} onClick={() => setPhotoIx(ix)} className="flex-shrink-0 rounded-lg overflow-hidden" style={{ width: 44, height: 44, outline: ix === photoIx ? `2px solid ${C.accent}` : `1px solid ${C.line}`, outlineOffset: -1 }}><img src={ph.dataUrl} alt="" className="w-full h-full object-cover" /></button>)}</div>}
+      {zoom != null && photos.length > 0 && <MPhotoViewer photos={photos} index={zoom} onIndex={k => { setZoom(k); setPhotoIx(k); }} onClose={() => setZoom(null)} />}
+
+      {facts.length > 0 && <div className="grid mt-2 rounded-2xl overflow-hidden" style={{ gridTemplateColumns: `repeat(${facts.length}, 1fr)`, background: C.surface, border: `1px solid ${C.line}` }}>
+        {facts.map(([l, v], ix) => <div key={l} className="px-3 py-2" style={{ borderLeft: ix ? `1px solid ${C.line}` : "none" }}><p className="text-[15px] font-semibold leading-none" style={{ fontVariantNumeric: "tabular-nums" }}>{v}</p><p className="text-[10px] mt-1 uppercase tracking-wide" style={{ color: C.muted }}>{l}</p></div>)}
+      </div>}
+
+      <div className="mt-2"><DockPresence s={s} set={setState} user={user} product={product} onPickPallet={embedded ? null : (hu => go("scan", hu))} showLost={!embedded} /></div>
+
+      {/* Alerts: one line each, highest priority first. */}
+      {hist.count > 0 && <div className="rounded-xl px-3 py-2 mb-2 flex items-start gap-2" style={{ background: C.badBg, color: C.bad }}><Ic i={AlertTriangle} s={14} mr={0} style={{ marginTop: 2 }} /><div className="min-w-0 text-[13px] leading-snug"><b>{hist.count} rejected</b> in 14 days · {hist.problems.slice(0, 3).map(x => `${x.name} ×${x.count}`).join(", ")}{hist.problems.length > 3 ? "…" : ""}<span className="block text-[11px] mt-0.5" style={{ opacity: .8 }}>last {dayLabel(hist.lastAt)} — look for these first</span></div></div>}
+      {anns.map(a => <div key={a.id} className="rounded-xl px-3 py-2 mb-2 flex items-start gap-2 text-[13px] leading-snug" style={{ background: C.accentSoft, color: C.ink }}><Ic i={Megaphone} s={14} mr={0} style={{ marginTop: 2, color: C.accent }} /><span className="min-w-0"><b>{a.title}</b>{a.body && <span style={{ color: C.muted }}> — {a.body}</span>}</span></div>)}
+      {ref && <button onClick={() => go("inspection", ref.id)} className="w-full rounded-xl px-3 py-2 mb-2 text-[13px] text-left flex items-center" style={{ background: C.okBg, color: C.ok }}><Ic i={Star} s={14} />Reference inspection<span className="ml-1" style={{ opacity: .75 }}>· what a good pallet looks like</span><Ic i={ChevronRight} s={14} mr={0} style={{ marginLeft: "auto" }} /></button>}
+
+      {guide.length > 0 && <MSection title="Encyclopedia" count={guide.length}>
+        {guide.map((e, ix) => <div key={e.id} className="py-2" style={{ borderBottom: ix === guide.length - 1 ? "none" : `1px solid ${C.line}` }}>
+          {e.title && <p className="text-[13px] font-semibold leading-snug">{e.title}</p>}
+          {e.body && <p className="text-[13px] mt-0.5 leading-snug" style={{ color: C.muted, whiteSpace: "pre-wrap" }}>{e.body}</p>}
+          {asPhotoList(e.photos).length > 0 && <div className="mt-1.5"><MPhotoRow photos={e.photos} size={64} /></div>}
+        </div>)}
+      </MSection>}
+      {specs.length > 0 && <MSection title="Specifications" count={specs.length}>{specs.map((q, ix) => <MRow key={q.id} k={q.name} v={specLabel(q)} last={ix === specs.length - 1} />)}</MSection>}
+      {attrs.length > 0 && <MSection title="Properties" count={attrs.length}>{attrs.map((a, ix) => <MRow key={a.dictionaryId} k={a.list} v={a.value} last={ix === attrs.length - 1} />)}</MSection>}
+      {refNotes.length > 0 && <MSection title="Reference guide" count={refNotes.length}>
+        {refNotes.map((n, ix) => { const [parent, leaf] = splitPath(n.problemId); return (
+          <div key={n.id} className="py-2" style={{ borderBottom: ix === refNotes.length - 1 ? "none" : `1px solid ${C.line}` }}>
+            {parent && <p className="text-[10px] uppercase tracking-wide leading-tight" style={{ color: C.muted }}>{parent}</p>}
+            <p className="text-[13px] font-semibold leading-snug">{leaf}</p>
+            {n.description && <p className="text-[13px] mt-0.5 leading-snug" style={{ color: C.muted, whiteSpace: "pre-wrap" }}>{n.description}</p>}
+            {asPhotoList(n.photos).length > 0 && <div className="mt-1.5"><MPhotoRow photos={n.photos} size={56} /></div>}
+          </div>
+        ); })}
+      </MSection>}
+      {last3.length > 0 && <MSection title="Recent inspections" count={allCompleted.length || null} action={<button onClick={() => go("productHistory", product.id)} className="text-[12px] px-2 py-1 rounded-lg" style={{ color: C.accent }}>all ›</button>}>
+        {last3.map((i, ix) => <button key={i.id} onClick={() => go("inspection", i.id)} className="w-full flex items-center gap-2 py-1.5 text-left" style={{ borderBottom: ix === last3.length - 1 ? "none" : `1px solid ${C.line}` }}><span className="text-[13px] flex-1 min-w-0 truncate"><span style={{ fontVariantNumeric: "tabular-nums" }}>{dayLabel(i.completedAt)}, {hhmm(i.completedAt)}</span><span className="text-[12px] ml-1.5" style={{ color: C.muted }}>{s.users.find(u => u.id === i.controllerId)?.name.split(" ")[0]}</span></span><ResultPill i={i} s={s} /></button>)}
+      </MSection>}
+    </div>
   );
 }
 
