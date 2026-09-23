@@ -2534,15 +2534,19 @@ function ProblemTreeView({ root, problems, overrides, remarks, onReport, onDelet
     </div>
   );
 }
+// Module-scoped (not defined inside SampleBlock): a component defined inside another component's render body gets a
+// fresh function identity every render, so React treats it as a *different* component type on every keystroke and
+// remounts it — tearing down the <input> (and its focus) instead of just updating it. Same class of bug as Field/
+// FastInput above; SampleBlock's fields need the fix too.
+const SampleField = ({ sample, setSample, k, label, unit }) => <label className="text-xs flex flex-col gap-1" style={{ color: C.muted }}>{label}<span className="flex items-center gap-1"><input type="number" value={sample[k]} onChange={e => setSample(x => ({ ...x, [k]: e.target.value }))} className="w-full text-sm rounded px-2 py-1 outline-none" style={{ ...inp }} /><span>{unit}</span></span></label>;
 function SampleBlock({ sample, setSample, totals }) {
   // Fixed 2×2 grid, not 4-in-a-row: on a phone width, 4 columns forced "Pieces per CU" to wrap onto two lines while
   // the other labels stayed on one, so that column's row (all 4 stretch to the tallest cell) pushed its input down
   // and out of line with the rest. Two columns give every label enough room to stay on one line.
-  const F = ({ k, label, unit }) => <label className="text-xs flex flex-col gap-1" style={{ color: C.muted }}>{label}<span className="flex items-center gap-1"><input type="number" value={sample[k]} onChange={e => setSample(x => ({ ...x, [k]: e.target.value }))} className="w-full text-sm rounded px-2 py-1 outline-none" style={{ ...inp }} /><span>{unit}</span></span></label>;
   return (
     <div className="rounded-lg p-3" style={{ background: C.accentSoft }}>
       <div className="grid grid-cols-2 gap-x-3 gap-y-2.5 mb-2">
-        <F k="tu" label="Checked TU" unit="TU" /><F k="cusPerTu" label="CU / TU" unit="CU" /><F k="piecesPerCu" label="pcs / CU" unit="pcs" /><F k="weightPerCu" label="CU weight" unit="g" />
+        <SampleField sample={sample} setSample={setSample} k="tu" label="Checked TU" unit="TU" /><SampleField sample={sample} setSample={setSample} k="cusPerTu" label="CU / TU" unit="CU" /><SampleField sample={sample} setSample={setSample} k="piecesPerCu" label="pcs / CU" unit="pcs" /><SampleField sample={sample} setSample={setSample} k="weightPerCu" label="CU weight" unit="g" />
       </div>
       <p className="text-xs" style={{ color: C.accent, fontVariantNumeric: "tabular-nums" }}>Sample: <b>{totals.cu} CU · {totals.pieces} pcs · {fmt(totals.weight)} g</b> — the divisor for all percentages. Defaults from the product profile, can be overridden.</p>
     </div>
