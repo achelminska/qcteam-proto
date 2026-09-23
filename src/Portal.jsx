@@ -2855,7 +2855,7 @@ function ReportView({ insp, s, onEdit, onAnswer, user, onMarkReference }) {
 // ═══════════════════ PAGE: Inspections (list + new + details) ═══════════════════
 function InspectionsPage({ s, set, user, notify, openId, setOpenId, preset, clearPreset }) {
   const [newProduct, setNewProduct] = useState(preset || "");
-  useEffect(() => { if (preset) { setNewProduct(preset); clearPreset(); } }, [preset]); const [filter, setFilter] = useState("all"); const [editing, setEditing] = useState(false);
+  useEffect(() => { if (preset) { setNewProduct(preset); clearPreset(); } }, [preset]); const [filter, setFilter] = useState("all"); const [editing, setEditing] = useState(false); const [peek, setPeek] = useState(false); useEffect(() => { setPeek(false); }, [openId]);
   const [q, setQ] = useState(""); const [adv, setAdv] = useState({ range: "all", result: "", supplier: "", controller: "", category: "", from: "", to: "", code: "", packFrom: "", packTo: "" }); const [advOpen, setAdvOpen] = useState(false);
   const matchAdv = i => {
     const p = s.products.find(x => x.id === i.productId); const when = i.completedAt || i.startedAt || "";
@@ -2942,7 +2942,11 @@ function InspectionsPage({ s, set, user, notify, openId, setOpenId, preset, clea
         </>
       ) : (
         <Card>
-          <button onClick={() => { setOpenId(null); setEditing(false); }} className="text-xs mb-3" style={{ color: C.accent }}>← list</button>
+          <div className="flex items-center justify-between mb-3 gap-2">
+            <button onClick={() => { setOpenId(null); setEditing(false); }} className="text-xs" style={{ color: C.accent }}>← list</button>
+            {product && <button onClick={() => setPeek(true)} className="text-xs px-3 py-1.5 rounded-lg inline-flex items-center font-medium" style={{ background: C.accentSoft, color: C.accent }} title="Open the product profile in a side panel — the inspection stays open"><Ic i={BookOpen} s={13} mr={4} />Product profile</button>}
+          </div>
+          {peek && product && <ProductPeek s={s} product={product} onClose={() => setPeek(false)} />}
           {legacyLight ? (
             <div>
               <div className="rounded-xl p-4 mb-3" style={{ background: !countsAs(s, insp) ? C.bg : C.accentSoft }}>
@@ -2960,6 +2964,74 @@ function InspectionsPage({ s, set, user, notify, openId, setOpenId, preset, clea
         </Card>
       )}
     </div>
+  );
+}
+
+// Read-only product profile in a side drawer, opened from inside an inspection. Everything the controller may want
+// to double-check mid-inspection (photos, facts, specs, properties, suppliers, encyclopedia, reference guide,
+// announcements, recent history) without leaving the form — the runner keeps its state underneath.
+function ProductPeek({ s, product, onClose }) {
+  const [tab, setTab] = useState("overview");
+  const [zoom, setZoom] = useState(null);
+  useEffect(() => { const h = e => { if (e.key === "Escape") { if (zoom) setZoom(null); else onClose(); } }; window.addEventListener("keydown", h); return () => window.removeEventListener("keydown", h); }, [zoom, onClose]);
+  const photos = asPhotoList(product.photos);
+  const specs = effectiveSpecs(s, product), attrs = effectiveAttributes(s, product), varieties = effectiveVarieties(s, product);
+  const suppliers = (product.supplierIds || []).map(id => (s.suppliers || []).find(x => x.id === id)).filter(Boolean);
+  const guide = product.guide || [];
+  const notes = (s.problemNotes || []).filter(n => n.productId === product.id && hasNoteContent(n));
+  const anns = (s.announcements || []).filter(a => annMatchesProduct(s, a, product));
+  const history = s.inspections.filter(i => i.productId === product.id && i.status === "Completed").sort((a, b) => (b.completedAt || "").localeCompare(a.completedAt || "")).slice(0, 8);
+  const reference = s.inspections.find(i => i.productId === product.id && i.isReference);
+  const cat = s.categories.find(c => c.id === product.categoryId);
+  const catPath = id => { const out = []; let c = s.categories.find(x => x.id === id); while (c) { out.unshift(c.name); c = c.parentId ? s.categories.find(x => x.id === c.parentId) : null; } return out.join(" › "); };
+  const tabs = [["overview", "Overview"], ["specs", `Specs${specs.length ? ` · ${specs.length}` : ""}`], ["attrs", `Properties${attrs.length ? ` · ${attrs.length}` : ""}`], ["guide", `Encyclopedia${guide.length ? ` · ${guide.length}` : ""}`], ["reference", `Reference guide${notes.length ? ` · ${notes.length}` : ""}`], ["history", `History${history.length ? ` · ${history.length}` : ""}`]];
+  const Row = ({ k, v }) => v ? <div className="flex justify-between gap-3 py-1.5 text-sm" style={{ borderBottom: `1px solid ${C.line}` }}><span style={{ color: C.muted }}>{k}</span><span className="text-right font-medium">{v}</span></div> : null;
+  const H = ({ children }) => <p className="text-[11px] font-semibold uppercase tracking-wide mt-4 mb-2" style={{ color: C.muted }}>{children}</p>;
+  const Photos = ({ list, size = 84 }) => list.length ? <div className="flex gap-2 flex-wrap">{list.map(ph => <button key={ph.id} onClick={() => setZoom(ph)} className="rounded-lg overflow-hidden" style={{ width: size, height: size, border: `1px solid ${C.line}`, background: C.bg }}><img src={ph.dataUrl || ph.url || ph.src} alt="" className="w-full h-full object-cover" /></button>)}</div> : null;
+  return (
+    <>
+      <div onClick={onClose} className="fixed inset-0" style={{ background: "rgba(0,0,0,.28)", zIndex: 60 }} />
+      <aside className="fixed top-0 right-0 bottom-0 flex flex-col" style={{ width: "min(560px, 100vw)", background: C.surface, borderLeft: `1px solid ${C.line}`, zIndex: 61, boxShadow: "-12px 0 40px rgba(0,0,0,.18)" }} role="dialog" aria-label="Product profile">
+        <div className="px-5 pt-4 pb-3" style={{ borderBottom: `1px solid ${C.line}` }}>
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: C.muted }}>Product profile · inspection stays open</p>
+              <p className="font-semibold text-lg truncate mt-0.5">{product.name}</p>
+              <p className="text-xs mt-0.5 truncate" style={{ color: C.muted }}>{[product.articleId && `#${product.articleId}`, cat && catPath(cat.id), product.isBio && "bio"].filter(Boolean).join(" · ") || "—"}</p>
+            </div>
+            <button onClick={onClose} className="text-xs px-3 py-1.5 rounded-lg whitespace-nowrap inline-flex items-center font-medium" style={{ background: C.accent, color: C.onDark }}><Ic i={X} s={13} mr={4} />Back to inspection</button>
+          </div>
+          <div className="flex gap-1.5 flex-wrap mt-3">{tabs.map(([k, l]) => <button key={k} onClick={() => setTab(k)} className="text-xs px-2.5 py-1 rounded-full" style={{ background: tab === k ? C.accent : C.accentSoft, color: tab === k ? C.onDark : C.accent }}>{l}</button>)}</div>
+        </div>
+        <div className="flex-1 overflow-y-auto px-5 pb-6">
+          {tab === "overview" && <div>
+            {anns.length > 0 && <div className="mt-4">{anns.map(a => <Note key={a.id} tone="warn">📣 <b>{a.title}</b>{a.body && <> — {a.body}</>}</Note>)}</div>}
+            {photos.length > 0 && <><H>Photos · {photos.length}</H><Photos list={photos} size={104} /></>}
+            <H>Facts</H>
+            <Row k="Article ID" v={product.articleId} />
+            <Row k="Category" v={cat && catPath(cat.id)} />
+            <Row k="Barcode CU" v={product.barcodeCu} />
+            <Row k="Barcode TU" v={product.barcodeTu} />
+            <Row k="CU per TU" v={product.cusPerTu} />
+            <Row k="Pieces per CU" v={product.piecesPerCu} />
+            <Row k="Weight per CU" v={product.weightPerCu && `${product.weightPerCu} g`} />
+            <Row k="Bio" v={product.isBio ? "yes" : null} />
+            <Row k="Inspection types" v={allowedTypes(s, product).map(t => t.name).join(", ")} />
+            {(suppliers.length > 0 || varieties.length > 0) && <><H>Suppliers & varieties</H>
+              {suppliers.length > 0 && <div className="flex gap-1.5 flex-wrap mb-2">{suppliers.map(x => <span key={x.id} className="text-xs px-2 py-0.5 rounded-full" style={{ background: C.bg, border: `1px solid ${C.line}` }}><Ic i={Truck} s={11} mr={4} />{x.name}{x.country ? ` · ${x.country}` : ""}</span>)}</div>}
+              {varieties.length > 0 && <div className="flex gap-1.5 flex-wrap">{varieties.map((v, i) => <span key={v.id || i} className="text-xs px-2 py-0.5 rounded-full" style={{ background: C.accentSoft, color: C.accent }}>{v.name}</span>)}</div>}
+            </>}
+            {reference && <><H>Reference inspection</H><p className="text-sm"><Ic i={Star} s={13} mr={4} />{s.users.find(u => u.id === reference.controllerId)?.name} · {fmtTime(reference.completedAt)} · {reference.result || "—"}</p></>}
+          </div>}
+          {tab === "specs" && <div className="mt-3">{specs.length === 0 ? <Empty icon="📏" title="No specifications" hint="Nothing set on the product or its categories." /> : specs.map((q, i) => <div key={q.id || i} className="flex justify-between gap-3 py-2 text-sm" style={{ borderBottom: `1px solid ${C.line}` }}><div><span className="font-medium">{q.name}</span>{q.source !== "product" && <span className="text-[10px] ml-2" style={{ color: C.muted }}>{q.source}</span>}</div><span className="font-mono whitespace-nowrap">{specLabel(q)}</span></div>)}</div>}
+          {tab === "attrs" && <div className="mt-3">{attrs.length === 0 ? <Empty icon="🏷️" title="No properties" hint="Nothing set on the product or its categories." /> : attrs.map(a => <div key={a.dictionaryId} className="flex justify-between gap-3 py-2 text-sm" style={{ borderBottom: `1px solid ${C.line}` }}><div><span style={{ color: C.muted }}>{a.list}</span>{a.source !== "product" && <span className="text-[10px] ml-2" style={{ color: C.muted }}>{a.source}</span>}</div><span className="font-medium text-right">{a.value}</span></div>)}</div>}
+          {tab === "guide" && <div className="mt-3">{guide.length === 0 ? <Empty icon="📖" title="Encyclopedia is empty" hint="Fill it in on the product page (Products → Encyclopedia)." /> : guide.map(g => <div key={g.id} className="rounded-xl p-3 mb-3" style={{ background: C.bg, border: `1px solid ${C.line}` }}><p className="font-semibold text-sm mb-1">{g.title || "Untitled entry"}</p>{g.body && <p className="text-sm whitespace-pre-wrap mb-2" style={{ color: C.ink }}>{g.body}</p>}<Photos list={asPhotoList(g.photos)} /></div>)}</div>}
+          {tab === "reference" && <div className="mt-3">{notes.length === 0 ? <Empty icon="🧭" title="No reference notes" hint="Notes and photos per defect are filled in on the product page." /> : notes.map(n => <div key={n.id} className="rounded-xl p-3 mb-3" style={{ background: C.bg, border: `1px solid ${C.line}` }}><p className="font-semibold text-sm mb-1">{problemPath(s.problems, n.problemId) || "Defect"}</p>{n.description && <p className="text-sm whitespace-pre-wrap mb-2">{n.description}</p>}<Photos list={asPhotoList(n.photos)} /></div>)}</div>}
+          {tab === "history" && <div className="mt-3">{history.length === 0 ? <Empty icon="📋" title="No completed inspections yet" /> : history.map(i => { const it = inspType(s, i); return <div key={i.id} className="flex items-center gap-3 py-2 text-sm" style={{ borderBottom: `1px solid ${C.line}` }}><span className="inline-block rounded-full" style={{ width: 8, height: 8, background: it.autoAccept ? it.color : i.result === "Accepted" ? C.ok : i.result === "Rejected" ? C.bad : C.muted }} /><span className="flex-1 min-w-0 truncate">{it.autoAccept ? it.name : (i.result || "—")}{i.supplier ? ` · ${i.supplier}` : ""}{i.isReference && <Ic i={Star} s={12} mr={0} />}</span><span className="text-xs whitespace-nowrap" style={{ color: C.muted }}>{i.dateISO && `DC ${dateCode(i.dateISO)} · `}{s.users.find(u => u.id === i.controllerId)?.name} · {fmtTime(i.completedAt)}</span></div>; })}</div>}
+        </div>
+      </aside>
+      {zoom && <div onClick={() => setZoom(null)} className="fixed inset-0 flex items-center justify-center p-6" style={{ background: "rgba(0,0,0,.85)", zIndex: 80, cursor: "zoom-out" }}><img src={zoom.dataUrl || zoom.url || zoom.src} alt="" style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain", borderRadius: 12 }} /></div>}
+    </>
   );
 }
 
