@@ -962,10 +962,21 @@ function ComposerExtras({ s, user, pending, setPending, compact }) {
 const SESSION_KEY = "qcteam-session-user";
 const readSession = () => { try { return localStorage.getItem(SESSION_KEY); } catch { return null; } };
 const writeSession = id => { try { if (id) localStorage.setItem(SESSION_KEY, id); else localStorage.removeItem(SESSION_KEY); } catch {} };
+// One person logged in at a time, across web + mobile. A prototype has no real per-device conflict handling worth
+// building, and testing is impossible if a second open tab/phone can silently fight the first over the same shared
+// state — so instead: every sign-in claims a single shared lock, and whichever device (or app) held it before gets
+// signed out the moment it next checks in. No one can get "stuck" out — signing in always wins.
+const SESSION_LOCK_KEY = "qcteam-active-session";
+const DEVICE_ID_KEY = "qcteam-device-id";
+const getDeviceId = () => { try { let id = localStorage.getItem(DEVICE_ID_KEY); if (!id) { id = (typeof crypto !== "undefined" && crypto.randomUUID) ? crypto.randomUUID() : `dev-${Date.now()}-${Math.random().toString(36).slice(2)}`; localStorage.setItem(DEVICE_ID_KEY, id); } return id; } catch { return `dev-${Date.now()}-${Math.random().toString(36).slice(2)}`; } };
+const claimSessionLock = async (userId, name) => { try { if (window.storage?.set) await window.storage.set(SESSION_LOCK_KEY, JSON.stringify({ deviceId: getDeviceId(), userId, name, at: Date.now() })); } catch {} };
 function LoginScreen({ s, onLogin, allowRoles, subtitle }) {
   const [pick, setPick] = useState(null); const [pin, setPin] = useState(""); const [err, setErr] = useState("");
   const users = (s.users || []).filter(u => u.active !== false && (!allowRoles || allowRoles.includes(u.role)));
-  const submit = u => { if (u.pin && u.pin !== pin) { setErr("Wrong PIN"); setPin(""); return; } writeSession(u.id); onLogin(u.id); };
+  // claimSessionLock is awaited before onLogin fires: onLogin flips this device's userId, which is what makes the
+  // App-level lock-check effect run its own read of the lock. If that read raced ahead of this write finishing, it
+  // could still see the *previous* holder and immediately (and wrongly) sign this very login back out again.
+  const submit = async u => { if (u.pin && u.pin !== pin) { setErr("Wrong PIN"); setPin(""); return; } writeSession(u.id); await claimSessionLock(u.id, u.name); onLogin(u.id); };
   return (
     <div className="qc min-h-screen flex items-center justify-center p-6" style={{ background: C.bg }}>
       <style>{GLOBAL_CSS()}</style>
@@ -2844,6 +2855,8 @@ export default function App() {
   useEffect(() => { _S = s; }, [s]);
   const [loaded, setLoaded] = useState(false);
   const [userId, setUserId] = useState(() => readSession());
+  const deviceIdRef = useRef(null); if (deviceIdRef.current === null) deviceIdRef.current = getDeviceId();
+  const [kickedOut, setKickedOut] = useState(false);
   const syncerRef = useRef(createSyncer());
   const [pendingChatContext, setPendingChatContext] = useState(null);
   const bootIdRef = useRef(null); const [newVersion, setNewVersion] = useState(false);
@@ -2891,6 +2904,29 @@ export default function App() {
     if (syncerRef.current.pending.length) { flushState(syncerRef.current, STORAGE_KEY, () => _S, v => { _S = v; setRaw(v); }, p => sortState(normalize(p)), n => n && setToast(`Merged with changes from another device (${n} of yours re-applied)`)); return; }
     if (!window.storage?.getMeta) return; const v = await window.storage.getMeta(STORAGE_KEY); if (v && v !== syncerRef.current.version) pullState(false);
   }, 5000); return () => clearInterval(id); }, [loaded]);
+  // Only-one-session-at-a-time: while signed in, watch the shared lock and sign out immediately if another device (or
+  // the web portal) claims it. A lock that doesn't exist yet (nobody has signed in since this feature shipped) is
+  // adopted rather than treated as a kick, so this doesn't sign out whoever is already using the app.
+  useEffect(() => {
+    if (!loaded || !userId) return;
+    let cancelled = false;
+    const check = async () => {
+      try {
+        if (!window.storage?.get) return;
+        const r = await window.storage.get(SESSION_LOCK_KEY);
+        if (cancelled) return;
+        if (r?.value) {
+          const lock = JSON.parse(r.value);
+          if (lock.deviceId && lock.deviceId !== deviceIdRef.current) { writeSession(null); setUserId(null); setKickedOut(true); return; }
+        } else if (window.storage?.set) {
+          await window.storage.set(SESSION_LOCK_KEY, JSON.stringify({ deviceId: deviceIdRef.current, userId, at: Date.now() }));
+        }
+      } catch {}
+    };
+    check();
+    const id = setInterval(check, 5000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [loaded, userId]);
   useEffect(() => { const h = () => { if (document.visibilityState === "visible") pullState(false); }; document.addEventListener("visibilitychange", h); window.addEventListener("focus", h); window.addEventListener("pageshow", h); return () => { document.removeEventListener("visibilitychange", h); window.removeEventListener("focus", h); window.removeEventListener("pageshow", h); }; }, []);
   useEffect(() => { (async () => { try { if (window.storage) { const r = await window.storage.get(THEME_KEY); if (r?.value === "dark") { applyTheme(true); setDark(true); } } } catch (e) {} })(); }, []);
   const toggleTheme = () => { const d = !dark; applyTheme(d); setDark(d); (async () => { try { if (window.storage) await window.storage.set(THEME_KEY, d ? "dark" : "light"); } catch (e) {} })(); };
@@ -2898,7 +2934,7 @@ export default function App() {
   useEffect(() => { if (!loaded || !syncerRef.current.pending.length) return; flushState(syncerRef.current, STORAGE_KEY, () => _S, v => { _S = v; setRaw(v); }, p => sortState(normalize(p)), n => n && setToast(`Merged with changes from another device (${n} of yours re-applied)`)); }, [s, loaded]);
   if (!loaded) return <div className="min-h-screen flex items-center justify-center text-sm" style={{ color: C.muted }}>Loading…</div>;
   const user = s.users.find(u => u.id === userId && u.active !== false) || null;
-  if (!user) return <LoginScreen s={s} onLogin={setUserId} />;
+  if (!user) return <LoginScreen s={s} onLogin={id => { setKickedOut(false); setUserId(id); }} subtitle={kickedOut ? "Signed out — someone signed in on another device" : undefined} />;
   const go = (p, prm = null) => { setPage(p); setParam(prm); };
   const notify = (type, message, entityType, entityId, toUserId) => set(x => { const targets = toUserId ? [toUserId] : x.users.filter(u => u.role === "Head").map(u => u.id); return { ...x, notifications: [...x.notifications, ...targets.map(t => ({ id: uid(), userId: t, type, message, entityType, entityId, createdAt: nowISO(), readAt: null }))] }; });
   const startInspection = (pid, palletNo, force = false, typeId = "type-full") => {
@@ -2944,7 +2980,7 @@ export default function App() {
       {page === "catalog" && <MCatalog key={param || "catalog"} s={s} user={user} go={go} onStart={(pid, palletNo, typeId) => startInspection(pid, palletNo, false, typeId)} setState={set} notify={notify} onVisual={visualInspection} preset={param} />}
       {page === "productHistory" && <MProductHistory s={s} user={user} go={go} productId={param} />}
       {page === "chat" && <MChat s={s} set={set} user={user} go={go} initialContext={pendingChatContext} clearInitialContext={() => setPendingChatContext(null)} />}
-      {page === "menu" && <MMenu s={s} set={set} user={user} go={go} users={s.users} setUser={id => { setUserId(id); go("home"); }} onLogout={() => { writeSession(null); setUserId(null); }} dark={dark} onTheme={toggleTheme} simOffline={simOffline} onSimOffline={() => setSimOffline(o => !o)} onSync={() => pullState(true)} syncMsg={syncMsg} />}
+      {page === "menu" && <MMenu s={s} set={set} user={user} go={go} users={s.users} setUser={id => { setUserId(id); go("home"); }} onLogout={() => { writeSession(null); setUserId(null); (async () => { try { const r = await window.storage?.get?.(SESSION_LOCK_KEY); const lock = r?.value ? JSON.parse(r.value) : null; if (lock && lock.deviceId === deviceIdRef.current && window.storage?.delete) await window.storage.delete(SESSION_LOCK_KEY); } catch {} })(); }} dark={dark} onTheme={toggleTheme} simOffline={simOffline} onSimOffline={() => setSimOffline(o => !o)} onSync={() => pullState(true)} syncMsg={syncMsg} />}
       {page === "profile" && <MProfile s={s} set={set} user={user} go={go} />}
       {page === "notifications" && <MNotifications s={s} set={set} user={user} go={go} />}
       {page === "announcements" && <MAnnouncements s={s} set={set} user={user} go={go} />}

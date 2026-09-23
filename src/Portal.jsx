@@ -955,10 +955,21 @@ function ComposerExtras({ s, user, pending, setPending, compact }) {
 const SESSION_KEY = "qcteam-session-user";
 const readSession = () => { try { return localStorage.getItem(SESSION_KEY); } catch { return null; } };
 const writeSession = id => { try { if (id) localStorage.setItem(SESSION_KEY, id); else localStorage.removeItem(SESSION_KEY); } catch {} };
+// One person logged in at a time, across web + mobile. A prototype has no real per-device conflict handling worth
+// building, and testing is impossible if a second open tab/phone can silently fight the first over the same shared
+// state — so instead: every sign-in claims a single shared lock, and whichever device (or app) held it before gets
+// signed out the moment it next checks in. No one can get "stuck" out — signing in always wins.
+const SESSION_LOCK_KEY = "qcteam-active-session";
+const DEVICE_ID_KEY = "qcteam-device-id";
+const getDeviceId = () => { try { let id = localStorage.getItem(DEVICE_ID_KEY); if (!id) { id = (typeof crypto !== "undefined" && crypto.randomUUID) ? crypto.randomUUID() : `dev-${Date.now()}-${Math.random().toString(36).slice(2)}`; localStorage.setItem(DEVICE_ID_KEY, id); } return id; } catch { return `dev-${Date.now()}-${Math.random().toString(36).slice(2)}`; } };
+const claimSessionLock = async (userId, name) => { try { if (window.storage?.set) await window.storage.set(SESSION_LOCK_KEY, JSON.stringify({ deviceId: getDeviceId(), userId, name, at: Date.now() })); } catch {} };
 function LoginScreen({ s, onLogin, allowRoles, subtitle }) {
   const [pick, setPick] = useState(null); const [pin, setPin] = useState(""); const [err, setErr] = useState("");
   const users = (s.users || []).filter(u => u.active !== false && (!allowRoles || allowRoles.includes(u.role)));
-  const submit = u => { if (u.pin && u.pin !== pin) { setErr("Wrong PIN"); setPin(""); return; } writeSession(u.id); onLogin(u.id); };
+  // claimSessionLock is awaited before onLogin fires: onLogin flips this device's userId, which is what makes the
+  // App-level lock-check effect run its own read of the lock. If that read raced ahead of this write finishing, it
+  // could still see the *previous* holder and immediately (and wrongly) sign this very login back out again.
+  const submit = async u => { if (u.pin && u.pin !== pin) { setErr("Wrong PIN"); setPin(""); return; } writeSession(u.id); await claimSessionLock(u.id, u.name); onLogin(u.id); };
   return (
     <div className="qc min-h-screen flex items-center justify-center p-6" style={{ background: C.bg }}>
       <style>{GLOBAL_CSS()}</style>
@@ -3720,6 +3731,8 @@ export default function App() {
   const [loaded, setLoaded] = useState(false);
   const [dataOpen, setDataOpen] = useState(false);
   const [userId, setUserId] = useState(() => readSession());
+  const deviceIdRef = useRef(null); if (deviceIdRef.current === null) deviceIdRef.current = getDeviceId();
+  const [kickedOut, setKickedOut] = useState(false);
   const syncerRef = useRef(createSyncer());
   const [openInspId, setOpenInspId] = useState(null);
   // Browser/back-forward + swipe-back support: every screen change — a sidebar page, opening a product, opening an
@@ -3775,6 +3788,30 @@ export default function App() {
     }
   }, 5000); return () => clearInterval(id); }, [loaded]);
 
+  // Only-one-session-at-a-time: while signed in, watch the shared lock and sign out immediately if another device (or
+  // the mobile app) claims it. A lock that doesn't exist yet (nobody has signed in since this feature shipped) is
+  // adopted rather than treated as a kick, so this doesn't sign out whoever is already using the app.
+  useEffect(() => {
+    if (!loaded || !userId) return;
+    let cancelled = false;
+    const check = async () => {
+      try {
+        if (!window.storage?.get) return;
+        const r = await window.storage.get(SESSION_LOCK_KEY);
+        if (cancelled) return;
+        if (r?.value) {
+          const lock = JSON.parse(r.value);
+          if (lock.deviceId && lock.deviceId !== deviceIdRef.current) { writeSession(null); setUserId(null); setKickedOut(true); return; }
+        } else if (window.storage?.set) {
+          await window.storage.set(SESSION_LOCK_KEY, JSON.stringify({ deviceId: deviceIdRef.current, userId, at: Date.now() }));
+        }
+      } catch {}
+    };
+    check();
+    const id = setInterval(check, 5000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [loaded, userId]);
+
   // Load saved state on start
   useEffect(() => {
     (async () => {
@@ -3793,7 +3830,7 @@ export default function App() {
   const [toastMsg, setToastMsg] = useState(""); useEffect(() => { if (!toastMsg) return; const t = setTimeout(() => setToastMsg(""), 4000); return () => clearTimeout(t); }, [toastMsg]);
   if (!loaded) return <div className="min-h-screen flex items-center justify-center text-sm" style={{ background: C.bg, color: C.muted }}>Loading…</div>;
   const user = s.users.find(u => u.id === userId && u.active !== false) || null;
-  if (!user) return <LoginScreen s={s} allowRoles={["Head", "Controller"]} onLogin={setUserId} subtitle="QCteam portal — sign in" />;
+  if (!user) return <LoginScreen s={s} allowRoles={["Head", "Controller"]} onLogin={id => { setKickedOut(false); setUserId(id); }} subtitle={kickedOut ? "Signed out — someone signed in on another device" : "QCteam portal — sign in"} />;
   // Notification: to a specific user (toUserId) or to all Heads
   const notify = (type, message, entityType, entityId, toUserId) => set(x => { const targets = toUserId ? [toUserId] : x.users.filter(u => u.role === "Head").map(u => u.id); return { ...x, notifications: [...x.notifications, ...targets.map(uid_ => ({ id: uid(), userId: uid_, type, message, entityType, entityId, createdAt: nowISO(), readAt: null }))] }; });
   const unread = s.notifications.filter(n => n.userId === user.id && !n.readAt).length;
@@ -3801,7 +3838,7 @@ export default function App() {
   const guard = key => user.role === "Head" || NAV_CONTROLLER.some(g => g.items.some(([k]) => k === key));
   const safePage = guard(page) ? page : "dashboard";
   return (
-    <Shell onSearch={q => { setProductsQuery(q); setPage("products"); }} onLogout={() => { writeSession(null); setUserId(null); }} page={safePage} setPage={setPage} badge={{ ...badge, messages: unreadMsgs, notifications: unread, flags: user.role === "Head" ? s.flags.filter(f => f.status === "Open").length : 0, inspections: user.role === "Head" ? s.inspections.filter(i => i.status === "PendingReview").length : 0 }} topRight={dataButton} users={s.users} user={user} setUser={id => { setUserId(id); setPage("dashboard"); setOpenInspId(null); }} unread={unread} onBell={() => setPage("notifications")}>
+    <Shell onSearch={q => { setProductsQuery(q); setPage("products"); }} onLogout={() => { writeSession(null); setUserId(null); (async () => { try { const r = await window.storage?.get?.(SESSION_LOCK_KEY); const lock = r?.value ? JSON.parse(r.value) : null; if (lock && lock.deviceId === deviceIdRef.current && window.storage?.delete) await window.storage.delete(SESSION_LOCK_KEY); } catch {} })(); }} page={safePage} setPage={setPage} badge={{ ...badge, messages: unreadMsgs, notifications: unread, flags: user.role === "Head" ? s.flags.filter(f => f.status === "Open").length : 0, inspections: user.role === "Head" ? s.inspections.filter(i => i.status === "PendingReview").length : 0 }} topRight={dataButton} users={s.users} user={user} setUser={id => { setUserId(id); setPage("dashboard"); setOpenInspId(null); }} unread={unread} onBell={() => setPage("notifications")}>
       <BlockingOverlay s={s} set={set} user={user} />
       {dataOpen && <DataPanel s={s} set={set} onClose={() => setDataOpen(false)} />}
       {toastMsg && <div className="fixed left-1/2 -translate-x-1/2 text-sm px-4 py-2 rounded-xl" style={{ top: 12, zIndex: 90, background: C.ink, color: C.onDark, boxShadow: "0 8px 20px rgba(0,0,0,.25)" }}>{toastMsg}</div>}
