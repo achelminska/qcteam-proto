@@ -3760,7 +3760,19 @@ export default function App() {
     // next keystroke. Retrying always takes priority over pulling: never overwrite unsynced local edits with the
     // server's (still older) copy.
     if (syncerRef.current.pending.length) { flushState(syncerRef.current, STORAGE_KEY, () => _S, v => { _S = v; setRaw(v); }, p => sortState(normalize(p)), n => n && setToastMsg && setToastMsg(`Merged with changes from another device (${n} of yours re-applied)`)); return; }
-    if (!window.storage?.getMeta) return; const v = await window.storage.getMeta(STORAGE_KEY); if (v && v !== syncerRef.current.version) { const r = await window.storage.get(STORAGE_KEY); if (r?.value) { const nx = sortState(normalize(JSON.parse(r.value))); _S = nx; setRaw(nx); syncerRef.current.version = r.version || v; } }
+    if (!window.storage?.getMeta) return; const v = await window.storage.getMeta(STORAGE_KEY); if (v && v !== syncerRef.current.version) {
+      const r = await window.storage.get(STORAGE_KEY);
+      // Re-check here, not just at the top of this tick: the two awaits above (getMeta, then get) leave a window
+      // during which an edit made on this same tab can slip in. Checking `pending` alone is not enough — the instant
+      // flushState picks up a queued edit to send it, it splices `pending` empty right away and only awaits the
+      // network from then on (see flushState's `fns = [...carried, ...syncer.pending.splice(0)]`), so `pending` can
+      // read empty while an edit is genuinely in flight, still unconfirmed by the server. `busy` stays true for that
+      // whole window, so it is the real signal: overwriting local state with this (now stale, pre-edit) server copy
+      // while a save is in flight — or one just queued up — would silently revert it, exactly like the bug this poll
+      // is meant to avoid, just via a different door. Skip this pull in either case; the "save on every change"
+      // effect (or the next tick, once the in-flight save lands) picks it up correctly instead.
+      if (r?.value && !syncerRef.current.busy && !syncerRef.current.pending.length) { const nx = sortState(normalize(JSON.parse(r.value))); _S = nx; setRaw(nx); syncerRef.current.version = r.version || v; }
+    }
   }, 5000); return () => clearInterval(id); }, [loaded]);
 
   // Load saved state on start
