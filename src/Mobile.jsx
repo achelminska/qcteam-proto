@@ -1914,11 +1914,13 @@ function MPriorityList({ s, user, go, priority }) {
   // "All" is the tile for the whole dock (SKUs / pallets on docks) rather than one priority — it gets its own two tabs
   // instead of a priority filter: the pallets that actually need inspecting, and the ones flagged skippable.
   const isAll = priority === "All";
+  // "Needed today" is the dock sheet's blocking flag (picking waits for these pallets), not a priority label — it cuts across priorities.
+  const isNeeded = priority === "Needed today";
   const [subTab, setSubTab] = useState("regular");
   // "Priorities" is the all-up list — it must include skippable pallets too, not hide them; "Skippable" is just a
   // filtered view of the same set, not a separate bucket that pulls items out of the main list.
   const liveAll = dockRowsLive(s);
-  const allRows = isAll ? liveAll.filter(r => subTab === "skippable" ? r.skippable : true) : liveAll.filter(r => priority === "Skippable" ? r.skippable : r.priority === priority);
+  const allRows = isAll ? liveAll.filter(r => subTab === "skippable" ? r.skippable : true) : isNeeded ? liveAll.filter(r => r.blocking) : liveAll.filter(r => priority === "Skippable" ? r.skippable : r.priority === priority);
   const lostRows = allRows.filter(r => lostOf(s, r)); const rows = allRows.filter(r => !lostOf(s, r));
   // Sections by arrival day, oldest first — the 24h rejection window makes the oldest pallets the urgent ones. Inside a day the
   // same SKU collapses into one row (×N) and anything with a recent rejection floats to the top.
@@ -1953,8 +1955,9 @@ function MPriorityList({ s, user, go, priority }) {
         {[["regular", "Priorities"], ["skippable", "Skippable"]].map(([k, l]) => <button key={k} onClick={() => setSubTab(k)} className="px-1 py-2 text-sm" style={{ marginRight: 14, borderBottom: subTab === k ? `2px solid ${C.ink}` : "2px solid transparent", color: subTab === k ? C.ink : C.muted, fontWeight: subTab === k ? 500 : 400 }}>{l}</button>)}
       </div>}
       <div className="px-4 pt-3">
+        {isNeeded && <div className="rounded-xl px-3 py-2 mb-2 flex items-start gap-2 text-[13px] leading-snug" style={{ background: C.badBg, color: C.bad }}><Ic i={AlertTriangle} s={14} mr={0} style={{ marginTop: 2 }} /><span>Flagged on the dock sheet as needed today — picking waits for these, inspect them first.</span></div>}
         <p className="text-xs mb-1" style={{ color: C.muted }}>{rows.length} pallet{rows.length === 1 ? "" : "s"} · {skus} SKU{skus === 1 ? "" : "s"} · oldest arrivals first</p>
-        {rows.length === 0 && <p className="text-sm py-8 text-center" style={{ color: C.muted }}>{lostRows.length ? "Nothing findable here — only lost pallets below." : isAll ? (subTab === "skippable" ? "No skippable pallets on the docks right now." : "Nothing on the docks right now.") : "Nothing at this priority right now."}</p>}
+        {rows.length === 0 && <p className="text-sm py-8 text-center" style={{ color: C.muted }}>{lostRows.length ? "Nothing findable here — only lost pallets below." : isNeeded ? "Nothing is flagged as needed today." : isAll ? (subTab === "skippable" ? "No skippable pallets on the docks right now." : "Nothing on the docks right now.") : "Nothing at this priority right now."}</p>}
         {days.map(d => { const items = itemsFor(byDay[d]); const n = byDay[d].length; const old = ageDays(d) >= 1; return (
           <div key={d || "none"} className="mt-3">
             <div className="flex items-center gap-2 py-1.5 sticky top-0" style={{ background: C.surface }}>
@@ -1963,8 +1966,8 @@ function MPriorityList({ s, user, go, priority }) {
             </div>
             {items.map(it => (
               <button key={it.key} onClick={() => it.count > 1 && it.productId ? go("catalog", it.productId) : go("palletInfo", it.hu)} className="w-full text-left py-3 active:opacity-60" style={{ borderBottom: `1px solid ${C.line}` }}>
-                <div className="flex items-center gap-2">{isAll && subTab === "regular" && it.priority && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ background: PRIORITY[it.priority]?.[1] || C.line, color: PRIORITY[it.priority]?.[0] || C.muted }}>{it.priority}</span>}<p className="text-sm font-medium flex-1 truncate">{it.name}</p>{it.count > 1 && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ background: C.accentSoft, color: C.accent }}>×{it.count} on docks</span>}{it.totalOnDock > it.count && <span className="text-[10px] flex-shrink-0" style={{ color: C.muted }}>+{it.totalOnDock - it.count} elsewhere</span>}{it.mixedPO && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0 inline-flex items-center gap-1" style={{ background: C.warnBg, color: C.warn }}><Ic i={AlertTriangle} s={10} mr={0} />mixed PO</span>}{it.checked > 0 && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0 inline-flex items-center gap-1" style={{ background: C.okBg, color: C.ok }}><Ic i={Check} s={10} mr={0} />{it.checked === it.count ? "already inspected" : `${it.checked}/${it.count} inspected`}</span>}{it.hist.count > 0 && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ background: C.badBg, color: C.bad }}>{it.hist.count} rejected recently</span>}</div>
-                <p className="text-xs mt-0.5" style={{ color: C.muted }}>{it.location} · {it.transporter} · {it.arrivedTime}{it.blocking ? " · needed today" : ""}</p>
+                <div className="flex items-center gap-2">{((isAll && subTab === "regular") || isNeeded) && it.priority && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ background: PRIORITY[it.priority]?.[1] || C.line, color: PRIORITY[it.priority]?.[0] || C.muted }}>{it.priority}</span>}<p className="text-sm font-medium flex-1 truncate">{it.name}</p>{it.count > 1 && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ background: C.accentSoft, color: C.accent }}>×{it.count} on docks</span>}{it.totalOnDock > it.count && <span className="text-[10px] flex-shrink-0" style={{ color: C.muted }}>+{it.totalOnDock - it.count} elsewhere</span>}{it.mixedPO && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0 inline-flex items-center gap-1" style={{ background: C.warnBg, color: C.warn }}><Ic i={AlertTriangle} s={10} mr={0} />mixed PO</span>}{it.checked > 0 && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0 inline-flex items-center gap-1" style={{ background: C.okBg, color: C.ok }}><Ic i={Check} s={10} mr={0} />{it.checked === it.count ? "already inspected" : `${it.checked}/${it.count} inspected`}</span>}{it.hist.count > 0 && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ background: C.badBg, color: C.bad }}>{it.hist.count} rejected recently</span>}</div>
+                <p className="text-xs mt-0.5" style={{ color: C.muted }}>{it.location} · {it.transporter} · {it.arrivedTime}{it.blocking && !isNeeded ? " · needed today" : ""}</p>
                 {it.hist.count > 0 && <p className="text-xs mt-1" style={{ color: C.bad }}>Was rejected for: {it.hist.problems.slice(0, 3).map(p => `${p.name} ×${p.count}`).join(", ")}{it.hist.problems.length > 3 ? "…" : ""} · last {dayLabel(it.hist.lastAt)}</p>}
               </button>
             ))}
@@ -2040,6 +2043,33 @@ function MDashboard({ s, set, user, go, dismissed, setDismissed, onAssign }) {
         <button onClick={() => go("priority", "All")} className="rounded-2xl p-3.5 text-left transition-transform active:scale-95" style={{ background: C.bg, border: `1px solid ${C.line}` }}><p className="text-xs" style={{ color: C.muted }}>SKUs on docks</p><p className="text-[26px] leading-tight font-semibold mt-0.5">{sheetStats(s).skus}</p><p className="text-[10px]" style={{ color: C.muted }}>{sheetStats(s).expected != null ? `${sheetStats(s).expected} still expected` : "distinct articles"}</p></button>
         <button onClick={() => go("priority", "All")} className="rounded-2xl p-3.5 text-left transition-transform active:scale-95" style={{ background: C.bg, border: `1px solid ${C.line}` }}><p className="text-xs" style={{ color: C.muted }}>Pallets on docks</p><p className="text-[26px] leading-tight font-semibold mt-0.5">{sheetStats(s).pallets}</p><p className="text-[10px]" style={{ color: C.muted }}>{sheetStats(s).skippablePallets != null ? `${sheetStats(s).skippablePallets} skippable · ${sheetStats(s).skippableSkus ?? "—"} SKUs` : "in total"}</p></button>
       </div>
+      {(() => {
+        // Products flagged "needed today" on the dock sheet (blocking flag): one row per SKU, oldest arrival first. Always
+        // rendered — an empty tile says "nothing blocks picking", which is information too.
+        const rows = dockRowsLive(s).filter(r => r.blocking && !lostOf(s, r));
+        const groups = new Map(); rows.forEach(r => { const k = r.article || r.hu; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(r); });
+        const items = [...groups.values()].map(g => { const first = [...g].sort((a, b) => `${a.arrived} ${a.arrivedTime}`.localeCompare(`${b.arrived} ${b.arrivedTime}`))[0]; const product = s.products.find(p => p.articleId === first.article); return { key: first.article || first.hu, name: first.name || product?.name || first.article, count: g.length, checked: g.filter(x => completedInspectionFor(s, x.hu)).length, location: new Set(g.map(r => r.location).filter(Boolean)).size > 1 ? `${new Set(g.map(r => r.location)).size} locations` : first.location, priority: first.priority }; })
+          .sort((a, b) => (a.checked === a.count) - (b.checked === b.count) || a.name.localeCompare(b.name));
+        const n = items.length, shown = items.slice(0, 5);
+        return (
+          <button onClick={() => go("priority", "Needed today")} className="mx-5 mt-2 rounded-2xl text-left active:scale-[0.98] overflow-hidden" style={{ background: C.bg, border: `1px solid ${n ? C.bad : C.line}`, borderLeft: `3px solid ${n ? C.bad : C.line}`, width: "calc(100% - 40px)" }}>
+            <div className="flex items-center gap-3 px-3.5 pt-3 pb-2">
+              <p className="text-[26px] leading-none font-semibold" style={{ color: n ? C.bad : C.ink, fontVariantNumeric: "tabular-nums" }}>{n}</p>
+              <div className="flex-1 min-w-0"><p className="text-sm font-semibold leading-tight">Needed today</p><p className="text-[11px]" style={{ color: C.muted }}>{n ? `${n} product${n === 1 ? "" : "s"} · ${rows.length} pallet${rows.length === 1 ? "" : "s"} block picking until inspected` : "nothing is blocking picking right now"}</p></div>
+              <span style={{ color: C.muted }}>›</span>
+            </div>
+            {shown.length > 0 && <div className="px-3.5 pb-2.5">
+              {shown.map((it, ix) => <div key={it.key} className="flex items-center gap-2 py-1.5 text-[13px]" style={{ borderTop: `1px solid ${C.line}`, opacity: it.checked === it.count ? .55 : 1 }}>
+                <span className="inline-block rounded-full flex-shrink-0" style={{ width: 7, height: 7, background: it.checked === it.count ? C.ok : (PRIORITY[it.priority]?.[0] || C.bad) }} />
+                <span className="flex-1 min-w-0 truncate font-medium">{it.name}</span>
+                {it.count > 1 && <span className="text-[10px] px-1.5 rounded-full leading-[18px] flex-shrink-0" style={{ background: C.accentSoft, color: C.accent }}>×{it.count}</span>}
+                <span className="text-[11px] flex-shrink-0" style={{ color: it.checked === it.count ? C.ok : C.muted }}>{it.checked === it.count ? "reported" : it.checked ? `${it.checked}/${it.count} reported` : it.location || ""}</span>
+              </div>)}
+              {n > shown.length && <p className="text-[11px] pt-1.5" style={{ color: C.accent, borderTop: `1px solid ${C.line}` }}>+{n - shown.length} more ›</p>}
+            </div>}
+          </button>
+        );
+      })()}
       <p className="label-sm px-5 mt-3 mb-1" style={{ color: C.muted }}>Dock priorities</p>
       {/* Skippable is a boolean flag, not a distinct priority — the "N skippable" figure above already covers it, so it's not a tile here. */}
       {/* Fixed set of tiles — a 0 is information too, and a glitchy push (0 rows, unknown labels) must not make the whole panel vanish. */}
