@@ -19,9 +19,10 @@ window.storage = {
       const r = await fetch(`${SERVER}/storage/${encodeURIComponent(key)}`);
       if (r.status === 404) { const mine = local.get(key); if (mine != null) { console.log("QCteam: server had no state — restoring from this device"); await fetch(`${SERVER}/storage/${encodeURIComponent(key)}`, { method: "PUT", headers: { "Content-Type": "text/plain; charset=utf-8" }, body: mine }); return { key, value: mine }; } return null; }
       const j = await r.json(); j.version = j.updatedAt ? String(j.updatedAt) : null;
-      const size = v => { try { const o = JSON.parse(v); return (o.categories || []).length + (o.products || []).length + (o.inspections || []).length + (o.integrations || []).length; } catch { return 0; } };
-      const mine = local.get(key);
-      if (mine != null && size(j.value) === 0 && size(mine) > 0) { console.log("QCteam: server state is empty but this device has data — restoring from this device"); await fetch(`${SERVER}/storage/${encodeURIComponent(key)}`, { method: "PUT", headers: { "Content-Type": "text/plain; charset=utf-8", "X-Force": "1" }, body: mine }); return { key, value: mine }; }
+      // (Removed: "server state looks empty but this device has data → force-restore this device's copy". Whatever the
+      // server holds IS the shared truth — after the Head cleared everything, the next phone to open the app used to
+      // force its stale localStorage copy back over it, and the old data "came back from nowhere". Recovery from a
+      // genuinely wiped server is the 404 branch above (no key at all) plus Data → Backups.)
       local.set(key, j.value); return { key, value: j.value, version: j.version };
     }
     const v = local.get(key); return v == null ? null : { key, value: v };
@@ -40,11 +41,12 @@ window.storage = {
   // "offline" save — that used to fall through as if nothing was wrong, so the caller cleared the edit from its
   // pending queue without it ever reaching the server. Report it as {error: true} so the caller knows to keep
   // retrying instead of quietly losing the edit.
-  async setVersioned(key, value, version) {
+  // `force`: an explicit, user-confirmed overwrite (e.g. Data → Clear everything) that the server's size guard must let through.
+  async setVersioned(key, value, version, { force = false } = {}) {
     local.set(key, value);
     if (!(await probe())) return { error: true };
     try {
-      const r = await fetch(`${SERVER}/storage/${encodeURIComponent(key)}`, { method: "PUT", headers: { "Content-Type": "text/plain; charset=utf-8", ...(version ? { "If-Match": version } : {}) }, body: value });
+      const r = await fetch(`${SERVER}/storage/${encodeURIComponent(key)}`, { method: "PUT", headers: { "Content-Type": "text/plain; charset=utf-8", ...(version ? { "If-Match": version } : {}), ...(force ? { "X-Force": "1" } : {}) }, body: value });
       if (r.status === 409) { const j = await r.json().catch(() => ({})); if (j.rejected) return { rejected: true }; return { conflict: true, value: j.value, version: j.updatedAt ? String(j.updatedAt) : null }; }
       const j = await r.json().catch(() => ({})); return { version: j.updatedAt ? String(j.updatedAt) : null };
     } catch (e) { return { error: true }; }

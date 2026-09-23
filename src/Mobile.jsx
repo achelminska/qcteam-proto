@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { createSyncer, guardUnload } from "./sync.js";
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceArea, ReferenceLine, Legend } from "recharts";
 import { Clock, MessageCircle, Link2, List as ListIcon, BarChart3, Printer, SlidersHorizontal, SkipForward, LayoutDashboard, ClipboardList, Flag, Bell, FolderTree, ListTree, Package, LayoutTemplate, Truck, Globe, Megaphone, MessageSquare, Users, Search, Sun, Moon, Database, Home, Menu as MenuIcon, ScanLine, Plus, ChevronLeft, User, Camera, Image as ImageIcon, Paperclip, Send, Star, Pencil, Sparkles, HelpCircle, Download, Lock as LockIcon, AlertTriangle, Inbox, FileText, ShieldAlert, Tag, Layers, BookOpen, Filter, Check, X, Ruler, Boxes } from "lucide-react";
 
@@ -962,21 +963,12 @@ function ComposerExtras({ s, user, pending, setPending, compact }) {
 const SESSION_KEY = "qcteam-session-user";
 const readSession = () => { try { return localStorage.getItem(SESSION_KEY); } catch { return null; } };
 const writeSession = id => { try { if (id) localStorage.setItem(SESSION_KEY, id); else localStorage.removeItem(SESSION_KEY); } catch {} };
-// One person logged in at a time, across web + mobile. A prototype has no real per-device conflict handling worth
-// building, and testing is impossible if a second open tab/phone can silently fight the first over the same shared
-// state — so instead: every sign-in claims a single shared lock, and whichever device (or app) held it before gets
-// signed out the moment it next checks in. No one can get "stuck" out — signing in always wins.
-const SESSION_LOCK_KEY = "qcteam-active-session";
-const DEVICE_ID_KEY = "qcteam-device-id";
-const getDeviceId = () => { try { let id = localStorage.getItem(DEVICE_ID_KEY); if (!id) { id = (typeof crypto !== "undefined" && crypto.randomUUID) ? crypto.randomUUID() : `dev-${Date.now()}-${Math.random().toString(36).slice(2)}`; localStorage.setItem(DEVICE_ID_KEY, id); } return id; } catch { return `dev-${Date.now()}-${Math.random().toString(36).slice(2)}`; } };
-const claimSessionLock = async (userId, name) => { try { if (window.storage?.set) await window.storage.set(SESSION_LOCK_KEY, JSON.stringify({ deviceId: getDeviceId(), userId, name, at: Date.now() })); } catch {} };
+// Any number of devices and people can be signed in at once (portal + phones). Concurrent edits are merged by the
+// shared syncer (src/sync.js): every edit is a function applied on top of the server's latest copy, never a blind overwrite.
 function LoginScreen({ s, onLogin, allowRoles, subtitle }) {
   const [pick, setPick] = useState(null); const [pin, setPin] = useState(""); const [err, setErr] = useState("");
   const users = (s.users || []).filter(u => u.active !== false && (!allowRoles || allowRoles.includes(u.role)));
-  // claimSessionLock is awaited before onLogin fires: onLogin flips this device's userId, which is what makes the
-  // App-level lock-check effect run its own read of the lock. If that read raced ahead of this write finishing, it
-  // could still see the *previous* holder and immediately (and wrongly) sign this very login back out again.
-  const submit = async u => { if (u.pin && u.pin !== pin) { setErr("Wrong PIN"); setPin(""); return; } writeSession(u.id); await claimSessionLock(u.id, u.name); onLogin(u.id); };
+  const submit = u => { if (u.pin && u.pin !== pin) { setErr("Wrong PIN"); setPin(""); return; } writeSession(u.id); onLogin(u.id); };
   return (
     <div className="qc min-h-screen flex items-center justify-center p-6" style={{ background: C.bg }}>
       <style>{GLOBAL_CSS()}</style>
@@ -1001,50 +993,6 @@ function LoginScreen({ s, onLogin, allowRoles, subtitle }) {
     </div>
   );
 }
-// ═══════════════════ OPTIMISTIC CONCURRENCY — several devices, one shared state ═══════════════════
-// Every change is a function "state → state". We save with the version we last saw; if someone else saved first,
-// the server answers 409 with its current state, we re-apply our queued functions on top and save again.
-const createSyncer = () => ({ version: null, pending: [], busy: false, again: false });
-const flushState = async (syncer, key, getLocal, setLocal, normalizeFn, onConflictResolved) => {
-  if (!window.storage?.setVersioned) { try { await window.storage.set(key, JSON.stringify(getLocal())); } catch {} return; }
-  if (syncer.busy) { syncer.again = true; return; }
-  syncer.busy = true;
-  try {
-    // `carried`: pending functions already reapplied in an EARLIER attempt of this same flush cycle. They must keep
-    // being reapplied on every later conflict too — otherwise the 2nd (3rd, ...) consecutive conflict rebases onto
-    // the server's fresh-but-still-pre-edit value with nothing left in that attempt's own `fns` to reapply (they were
-    // only ever queued once, by the user's click), and the edit is silently reverted: it had looked saved locally
-    // for a moment, then vanished again, even before any page reload. This is what actually made a delete "come
-    // back" — not that the save never went out, but that a second sheet push landing right after the first one
-    // undid it. Confirmed with a scripted repro against the old code: 2+ consecutive conflicting writes reverted
-    // the change both locally and on the server, every time.
-    let saved = false, carried = [];
-    for (let attempt = 0; attempt < 5; attempt++) {
-      const fns = [...carried, ...syncer.pending.splice(0)];
-      const res = await window.storage.setVersioned(key, JSON.stringify(getLocal()), syncer.version);
-      if (!res) break;
-      // A dropped connection mid-save (flaky warehouse WiFi, a Render restart) must not silently discard the edit:
-      // put it back at the front of the queue so it isn't lost, and leave `pending` non-empty so the poll below
-      // knows there's unsynced work and won't overwrite it with the server's (still pre-edit) copy in the meantime.
-      // The poll retries this on its next tick; there's nothing more useful to do right now.
-      if (res.error) { syncer.pending.unshift(...fns); break; }
-      if (res.rejected) { console.warn("QCteam: server rejected this state as too small — keeping the server's copy"); const r = await window.storage.get(key); if (r?.value) { setLocal(normalizeFn(JSON.parse(r.value))); syncer.version = r.version || null; } break; }
-      if (res.conflict) {
-        let base = normalizeFn(JSON.parse(res.value)); syncer.version = res.version || null;
-        for (const f of fns) { try { base = f(base); } catch (e) { console.warn("QCteam: could not re-apply a change after conflict", e); } }
-        setLocal(base); onConflictResolved && onConflictResolved(fns.length);
-        carried = fns; // keep reapplying these too if yet another conflict hits on the next attempt
-        continue; // save the merged state with the new version
-      }
-      syncer.version = res.version || syncer.version; saved = true; break;
-    }
-    // Ran out of retries while the server kept moving out from under us (heavy, sustained concurrent writes) — the
-    // edit is correctly merged into local state, but nothing is left in `pending` to ever save it. Requeue it so the
-    // next poll tick (or the next edit) tries again with the latest version, instead of silently losing it.
-    if (!saved && !syncer.pending.length) syncer.pending.push(...(carried.length ? carried : [x => x]));
-  } finally { syncer.busy = false; if (syncer.again) { syncer.again = false; flushState(syncer, key, getLocal, setLocal, normalizeFn, onConflictResolved); } }
-};
-
 // ═══════════════════ BLOCKED PALLET QUEUE ROW (shared) ═══════════════════
 function QueueRow({ s, set, user, b, onOpen }) {
   const c = b.claim; const me = c && c.userId === user.id; const who = c && s.users.find(u => u.id === c.userId);
@@ -2851,13 +2799,14 @@ function MInspection({ s, set, user, inspId, go, notify }) {
 // ═══════════════════ APLIKACJA MOBILNA ═══════════════════
 export default function App() {
   const [s, setRaw] = useState(EMPTY);
-  const set = fn => { const f = typeof fn === "function" ? (x => sortState(fn(x))) : (() => sortState(fn)); syncerRef.current.pending.push(f); setRaw(x => { const nx = f(x); _S = nx; return nx; }); if (typeof online !== "undefined" && !online) setPendingSync(n => n + 1); };
-  useEffect(() => { _S = s; }, [s]);
+  const [toast, setToast] = useState("");
+  // All state changes go through the shared syncer (src/sync.js) — same implementation as the portal: shows the edit at
+  // once, saves it with optimistic concurrency, merges in what other devices saved. See the header of sync.js.
+  const syncerRef = useRef(null);
+  if (syncerRef.current === null) syncerRef.current = createSyncer({ key: STORAGE_KEY, normalize: p => sortState(normalize(p)), isValid: p => p && Array.isArray(p.categories), initial: EMPTY, onState: v => { _S = v; setRaw(v); }, onToast: m => setToast(m) });
+  const set = (fn, opts) => { syncerRef.current.apply(typeof fn === "function" ? (x => sortState(fn(x))) : (() => sortState(fn)), opts); if (typeof online !== "undefined" && !online) setPendingSync(n => n + 1); };
   const [loaded, setLoaded] = useState(false);
   const [userId, setUserId] = useState(() => readSession());
-  const deviceIdRef = useRef(null); if (deviceIdRef.current === null) deviceIdRef.current = getDeviceId();
-  const [kickedOut, setKickedOut] = useState(false);
-  const syncerRef = useRef(createSyncer());
   const [pendingChatContext, setPendingChatContext] = useState(null);
   const bootIdRef = useRef(null); const [newVersion, setNewVersion] = useState(false);
   const [page, setPage] = useState("home"); const [param, setParam] = useState(null);
@@ -2877,7 +2826,6 @@ export default function App() {
     return () => window.removeEventListener("popstate", onPop);
   }, []);
   const [dismissed, setDismissed] = useState([]);
-  const [toast, setToast] = useState("");
   const [netOnline, setNetOnline] = useState(typeof navigator === "undefined" ? true : navigator.onLine !== false); const [simOffline, setSimOffline] = useState(false); const [pendingSync, setPendingSync] = useState(0);
   useEffect(() => { const on = () => setNetOnline(true), off = () => setNetOnline(false); window.addEventListener("online", on); window.addEventListener("offline", off); return () => { window.removeEventListener("online", on); window.removeEventListener("offline", off); }; }, []);
   const online = netOnline && !simOffline;
@@ -2886,55 +2834,24 @@ export default function App() {
   useEffect(() => { if (toast) { const id = setTimeout(() => setToast(""), 3500); return () => clearTimeout(id); } }, [toast]);
   const [dark, setDark] = useState(false);
   const [syncMsg, setSyncMsg] = useState("");
-  // `pending` alone doesn't prove nothing is unsaved: the moment flushState picks up a queued edit it splices
-  // `pending` empty right away and only awaits the network from then on, so `pending` can read empty while an edit
-  // is genuinely in flight. `busy` covers that window too — see the matching comment in Portal.jsx's poll effect.
-  const pullState = async (announce) => { try { if (!window.storage) return; const r = await window.storage.get(STORAGE_KEY); if (r?.version) syncerRef.current.version = r.version; if (r?.value && !syncerRef.current.busy && !syncerRef.current.pending.length) { const p = JSON.parse(r.value); if (p && Array.isArray(p.categories)) { setRaw(prev => { const next = sortState(normalize(p)); _S = next; return JSON.stringify(prev) === JSON.stringify(next) ? prev : next; }); } } await refreshPushedIntegrations(() => _S, set, !!announce); if (announce) setSyncMsg(`Synced ${new Date().toLocaleTimeString("en-GB")}`); } catch (e) { if (announce) setSyncMsg("Sync failed: " + (e.message || e)); } };
+  // Menu → Sync now: pull the latest shared state (our unsaved edits stay on top), then refresh the sheet integrations.
+  const pullState = async (announce) => { try { await syncerRef.current.tick(); await refreshPushedIntegrations(() => _S, set, !!announce); if (announce) setSyncMsg(`Synced ${new Date().toLocaleTimeString("en-GB")}`); } catch (e) { if (announce) setSyncMsg("Sync failed: " + (e.message || e)); } };
   useEffect(() => { if (!loaded) return; refreshPushedIntegrations(() => _S, set); const id = setInterval(() => refreshPushedIntegrations(() => _S, set), 120000); return () => clearInterval(id); }, [loaded]);
-  // Fast, cheap poll while the app is open and in the foreground: check the version every ~5s, pull only when it changed and nothing local is unsaved.
-  // iOS home-screen PWAs sometimes misreport document.visibilityState even while genuinely on screen, so this check
-  // doesn't gate on visibility — the cost of an occasional background fetch is negligible for a prototype.
-  useEffect(() => { if (!loaded) return; const id = setInterval(async () => {
+  // Load the shared state once; from then on the syncer owns saving, conflict merging and pulling other devices' changes.
+  useEffect(() => { let alive = true; syncerRef.current.load().then(() => { if (alive) setLoaded(true); }); const off = guardUnload(syncerRef.current); return () => { alive = false; off(); }; }, []);
+  // Cheap poll every ~5s while the app is open: retry anything unsaved, otherwise pull when the server's version moved.
+  // iOS home-screen PWAs sometimes misreport document.visibilityState even while genuinely on screen, so this doesn't
+  // gate on visibility — the cost of an occasional background fetch is negligible for a prototype. Also notices a redeploy.
+  useEffect(() => { if (!loaded) return; const tick = async () => {
     if (window.storage?.getBootId) { const b = await window.storage.getBootId(); if (b) { if (bootIdRef.current === null) bootIdRef.current = b; else if (b !== bootIdRef.current) setNewVersion(true); } }
-    if (syncerRef.current.busy) return;
-    // A save that failed to reach the server (dropped connection) leaves its edit sitting in `pending` rather than
-    // losing it — retry it here so a brief blip self-heals within one poll tick instead of staying stuck until the
-    // next change. Retrying always takes priority over pulling: never overwrite unsynced local edits with the
-    // server's (still older) copy.
-    if (syncerRef.current.pending.length) { flushState(syncerRef.current, STORAGE_KEY, () => _S, v => { _S = v; setRaw(v); }, p => sortState(normalize(p)), n => n && setToast(`Merged with changes from another device (${n} of yours re-applied)`)); return; }
-    if (!window.storage?.getMeta) return; const v = await window.storage.getMeta(STORAGE_KEY); if (v && v !== syncerRef.current.version) pullState(false);
-  }, 5000); return () => clearInterval(id); }, [loaded]);
-  // Only-one-session-at-a-time: while signed in, watch the shared lock and sign out immediately if another device (or
-  // the web portal) claims it. A lock that doesn't exist yet (nobody has signed in since this feature shipped) is
-  // adopted rather than treated as a kick, so this doesn't sign out whoever is already using the app.
-  useEffect(() => {
-    if (!loaded || !userId) return;
-    let cancelled = false;
-    const check = async () => {
-      try {
-        if (!window.storage?.get) return;
-        const r = await window.storage.get(SESSION_LOCK_KEY);
-        if (cancelled) return;
-        if (r?.value) {
-          const lock = JSON.parse(r.value);
-          if (lock.deviceId && lock.deviceId !== deviceIdRef.current) { writeSession(null); setUserId(null); setKickedOut(true); return; }
-        } else if (window.storage?.set) {
-          await window.storage.set(SESSION_LOCK_KEY, JSON.stringify({ deviceId: deviceIdRef.current, userId, at: Date.now() }));
-        }
-      } catch {}
-    };
-    check();
-    const id = setInterval(check, 5000);
-    return () => { cancelled = true; clearInterval(id); };
-  }, [loaded, userId]);
-  useEffect(() => { const h = () => { if (document.visibilityState === "visible") pullState(false); }; document.addEventListener("visibilitychange", h); window.addEventListener("focus", h); window.addEventListener("pageshow", h); return () => { document.removeEventListener("visibilitychange", h); window.removeEventListener("focus", h); window.removeEventListener("pageshow", h); }; }, []);
+    await syncerRef.current.tick();
+  }; const id = setInterval(tick, 5000); return () => clearInterval(id); }, [loaded]);
+  useEffect(() => { const h = () => { if (document.visibilityState === "visible") syncerRef.current.tick(); }; document.addEventListener("visibilitychange", h); window.addEventListener("focus", h); window.addEventListener("pageshow", h); return () => { document.removeEventListener("visibilitychange", h); window.removeEventListener("focus", h); window.removeEventListener("pageshow", h); }; }, []);
   useEffect(() => { (async () => { try { if (window.storage) { const r = await window.storage.get(THEME_KEY); if (r?.value === "dark") { applyTheme(true); setDark(true); } } } catch (e) {} })(); }, []);
   const toggleTheme = () => { const d = !dark; applyTheme(d); setDark(d); (async () => { try { if (window.storage) await window.storage.set(THEME_KEY, d ? "dark" : "light"); } catch (e) {} })(); };
-  useEffect(() => { (async () => { try { if (window.storage) { const r = await window.storage.get(STORAGE_KEY); if (r?.version) syncerRef.current.version = r.version; if (r?.value) { const p = JSON.parse(r.value); if (p && Array.isArray(p.categories)) { const nx = sortState(normalize(p)); _S = nx; setRaw(nx); } } } } catch (e) {} setLoaded(true); })(); }, []);
-  useEffect(() => { if (!loaded || !syncerRef.current.pending.length) return; flushState(syncerRef.current, STORAGE_KEY, () => _S, v => { _S = v; setRaw(v); }, p => sortState(normalize(p)), n => n && setToast(`Merged with changes from another device (${n} of yours re-applied)`)); }, [s, loaded]);
   if (!loaded) return <div className="min-h-screen flex items-center justify-center text-sm" style={{ color: C.muted }}>Loading…</div>;
   const user = s.users.find(u => u.id === userId && u.active !== false) || null;
-  if (!user) return <LoginScreen s={s} onLogin={id => { setKickedOut(false); setUserId(id); }} subtitle={kickedOut ? "Signed out — someone signed in on another device" : undefined} />;
+  if (!user) return <LoginScreen s={s} onLogin={id => setUserId(id)} />;
   const go = (p, prm = null) => { setPage(p); setParam(prm); };
   const notify = (type, message, entityType, entityId, toUserId) => set(x => { const targets = toUserId ? [toUserId] : x.users.filter(u => u.role === "Head").map(u => u.id); return { ...x, notifications: [...x.notifications, ...targets.map(t => ({ id: uid(), userId: t, type, message, entityType, entityId, createdAt: nowISO(), readAt: null }))] }; });
   const startInspection = (pid, palletNo, force = false, typeId = "type-full") => {
@@ -2980,7 +2897,7 @@ export default function App() {
       {page === "catalog" && <MCatalog key={param || "catalog"} s={s} user={user} go={go} onStart={(pid, palletNo, typeId) => startInspection(pid, palletNo, false, typeId)} setState={set} notify={notify} onVisual={visualInspection} preset={param} />}
       {page === "productHistory" && <MProductHistory s={s} user={user} go={go} productId={param} />}
       {page === "chat" && <MChat s={s} set={set} user={user} go={go} initialContext={pendingChatContext} clearInitialContext={() => setPendingChatContext(null)} />}
-      {page === "menu" && <MMenu s={s} set={set} user={user} go={go} users={s.users} setUser={id => { setUserId(id); go("home"); }} onLogout={() => { writeSession(null); setUserId(null); (async () => { try { const r = await window.storage?.get?.(SESSION_LOCK_KEY); const lock = r?.value ? JSON.parse(r.value) : null; if (lock && lock.deviceId === deviceIdRef.current && window.storage?.delete) await window.storage.delete(SESSION_LOCK_KEY); } catch {} })(); }} dark={dark} onTheme={toggleTheme} simOffline={simOffline} onSimOffline={() => setSimOffline(o => !o)} onSync={() => pullState(true)} syncMsg={syncMsg} />}
+      {page === "menu" && <MMenu s={s} set={set} user={user} go={go} users={s.users} setUser={id => { setUserId(id); go("home"); }} onLogout={() => { writeSession(null); setUserId(null); }} dark={dark} onTheme={toggleTheme} simOffline={simOffline} onSimOffline={() => setSimOffline(o => !o)} onSync={() => pullState(true)} syncMsg={syncMsg} />}
       {page === "profile" && <MProfile s={s} set={set} user={user} go={go} />}
       {page === "notifications" && <MNotifications s={s} set={set} user={user} go={go} />}
       {page === "announcements" && <MAnnouncements s={s} set={set} user={user} go={go} />}
