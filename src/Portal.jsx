@@ -85,10 +85,12 @@ const SYSTEM_TYPES = {
   Pallet: { label: "Pallet numbers", desc: "one or more pallets → InspectionPallet (scanning in extension)", once: true },
   DateCode: { label: "Packing date", desc: "date → ISO week code + day → Inspections.DateCode", once: true },
   SampleSize: { label: "Sample size", desc: "TU × CU/TU × pcs/CU × weight — defaults from product, overridable → Inspections.Sample*", once: true },
-  Photos: { label: "Module photos", desc: "camera, general photos of this module → InspectionPhoto.ModuleId", once: false },
+  Photos: { label: "Photos", desc: "a named photo block — call it e.g. “Label”, “Pallet”, “Defects close-up”; the name shows in the form and in the report. Add as many as you need.", once: false },
   Escalate: { label: "Ask the Head", desc: "pauses the inspection (Status=Draft) and sends a notification", once: true },
 };
 const isSystem = t => !!SYSTEM_TYPES[t];
+// A Photos block with its own name ("Label", "Pallet"…) is reported under that name; the generic default falls back to its module.
+const photoBlockLabel = (f, t) => { const l = (f.label || "").trim(); return l && !/^(module )?photos$/i.test(l) ? l : `Module photos: ${(t.modules.find(m => m.id === f.moduleId) || {}).name || ""}`; };
 // Basis conversion: a spec may be per piece or per CU; a field may measure per piece or per CU. Limits are converted through pieces-per-CU.
 const specBasis = q => q?.basis || "piece"; const fieldBasis = f => f?.measureBasis || "piece";
 const limitsFor = (spec, f, piecesPerCu) => { const mn = spec ? spec.min : f.min, mx = spec ? spec.max : f.max; if (!spec) return { min: mn, max: mx, factor: 1, note: "" }; const sb = specBasis(spec), fb = fieldBasis(f); if (sb === fb) return { min: mn, max: mx, factor: 1, note: "" }; const n = Number(piecesPerCu) || 0; if (!n) return { min: mn, max: mx, factor: 1, note: `spec is per ${sb}, you measure per ${fb} — pieces per CU unknown, comparing as is` }; const factor = sb === "piece" && fb === "cu" ? n : 1 / n; const cv = v => hasV(v) ? String(Math.round(Number(v) * factor * 1000) / 1000) : v; return { min: cv(mn), max: cv(mx), factor, note: `spec ${specLabel(spec)}/${sb} → ${specLabel({ min: cv(mn), max: cv(mx), unit: spec.unit })} per ${fb} (${n} pcs/CU)` }; };
@@ -453,7 +455,7 @@ async function buildReportPdf(insp, s) {
   }
   h2("Comment"); doc.setFontSize(9.5); doc.setTextColor(...INK); const lines = doc.splitTextToSize(insp.comment || "—", 178); doc.text(lines, L, y + 3); y += lines.length * 5 + 4;
   // photos
-  const groups = []; (t.fields || []).forEach(f => { const ph = asPhotoList((insp.photos || {})[f.id]); if (ph.length) groups.push({ label: f.type === "Photos" ? `Module: ${(t.modules.find(m => m.id === f.moduleId) || {}).name || ""}` : f.label, photos: ph }); }); (insp.remarks || []).forEach(r => { const ph = asPhotoList(r.photos); if (ph.length) groups.push({ label: `Problem: ${pathOf(problems, r.leafId)}`, photos: ph }); });
+  const groups = []; (t.fields || []).forEach(f => { const ph = asPhotoList((insp.photos || {})[f.id]); if (ph.length) groups.push({ label: f.type === "Photos" ? photoBlockLabel(f, t) : f.label, photos: ph }); }); (insp.remarks || []).forEach(r => { const ph = asPhotoList(r.photos); if (ph.length) groups.push({ label: `Problem: ${pathOf(problems, r.leafId)}`, photos: ph }); });
   if (groups.length) { h2("Photos"); for (const g of groups) { if (y > 240) { doc.addPage(); y = 16; } doc.setFontSize(8); doc.setTextColor(...MUTED); doc.text(g.label, L, y + 3); y += 5; let x = L; for (const ph of g.photos) { if (x + 40 > R) { x = L; y += 32; } if (y > 250) { doc.addPage(); y = 16; x = L; } try { doc.addImage(ph.dataUrl, "JPEG", x, y, 40, 30); } catch (e) {} x += 43; } y += 34; } }
   if ((insp.audit || []).length) { h2("Report history"); doc.autoTable({ ...tableBase, startY: y, body: insp.audit.map(a => [a.action, `${fmtTime(a.at)} · ${users[a.userId]?.name || ""}${users[a.userId]?.email ? ` (${users[a.userId].email})` : ""}${a.details ? ` — ${a.details}` : ""}`]), columnStyles: { 0: { cellWidth: 38, textColor: MUTED, fontStyle: "bold", fontSize: 8 } } }); }
   pageFooter();
@@ -1579,7 +1581,7 @@ function PrintReport({ insp, s, onClose }) {
   const ctrl = s.users.find(u => u.id === insp.controllerId)?.name;
   const fieldsAnswered = t ? t.fields.filter(f => !isSystem(f.type) && insp.values?.[f.id] !== undefined && insp.values?.[f.id] !== "").sort(bySort) : [];
   const valStr = (f, v) => f.type === "Number" ? (v?.measurements || []).filter(x => x !== "").join(" / ") : Array.isArray(v) ? v.join(", ") : String(v ?? "");
-  const photoGroups = []; if (t) { t.fields.forEach(f => { const ph = asPhotoList((insp.photos || {})[f.id]); if (ph.length) photoGroups.push({ label: f.type === "Photos" ? `Module: ${(t.modules.find(m => m.id === f.moduleId) || {}).name || ""}` : f.label, photos: ph }); }); (insp.remarks || []).forEach(r => { const ph = asPhotoList(r.photos); if (ph.length) photoGroups.push({ label: `Problem: ${pathOf(problems, r.leafId)}`, photos: ph }); }); }
+  const photoGroups = []; if (t) { t.fields.forEach(f => { const ph = asPhotoList((insp.photos || {})[f.id]); if (ph.length) photoGroups.push({ label: f.type === "Photos" ? photoBlockLabel(f, t) : f.label, photos: ph }); }); (insp.remarks || []).forEach(r => { const ph = asPhotoList(r.photos); if (ph.length) photoGroups.push({ label: `Problem: ${pathOf(problems, r.leafId)}`, photos: ph }); }); }
   useEffect(() => { const prev = document.title; document.title = `QC report — ${product?.name || ""} — ${(insp.completedAt || "").slice(0, 10)}`; return () => { document.title = prev; }; }, []);
   const resultColor = insp.result === "Accepted" ? "#1f7a45" : "#b23a3a";
   const resultIcon = settingsOf(s).resultIcons?.[insp.result];
@@ -1823,6 +1825,7 @@ function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset, onMessag
   const [supQ, setSupQ] = useState("");
   const [tab, setTab] = useState("profile"); const [newOpen, setNewOpen] = useState(false);
   const [refPick, setRefPick] = useState(null);
+  const [guideNew, setGuideNew] = useState(null);
   const [histResult, setHistResult] = useState("all"); const [histProblem, setHistProblem] = useState("");
   useEffect(() => { setTab("profile"); setRefPick(null); setHistResult("all"); setHistProblem(""); }, [sel]);
   const [varName, setVarName] = useState(""); const [varOpen, setVarOpen] = useState(false);
@@ -1876,7 +1879,7 @@ function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset, onMessag
   const histAll = product ? s.inspections.filter(i => i.productId === product.id && i.status === "Completed" && countsAs(s, i)) : [];
   const histVerdict = histAll.filter(i => isVerdictType(s, i));
   const histInfo = histAll.filter(i => !isVerdictType(s, i));
-  const tabs = product ? [["profile", "Profile"], ["photos", `Photos${asPhotoList(product.photos).length ? ` · ${asPhotoList(product.photos).length}` : ""}`], ["specs", `Specifications${effectiveSpecs(s, product).length ? ` · ${effectiveSpecs(s, product).length}` : ""}`], ["attrs", `Properties${effectiveAttributes(s, product).length ? ` · ${effectiveAttributes(s, product).length}` : ""}`], ["supply", `Suppliers${(product.supplierIds || []).length ? ` · ${(product.supplierIds || []).length}` : ""}`], ["reference", `Reference guide${refCount ? ` · ${refCount}` : ""}`], ["history", `Inspection history${histAll.length ? ` · ${histAll.length}` : ""}`], ["policy", "Inspection types"]] : [];
+  const tabs = product ? [["profile", "Profile"], ["photos", `Photos${asPhotoList(product.photos).length ? ` · ${asPhotoList(product.photos).length}` : ""}`], ["specs", `Specifications${effectiveSpecs(s, product).length ? ` · ${effectiveSpecs(s, product).length}` : ""}`], ["attrs", `Properties${effectiveAttributes(s, product).length ? ` · ${effectiveAttributes(s, product).length}` : ""}`], ["supply", `Suppliers${(product.supplierIds || []).length ? ` · ${(product.supplierIds || []).length}` : ""}`], ["reference", `Reference guide${refCount ? ` · ${refCount}` : ""}`], ["guide", `Encyclopedia${(product.guide || []).length ? ` · ${(product.guide || []).length}` : ""}`], ["history", `Inspection history${histAll.length ? ` · ${histAll.length}` : ""}`], ["policy", "Inspection types"]] : [];
   const missing = product ? [!product.articleId && "article ID", !product.barcodeCu && !product.barcodeTu && "barcode", !product.categoryId && "category", !asPhotoList(product.photos).length && "photo"].filter(Boolean) : [];
   return (
     <div>
@@ -2037,6 +2040,37 @@ function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset, onMessag
                           )}
                         </>
                       )}
+                    </div>
+                  );
+                })()}
+                {tab === "guide" && (() => {
+                  // Product encyclopedia: free-form knowledge about the product — what a good one looks like, packaging,
+                  // label, ripeness stages, typical faults — as named entries with text and photos. Controllers read it on
+                  // the phone (product profile). Edits go through set(x => …) on the product id so they replay safely.
+                  const entries = product.guide || [];
+                  const updGuide = fn => set(x => ({ ...x, products: x.products.map(q => q.id === product.id ? { ...q, guide: fn(q.guide || []) } : q) }));
+                  const addEntry = () => { const id = uid(); updGuide(g => [{ id, title: "", body: "", photos: [], createdAt: nowISO(), updatedAt: nowISO() }, ...g]); setGuideNew(id); };
+                  const patchEntry = (id, ch) => updGuide(g => g.map(e => e.id === id ? { ...e, ...ch, updatedAt: nowISO() } : e));
+                  const removeEntry = id => updGuide(g => g.filter(e => e.id !== id));
+                  const moveEntry = (id, dir) => updGuide(g => { const i = g.findIndex(e => e.id === id); const j = i + dir; if (i < 0 || j < 0 || j >= g.length) return g; const n = [...g]; [n[i], n[j]] = [n[j], n[i]]; return n; });
+                  return (
+                    <div style={{ maxWidth: 720 }}>
+                      <div className="flex items-center gap-3 mb-2 flex-wrap"><Primary small onClick={addEntry}><Ic i={Plus} s={13} />Add entry</Primary><span className="text-xs" style={{ color: C.muted }}>{entries.length === 0 ? "Nothing written yet." : `${entries.length} entr${entries.length === 1 ? "y" : "ies"} · ${entries.reduce((a, e) => a + asPhotoList(e.photos).length, 0)} photos`}</span></div>
+                      <p className="text-xs mb-4" style={{ color: C.muted }}>Everything a controller should know about this product: what a good one looks like, packaging and label, ripeness stages, storage, typical faults. Each entry has a name, a description and photos. Shown on the product profile in the phone app.</p>
+                      {entries.length === 0 && <Empty icon="📖" title="No encyclopedia entries" hint="Start with the basics — e.g. “What a good pallet looks like”, “Label and packaging”, “Ripeness”." />}
+                      {entries.map((e, ix) => (
+                        <div key={e.id} className="rounded-xl p-3 mb-3" style={{ border: `1px solid ${C.line}`, background: C.surface }}>
+                          <div className="flex items-center gap-2 mb-2">
+                            <FastInput autoFocus={guideNew === e.id} value={e.title || ""} onCommit={v => patchEntry(e.id, { title: v })} placeholder="Entry name — e.g. Label and packaging" className="flex-1 text-sm font-semibold" />
+                            <button onClick={() => moveEntry(e.id, -1)} disabled={ix === 0} className="text-xs px-1" style={{ color: C.muted }} title="up">↑</button>
+                            <button onClick={() => moveEntry(e.id, 1)} disabled={ix === entries.length - 1} className="text-xs px-1" style={{ color: C.muted }} title="down">↓</button>
+                            <button onClick={() => { if (!e.title && !e.body && !asPhotoList(e.photos).length || window.confirm(`Delete “${e.title || "this entry"}”?`)) removeEntry(e.id); }} className="text-xs px-1" style={{ color: C.muted }} title="delete">×</button>
+                          </div>
+                          <FastTextarea value={e.body || ""} onCommit={v => patchEntry(e.id, { body: v })} rows={3} placeholder="Description — what to look for, how to judge it, what is normal and what is not…" className="mb-2" style={{ resize: "vertical" }} />
+                          <PhotoStrip photos={e.photos} onAdd={got => patchEntry(e.id, { photos: [...asPhotoList(e.photos), ...got] })} onRemove={pid => patchEntry(e.id, { photos: asPhotoList(e.photos).filter(x => x.id !== pid) })} size={72} />
+                          {e.updatedAt && <p className="text-[10px] mt-2" style={{ color: C.muted }}>updated {new Date(e.updatedAt).toLocaleString("en-GB", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</p>}
+                        </div>
+                      ))}
                     </div>
                   );
                 })()}
@@ -2319,6 +2353,7 @@ function Builder({ eff, own, setOwn, problems, specs, specsHint, readOnly, s, sc
           {own && (
             <div className="flex gap-1.5 mt-1 items-center flex-wrap">
               <Ghost onClick={() => addField(m.id)}>+ field</Ghost>
+              <Ghost onClick={() => addSystem(m.id, "Photos")}><Ic i={Camera} s={12} mr={4} />+ photos block</Ghost>
               <select value="" onChange={e => addSystem(m.id, e.target.value)} className="text-xs rounded px-2 py-1.5 outline-none" style={{ ...inp, background: C.accentSoft, color: C.accent, border: "none" }}>
                 <option value="">+ system block…</option>
                 {Object.entries(SYSTEM_TYPES).filter(([k]) => !usedSystem.has(k)).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
@@ -2758,7 +2793,7 @@ function ReportView({ insp, s, onEdit, onAnswer, user, onMarkReference }) {
       {t && <ProblemOverview t={t} problems={problems} remarks={insp.remarks || []} totals={totals} />}
       {(insp.remarks || []).map(r => <div key={r.id} className="flex items-center gap-2 text-sm py-1" style={{ borderTop: `1px solid ${C.line}` }}><span className="flex-1">{pathOf(problems, r.leafId)}{r.auto && <span className="text-xs" style={{ color: C.muted }}> (from measurement)</span>}</span><span className="text-xs" style={{ color: C.muted }}>{r.mode === "Presence" ? "present" : `${r.raw} ${r.mode === "PieceCount" ? "pcs" : r.mode === "DirectWeight" ? "g" : "CU"}`}</span><span>{r.mode === "Presence" ? "⚡" : `${fmt(pct(r, totals))}%`}</span></div>)}
       {insp.comment && <div className="rounded-lg p-3 mt-3 text-sm" style={{ background: C.bg }}>{insp.comment}</div>}
-      {(() => { const groups = []; (t?.fields || []).forEach(f => { const ph = asPhotoList((insp.photos || {})[f.id]); if (ph.length) groups.push({ key: f.id, label: f.type === "Photos" ? `Module photos: ${(t.modules.find(m => m.id === f.moduleId) || {}).name || ""}` : f.label, photos: ph }); }); (insp.remarks || []).forEach(r => { const ph = asPhotoList(r.photos); if (ph.length) groups.push({ key: r.id, label: `Problem: ${pathOf(problems, r.leafId)}`, photos: ph }); }); return <div className="mt-4"><p className="label-sm mb-2">Photos</p>{groups.length ? groups.map(g => <div key={g.key} className="mb-2"><p className="text-xs mb-1" style={{ color: C.muted }}>{g.label}</p><PhotoStrip photos={g.photos} size={72} /></div>) : <p className="text-xs" style={{ color: C.muted }}>No photos in this inspection.</p>}</div>; })()}
+      {(() => { const groups = []; (t?.fields || []).forEach(f => { const ph = asPhotoList((insp.photos || {})[f.id]); if (ph.length) groups.push({ key: f.id, label: f.type === "Photos" ? photoBlockLabel(f, t) : f.label, photos: ph }); }); (insp.remarks || []).forEach(r => { const ph = asPhotoList(r.photos); if (ph.length) groups.push({ key: r.id, label: `Problem: ${pathOf(problems, r.leafId)}`, photos: ph }); }); return <div className="mt-4"><p className="label-sm mb-2">Photos</p>{groups.length ? groups.map(g => <div key={g.key} className="mb-2"><p className="text-xs mb-1" style={{ color: C.muted }}>{g.label}</p><PhotoStrip photos={g.photos} size={72} /></div>) : <p className="text-xs" style={{ color: C.muted }}>No photos in this inspection.</p>}</div>; })()}
       {(insp.audit || []).length > 0 && (
         <div className="mt-4">
           <p className="label-sm mb-1">Audit trail</p>
