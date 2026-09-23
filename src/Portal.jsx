@@ -198,6 +198,21 @@ const problemParentOptions = problems => { const out = []; const walk = parentId
 // know what a given remark actually looks like. Only leaf problem types get notes — those are what's reported against.
 const noteFor = (notes, problemId) => (notes || []).find(n => n.problemId === problemId);
 const hasNoteContent = n => !!(n && (n.description || "").trim() || asPhotoList(n?.photos).length);
+// Inheritance: notes and encyclopedia entries can live on a category too. A product sees its own first, then its
+// category, then the parent category; a sub-category sees its parent's. Nearest owner wins for notes (same problem).
+const inheritedNoteFor = (s, startCatId, problemId) => { let cat = s.categories.find(c => c.id === startCatId); while (cat) { const n = (s.problemNotes || []).find(x => x.categoryId === cat.id && x.problemId === problemId); if (hasNoteContent(n)) return { ...n, source: cat.name, inherited: true }; cat = cat.parentId ? s.categories.find(c => c.id === cat.parentId) : null; } return null; };
+const effectiveNotesFor = (s, product) => {
+  if (!product) return [];
+  const out = new Map();
+  (s.problemNotes || []).filter(n => n.productId === product.id && hasNoteContent(n)).forEach(n => out.set(n.problemId, { ...n, source: "product" }));
+  let cat = s.categories.find(c => c.id === product.categoryId);
+  while (cat) { const name = cat.name, cid = cat.id; (s.problemNotes || []).filter(n => n.categoryId === cid && hasNoteContent(n)).forEach(n => { if (!out.has(n.problemId)) out.set(n.problemId, { ...n, source: name, inherited: true }); }); cat = cat.parentId ? s.categories.find(c => c.id === cat.parentId) : null; }
+  return [...out.values()];
+};
+// Encyclopedia entries of the category chain, nearest first. A category can hide entries it inherits from its parent
+// (hiddenGuideIds) — those stay hidden for everything below it as well.
+const guideChainFor = (s, startCatId) => { const out = []; const hidden = new Set(); let cat = s.categories.find(c => c.id === startCatId); while (cat) { (cat.guide || []).forEach(e => { if (!hidden.has(e.id)) out.push({ ...e, source: cat.name, categoryId: cat.id, inherited: true }); }); (cat.hiddenGuideIds || []).forEach(id => hidden.add(id)); cat = cat.parentId ? s.categories.find(c => c.id === cat.parentId) : null; } return out; };
+const effectiveGuide = (s, product) => { if (!product) return []; const hidden = new Set(product.hiddenGuideIds || []); return [...(product.guide || []).map(e => ({ ...e, source: "product" })), ...guideChainFor(s, product.categoryId).filter(e => !hidden.has(e.id))]; };
 // Required inspection level: Full (raport) < Visual (visual is enough) < Skip (can be skipped). Product → category → system setting.
 // Inspection types are Head-defined (InspectionTypes). Behaviour comes from flags, not from the name.
 // No default inspection types: the Head defines them (Forms → + new type). Legacy ids below only keep old records readable.
@@ -1410,6 +1425,19 @@ function CategoriesPage({ s, set, onMessage, onOpenProduct, presetSel, clearPres
         </Card>
       )}
 
+      {cat && (
+        <Card style={{ marginTop: 16 }}>
+          <p className="font-medium text-sm mb-1 flex items-center"><Ic i={BookOpen} s={14} />Reference guide: {cat.name}</p>
+          <ReferenceGuideEditor s={s} set={set} kind="category" owner={cat} onOpenCategory={id => selectCat(id)} />
+        </Card>
+      )}
+      {cat && (
+        <Card style={{ marginTop: 16 }}>
+          <p className="font-medium text-sm mb-1 flex items-center"><Ic i={BookOpen} s={14} />Encyclopedia: {cat.name}</p>
+          <EncyclopediaEditor s={s} set={set} kind="category" owner={cat} onOpenCategory={id => selectCat(id)} />
+        </Card>
+      )}
+
       {/* Below: every category, browsable like the mobile catalog's category grid */}
       <p className="label-sm mt-5 mb-2">All categories</p>
       {s.categories.length === 0 ? <Card><Empty icon="📁" title="No categories" hint="Start with the main ones, e.g. Apples, Tomatoes. Add subcategories by choosing a parent." /></Card> : (
@@ -1819,17 +1847,250 @@ const FastTextarea = ({ value, onCommit, className = "", ...props }) => {
 };
 
 // ═══════════════════ STRONA: Products ═══════════════════
-function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset, onMessage, onOpenInspection }) {
+
+// ═══════════════════ Knowledge editors: Reference guide + Encyclopedia (shared by product and category pages) ═══════════════════
+// Both live on an owner (kind "product" | "category"). Inherited content is read-only where it's inherited — it's edited
+// on the category that owns it. A product overrides a note by writing its own; it hides an inherited encyclopedia entry
+// per entry. Same two-pane layout in both places: list on the left, one editor on the right.
+const ownerPatcher = (set, kind, id) => fn => set(x => kind === "product" ? { ...x, products: x.products.map(q => q.id === id ? fn(q) : q) } : { ...x, categories: x.categories.map(c => c.id === id ? fn(c) : c) });
+const InheritChip = ({ label }) => <span className="text-[10px] px-1.5 py-0.5 rounded-full whitespace-nowrap inline-flex items-center" style={{ background: C.accentSoft, color: C.accent }}><Ic i={FolderTree} s={10} mr={3} />{label}</span>;
+
+function ReferenceGuideEditor({ s, set, kind, owner, onOpenCategory }) {
+  const [pick, setPick] = useState(null); const [q, setQ] = useState(""); const [filter, setFilter] = useState("all"); const [showHidden, setShowHidden] = useState(false); const [showInh, setShowInh] = useState(false);
+  useEffect(() => { setPick(null); setQ(""); setFilter("all"); }, [owner.id]);
+  const isProduct = kind === "product";
+  const here = isProduct ? "this product" : "this category";
+  const startCat = isProduct ? owner.categoryId : owner.parentId;
+  const chain = categoryChainIds(s, isProduct ? owner.categoryId : owner.id);
+  const refProblems = problemsFor(s, isProduct ? { kind: "Product", id: owner.id } : { kind: "Category", id: owner.id });
+  const scopeRank = p => p.productId ? 0 : p.categoryId ? 1 : 2;
+  const leaves = refProblems.filter(p => isLeaf(refProblems, p.id)).sort((a, b) => scopeRank(a) - scopeRank(b) || problemPath(refProblems, a.id).localeCompare(problemPath(refProblems, b.id)));
+  const hiddenEntries = [];
+  chain.forEach(cid => { const cat = s.categories.find(c => c.id === cid); (cat?.hiddenProblemIds || []).forEach(id => { const node = s.problems.find(p => p.id === id); if (node && isLeaf(s.problems, node.id)) hiddenEntries.push({ node, holderType: "category", holderId: cid, holderName: cat.name }); }); });
+  if (isProduct) (owner.hiddenProblemIds || []).forEach(id => { const node = s.problems.find(p => p.id === id); if (node && isLeaf(s.problems, node.id)) hiddenEntries.push({ node, holderType: "product", holderId: owner.id, holderName: owner.name }); });
+  const unhideEntry = e => set(x => e.holderType === "category"
+    ? { ...x, categories: x.categories.map(c => c.id === e.holderId ? { ...c, hiddenProblemIds: (c.hiddenProblemIds || []).filter(id => id !== e.node.id) } : c) }
+    : { ...x, products: x.products.map(p => p.id === e.holderId ? { ...p, hiddenProblemIds: (p.hiddenProblemIds || []).filter(id => id !== e.node.id) } : p) });
+  const own = (s.problemNotes || []).filter(n => isProduct ? n.productId === owner.id : n.categoryId === owner.id);
+  const inheritedFor = problemId => inheritedNoteFor(s, startCat, problemId);
+  const patchNote = (problemId, patch) => set(x => {
+    const list = x.problemNotes || [];
+    const idx = list.findIndex(n => (isProduct ? n.productId === owner.id : n.categoryId === owner.id) && n.problemId === problemId);
+    if (idx === -1) return { ...x, problemNotes: [...list, { id: uid(), ...(isProduct ? { productId: owner.id } : { categoryId: owner.id }), problemId, description: "", photos: [], ...patch }] };
+    const next = [...list]; next[idx] = { ...next[idx], ...patch }; return { ...x, problemNotes: next };
+  });
+  const status = l => hasNoteContent(noteFor(own, l.id)) ? "own" : inheritedFor(l.id) ? "inherited" : "todo";
+  const doneCount = leaves.filter(l => status(l) !== "todo").length, ownCount = leaves.filter(l => status(l) === "own").length, inhCount = doneCount - ownCount;
+  const selId = pick && leaves.some(l => l.id === pick) ? pick : (leaves[0]?.id || null);
+  const selLeaf = leaves.find(l => l.id === selId); const selOwn = selLeaf ? noteFor(own, selLeaf.id) : null; const selInh = selLeaf ? inheritedFor(selLeaf.id) : null;
+  const qq = q.trim().toLowerCase();
+  const visible = leaves.filter(l => (!qq || problemPath(refProblems, l.id).toLowerCase().includes(qq)) && (filter === "all" || (filter === "todo" ? status(l) === "todo" : filter === "own" ? status(l) === "own" : status(l) === "inherited")));
+  const groups = []; visible.forEach(l => { const parent = l.parentId ? problemPath(refProblems, l.parentId) : "—"; let g = groups.find(x => x.key === parent); if (!g) { g = { key: parent, items: [] }; groups.push(g); } g.items.push(l); });
+  const idx = leaves.findIndex(l => l.id === selId); const prev = idx > 0 ? leaves[idx - 1] : null, next = idx >= 0 && idx < leaves.length - 1 ? leaves[idx + 1] : null;
+  const scopeChip = p => { const [bg, fg, l] = p.productId ? [C.okBg, C.ok, "this product"] : p.categoryId ? [C.accentSoft, C.accent, s.categories.find(c => c.id === p.categoryId)?.name || "category"] : [C.bg, C.muted, "global"]; return <span className="text-[10px] px-1.5 py-0.5 rounded-full whitespace-nowrap" style={{ background: bg, color: fg }}>{l}</span>; };
+  const pct = leaves.length ? Math.round(doneCount / leaves.length * 100) : 0;
+  const Dot = ({ st }) => <span className="inline-flex items-center justify-center rounded-full flex-shrink-0" style={{ width: 16, height: 16, background: st === "own" ? C.okBg : st === "inherited" ? C.accentSoft : C.bg, color: st === "own" ? C.ok : st === "inherited" ? C.accent : C.line, border: `1px solid ${st === "own" ? C.ok : st === "inherited" ? C.accent : C.line}` }}>{st === "own" ? <Check size={10} strokeWidth={3} /> : st === "inherited" ? <FolderTree size={9} strokeWidth={2.5} /> : null}</span>;
+  return (
+    <div style={{ maxWidth: 960 }}>
+      <div className="flex items-center gap-3 mb-3 flex-wrap">
+        <p className="text-xs" style={{ color: C.muted, maxWidth: 560 }}>{isProduct
+          ? <>What each problem looks like on <b>this product</b> — a short description and reference photos. Notes written on the category apply here automatically; write one here to override it for this product only.</>
+          : <>What each problem looks like for <b>every product in this category</b>{owner.parentId ? " (and notes inherited from the parent category)" : " and its sub-categories"}. Products inherit these notes and can override them one by one.</>}</p>
+        {leaves.length > 0 && <div className="ml-auto flex items-center gap-2 text-xs" style={{ color: C.muted }}><span>{doneCount} of {leaves.length} covered{inhCount ? ` · ${inhCount} inherited` : ""}</span><span className="inline-block rounded-full overflow-hidden" style={{ width: 90, height: 6, background: C.line }}><span className="block h-full" style={{ width: `${pct}%`, background: C.ok }} /></span></div>}
+      </div>
+      {leaves.length === 0 ? <Empty icon="📖" title={`No problem types apply to ${here} yet`} hint="Add or scope them in Problem types (global, this category, or this product) — they will show up here to describe." /> : (
+        <div className="flex gap-4 items-start">
+          <aside className="flex-shrink-0 rounded-xl overflow-hidden" style={{ width: 300, border: `1px solid ${C.line}`, background: C.surface }}>
+            <div className="p-2" style={{ borderBottom: `1px solid ${C.line}` }}>
+              <SearchBox value={q} onChange={setQ} placeholder="Search problem types" size={13} />
+              <div className="flex gap-1 mt-2 flex-wrap">{[["all", `All · ${leaves.length}`], ["todo", `To fill · ${leaves.length - doneCount}`], ["own", `Own · ${ownCount}`], ...(inhCount ? [["inherited", `Inherited · ${inhCount}`]] : [])].map(([k, l]) => <button key={k} onClick={() => setFilter(k)} className="text-[11px] px-2 py-1 rounded-full" style={{ background: filter === k ? C.ink : C.bg, color: filter === k ? C.onDark : C.muted }}>{l}</button>)}</div>
+            </div>
+            <div style={{ maxHeight: 520, overflowY: "auto" }}>
+              {groups.length === 0 && <p className="text-xs p-3" style={{ color: C.muted }}>Nothing matches.</p>}
+              {groups.map(g => (
+                <div key={g.key}>
+                  <p className="label-sm px-3 pt-2.5 pb-1" style={{ color: C.muted }}>{g.key}</p>
+                  {g.items.map(l => { const st = status(l); const n = st === "own" ? noteFor(own, l.id) : st === "inherited" ? inheritedFor(l.id) : null; const ph = asPhotoList(n?.photos).length; const on = l.id === selId; return (
+                    <button key={l.id} onClick={() => setPick(l.id)} className="w-full text-left px-3 py-2 flex items-center gap-2" style={{ background: on ? C.accentSoft : "transparent", borderLeft: `3px solid ${on ? C.accent : "transparent"}` }}>
+                      <Dot st={st} />
+                      <span className="flex-1 min-w-0"><span className="block text-sm truncate" style={{ fontWeight: on ? 600 : 450 }}>{l.name}</span>{(ph > 0 || st === "inherited") && <span className="block text-[10px] truncate" style={{ color: C.muted }}>{st === "inherited" && <>from {n.source}{ph > 0 ? " · " : ""}</>}{ph > 0 && <><Ic i={Camera} s={10} mr={3} />{ph} photo{ph === 1 ? "" : "s"}</>}</span>}</span>
+                      {scopeChip(l)}
+                    </button>); })}
+                </div>
+              ))}
+              {hiddenEntries.length > 0 && (
+                <div className="px-3 py-2.5" style={{ borderTop: `1px solid ${C.line}` }}>
+                  <button onClick={() => setShowHidden(v => !v)} className="text-[11px]" style={{ color: C.muted }}>{hiddenEntries.length} hidden for {here} {showHidden ? "▾" : "▸"}</button>
+                  {showHidden && <div className="mt-1.5 flex flex-col gap-1">{hiddenEntries.map(e => <div key={e.holderType + e.holderId + e.node.id} className="flex items-center gap-2 text-xs"><span className="flex-1 truncate" style={{ color: C.muted }}>{e.node.name} <span className="text-[10px]">· hidden on {e.holderType === "category" ? e.holderName : "this product"}</span></span><button onClick={() => unhideEntry(e)} className="text-[11px] px-1.5 py-0.5 rounded" style={{ border: `1px solid ${C.line}` }}>restore</button></div>)}</div>}
+                </div>
+              )}
+            </div>
+          </aside>
+          <div className="flex-1 min-w-0">
+            {selLeaf ? (
+              <div className="rounded-xl p-4" style={{ border: `1px solid ${C.line}`, background: C.surface }}>
+                <div className="flex items-start gap-3 mb-3">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[11px] mb-0.5 truncate" style={{ color: C.muted }}>{selLeaf.parentId ? problemPath(refProblems, selLeaf.parentId) : "Top level"}</p>
+                    <h3 className="text-lg font-semibold leading-tight">{selLeaf.name}</h3>
+                  </div>
+                  {scopeChip(selLeaf)}
+                </div>
+                {selInh && !hasNoteContent(selOwn) && (
+                  <div className="rounded-lg p-3 mb-4" style={{ background: C.accentSoft, border: `1px solid ${C.accent}` }}>
+                    <div className="flex items-center gap-2 mb-1.5"><InheritChip label={`inherited from ${selInh.source}`} /><span className="flex-1" />{onOpenCategory && <button onClick={() => onOpenCategory(selInh.categoryId)} className="text-[11px] underline" style={{ color: C.accent }}>edit on {selInh.source}</button>}</div>
+                    {selInh.description && <p className="text-sm whitespace-pre-wrap mb-2">{selInh.description}</p>}
+                    {asPhotoList(selInh.photos).length > 0 && <PhotoStrip photos={selInh.photos} size={72} />}
+                    <p className="text-[11px] mt-2" style={{ color: C.muted }}>Applies to {here} as long as nothing is written below.</p>
+                  </div>
+                )}
+                {selInh && hasNoteContent(selOwn) && <div className="flex items-center gap-2 mb-2 text-[11px]" style={{ color: C.muted }}><InheritChip label={`overrides ${selInh.source}`} /><button onClick={() => setShowInh(v => !v)} className="underline">{showInh ? "hide" : "show"} the category note</button></div>}
+                {selInh && hasNoteContent(selOwn) && showInh && <div className="rounded-lg p-3 mb-3 text-sm" style={{ background: C.bg, border: `1px solid ${C.line}` }}>{selInh.description && <p className="whitespace-pre-wrap mb-2">{selInh.description}</p>}{asPhotoList(selInh.photos).length > 0 && <PhotoStrip photos={selInh.photos} size={56} />}</div>}
+                <p className="label-sm mb-1" style={{ color: C.muted }}>{selInh && !hasNoteContent(selOwn) ? `Override for ${here} (optional)` : `How to recognise it on ${here}`}</p>
+                <FastTextarea key={selLeaf.id} value={selOwn?.description || ""} onCommit={v => patchNote(selLeaf.id, { description: v })} rows={5} placeholder="What it looks like, where it usually appears, how to tell it from something harmless, when it is serious enough to reject…" className="mb-4" style={{ resize: "vertical" }} />
+                <p className="label-sm mb-1" style={{ color: C.muted }}>Reference photos {asPhotoList(selOwn?.photos).length > 0 && `· ${asPhotoList(selOwn?.photos).length}`}</p>
+                <PhotoStrip photos={selOwn?.photos} onAdd={got => patchNote(selLeaf.id, { photos: [...asPhotoList(selOwn?.photos), ...got] })} onRemove={id => patchNote(selLeaf.id, { photos: asPhotoList(selOwn?.photos).filter(x => x.id !== id) })} size={96} />
+                <div className="flex items-center gap-2 mt-4 pt-3" style={{ borderTop: `1px solid ${C.line}` }}>
+                  <button onClick={() => prev && setPick(prev.id)} disabled={!prev} className="text-xs px-3 py-1.5 rounded-lg" style={{ border: `1px solid ${C.line}`, color: prev ? C.ink : C.line }}>← {prev ? prev.name : "previous"}</button>
+                  <button onClick={() => next && setPick(next.id)} disabled={!next} className="text-xs px-3 py-1.5 rounded-lg" style={{ border: `1px solid ${C.line}`, color: next ? C.ink : C.line }}>{next ? next.name : "next"} →</button>
+                  <span className="flex-1" />
+                  {hasNoteContent(selOwn) && <button onClick={() => { if (window.confirm(`Clear the description and photos for “${selLeaf.name}”${selInh ? ` — the note from ${selInh.source} will apply again` : ""}?`)) patchNote(selLeaf.id, { description: "", photos: [] }); }} className="text-xs" style={{ color: C.muted }}>Clear entry</button>}
+                </div>
+              </div>
+            ) : <Empty icon="👈" title="Pick a problem type" hint="Choose one on the left to describe it." />}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function EncyclopediaEditor({ s, set, kind, owner, onOpenCategory }) {
+  const [pick, setPick] = useState(null); const [q, setQ] = useState(""); const [fresh, setFresh] = useState(null); const [showHidden, setShowHidden] = useState(false);
+  useEffect(() => { setPick(null); setQ(""); }, [owner.id]);
+  const isProduct = kind === "product";
+  const here = isProduct ? "this product" : "this category";
+  const patchOwner = ownerPatcher(set, kind, owner.id);
+  const entries = owner.guide || [];
+  const updGuide = fn => patchOwner(o => ({ ...o, guide: fn(o.guide || []) }));
+  const addEntry = (title = "") => { const id = uid(); updGuide(g => [...g, { id, title, body: "", photos: [], createdAt: nowISO(), updatedAt: nowISO() }]); setPick(id); setFresh(id); setQ(""); };
+  const patchEntry = (id, ch) => updGuide(g => g.map(e => e.id === id ? { ...e, ...ch, updatedAt: nowISO() } : e));
+  const removeEntry = id => { const i = entries.findIndex(e => e.id === id); updGuide(g => g.filter(e => e.id !== id)); const rest = entries.filter(e => e.id !== id); setPick(rest[Math.min(i, rest.length - 1)]?.id || null); };
+  const moveEntry = (id, dir) => updGuide(g => { const i = g.findIndex(e => e.id === id); const j = i + dir; if (i < 0 || j < 0 || j >= g.length) return g; const n = [...g]; [n[i], n[j]] = [n[j], n[i]]; return n; });
+  const hiddenIds = new Set(owner.hiddenGuideIds || []);
+  const setHidden = (id, on) => patchOwner(o => ({ ...o, hiddenGuideIds: on ? [...new Set([...(o.hiddenGuideIds || []), id])] : (o.hiddenGuideIds || []).filter(x => x !== id) }));
+  const inheritedAll = guideChainFor(s, isProduct ? owner.categoryId : owner.parentId);
+  const inherited = inheritedAll.filter(e => !hiddenIds.has(e.id)), hiddenList = inheritedAll.filter(e => hiddenIds.has(e.id));
+  const hasContent = e => !!((e.title || "").trim() || (e.body || "").trim() || asPhotoList(e.photos).length);
+  const photoTotal = [...entries, ...inherited].reduce((a, e) => a + asPhotoList(e.photos).length, 0);
+  const all = [...entries, ...inherited];
+  const selId = pick && all.some(e => e.id === pick) ? pick : (all[0]?.id || null);
+  const sel = entries.find(e => e.id === selId); const selInh = inherited.find(e => e.id === selId);
+  const qq = q.trim().toLowerCase(); const match = e => !qq || `${e.title || ""} ${e.body || ""}`.toLowerCase().includes(qq);
+  const visible = entries.filter(match), visibleInh = inherited.filter(match);
+  const idx = entries.findIndex(e => e.id === selId); const prev = idx > 0 ? entries[idx - 1] : null, next = idx >= 0 && idx < entries.length - 1 ? entries[idx + 1] : null;
+  const STARTERS = ["What a good pallet looks like", "Label and packaging", "Ripeness stages", "Storage and temperature", "Typical faults", "Calibre and sizing"];
+  const starters = STARTERS.filter(t => !all.some(e => (e.title || "").trim().toLowerCase() === t.toLowerCase()));
+  const snippet = e => (e.body || "").replace(/\s+/g, " ").trim().slice(0, 70);
+  const Row = ({ e, n, inh }) => { const ph = asPhotoList(e.photos).length; const on = e.id === selId; return (
+    <button onClick={() => setPick(e.id)} className="w-full text-left px-3 py-2 flex items-start gap-2" style={{ background: on ? C.accentSoft : "transparent", borderLeft: `3px solid ${on ? C.accent : "transparent"}`, borderBottom: `1px solid ${C.line}` }}>
+      <span className="text-[10px] mt-0.5 flex-shrink-0 inline-flex items-center justify-center rounded-md" style={{ width: 18, height: 18, background: inh ? C.accentSoft : hasContent(e) ? C.bg : C.warnBg, color: inh ? C.accent : hasContent(e) ? C.muted : C.warn, fontVariantNumeric: "tabular-nums" }}>{inh ? <FolderTree size={10} /> : n}</span>
+      <span className="flex-1 min-w-0">
+        <span className="block text-sm truncate" style={{ fontWeight: on ? 600 : 450, color: e.title ? C.ink : C.muted, fontStyle: e.title ? "normal" : "italic" }}>{e.title || "Untitled entry"}</span>
+        {(snippet(e) || ph > 0 || inh) && <span className="block text-[11px] truncate" style={{ color: C.muted }}>{inh && <>from {e.source}{ph > 0 || snippet(e) ? " · " : ""}</>}{ph > 0 && <><Ic i={Camera} s={10} mr={3} />{ph}{snippet(e) ? " · " : ""}</>}{snippet(e)}</span>}
+      </span>
+    </button>); };
+  return (
+    <div style={{ maxWidth: 960 }}>
+      <div className="flex items-center gap-3 mb-3 flex-wrap">
+        <p className="text-xs" style={{ color: C.muted, maxWidth: 560 }}>{isProduct
+          ? <>Everything a controller should know about <b>this product</b> — what a good one looks like, packaging and label, ripeness, storage, typical faults. Entries written on the category show here too; hide the ones that don't apply.</>
+          : <>Knowledge shared by <b>every product in this category</b>{owner.parentId ? "" : " and its sub-categories"} — write what is true for all of them once, here. Each product adds its own entries on top and can hide single inherited ones.</>}</p>
+        {all.length > 0 && <span className="ml-auto text-xs" style={{ color: C.muted }}>{entries.length} own{inherited.length ? ` · ${inherited.length} inherited` : ""} · {photoTotal} photo{photoTotal === 1 ? "" : "s"}</span>}
+      </div>
+      {all.length === 0 ? (
+        <div className="rounded-xl p-5" style={{ border: `1px solid ${C.line}`, background: C.surface }}>
+          <Empty icon="📖" title="No encyclopedia entries yet" hint="Start with one of the usual topics or write your own." />
+          <div className="flex gap-1.5 flex-wrap justify-center mt-2">{starters.map(t => <button key={t} onClick={() => addEntry(t)} className="text-xs px-2.5 py-1.5 rounded-full" style={{ background: C.accentSoft, color: C.accent }}><Ic i={Plus} s={11} mr={3} />{t}</button>)}<button onClick={() => addEntry("")} className="text-xs px-2.5 py-1.5 rounded-full" style={{ background: C.ink, color: C.onDark }}><Ic i={Plus} s={11} mr={3} />Own entry</button></div>
+        </div>
+      ) : (
+        <div className="flex gap-4 items-start">
+          <aside className="flex-shrink-0 rounded-xl overflow-hidden" style={{ width: 300, border: `1px solid ${C.line}`, background: C.surface }}>
+            <div className="p-2" style={{ borderBottom: `1px solid ${C.line}` }}>
+              <div className="flex gap-2"><div className="flex-1 min-w-0"><SearchBox value={q} onChange={setQ} placeholder="Search entries" size={13} /></div><Primary small onClick={() => addEntry("")}><Ic i={Plus} s={13} />Add</Primary></div>
+            </div>
+            <div style={{ maxHeight: 520, overflowY: "auto" }}>
+              {visible.length === 0 && visibleInh.length === 0 && <p className="text-xs p-3" style={{ color: C.muted }}>Nothing matches.</p>}
+              {visible.length > 0 && inherited.length > 0 && <p className="label-sm px-3 pt-2.5 pb-1" style={{ color: C.muted }}>Own · {here}</p>}
+              {visible.map(e => <Row key={e.id} e={e} n={entries.indexOf(e) + 1} />)}
+              {visible.length === 0 && entries.length === 0 && !qq && <p className="text-xs px-3 py-2.5" style={{ color: C.muted }}>Nothing written for {here} yet — everything below is inherited.</p>}
+              {visibleInh.length > 0 && <p className="label-sm px-3 pt-2.5 pb-1" style={{ color: C.muted }}>Inherited from categories</p>}
+              {visibleInh.map(e => <Row key={e.id} e={e} inh />)}
+              {hiddenList.length > 0 && !qq && (
+                <div className="px-3 py-2.5" style={{ borderTop: `1px solid ${C.line}` }}>
+                  <button onClick={() => setShowHidden(v => !v)} className="text-[11px]" style={{ color: C.muted }}>{hiddenList.length} inherited entr{hiddenList.length === 1 ? "y" : "ies"} hidden for {here} {showHidden ? "▾" : "▸"}</button>
+                  {showHidden && <div className="mt-1.5 flex flex-col gap-1">{hiddenList.map(e => <div key={e.id} className="flex items-center gap-2 text-xs"><span className="flex-1 truncate" style={{ color: C.muted }}>{e.title || "Untitled"} <span className="text-[10px]">· from {e.source}</span></span><button onClick={() => setHidden(e.id, false)} className="text-[11px] px-1.5 py-0.5 rounded" style={{ border: `1px solid ${C.line}` }}>restore</button></div>)}</div>}
+                </div>
+              )}
+              {starters.length > 0 && !qq && (
+                <div className="px-3 py-2.5" style={{ borderTop: `1px solid ${C.line}` }}>
+                  <p className="label-sm mb-1.5" style={{ color: C.muted }}>Suggested topics</p>
+                  <div className="flex gap-1 flex-wrap">{starters.map(t => <button key={t} onClick={() => addEntry(t)} className="text-[11px] px-2 py-0.5 rounded-full" style={{ background: C.bg, color: C.muted, border: `1px solid ${C.line}` }}>+ {t}</button>)}</div>
+                </div>
+              )}
+            </div>
+          </aside>
+          <div className="flex-1 min-w-0">
+            {sel ? (
+              <div className="rounded-xl p-4" style={{ border: `1px solid ${C.line}`, background: C.surface }}>
+                <div className="flex items-center gap-3 mb-3">
+                  <p className="text-[11px]" style={{ color: C.muted }}>Entry {idx + 1} of {entries.length} · {here}</p>
+                  <span className="flex-1" />
+                  <button onClick={() => moveEntry(sel.id, -1)} disabled={!prev} className="text-xs px-2 py-1 rounded-lg" style={{ border: `1px solid ${C.line}`, color: prev ? C.ink : C.line }} title="Move up in the list">↑ up</button>
+                  <button onClick={() => moveEntry(sel.id, 1)} disabled={!next} className="text-xs px-2 py-1 rounded-lg" style={{ border: `1px solid ${C.line}`, color: next ? C.ink : C.line }} title="Move down in the list">↓ down</button>
+                </div>
+                <p className="label-sm mb-1" style={{ color: C.muted }}>Entry name</p>
+                <FastInput key={sel.id + ":t"} autoFocus={fresh === sel.id} value={sel.title || ""} onCommit={v => patchEntry(sel.id, { title: v })} placeholder="e.g. Label and packaging" className="mb-3 text-base font-semibold" style={{ height: 38 }} />
+                <p className="label-sm mb-1" style={{ color: C.muted }}>Description</p>
+                <FastTextarea key={sel.id + ":b"} value={sel.body || ""} onCommit={v => patchEntry(sel.id, { body: v })} rows={7} placeholder="What to look for, how to judge it, what is normal and what is not…" className="mb-4" style={{ resize: "vertical" }} />
+                <p className="label-sm mb-1" style={{ color: C.muted }}>Photos {asPhotoList(sel.photos).length > 0 && `· ${asPhotoList(sel.photos).length}`}</p>
+                <PhotoStrip photos={sel.photos} onAdd={got => patchEntry(sel.id, { photos: [...asPhotoList(sel.photos), ...got] })} onRemove={pid => patchEntry(sel.id, { photos: asPhotoList(sel.photos).filter(x => x.id !== pid) })} size={96} />
+                <div className="flex items-center gap-2 mt-4 pt-3" style={{ borderTop: `1px solid ${C.line}` }}>
+                  <button onClick={() => prev && setPick(prev.id)} disabled={!prev} className="text-xs px-3 py-1.5 rounded-lg truncate" style={{ border: `1px solid ${C.line}`, color: prev ? C.ink : C.line, maxWidth: 200 }}>← {prev ? (prev.title || "Untitled") : "previous"}</button>
+                  <button onClick={() => next && setPick(next.id)} disabled={!next} className="text-xs px-3 py-1.5 rounded-lg truncate" style={{ border: `1px solid ${C.line}`, color: next ? C.ink : C.line, maxWidth: 200 }}>{next ? (next.title || "Untitled") : "next"} →</button>
+                  <span className="flex-1" />
+                  {sel.updatedAt && <span className="text-[10px]" style={{ color: C.muted }}>updated {fmtTime(sel.updatedAt)}</span>}
+                  <button onClick={() => { if (!hasContent(sel) || window.confirm(`Delete “${sel.title || "this entry"}”?`)) removeEntry(sel.id); }} className="text-xs" style={{ color: C.bad }}>Delete entry</button>
+                </div>
+              </div>
+            ) : selInh ? (
+              <div className="rounded-xl p-4" style={{ border: `1px solid ${C.line}`, background: C.surface }}>
+                <div className="flex items-center gap-2 mb-3"><InheritChip label={`inherited from ${selInh.source}`} /><span className="flex-1" />{onOpenCategory && <button onClick={() => onOpenCategory(selInh.categoryId)} className="text-xs px-3 py-1.5 rounded-lg" style={{ border: `1px solid ${C.line}` }}><Ic i={Pencil} s={12} />Edit on {selInh.source}</button>}</div>
+                <h3 className="text-lg font-semibold leading-tight mb-2">{selInh.title || "Untitled entry"}</h3>
+                {selInh.body && <p className="text-sm whitespace-pre-wrap mb-3">{selInh.body}</p>}
+                {asPhotoList(selInh.photos).length > 0 && <PhotoStrip photos={selInh.photos} size={96} />}
+                <div className="flex items-center gap-2 mt-4 pt-3" style={{ borderTop: `1px solid ${C.line}` }}>
+                  <span className="text-[11px]" style={{ color: C.muted }}>Read-only here — it belongs to the category and shows on every product in it.</span>
+                  <span className="flex-1" />
+                  <button onClick={() => setHidden(selInh.id, true)} className="text-xs" style={{ color: C.muted }}>Hide for {here}</button>
+                </div>
+              </div>
+            ) : <Empty icon="👈" title="Pick an entry" hint="Choose one on the left to edit it." />}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset, onMessage, onOpenInspection, onOpenCategory }) {
   const [d, setD] = useState({ name: "", articleId: "", categoryId: "", isBio: false, cusPerTu: "", piecesPerCu: "", weightPerCu: "" });
   const [filter, setFilter] = useState(""); const [importOpen, setImportOpen] = useState(false); const [importText, setImportText] = useState(""); const [importMsg, setImportMsg] = useState("");
   useEffect(() => { if (presetFilter) { setFilter(presetFilter); clearPreset && clearPreset(); } }, [presetFilter]);
   const [supQ, setSupQ] = useState("");
   const [tab, setTab] = useState("profile"); const [newOpen, setNewOpen] = useState(false);
-  const [refPick, setRefPick] = useState(null);
-  const [guideNew, setGuideNew] = useState(null); const [guidePick, setGuidePick] = useState(null); const [guideQ, setGuideQ] = useState("");
-  const [refQ, setRefQ] = useState(""); const [refFilter, setRefFilter] = useState("all"); const [refShowHidden, setRefShowHidden] = useState(false);
   const [histResult, setHistResult] = useState("all"); const [histProblem, setHistProblem] = useState("");
-  useEffect(() => { setTab("profile"); setRefPick(null); setHistResult("all"); setHistProblem(""); }, [sel]);
+  useEffect(() => { setTab("profile"); setHistResult("all"); setHistProblem(""); }, [sel]);
   const [varName, setVarName] = useState(""); const [varOpen, setVarOpen] = useState(false);
   const product = s.products.find(p => p.id === sel);
   const catPath = id => { const c = s.categories.find(x => x.id === id); if (!c) return "—"; const p = c.parentId && s.categories.find(x => x.id === c.parentId); return p ? `${p.name} › ${c.name}` : c.name; };
@@ -1877,11 +2138,11 @@ function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset, onMessag
   const allSup = s.suppliers || [];
   const visibleSup = allSup.filter(x => x.name.toLowerCase().includes(supQ.toLowerCase()));
   const thumb = pr => { const ph = asPhotoList(pr.photos)[0]; return ph ? <img src={ph.dataUrl} alt="" className="rounded-md object-cover flex-shrink-0" style={{ width: 30, height: 30 }} /> : <span className="rounded-md flex items-center justify-center flex-shrink-0" style={{ width: 30, height: 30, background: C.bg, color: C.muted }}><Ic i={Package} s={14} mr={0} /></span>; };
-  const refCount = product ? (s.problemNotes || []).filter(n => n.productId === product.id && hasNoteContent(n)).length : 0;
+  const refCount = product ? effectiveNotesFor(s, product).length : 0;
   const histAll = product ? s.inspections.filter(i => i.productId === product.id && i.status === "Completed" && countsAs(s, i)) : [];
   const histVerdict = histAll.filter(i => isVerdictType(s, i));
   const histInfo = histAll.filter(i => !isVerdictType(s, i));
-  const tabs = product ? [["profile", "Profile"], ["photos", `Photos${asPhotoList(product.photos).length ? ` · ${asPhotoList(product.photos).length}` : ""}`], ["specs", `Specifications${effectiveSpecs(s, product).length ? ` · ${effectiveSpecs(s, product).length}` : ""}`], ["attrs", `Properties${effectiveAttributes(s, product).length ? ` · ${effectiveAttributes(s, product).length}` : ""}`], ["supply", `Suppliers${(product.supplierIds || []).length ? ` · ${(product.supplierIds || []).length}` : ""}`], ["reference", `Reference guide${refCount ? ` · ${refCount}` : ""}`], ["guide", `Encyclopedia${(product.guide || []).length ? ` · ${(product.guide || []).length}` : ""}`], ["history", `Inspection history${histAll.length ? ` · ${histAll.length}` : ""}`], ["policy", "Inspection types"]] : [];
+  const tabs = product ? [["profile", "Profile"], ["photos", `Photos${asPhotoList(product.photos).length ? ` · ${asPhotoList(product.photos).length}` : ""}`], ["specs", `Specifications${effectiveSpecs(s, product).length ? ` · ${effectiveSpecs(s, product).length}` : ""}`], ["attrs", `Properties${effectiveAttributes(s, product).length ? ` · ${effectiveAttributes(s, product).length}` : ""}`], ["supply", `Suppliers${(product.supplierIds || []).length ? ` · ${(product.supplierIds || []).length}` : ""}`], ["reference", `Reference guide${refCount ? ` · ${refCount}` : ""}`], ["guide", `Encyclopedia${effectiveGuide(s, product).length ? ` · ${effectiveGuide(s, product).length}` : ""}`], ["history", `Inspection history${histAll.length ? ` · ${histAll.length}` : ""}`], ["policy", "Inspection types"]] : [];
   const missing = product ? [!product.articleId && "article ID", !product.barcodeCu && !product.barcodeTu && "barcode", !product.categoryId && "category", !asPhotoList(product.photos).length && "photo"].filter(Boolean) : [];
   return (
     <div>
@@ -1993,191 +2254,8 @@ function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset, onMessag
                     {effectiveVarieties(s, product).filter(v => v.source !== "product").length > 0 && <><p className="label-sm mt-3 mb-1" style={{ color: C.muted }}>inherited</p>{effectiveVarieties(s, product).filter(v => v.source !== "product").map(v => <div key={v.id} className="text-sm py-1.5" style={{ borderTop: `1px solid ${C.line}`, opacity: .65 }}>{v.name} <span className="text-xs" style={{ color: C.muted }}>· {v.source}</span></div>)}</>}
                   </div>
                 </div>}
-                {tab === "reference" && (() => {
-                  // Scoped-to-this-product and scoped-to-its-category remarks are what the Head actually came here for —
-                  // put them first, ahead of the (often much longer) global catalog, so they aren't buried in a wall of cards.
-                  const chain = categoryChainIds(s, product.categoryId);
-                  const refProblems = problemsFor(s, { kind: "Product", id: product.id });
-                  const scopeRank = p => p.productId ? 0 : p.categoryId ? 1 : 2;
-                  const scopeLabel = p => p.productId ? "this product" : p.categoryId ? `category: ${s.categories.find(c => c.id === p.categoryId)?.name || "?"}` : "global";
-                  const leaves = refProblems.filter(p => isLeaf(refProblems, p.id))
-                    .sort((a, b) => scopeRank(a) - scopeRank(b) || problemPath(refProblems, a.id).localeCompare(problemPath(refProblems, b.id)));
-                  const counts = leaves.reduce((acc, p) => { const k = p.productId ? "product" : p.categoryId ? "category" : "global"; acc[k]++; return acc; }, { product: 0, category: 0, global: 0 });
-                  // Anything hidden for this product OR anywhere in its category chain never reaches problemsFor at all (same
-                  // rule that hides it from controllers during a real inspection) — surface it here so "it's missing" is never
-                  // a mystery: it's either not scoped to this product/category, or it was explicitly hidden and can be restored.
-                  const hiddenEntries = [];
-                  chain.forEach(cid => { const cat = s.categories.find(c => c.id === cid); (cat?.hiddenProblemIds || []).forEach(id => { const node = s.problems.find(p => p.id === id); if (node && isLeaf(s.problems, node.id)) hiddenEntries.push({ node, holderType: "category", holderId: cid, holderName: cat.name }); }); });
-                  (product.hiddenProblemIds || []).forEach(id => { const node = s.problems.find(p => p.id === id); if (node && isLeaf(s.problems, node.id)) hiddenEntries.push({ node, holderType: "product", holderId: product.id, holderName: product.name }); });
-                  const unhideEntry = e => set(x => e.holderType === "category"
-                    ? { ...x, categories: x.categories.map(c => c.id === e.holderId ? { ...c, hiddenProblemIds: (c.hiddenProblemIds || []).filter(id => id !== e.node.id) } : c) }
-                    : { ...x, products: x.products.map(p => p.id === e.holderId ? { ...p, hiddenProblemIds: (p.hiddenProblemIds || []).filter(id => id !== e.node.id) } : p) });
-                  const notes = (s.problemNotes || []).filter(n => n.productId === product.id);
-                  const patchNote = (problemId, patch) => set(x => {
-                    const list = x.problemNotes || [];
-                    const idx = list.findIndex(n => n.productId === product.id && n.problemId === problemId);
-                    if (idx === -1) return { ...x, problemNotes: [...list, { id: uid(), productId: product.id, problemId, description: "", photos: [], ...patch }] };
-                    const next = [...list]; next[idx] = { ...next[idx], ...patch }; return { ...x, problemNotes: next };
-                  });
-                  const doneCount = leaves.filter(l => hasNoteContent(noteFor(notes, l.id))).length;
-                  const selId = refPick && leaves.some(l => l.id === refPick) ? refPick : (leaves[0]?.id || null);
-                  const selLeaf = leaves.find(l => l.id === selId);
-                  const selNote = selLeaf ? noteFor(notes, selLeaf.id) : null;
-                  const q = refQ.trim().toLowerCase();
-                  const visible = leaves.filter(l => (!q || problemPath(refProblems, l.id).toLowerCase().includes(q)) && (refFilter === "all" || (refFilter === "done") === hasNoteContent(noteFor(notes, l.id))));
-                  // Group the list by parent branch so 30 leaves read as a few short lists, not one long one.
-                  const groups = []; visible.forEach(l => { const parent = l.parentId ? problemPath(refProblems, l.parentId) : "—"; let g = groups.find(x => x.key === parent); if (!g) { g = { key: parent, items: [] }; groups.push(g); } g.items.push(l); });
-                  const idx = leaves.findIndex(l => l.id === selId); const prev = idx > 0 ? leaves[idx - 1] : null, next = idx >= 0 && idx < leaves.length - 1 ? leaves[idx + 1] : null;
-                  const scopeChip = p => { const [bg, fg, l] = p.productId ? [C.okBg, C.ok, "this product"] : p.categoryId ? [C.accentSoft, C.accent, s.categories.find(c => c.id === p.categoryId)?.name || "category"] : [C.bg, C.muted, "global"]; return <span className="text-[10px] px-1.5 py-0.5 rounded-full whitespace-nowrap" style={{ background: bg, color: fg }}>{l}</span>; };
-                  const pct = leaves.length ? Math.round(doneCount / leaves.length * 100) : 0;
-                  return (
-                    <div style={{ maxWidth: 960 }}>
-                      <div className="flex items-center gap-3 mb-3 flex-wrap">
-                        <p className="text-xs" style={{ color: C.muted, maxWidth: 560 }}>What each problem looks like on <b>this product</b> — a short description and reference photos. Controllers see it during the inspection and on the phone's product profile.</p>
-                        {leaves.length > 0 && <div className="ml-auto flex items-center gap-2 text-xs" style={{ color: C.muted }}><span>{doneCount} of {leaves.length} filled in</span><span className="inline-block rounded-full overflow-hidden" style={{ width: 90, height: 6, background: C.line }}><span className="block h-full" style={{ width: `${pct}%`, background: C.ok }} /></span></div>}
-                      </div>
-                      {leaves.length === 0 ? <Empty icon="📖" title="No problem types apply to this product yet" hint="Add or scope them in Problem types (global, this category, or this product) — they will show up here to describe." /> : (
-                        <div className="flex gap-4 items-start">
-                          <aside className="flex-shrink-0 rounded-xl overflow-hidden" style={{ width: 300, border: `1px solid ${C.line}`, background: C.surface }}>
-                            <div className="p-2" style={{ borderBottom: `1px solid ${C.line}` }}>
-                              <SearchBox value={refQ} onChange={setRefQ} placeholder="Search problem types" size={13} />
-                              <div className="flex gap-1 mt-2">{[["all", `All · ${leaves.length}`], ["todo", `To fill · ${leaves.length - doneCount}`], ["done", `Filled · ${doneCount}`]].map(([k, l]) => <button key={k} onClick={() => setRefFilter(k)} className="text-[11px] px-2 py-1 rounded-full" style={{ background: refFilter === k ? C.ink : C.bg, color: refFilter === k ? C.onDark : C.muted }}>{l}</button>)}</div>
-                            </div>
-                            <div style={{ maxHeight: 520, overflowY: "auto" }}>
-                              {groups.length === 0 && <p className="text-xs p-3" style={{ color: C.muted }}>Nothing matches.</p>}
-                              {groups.map(g => (
-                                <div key={g.key}>
-                                  <p className="label-sm px-3 pt-2.5 pb-1" style={{ color: C.muted }}>{g.key}</p>
-                                  {g.items.map(l => { const n = noteFor(notes, l.id); const done = hasNoteContent(n); const ph = asPhotoList(n?.photos).length; const on = l.id === selId; return (
-                                    <button key={l.id} onClick={() => setRefPick(l.id)} className="w-full text-left px-3 py-2 flex items-center gap-2" style={{ background: on ? C.accentSoft : "transparent", borderLeft: `3px solid ${on ? C.accent : "transparent"}` }}>
-                                      <span className="inline-flex items-center justify-center rounded-full flex-shrink-0" style={{ width: 16, height: 16, background: done ? C.okBg : C.bg, color: done ? C.ok : C.line, border: `1px solid ${done ? C.ok : C.line}` }}>{done && <Check size={10} strokeWidth={3} />}</span>
-                                      <span className="flex-1 min-w-0"><span className="block text-sm truncate" style={{ fontWeight: on ? 600 : 450 }}>{l.name}</span>{ph > 0 && <span className="block text-[10px]" style={{ color: C.muted }}><Ic i={Camera} s={10} mr={3} />{ph} photo{ph === 1 ? "" : "s"}</span>}</span>
-                                      {scopeChip(l)}
-                                    </button>); })}
-                                </div>
-                              ))}
-                              {hiddenEntries.length > 0 && (
-                                <div className="px-3 py-2.5" style={{ borderTop: `1px solid ${C.line}` }}>
-                                  <button onClick={() => setRefShowHidden(v => !v)} className="text-[11px]" style={{ color: C.muted }}>{hiddenEntries.length} hidden for this product {refShowHidden ? "▾" : "▸"}</button>
-                                  {refShowHidden && <div className="mt-1.5 flex flex-col gap-1">{hiddenEntries.map(e => <div key={e.holderType + e.holderId + e.node.id} className="flex items-center gap-2 text-xs"><span className="flex-1 truncate" style={{ color: C.muted }}>{e.node.name} <span className="text-[10px]">· hidden on {e.holderType === "category" ? e.holderName : "this product"}</span></span><button onClick={() => unhideEntry(e)} className="text-[11px] px-1.5 py-0.5 rounded" style={{ border: `1px solid ${C.line}` }}>restore</button></div>)}</div>}
-                                </div>
-                              )}
-                            </div>
-                          </aside>
-                          <div className="flex-1 min-w-0">
-                            {selLeaf ? (
-                              <div className="rounded-xl p-4" style={{ border: `1px solid ${C.line}`, background: C.surface }}>
-                                <div className="flex items-start gap-3 mb-3">
-                                  <div className="flex-1 min-w-0">
-                                    <p className="text-[11px] mb-0.5 truncate" style={{ color: C.muted }}>{selLeaf.parentId ? problemPath(refProblems, selLeaf.parentId) : "Top level"}</p>
-                                    <h3 className="text-lg font-semibold leading-tight">{selLeaf.name}</h3>
-                                  </div>
-                                  {scopeChip(selLeaf)}
-                                </div>
-                                <p className="label-sm mb-1" style={{ color: C.muted }}>How to recognise it on this product</p>
-                                <FastTextarea key={selLeaf.id} value={selNote?.description || ""} onCommit={v => patchNote(selLeaf.id, { description: v })} rows={5} placeholder="What it looks like, where it usually appears, how to tell it from something harmless, when it is serious enough to reject…" className="mb-4" style={{ resize: "vertical" }} />
-                                <p className="label-sm mb-1" style={{ color: C.muted }}>Reference photos {asPhotoList(selNote?.photos).length > 0 && `· ${asPhotoList(selNote?.photos).length}`}</p>
-                                <PhotoStrip photos={selNote?.photos} onAdd={got => patchNote(selLeaf.id, { photos: [...asPhotoList(selNote?.photos), ...got] })} onRemove={id => patchNote(selLeaf.id, { photos: asPhotoList(selNote?.photos).filter(x => x.id !== id) })} size={96} />
-                                <div className="flex items-center gap-2 mt-4 pt-3" style={{ borderTop: `1px solid ${C.line}` }}>
-                                  <button onClick={() => prev && setRefPick(prev.id)} disabled={!prev} className="text-xs px-3 py-1.5 rounded-lg" style={{ border: `1px solid ${C.line}`, color: prev ? C.ink : C.line }}>← {prev ? prev.name : "previous"}</button>
-                                  <button onClick={() => next && setRefPick(next.id)} disabled={!next} className="text-xs px-3 py-1.5 rounded-lg" style={{ border: `1px solid ${C.line}`, color: next ? C.ink : C.line }}>{next ? next.name : "next"} →</button>
-                                  <span className="flex-1" />
-                                  {hasNoteContent(selNote) && <button onClick={() => { if (window.confirm(`Clear the description and photos for “${selLeaf.name}”?`)) patchNote(selLeaf.id, { description: "", photos: [] }); }} className="text-xs" style={{ color: C.muted }}>Clear entry</button>}
-                                </div>
-                              </div>
-                            ) : <Empty icon="👈" title="Pick a problem type" hint="Choose one on the left to describe it." />}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })()}
-                {tab === "guide" && (() => {
-                  // Product encyclopedia: free-form knowledge about the product — what a good one looks like, packaging,
-                  // label, ripeness stages, typical faults — as named entries with text and photos. Controllers read it on
-                  // the phone (product profile). Same two-pane layout as the Reference guide: entries on the left, one
-                  // editor on the right. Edits go through set(x => …) on the product id so they replay safely.
-                  const entries = product.guide || [];
-                  const updGuide = fn => set(x => ({ ...x, products: x.products.map(q => q.id === product.id ? { ...q, guide: fn(q.guide || []) } : q) }));
-                  const addEntry = (title = "") => { const id = uid(); updGuide(g => [...g, { id, title, body: "", photos: [], createdAt: nowISO(), updatedAt: nowISO() }]); setGuidePick(id); setGuideNew(id); setGuideQ(""); };
-                  const patchEntry = (id, ch) => updGuide(g => g.map(e => e.id === id ? { ...e, ...ch, updatedAt: nowISO() } : e));
-                  const removeEntry = id => { const i = entries.findIndex(e => e.id === id); updGuide(g => g.filter(e => e.id !== id)); const rest = entries.filter(e => e.id !== id); setGuidePick(rest[Math.min(i, rest.length - 1)]?.id || null); };
-                  const moveEntry = (id, dir) => updGuide(g => { const i = g.findIndex(e => e.id === id); const j = i + dir; if (i < 0 || j < 0 || j >= g.length) return g; const n = [...g]; [n[i], n[j]] = [n[j], n[i]]; return n; });
-                  const hasContent = e => !!((e.title || "").trim() || (e.body || "").trim() || asPhotoList(e.photos).length);
-                  const photoTotal = entries.reduce((a, e) => a + asPhotoList(e.photos).length, 0);
-                  const selId = guidePick && entries.some(e => e.id === guidePick) ? guidePick : (entries[0]?.id || null);
-                  const sel = entries.find(e => e.id === selId);
-                  const q = guideQ.trim().toLowerCase();
-                  const visible = entries.filter(e => !q || `${e.title || ""} ${e.body || ""}`.toLowerCase().includes(q));
-                  const idx = entries.findIndex(e => e.id === selId); const prev = idx > 0 ? entries[idx - 1] : null, next = idx >= 0 && idx < entries.length - 1 ? entries[idx + 1] : null;
-                  const STARTERS = ["What a good pallet looks like", "Label and packaging", "Ripeness stages", "Storage and temperature", "Typical faults", "Calibre and sizing"];
-                  const starters = STARTERS.filter(t => !entries.some(e => (e.title || "").trim().toLowerCase() === t.toLowerCase()));
-                  const snippet = e => (e.body || "").replace(/\s+/g, " ").trim().slice(0, 70);
-                  return (
-                    <div style={{ maxWidth: 960 }}>
-                      <div className="flex items-center gap-3 mb-3 flex-wrap">
-                        <p className="text-xs" style={{ color: C.muted, maxWidth: 560 }}>Everything a controller should know about <b>this product</b> — what a good one looks like, packaging and label, ripeness, storage, typical faults. Each entry has a name, a description and photos; controllers read it on the phone's product profile and during the inspection.</p>
-                        {entries.length > 0 && <span className="ml-auto text-xs" style={{ color: C.muted }}>{entries.length} entr{entries.length === 1 ? "y" : "ies"} · {photoTotal} photo{photoTotal === 1 ? "" : "s"}</span>}
-                      </div>
-                      {entries.length === 0 ? (
-                        <div className="rounded-xl p-5" style={{ border: `1px solid ${C.line}`, background: C.surface }}>
-                          <Empty icon="📖" title="No encyclopedia entries yet" hint="Start with one of the usual topics or write your own." />
-                          <div className="flex gap-1.5 flex-wrap justify-center mt-2">{starters.map(t => <button key={t} onClick={() => addEntry(t)} className="text-xs px-2.5 py-1.5 rounded-full" style={{ background: C.accentSoft, color: C.accent }}><Ic i={Plus} s={11} mr={3} />{t}</button>)}<button onClick={() => addEntry("")} className="text-xs px-2.5 py-1.5 rounded-full" style={{ background: C.ink, color: C.onDark }}><Ic i={Plus} s={11} mr={3} />Own entry</button></div>
-                        </div>
-                      ) : (
-                        <div className="flex gap-4 items-start">
-                          <aside className="flex-shrink-0 rounded-xl overflow-hidden" style={{ width: 300, border: `1px solid ${C.line}`, background: C.surface }}>
-                            <div className="p-2" style={{ borderBottom: `1px solid ${C.line}` }}>
-                              <div className="flex gap-2"><div className="flex-1 min-w-0"><SearchBox value={guideQ} onChange={setGuideQ} placeholder="Search entries" size={13} /></div><Primary small onClick={() => addEntry("")}><Ic i={Plus} s={13} />Add</Primary></div>
-                            </div>
-                            <div style={{ maxHeight: 520, overflowY: "auto" }}>
-                              {visible.length === 0 && <p className="text-xs p-3" style={{ color: C.muted }}>Nothing matches.</p>}
-                              {visible.map(e => { const ph = asPhotoList(e.photos).length; const on = e.id === selId; const n = entries.indexOf(e) + 1; return (
-                                <button key={e.id} onClick={() => setGuidePick(e.id)} className="w-full text-left px-3 py-2 flex items-start gap-2" style={{ background: on ? C.accentSoft : "transparent", borderLeft: `3px solid ${on ? C.accent : "transparent"}`, borderBottom: `1px solid ${C.line}` }}>
-                                  <span className="text-[10px] mt-0.5 flex-shrink-0 inline-flex items-center justify-center rounded-md" style={{ width: 18, height: 18, background: hasContent(e) ? C.bg : C.warnBg, color: hasContent(e) ? C.muted : C.warn, fontVariantNumeric: "tabular-nums" }}>{n}</span>
-                                  <span className="flex-1 min-w-0">
-                                    <span className="block text-sm truncate" style={{ fontWeight: on ? 600 : 450, color: e.title ? C.ink : C.muted, fontStyle: e.title ? "normal" : "italic" }}>{e.title || "Untitled entry"}</span>
-                                    {(snippet(e) || ph > 0) && <span className="block text-[11px] truncate" style={{ color: C.muted }}>{ph > 0 && <><Ic i={Camera} s={10} mr={3} />{ph}{snippet(e) ? " · " : ""}</>}{snippet(e)}</span>}
-                                  </span>
-                                </button>); })}
-                              {starters.length > 0 && !q && (
-                                <div className="px-3 py-2.5">
-                                  <p className="label-sm mb-1.5" style={{ color: C.muted }}>Suggested topics</p>
-                                  <div className="flex gap-1 flex-wrap">{starters.map(t => <button key={t} onClick={() => addEntry(t)} className="text-[11px] px-2 py-0.5 rounded-full" style={{ background: C.bg, color: C.muted, border: `1px solid ${C.line}` }}>+ {t}</button>)}</div>
-                                </div>
-                              )}
-                            </div>
-                          </aside>
-                          <div className="flex-1 min-w-0">
-                            {sel ? (
-                              <div className="rounded-xl p-4" style={{ border: `1px solid ${C.line}`, background: C.surface }}>
-                                <div className="flex items-center gap-3 mb-3">
-                                  <p className="text-[11px]" style={{ color: C.muted }}>Entry {idx + 1} of {entries.length}</p>
-                                  <span className="flex-1" />
-                                  <button onClick={() => moveEntry(sel.id, -1)} disabled={!prev} className="text-xs px-2 py-1 rounded-lg" style={{ border: `1px solid ${C.line}`, color: prev ? C.ink : C.line }} title="Move up in the list">↑ up</button>
-                                  <button onClick={() => moveEntry(sel.id, 1)} disabled={!next} className="text-xs px-2 py-1 rounded-lg" style={{ border: `1px solid ${C.line}`, color: next ? C.ink : C.line }} title="Move down in the list">↓ down</button>
-                                </div>
-                                <p className="label-sm mb-1" style={{ color: C.muted }}>Entry name</p>
-                                <FastInput key={sel.id + ":t"} autoFocus={guideNew === sel.id} value={sel.title || ""} onCommit={v => patchEntry(sel.id, { title: v })} placeholder="e.g. Label and packaging" className="mb-3 text-base font-semibold" style={{ height: 38 }} />
-                                <p className="label-sm mb-1" style={{ color: C.muted }}>Description</p>
-                                <FastTextarea key={sel.id + ":b"} value={sel.body || ""} onCommit={v => patchEntry(sel.id, { body: v })} rows={7} placeholder="What to look for, how to judge it, what is normal and what is not…" className="mb-4" style={{ resize: "vertical" }} />
-                                <p className="label-sm mb-1" style={{ color: C.muted }}>Photos {asPhotoList(sel.photos).length > 0 && `· ${asPhotoList(sel.photos).length}`}</p>
-                                <PhotoStrip photos={sel.photos} onAdd={got => patchEntry(sel.id, { photos: [...asPhotoList(sel.photos), ...got] })} onRemove={pid => patchEntry(sel.id, { photos: asPhotoList(sel.photos).filter(x => x.id !== pid) })} size={96} />
-                                <div className="flex items-center gap-2 mt-4 pt-3" style={{ borderTop: `1px solid ${C.line}` }}>
-                                  <button onClick={() => prev && setGuidePick(prev.id)} disabled={!prev} className="text-xs px-3 py-1.5 rounded-lg truncate" style={{ border: `1px solid ${C.line}`, color: prev ? C.ink : C.line, maxWidth: 200 }}>← {prev ? (prev.title || "Untitled") : "previous"}</button>
-                                  <button onClick={() => next && setGuidePick(next.id)} disabled={!next} className="text-xs px-3 py-1.5 rounded-lg truncate" style={{ border: `1px solid ${C.line}`, color: next ? C.ink : C.line, maxWidth: 200 }}>{next ? (next.title || "Untitled") : "next"} →</button>
-                                  <span className="flex-1" />
-                                  {sel.updatedAt && <span className="text-[10px]" style={{ color: C.muted }}>updated {fmtTime(sel.updatedAt)}</span>}
-                                  <button onClick={() => { if (!hasContent(sel) || window.confirm(`Delete “${sel.title || "this entry"}”?`)) removeEntry(sel.id); }} className="text-xs" style={{ color: C.bad }}>Delete entry</button>
-                                </div>
-                              </div>
-                            ) : <Empty icon="👈" title="Pick an entry" hint="Choose one on the left to edit it." />}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })()}
+                {tab === "reference" && <ReferenceGuideEditor s={s} set={set} kind="product" owner={product} onOpenCategory={onOpenCategory} />}
+                {tab === "guide" && <EncyclopediaEditor s={s} set={set} kind="product" owner={product} onOpenCategory={onOpenCategory} />}
                 {tab === "history" && (() => {
                   const pm = byId(s.problems);
                   const acceptedCount = histVerdict.filter(i => i.result === "Accepted").length;
@@ -2835,7 +2913,7 @@ function InspectionRunner({ insp, patch, t, problems, product, suppliers, dictio
             </div>
           ))}
           {t.problemRefs.filter(r => r.moduleId === m.id).length > 0 && !sampleReady && <Note tone="bad">{hasSampleBlock ? "Sample size gives 0 CU — fill in the “Sample size” block to compute percentages." : "This template has no “Sample size” block — the Head must add it."}</Note>}
-          {t.problemRefs.filter(r => r.moduleId === m.id).sort(bySort).map(r => pm[r.problemTypeId] && <ProblemTreeView key={r.id} root={pm[r.problemTypeId]} problems={problems} overrides={t.overrides} remarks={remarks} totals={totals} disabled={!sampleReady} notes={product ? (sctx.problemNotes || []).filter(n => n.productId === product.id) : []} onReport={rem => setRemarks(x => [...x, { id: uid(), ...rem }])} onDelete={id => setRemarks(x => x.filter(q => q.id !== id))} onPhoto={async id => { const got = await pickPhotos(); if (got.length) setRemarks(x => x.map(q => q.id === id ? { ...q, photos: [...asPhotoList(q.photos), ...got] } : q)); }} onRemovePhoto={(id, pid) => setRemarks(x => x.map(q => q.id === id ? { ...q, photos: asPhotoList(q.photos).filter(ph => ph.id !== pid) } : q))} />)}
+          {t.problemRefs.filter(r => r.moduleId === m.id).sort(bySort).map(r => pm[r.problemTypeId] && <ProblemTreeView key={r.id} root={pm[r.problemTypeId]} problems={problems} overrides={t.overrides} remarks={remarks} totals={totals} disabled={!sampleReady} notes={effectiveNotesFor(sctx, product)} onReport={rem => setRemarks(x => [...x, { id: uid(), ...rem }])} onDelete={id => setRemarks(x => x.filter(q => q.id !== id))} onPhoto={async id => { const got = await pickPhotos(); if (got.length) setRemarks(x => x.map(q => q.id === id ? { ...q, photos: [...asPhotoList(q.photos), ...got] } : q)); }} onRemovePhoto={(id, pid) => setRemarks(x => x.map(q => q.id === id ? { ...q, photos: asPhotoList(q.photos).filter(ph => ph.id !== pid) } : q))} />)}
           {t.fields.filter(f => f.moduleId === m.id).length + t.problemRefs.filter(r => r.moduleId === m.id).length === 0 && <p className="text-sm" style={{ color: C.muted }}>Empty module.</p>}
         </div>
       )}
@@ -3033,8 +3111,8 @@ function ProductPeek({ s, product, onClose }) {
   const photos = asPhotoList(product.photos);
   const specs = effectiveSpecs(s, product), attrs = effectiveAttributes(s, product), varieties = effectiveVarieties(s, product);
   const suppliers = (product.supplierIds || []).map(id => (s.suppliers || []).find(x => x.id === id)).filter(Boolean);
-  const guide = product.guide || [];
-  const notes = (s.problemNotes || []).filter(n => n.productId === product.id && hasNoteContent(n));
+  const guide = effectiveGuide(s, product);
+  const notes = effectiveNotesFor(s, product);
   const anns = (s.announcements || []).filter(a => annMatchesProduct(s, a, product));
   const history = s.inspections.filter(i => i.productId === product.id && i.status === "Completed").sort((a, b) => (b.completedAt || "").localeCompare(a.completedAt || "")).slice(0, 8);
   const reference = s.inspections.find(i => i.productId === product.id && i.isReference);
@@ -3081,8 +3159,8 @@ function ProductPeek({ s, product, onClose }) {
           </div>}
           {tab === "specs" && <div className="mt-3">{specs.length === 0 ? <Empty icon="📏" title="No specifications" hint="Nothing set on the product or its categories." /> : specs.map((q, i) => <div key={q.id || i} className="flex justify-between gap-3 py-2 text-sm" style={{ borderBottom: `1px solid ${C.line}` }}><div><span className="font-medium">{q.name}</span>{q.source !== "product" && <span className="text-[10px] ml-2" style={{ color: C.muted }}>{q.source}</span>}</div><span className="font-mono whitespace-nowrap">{specLabel(q)}</span></div>)}</div>}
           {tab === "attrs" && <div className="mt-3">{attrs.length === 0 ? <Empty icon="🏷️" title="No properties" hint="Nothing set on the product or its categories." /> : attrs.map(a => <div key={a.dictionaryId} className="flex justify-between gap-3 py-2 text-sm" style={{ borderBottom: `1px solid ${C.line}` }}><div><span style={{ color: C.muted }}>{a.list}</span>{a.source !== "product" && <span className="text-[10px] ml-2" style={{ color: C.muted }}>{a.source}</span>}</div><span className="font-medium text-right">{a.value}</span></div>)}</div>}
-          {tab === "guide" && <div className="mt-3">{guide.length === 0 ? <Empty icon="📖" title="Encyclopedia is empty" hint="Fill it in on the product page (Products → Encyclopedia)." /> : guide.map(g => <div key={g.id} className="rounded-xl p-3 mb-3" style={{ background: C.bg, border: `1px solid ${C.line}` }}><p className="font-semibold text-sm mb-1">{g.title || "Untitled entry"}</p>{g.body && <p className="text-sm whitespace-pre-wrap mb-2" style={{ color: C.ink }}>{g.body}</p>}<Photos list={asPhotoList(g.photos)} /></div>)}</div>}
-          {tab === "reference" && <div className="mt-3">{notes.length === 0 ? <Empty icon="🧭" title="No reference notes" hint="Notes and photos per defect are filled in on the product page." /> : notes.map(n => <div key={n.id} className="rounded-xl p-3 mb-3" style={{ background: C.bg, border: `1px solid ${C.line}` }}><p className="font-semibold text-sm mb-1">{problemPath(s.problems, n.problemId) || "Defect"}</p>{n.description && <p className="text-sm whitespace-pre-wrap mb-2">{n.description}</p>}<Photos list={asPhotoList(n.photos)} /></div>)}</div>}
+          {tab === "guide" && <div className="mt-3">{guide.length === 0 ? <Empty icon="📖" title="Encyclopedia is empty" hint="Fill it in on the product page (Products → Encyclopedia)." /> : guide.map(g => <div key={g.id} className="rounded-xl p-3 mb-3" style={{ background: C.bg, border: `1px solid ${C.line}` }}><p className="font-semibold text-sm mb-1 flex items-center gap-2">{g.title || "Untitled entry"}{g.inherited && <InheritChip label={g.source} />}</p>{g.body && <p className="text-sm whitespace-pre-wrap mb-2" style={{ color: C.ink }}>{g.body}</p>}<Photos list={asPhotoList(g.photos)} /></div>)}</div>}
+          {tab === "reference" && <div className="mt-3">{notes.length === 0 ? <Empty icon="🧭" title="No reference notes" hint="Notes and photos per defect are filled in on the product page." /> : notes.map(n => <div key={n.id} className="rounded-xl p-3 mb-3" style={{ background: C.bg, border: `1px solid ${C.line}` }}><p className="font-semibold text-sm mb-1 flex items-center gap-2">{problemPath(s.problems, n.problemId) || "Defect"}{n.inherited && <InheritChip label={n.source} />}</p>{n.description && <p className="text-sm whitespace-pre-wrap mb-2">{n.description}</p>}<Photos list={asPhotoList(n.photos)} /></div>)}</div>}
           {tab === "history" && <div className="mt-3">{history.length === 0 ? <Empty icon="📋" title="No completed inspections yet" /> : history.map(i => { const it = inspType(s, i); return <div key={i.id} className="flex items-center gap-3 py-2 text-sm" style={{ borderBottom: `1px solid ${C.line}` }}><span className="inline-block rounded-full" style={{ width: 8, height: 8, background: it.autoAccept ? it.color : i.result === "Accepted" ? C.ok : i.result === "Rejected" ? C.bad : C.muted }} /><span className="flex-1 min-w-0 truncate">{it.autoAccept ? it.name : (i.result || "—")}{i.supplier ? ` · ${i.supplier}` : ""}{i.isReference && <Ic i={Star} s={12} mr={0} />}</span><span className="text-xs whitespace-nowrap" style={{ color: C.muted }}>{i.dateISO && `DC ${dateCode(i.dateISO)} · `}{s.users.find(u => u.id === i.controllerId)?.name} · {fmtTime(i.completedAt)}</span></div>; })}</div>}
         </div>
       </aside>
@@ -3669,7 +3747,7 @@ const normalize = raw => {
 
   s.categories = (s.categories || []).map(c => ({ ...c, specs: c.specs || [], varieties: c.varieties || [] }));
   s.problems = (s.problems || []).map(p => ({ ...p, categoryId: p.categoryId || null, productId: p.productId || null }));
-  s.categories = s.categories.map(c => ({ ...c, hiddenProblemIds: c.hiddenProblemIds || [] }));
+  s.categories = s.categories.map(c => ({ ...c, hiddenProblemIds: c.hiddenProblemIds || [], guide: Array.isArray(c.guide) ? c.guide.map(e => ({ ...e, photos: asPhotoList(e.photos) })) : [], hiddenGuideIds: Array.isArray(c.hiddenGuideIds) ? c.hiddenGuideIds : [] }));
   // Reference guide: per-product notes (description + photos) on a problem type, written by the Head, shown to controllers.
   s.problemNotes = (Array.isArray(s.problemNotes) ? s.problemNotes : []).map(n => ({ ...n, photos: asPhotoList(n.photos), description: n.description || "" }));
   s.countries = Array.isArray(s.countries) ? s.countries : [];
@@ -3956,7 +4034,7 @@ export default function App() {
       {safePage === "dashboard" && (user.role === "Head" ? <Dashboard s={s} user={user} set={set} setPage={setPage} seed={() => set(olaState())} openProduct={id => { setSelProduct(id); setPage("products"); }} onAssign={a => { setPendingChatContext({ kind: "pallet", id: a.hu, label: `${a.name} · ${a.location}` }); setPage("messages"); }} /> : <ControllerDashboard s={s} user={user} setPage={setPage} setOpenId={setOpenInspId} openProduct={id => { setSelProduct(id); setPage("products"); }} />)}
       {safePage === "categories" && <CategoriesPage s={s} set={set} onMessage={ctx => { setPendingChatContext(ctx); setPage("messages"); }} onOpenProduct={id => { setSelProduct(id); setPage("products"); }} presetSel={presetCategory} clearPresetSel={() => setPresetCategory(null)} />}
       {safePage === "problems" && <ProblemsPage s={s} set={set} />}
-      {safePage === "products" && <ProductsPage s={s} set={set} sel={selProduct} setSel={setSelProduct} presetFilter={productsQuery} clearPreset={() => setProductsQuery("")} onMessage={ctx => { setPendingChatContext(ctx); setPage("messages"); }} onOpenInspection={id => { setOpenInspId(id); setPage("inspections"); }} />}
+      {safePage === "products" && <ProductsPage s={s} set={set} sel={selProduct} setSel={setSelProduct} presetFilter={productsQuery} clearPreset={() => setProductsQuery("")} onMessage={ctx => { setPendingChatContext(ctx); setPage("messages"); }} onOpenInspection={id => { setOpenInspId(id); setPage("inspections"); }} onOpenCategory={id => { setPresetCategory(id); setPage("categories"); }} />}
       {safePage === "forms" && <FormsPage s={s} set={set} />}
       {safePage === "suppliers" && <DictionaryPage s={s} set={set} listKey="suppliers" title="Suppliers" hint="One global list of all suppliers (Suppliers). Assign to products in Products." placeholder="e.g. El Ciruelo" usageOf={id => s.products.filter(p => (p.supplierIds || []).includes(id)).length} />}
       {safePage === "lists" && <ListsPage s={s} set={set} />}

@@ -170,6 +170,21 @@ const subtree = (arr, id) => { const s = new Set([id]); let g = true; while (g) 
 // know what a given remark actually looks like. Only leaf problem types get notes — those are what's reported against.
 const noteFor = (notes, problemId) => (notes || []).find(n => n.problemId === problemId);
 const hasNoteContent = n => !!(n && (n.description || "").trim() || asPhotoList(n?.photos).length);
+// Inheritance: notes and encyclopedia entries can live on a category too. A product sees its own first, then its
+// category, then the parent category; a sub-category sees its parent's. Nearest owner wins for notes (same problem).
+const inheritedNoteFor = (s, startCatId, problemId) => { let cat = s.categories.find(c => c.id === startCatId); while (cat) { const n = (s.problemNotes || []).find(x => x.categoryId === cat.id && x.problemId === problemId); if (hasNoteContent(n)) return { ...n, source: cat.name, inherited: true }; cat = cat.parentId ? s.categories.find(c => c.id === cat.parentId) : null; } return null; };
+const effectiveNotesFor = (s, product) => {
+  if (!product) return [];
+  const out = new Map();
+  (s.problemNotes || []).filter(n => n.productId === product.id && hasNoteContent(n)).forEach(n => out.set(n.problemId, { ...n, source: "product" }));
+  let cat = s.categories.find(c => c.id === product.categoryId);
+  while (cat) { const name = cat.name, cid = cat.id; (s.problemNotes || []).filter(n => n.categoryId === cid && hasNoteContent(n)).forEach(n => { if (!out.has(n.problemId)) out.set(n.problemId, { ...n, source: name, inherited: true }); }); cat = cat.parentId ? s.categories.find(c => c.id === cat.parentId) : null; }
+  return [...out.values()];
+};
+// Encyclopedia entries of the category chain, nearest first. A category can hide entries it inherits from its parent
+// (hiddenGuideIds) — those stay hidden for everything below it as well.
+const guideChainFor = (s, startCatId) => { const out = []; const hidden = new Set(); let cat = s.categories.find(c => c.id === startCatId); while (cat) { (cat.guide || []).forEach(e => { if (!hidden.has(e.id)) out.push({ ...e, source: cat.name, categoryId: cat.id, inherited: true }); }); (cat.hiddenGuideIds || []).forEach(id => hidden.add(id)); cat = cat.parentId ? s.categories.find(c => c.id === cat.parentId) : null; } return out; };
+const effectiveGuide = (s, product) => { if (!product) return []; const hidden = new Set(product.hiddenGuideIds || []); return [...(product.guide || []).map(e => ({ ...e, source: "product" })), ...guideChainFor(s, product.categoryId).filter(e => !hidden.has(e.id))]; };
 
 // Tolerancja: najpierw nadpisanie w szablonie, potem katalog; up drzewa.
 const effTol = (problems, overrides, id) => {
@@ -1404,7 +1419,7 @@ function InspectionRunner({ insp, patch, t, problems, product, suppliers, dictio
             </div>
           ))}
           {t.problemRefs.filter(r => r.moduleId === m.id).length > 0 && !sampleReady && <Note tone="bad">{hasSampleBlock ? "Sample size gives 0 CU — fill in the “Sample size” block to compute percentages." : "This template has no “Sample size” block — the Head must add it."}</Note>}
-          {t.problemRefs.filter(r => r.moduleId === m.id).sort(bySort).map(r => pm[r.problemTypeId] && <ProblemTreeView key={r.id} root={pm[r.problemTypeId]} problems={problems} overrides={t.overrides} remarks={remarks} totals={totals} disabled={!sampleReady} notes={product ? (sctx.problemNotes || []).filter(n => n.productId === product.id) : []} onReport={rem => setRemarks(x => [...x, { id: uid(), ...rem }])} onDelete={id => setRemarks(x => x.filter(q => q.id !== id))} onPhoto={async id => { const got = await pickPhotos(); if (got.length) setRemarks(x => x.map(q => q.id === id ? { ...q, photos: [...asPhotoList(q.photos), ...got] } : q)); }} onRemovePhoto={(id, pid) => setRemarks(x => x.map(q => q.id === id ? { ...q, photos: asPhotoList(q.photos).filter(ph => ph.id !== pid) } : q))} />)}
+          {t.problemRefs.filter(r => r.moduleId === m.id).sort(bySort).map(r => pm[r.problemTypeId] && <ProblemTreeView key={r.id} root={pm[r.problemTypeId]} problems={problems} overrides={t.overrides} remarks={remarks} totals={totals} disabled={!sampleReady} notes={effectiveNotesFor(sctx, product)} onReport={rem => setRemarks(x => [...x, { id: uid(), ...rem }])} onDelete={id => setRemarks(x => x.filter(q => q.id !== id))} onPhoto={async id => { const got = await pickPhotos(); if (got.length) setRemarks(x => x.map(q => q.id === id ? { ...q, photos: [...asPhotoList(q.photos), ...got] } : q)); }} onRemovePhoto={(id, pid) => setRemarks(x => x.map(q => q.id === id ? { ...q, photos: asPhotoList(q.photos).filter(ph => ph.id !== pid) } : q))} />)}
           {t.fields.filter(f => f.moduleId === m.id).length + t.problemRefs.filter(r => r.moduleId === m.id).length === 0 && <p className="text-sm" style={{ color: C.muted }}>Empty module.</p>}
         </div>
       )}
@@ -1533,7 +1548,7 @@ const normalize = raw => {
 
   s.categories = (s.categories || []).map(c => ({ ...c, specs: c.specs || [], varieties: c.varieties || [] }));
   s.problems = (s.problems || []).map(p => ({ ...p, categoryId: p.categoryId || null, productId: p.productId || null }));
-  s.categories = s.categories.map(c => ({ ...c, hiddenProblemIds: c.hiddenProblemIds || [] }));
+  s.categories = s.categories.map(c => ({ ...c, hiddenProblemIds: c.hiddenProblemIds || [], guide: Array.isArray(c.guide) ? c.guide.map(e => ({ ...e, photos: asPhotoList(e.photos) })) : [], hiddenGuideIds: Array.isArray(c.hiddenGuideIds) ? c.hiddenGuideIds : [] }));
   // Reference guide: per-product notes (description + photos) on a problem type, written by the Head, shown to controllers.
   s.problemNotes = (Array.isArray(s.problemNotes) ? s.problemNotes : []).map(n => ({ ...n, photos: asPhotoList(n.photos), description: n.description || "" }));
   s.countries = Array.isArray(s.countries) ? s.countries : [];
@@ -2199,10 +2214,10 @@ function MProductInfo({ s, user, product, go, setState, embedded }) {
   const suppliers = (product.supplierIds || []).map(id => (s.suppliers || []).find(x => x.id === id)?.name).filter(Boolean);
   const facts = [["CU / TU", product.cusPerTu], ["g / CU", product.weightPerCu], ["pcs / CU", product.piecesPerCu]].filter(([, v]) => v);
   const catPath = id => { const c = s.categories.find(x => x.id === id); if (!c) return "uncategorised"; const p = c.parentId && s.categories.find(x => x.id === c.parentId); return p ? `${p.name} › ${c.name}` : c.name; };
-  const guide = (product.guide || []).filter(e => e.title || e.body || asPhotoList(e.photos).length);
+  const guide = effectiveGuide(s, product).filter(e => e.title || e.body || asPhotoList(e.photos).length);
   const refProblems = problemsFor(s, { kind: "Product", id: product.id }, new Set(product.hiddenProblemIds || []));
   const leafIds = new Set(refProblems.filter(p => isLeaf(refProblems, p.id)).map(p => p.id));
-  const refNotes = (s.problemNotes || []).filter(n => n.productId === product.id && leafIds.has(n.problemId) && hasNoteContent(n));
+  const refNotes = effectiveNotesFor(s, product).filter(n => leafIds.has(n.problemId));
   const splitPath = id => { const parts = pathOf(refProblems, id).split(" › "); return [parts.slice(0, -1).join(" › "), parts[parts.length - 1]]; };
   const thumb = photos[Math.min(photoIx, photos.length - 1)];
   return (
@@ -2242,7 +2257,7 @@ function MProductInfo({ s, user, product, go, setState, embedded }) {
 
       {guide.length > 0 && <MSection title="Encyclopedia" count={guide.length}>
         {guide.map((e, ix) => <div key={e.id} className="py-2" style={{ borderBottom: ix === guide.length - 1 ? "none" : `1px solid ${C.line}` }}>
-          {e.title && <p className="text-[13px] font-semibold leading-snug">{e.title}</p>}
+          {(e.title || e.inherited) && <p className="text-[13px] font-semibold leading-snug flex items-center gap-1.5">{e.title || "Untitled"}{e.inherited && <span className="text-[10px] font-medium px-1.5 rounded-full leading-[16px]" style={{ background: C.accentSoft, color: C.accent }}>{e.source}</span>}</p>}
           {e.body && <p className="text-[13px] mt-0.5 leading-snug" style={{ color: C.muted, whiteSpace: "pre-wrap" }}>{e.body}</p>}
           {asPhotoList(e.photos).length > 0 && <div className="mt-1.5"><MPhotoRow photos={e.photos} size={64} /></div>}
         </div>)}
@@ -2253,7 +2268,7 @@ function MProductInfo({ s, user, product, go, setState, embedded }) {
         {refNotes.map((n, ix) => { const [parent, leaf] = splitPath(n.problemId); return (
           <div key={n.id} className="py-2" style={{ borderBottom: ix === refNotes.length - 1 ? "none" : `1px solid ${C.line}` }}>
             {parent && <p className="text-[10px] uppercase tracking-wide leading-tight" style={{ color: C.muted }}>{parent}</p>}
-            <p className="text-[13px] font-semibold leading-snug">{leaf}</p>
+            <p className="text-[13px] font-semibold leading-snug flex items-center gap-1.5">{leaf}{n.inherited && <span className="text-[10px] font-medium px-1.5 rounded-full leading-[16px]" style={{ background: C.accentSoft, color: C.accent }}>{n.source}</span>}</p>
             {n.description && <p className="text-[13px] mt-0.5 leading-snug" style={{ color: C.muted, whiteSpace: "pre-wrap" }}>{n.description}</p>}
             {asPhotoList(n.photos).length > 0 && <div className="mt-1.5"><MPhotoRow photos={n.photos} size={56} /></div>}
           </div>
