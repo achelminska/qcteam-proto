@@ -206,7 +206,7 @@ const legacyTypeId = t => t === "Visual" ? "type-visual" : t === "Skip" ? "type-
 const inspType = (s, insp) => typeById(s, insp.typeId || legacyTypeId(insp.type)) || { id: "type-full", name: "Full", color: "#1F5C3E", autoAccept: false, countsAsInspection: true, reason: "none" };
 const countsAs = (s, insp) => inspType(s, insp).countsAsInspection !== false;
 const isVerdictType = (s, insp) => !inspType(s, insp).autoAccept;
-const settingsOf = s => ({ companyName: "Picnic Technologies", qcEmail: "qc@picnic.nl", rejectionWindowHours: 24, deadlineWarnHours: 6, deadlineWarnHoursRisky: 10, riskyLookbackDays: 14, ...(s.settings || {}) });
+const settingsOf = s => ({ companyName: "Picnic Technologies", qcEmail: "qc@picnic.nl", rejectionWindowHours: 24, deadlineWarnHours: 6, deadlineWarnHoursRisky: 10, riskyLookbackDays: 14, resultIcons: {}, ...(s.settings || {}) });
 // Policy = the set of allowed inspection types. Product → category chain → types allowed by default. A product always has one.
 const effectivePolicy = (s, product) => {
   const dflt = typesOf(s).filter(t => t.allowedByDefault).map(t => t.id);
@@ -414,6 +414,8 @@ async function buildReportPdf(insp, s) {
   y += 7; doc.setFontSize(17); doc.setFont(undefined, "bold"); doc.setTextColor(...INK); doc.text(product.name || "—", L, y, { maxWidth: 120 });
   y += 6; doc.setFontSize(8.5); doc.setFont(undefined, "normal"); doc.setTextColor(...MUTED); doc.text(`Article ${product.articleId || "—"} · ${category}${product.isBio ? " · bio" : ""}`, L, y);
   doc.setFillColor(...(ok ? OK : BAD)); doc.roundedRect(148, 12, 46, 14, 2, 2, "F"); doc.setTextColor(255, 255, 255); doc.setFontSize(10); doc.setFont(undefined, "bold"); doc.text(ok ? "ACCEPTED" : "REJECTED", 191, 18, { align: "right" }); doc.setFontSize(7.5); doc.setFont(undefined, "normal"); doc.text(`Report no. ${insp.id.toUpperCase()}`, 191, 23, { align: "right" });
+  // Head-configured stamp/icon for this result (Settings → Report result icon), pinned to the sheet's top-right corner.
+  const resultIcon = settings.resultIcons?.[insp.result]; if (resultIcon?.dataUrl) { try { doc.addImage(resultIcon.dataUrl, "JPEG", R - 11, 0, 11, 11); } catch (e) {} }
   y += 4; doc.setDrawColor(...INK); doc.setLineWidth(0.5); doc.line(L, y, R, y); y += 3;
   const tableBase = { margin: { left: L, right: 16 }, styles: { font: "helvetica", fontSize: 9, textColor: INK, cellPadding: 1.6, lineColor: LINE, lineWidth: { bottom: 0.2 } }, headStyles: { fillColor: [255, 255, 255], textColor: MUTED, fontStyle: "bold", fontSize: 8 }, theme: "plain" };
   // facts — only rows with a value
@@ -1621,6 +1623,7 @@ function PrintReport({ insp, s, onClose }) {
   const photoGroups = []; if (t) { t.fields.forEach(f => { const ph = asPhotoList((insp.photos || {})[f.id]); if (ph.length) photoGroups.push({ label: f.type === "Photos" ? `Module: ${(t.modules.find(m => m.id === f.moduleId) || {}).name || ""}` : f.label, photos: ph }); }); (insp.remarks || []).forEach(r => { const ph = asPhotoList(r.photos); if (ph.length) photoGroups.push({ label: `Problem: ${pathOf(problems, r.leafId)}`, photos: ph }); }); }
   useEffect(() => { const prev = document.title; document.title = `QC report — ${product?.name || ""} — ${(insp.completedAt || "").slice(0, 10)}`; return () => { document.title = prev; }; }, []);
   const resultColor = insp.result === "Accepted" ? "#1f7a45" : "#b23a3a";
+  const resultIcon = settingsOf(s).resultIcons?.[insp.result];
   return (
     <div className="fixed inset-0 overflow-y-auto print-root" style={{ background: "#666", zIndex: 70 }}>
       <style>{`
@@ -1639,7 +1642,7 @@ function PrintReport({ insp, s, onClose }) {
       <div className="sheet">
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", borderBottom: "2px solid #111", paddingBottom: 10 }}>
           <div><div className="k">{settingsOf(s).companyName} · Quality inspection report · {settingsOf(s).qcEmail}</div><h1>{product?.name || "—"}</h1><div className="k">Article {product?.articleId || "—"} · {s.categories.find(c => c.id === product?.categoryId)?.name || "—"}{product?.isBio && " · bio"}</div></div>
-          <div style={{ textAlign: "right" }}><span className="pill" style={{ background: resultColor }}>{insp.result === "Accepted" ? "ACCEPTED" : "REJECTED"}</span><div className="k" style={{ marginTop: 6 }}>Report no. {insp.id.toUpperCase()}</div></div>
+          <div style={{ textAlign: "right" }}>{resultIcon?.dataUrl && <img src={resultIcon.dataUrl} alt="" style={{ width: 40, height: 40, objectFit: "contain", marginBottom: 6 }} />}<div><span className="pill" style={{ background: resultColor }}>{insp.result === "Accepted" ? "ACCEPTED" : "REJECTED"}</span></div><div className="k" style={{ marginTop: 6 }}>Report no. {insp.id.toUpperCase()}</div></div>
         </div>
         <table style={{ marginTop: 10 }}><tbody>
           <tr><th style={{ width: "22%" }}>Inspected</th><td>{fmtTime(insp.completedAt)} by {ctrl}{insp.lastEditedBy && ` (edited ${fmtTime(insp.lastEditedAt)} by ${s.users.find(u => u.id === insp.lastEditedBy)?.name})`}</td><th style={{ width: "22%" }}>Date code</th><td>{insp.dateISO ? `${dateCode(insp.dateISO)} (${insp.dateISO})` : "—"}</td></tr>
@@ -1661,7 +1664,7 @@ function PrintReport({ insp, s, onClose }) {
         </>}
         {fieldsAnswered.length > 0 && <>
           <h2>Parameters</h2>
-          <table><tbody>{fieldsAnswered.map(f => <tr key={f.id}><th style={{ width: "30%" }}>{f.label}</th><td>{valStr(f, insp.values[f.id])}{f.type === "Number" && f.measurementCount > 1 && (() => { const nums = (insp.values[f.id]?.measurements || []).filter(x => x !== "").map(Number); return nums.length ? ` — avg ${fmt(nums.reduce((a, b) => a + b, 0) / nums.length)}` : ""; })()}</td></tr>)}</tbody></table>
+          <table><tbody>{fieldsAnswered.map(f => <tr key={f.id}><th style={{ width: "30%" }}>{fieldLabel(f)}</th><td>{valStr(f, insp.values[f.id])}{f.type === "Number" && f.measurementCount > 1 && (() => { const nums = (insp.values[f.id]?.measurements || []).filter(x => x !== "").map(Number); return nums.length ? ` — avg ${fmt(nums.reduce((a, b) => a + b, 0) / nums.length)}` : ""; })()}</td></tr>)}</tbody></table>
         </>}
         <h2>Comment</h2>
         <div style={{ whiteSpace: "pre-wrap", border: "1px solid #ddd", borderRadius: 6, padding: "8px 10px", minHeight: 40 }}>{insp.comment || <span className="k">—</span>}</div>
@@ -2190,11 +2193,15 @@ function FieldEditor({ f, onPatch, onRemove, onMove, problems, specs, specsHint,
       </div>
     );
   }
+  // Still the builder's placeholder text (and no specification name to fall back to) — this exact label is what
+  // will show up in the "Parameters" section of the PDF report, so make it impossible to miss here.
+  const unrenamed = fieldLabel(f) === "New field";
   return (
     <div className="rounded-lg p-2.5 mb-1.5" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
       <div className="flex items-center flex-wrap gap-2 mb-1.5">
         <select value={f.type} onChange={e => onPatch({ type: e.target.value })} className="text-xs rounded px-1.5 py-1 outline-none" style={{ ...inp }}>{FIELD_TYPES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>
-        <input value={f.label} onChange={e => onPatch({ label: e.target.value })} className="flex-1 text-sm rounded px-2 py-1 outline-none" style={{ ...inp, fontWeight: 500, minWidth: 140 }} />
+        <input value={f.label} onChange={e => onPatch({ label: e.target.value })} placeholder="field name — shown in the PDF" title={unrenamed ? "Still the default \"New field\" label — this is what will print on the report" : undefined} className="flex-1 text-sm rounded px-2 py-1 outline-none" style={{ ...inp, fontWeight: 500, minWidth: 140, borderColor: unrenamed ? C.warn : C.line }} />
+        {unrenamed && <span className="text-[10px] px-1.5 py-0.5 rounded-full" style={{ background: C.warnBg, color: C.warn }} title="Rename it — this is what prints on the PDF">⚠ unnamed</span>}
         <input value={f.helper || ""} onChange={e => onPatch({ helper: e.target.value })} placeholder="helper text for the controller (optional)" title="FormField.HelperText" className="flex-1 text-xs rounded px-2 py-1 outline-none" style={{ ...inp, minWidth: 160 }} />
         {f.type === "Number" && <select value={f.measureBasis || "piece"} onChange={e => onPatch({ measureBasis: e.target.value })} title="what the controller measures — one piece or a whole CU" className="text-xs" style={{ minHeight: 28 }}><option value="piece">measure per piece</option><option value="cu">measure per CU</option></select>}
         {f.type === "Number" && <input value={f.key || ""} onChange={e => onPatch({ key: slugKey(e.target.value) || null })} placeholder={`key: ${metricKey(f)}`} title="FormField.Key — stable metric key for analytics across templates (defaults to the specification name)" className="w-28 text-xs rounded px-2 py-1 outline-none font-mono" style={{ ...inp }} />}
@@ -3415,6 +3422,21 @@ function SettingsPage({ s, set }) {
         <div className="grid gap-2" style={{ gridTemplateColumns: "1fr 1fr" }}>
           <label className="text-xs" style={{ color: C.muted }}>Company<input value={st.companyName} onChange={e => put({ companyName: e.target.value })} className="w-full text-sm mt-1" /></label>
           <label className="text-xs" style={{ color: C.muted }}>QC contact e-mail<input value={st.qcEmail} onChange={e => put({ qcEmail: e.target.value })} className="w-full text-sm mt-1" /></label>
+        </div>
+      </Card>
+      <Card style={{ marginBottom: 16 }}>
+        <h2 className="mb-1">Report result icon</h2>
+        <p className="text-xs mb-3" style={{ color: C.muted }}>Optional stamp pasted in the top-right corner of the PDF, picked by the inspection's result. Leave a result blank to show no icon for it.</p>
+        <div className="grid gap-4" style={{ gridTemplateColumns: "1fr 1fr" }}>
+          {["Accepted", "Rejected"].map(r => (
+            <div key={r}>
+              <p className="text-xs font-medium mb-1.5" style={{ color: r === "Accepted" ? C.ok : C.bad }}>{r}</p>
+              <PhotoStrip photos={st.resultIcons?.[r] ? [st.resultIcons[r]] : []}
+                onAdd={got => put({ resultIcons: { ...(st.resultIcons || {}), [r]: got[got.length - 1] } })}
+                onRemove={() => put({ resultIcons: { ...(st.resultIcons || {}), [r]: null } })}
+                size={56} addLabel="Add icon" />
+            </div>
+          ))}
         </div>
       </Card>
     </div>
