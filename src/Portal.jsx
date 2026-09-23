@@ -1826,6 +1826,7 @@ function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset, onMessag
   const [tab, setTab] = useState("profile"); const [newOpen, setNewOpen] = useState(false);
   const [refPick, setRefPick] = useState(null);
   const [guideNew, setGuideNew] = useState(null);
+  const [refQ, setRefQ] = useState(""); const [refFilter, setRefFilter] = useState("all"); const [refShowHidden, setRefShowHidden] = useState(false);
   const [histResult, setHistResult] = useState("all"); const [histProblem, setHistProblem] = useState("");
   useEffect(() => { setTab("profile"); setRefPick(null); setHistResult("all"); setHistProblem(""); }, [sel]);
   const [varName, setVarName] = useState(""); const [varOpen, setVarOpen] = useState(false);
@@ -2021,24 +2022,71 @@ function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset, onMessag
                   const selId = refPick && leaves.some(l => l.id === refPick) ? refPick : (leaves[0]?.id || null);
                   const selLeaf = leaves.find(l => l.id === selId);
                   const selNote = selLeaf ? noteFor(notes, selLeaf.id) : null;
+                  const q = refQ.trim().toLowerCase();
+                  const visible = leaves.filter(l => (!q || problemPath(refProblems, l.id).toLowerCase().includes(q)) && (refFilter === "all" || (refFilter === "done") === hasNoteContent(noteFor(notes, l.id))));
+                  // Group the list by parent branch so 30 leaves read as a few short lists, not one long one.
+                  const groups = []; visible.forEach(l => { const parent = l.parentId ? problemPath(refProblems, l.parentId) : "—"; let g = groups.find(x => x.key === parent); if (!g) { g = { key: parent, items: [] }; groups.push(g); } g.items.push(l); });
+                  const idx = leaves.findIndex(l => l.id === selId); const prev = idx > 0 ? leaves[idx - 1] : null, next = idx >= 0 && idx < leaves.length - 1 ? leaves[idx + 1] : null;
+                  const scopeChip = p => { const [bg, fg, l] = p.productId ? [C.okBg, C.ok, "this product"] : p.categoryId ? [C.accentSoft, C.accent, s.categories.find(c => c.id === p.categoryId)?.name || "category"] : [C.bg, C.muted, "global"]; return <span className="text-[10px] px-1.5 py-0.5 rounded-full whitespace-nowrap" style={{ background: bg, color: fg }}>{l}</span>; };
+                  const pct = leaves.length ? Math.round(doneCount / leaves.length * 100) : 0;
                   return (
-                    <div style={{ maxWidth: 640 }}>
-                      <p className="text-xs mb-1" style={{ color: C.muted }}>A short description and reference photos per problem type, so controllers know exactly what to look for. Shown during inspection and on the product profile in the phone app.</p>
-                      <p className="text-xs mb-3" style={{ color: C.muted }}>{leaves.length} problem type{leaves.length === 1 ? "" : "s"} apply here — {counts.global} global, {counts.category} from the category, {counts.product} on this product{leaves.length > 0 && ` · ${doneCount} filled in`}.</p>
-                      {hiddenEntries.length > 0 && <div className="rounded-lg p-2 mb-3 text-xs" style={{ background: C.warnBg, color: C.warn }}>hidden here, so not listed below (and not shown to controllers either) — click to restore: {hiddenEntries.map(e => <button key={e.holderType + e.holderId + e.node.id} onClick={() => unhideEntry(e)} className="px-1.5 py-0.5 rounded ml-1 mb-1" style={{ background: C.surface, border: `1px solid ${C.warn}` }} title={`hidden for ${e.holderType === "category" ? "category " + e.holderName : "this product"}`}>{e.node.name} ↺</button>)}</div>}
-                      {leaves.length === 0 ? <p className="text-xs" style={{ color: C.warn }}>No problem types apply to this product yet — add or scope them in Problem types (global, this category, or this product).</p> : (
-                        <>
-                          <select value={selId || ""} onChange={e => setRefPick(e.target.value)} className="w-full text-sm rounded-md px-2 outline-none mb-3" style={{ ...inp, height: 34 }}>
-                            {leaves.map(leaf => <option key={leaf.id} value={leaf.id}>{hasNoteContent(noteFor(notes, leaf.id)) ? "✓ " : ""}{problemPath(refProblems, leaf.id)} — {scopeLabel(leaf)}</option>)}
-                          </select>
-                          {selLeaf && (
-                            <div className="rounded-xl p-3" style={{ border: `1px solid ${C.line}` }}>
-                              <p className="text-sm font-medium mb-2">{problemPath(refProblems, selLeaf.id)} <span className="text-xs font-normal" style={{ color: C.muted }}>· {scopeLabel(selLeaf)}</span></p>
-                              <FastTextarea key={selLeaf.id} value={selNote?.description || ""} onCommit={v => patchNote(selLeaf.id, { description: v })} rows={3} placeholder="What this problem looks like, how to judge it…" className="mb-2" style={{ resize: "vertical" }} />
-                              <PhotoStrip photos={selNote?.photos} onAdd={got => patchNote(selLeaf.id, { photos: [...asPhotoList(selNote?.photos), ...got] })} onRemove={id => patchNote(selLeaf.id, { photos: asPhotoList(selNote?.photos).filter(x => x.id !== id) })} size={64} />
+                    <div style={{ maxWidth: 960 }}>
+                      <div className="flex items-center gap-3 mb-3 flex-wrap">
+                        <p className="text-xs" style={{ color: C.muted, maxWidth: 560 }}>What each problem looks like on <b>this product</b> — a short description and reference photos. Controllers see it during the inspection and on the phone's product profile.</p>
+                        {leaves.length > 0 && <div className="ml-auto flex items-center gap-2 text-xs" style={{ color: C.muted }}><span>{doneCount} of {leaves.length} filled in</span><span className="inline-block rounded-full overflow-hidden" style={{ width: 90, height: 6, background: C.line }}><span className="block h-full" style={{ width: `${pct}%`, background: C.ok }} /></span></div>}
+                      </div>
+                      {leaves.length === 0 ? <Empty icon="📖" title="No problem types apply to this product yet" hint="Add or scope them in Problem types (global, this category, or this product) — they will show up here to describe." /> : (
+                        <div className="flex gap-4 items-start">
+                          <aside className="flex-shrink-0 rounded-xl overflow-hidden" style={{ width: 300, border: `1px solid ${C.line}`, background: C.surface }}>
+                            <div className="p-2" style={{ borderBottom: `1px solid ${C.line}` }}>
+                              <SearchBox value={refQ} onChange={setRefQ} placeholder="Search problem types" size={13} />
+                              <div className="flex gap-1 mt-2">{[["all", `All · ${leaves.length}`], ["todo", `To fill · ${leaves.length - doneCount}`], ["done", `Filled · ${doneCount}`]].map(([k, l]) => <button key={k} onClick={() => setRefFilter(k)} className="text-[11px] px-2 py-1 rounded-full" style={{ background: refFilter === k ? C.ink : C.bg, color: refFilter === k ? C.onDark : C.muted }}>{l}</button>)}</div>
                             </div>
-                          )}
-                        </>
+                            <div style={{ maxHeight: 520, overflowY: "auto" }}>
+                              {groups.length === 0 && <p className="text-xs p-3" style={{ color: C.muted }}>Nothing matches.</p>}
+                              {groups.map(g => (
+                                <div key={g.key}>
+                                  <p className="label-sm px-3 pt-2.5 pb-1" style={{ color: C.muted }}>{g.key}</p>
+                                  {g.items.map(l => { const n = noteFor(notes, l.id); const done = hasNoteContent(n); const ph = asPhotoList(n?.photos).length; const on = l.id === selId; return (
+                                    <button key={l.id} onClick={() => setRefPick(l.id)} className="w-full text-left px-3 py-2 flex items-center gap-2" style={{ background: on ? C.accentSoft : "transparent", borderLeft: `3px solid ${on ? C.accent : "transparent"}` }}>
+                                      <span className="inline-flex items-center justify-center rounded-full flex-shrink-0" style={{ width: 16, height: 16, background: done ? C.okBg : C.bg, color: done ? C.ok : C.line, border: `1px solid ${done ? C.ok : C.line}` }}>{done && <Check size={10} strokeWidth={3} />}</span>
+                                      <span className="flex-1 min-w-0"><span className="block text-sm truncate" style={{ fontWeight: on ? 600 : 450 }}>{l.name}</span>{ph > 0 && <span className="block text-[10px]" style={{ color: C.muted }}><Ic i={Camera} s={10} mr={3} />{ph} photo{ph === 1 ? "" : "s"}</span>}</span>
+                                      {scopeChip(l)}
+                                    </button>); })}
+                                </div>
+                              ))}
+                              {hiddenEntries.length > 0 && (
+                                <div className="px-3 py-2.5" style={{ borderTop: `1px solid ${C.line}` }}>
+                                  <button onClick={() => setRefShowHidden(v => !v)} className="text-[11px]" style={{ color: C.muted }}>{hiddenEntries.length} hidden for this product {refShowHidden ? "▾" : "▸"}</button>
+                                  {refShowHidden && <div className="mt-1.5 flex flex-col gap-1">{hiddenEntries.map(e => <div key={e.holderType + e.holderId + e.node.id} className="flex items-center gap-2 text-xs"><span className="flex-1 truncate" style={{ color: C.muted }}>{e.node.name} <span className="text-[10px]">· hidden on {e.holderType === "category" ? e.holderName : "this product"}</span></span><button onClick={() => unhideEntry(e)} className="text-[11px] px-1.5 py-0.5 rounded" style={{ border: `1px solid ${C.line}` }}>restore</button></div>)}</div>}
+                                </div>
+                              )}
+                            </div>
+                          </aside>
+                          <div className="flex-1 min-w-0">
+                            {selLeaf ? (
+                              <div className="rounded-xl p-4" style={{ border: `1px solid ${C.line}`, background: C.surface }}>
+                                <div className="flex items-start gap-3 mb-3">
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-[11px] mb-0.5 truncate" style={{ color: C.muted }}>{selLeaf.parentId ? problemPath(refProblems, selLeaf.parentId) : "Top level"}</p>
+                                    <h3 className="text-lg font-semibold leading-tight">{selLeaf.name}</h3>
+                                  </div>
+                                  {scopeChip(selLeaf)}
+                                </div>
+                                <p className="label-sm mb-1" style={{ color: C.muted }}>How to recognise it on this product</p>
+                                <FastTextarea key={selLeaf.id} value={selNote?.description || ""} onCommit={v => patchNote(selLeaf.id, { description: v })} rows={5} placeholder="What it looks like, where it usually appears, how to tell it from something harmless, when it is serious enough to reject…" className="mb-4" style={{ resize: "vertical" }} />
+                                <p className="label-sm mb-1" style={{ color: C.muted }}>Reference photos {asPhotoList(selNote?.photos).length > 0 && `· ${asPhotoList(selNote?.photos).length}`}</p>
+                                <PhotoStrip photos={selNote?.photos} onAdd={got => patchNote(selLeaf.id, { photos: [...asPhotoList(selNote?.photos), ...got] })} onRemove={id => patchNote(selLeaf.id, { photos: asPhotoList(selNote?.photos).filter(x => x.id !== id) })} size={96} />
+                                <div className="flex items-center gap-2 mt-4 pt-3" style={{ borderTop: `1px solid ${C.line}` }}>
+                                  <button onClick={() => prev && setRefPick(prev.id)} disabled={!prev} className="text-xs px-3 py-1.5 rounded-lg" style={{ border: `1px solid ${C.line}`, color: prev ? C.ink : C.line }}>← {prev ? prev.name : "previous"}</button>
+                                  <button onClick={() => next && setRefPick(next.id)} disabled={!next} className="text-xs px-3 py-1.5 rounded-lg" style={{ border: `1px solid ${C.line}`, color: next ? C.ink : C.line }}>{next ? next.name : "next"} →</button>
+                                  <span className="flex-1" />
+                                  {hasNoteContent(selNote) && <button onClick={() => { if (window.confirm(`Clear the description and photos for “${selLeaf.name}”?`)) patchNote(selLeaf.id, { description: "", photos: [] }); }} className="text-xs" style={{ color: C.muted }}>Clear entry</button>}
+                                </div>
+                              </div>
+                            ) : <Empty icon="👈" title="Pick a problem type" hint="Choose one on the left to describe it." />}
+                          </div>
+                        </div>
                       )}
                     </div>
                   );
