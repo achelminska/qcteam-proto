@@ -1860,7 +1860,9 @@ function MBlockedInfo({ s, set, user, go, itemKey }) {
 }
 
 // "Lost" controls for a pallet screen: a dimmed banner with Found when it's marked, a quiet "Can't find it?" otherwise.
-function MLostControls({ s, set, user, row }) {
+// compact: for a list of several pallet rows (the product profile's "On the docks now" tile) a full-sentence button on
+// every single row reads as clutter, so it collapses to a small "?" icon instead — tapping it opens the same panel.
+function MLostControls({ s, set, user, row, compact }) {
   const [ask, setAsk] = useState(false); const [note, setNote] = useState("");
   const lost = lostOf(s, row); const by = lost && s.users.find(u => u.id === lost.byUserId);
   if (lost) return (
@@ -1870,7 +1872,9 @@ function MLostControls({ s, set, user, row }) {
       <button onClick={() => markFound(set, row, user)} className="mt-2 text-xs px-3 py-1.5 rounded-lg font-semibold" style={{ background: C.ink, color: C.onDark }}>Found — it's back</button>
     </div>
   );
-  if (!ask) return <button onClick={() => setAsk(true)} className="w-full py-2 text-xs mt-1" style={{ color: C.muted }}>Not on the docks? Mark it lost</button>;
+  if (!ask) return compact
+    ? <div className="flex justify-end"><button onClick={() => setAsk(true)} className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: C.bg, color: C.muted, border: `1px solid ${C.line}` }} title="Not on the docks? Mark it lost" aria-label="Not on the docks? Mark it lost"><Ic i={HelpCircle} s={13} mr={0} /></button></div>
+    : <button onClick={() => setAsk(true)} className="w-full py-2 text-xs mt-1" style={{ color: C.muted }}>Not on the docks? Mark it lost</button>;
   return (
     <div className="rounded-2xl px-3.5 py-3 mt-2" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
       <p className="text-sm font-medium mb-1">Mark as lost</p>
@@ -2321,7 +2325,7 @@ function DockPresence({ s, set, user, product, onPickPallet, showLost, compact }
             <span className="flex-1 min-w-0"><span className="block text-xs font-mono truncate">HU {r.hu}</span><span className="block text-[11px]" style={{ color: C.muted }}>{r.location} · {r.priority} · {r.transporter} {r.arrivedTime}{r.po ? ` · PO ${r.po}` : ""}{r.blocking ? " · needed today" : ""}</span></span>
             {onPickPallet && <span className="text-xs font-medium" style={{ color: C.accent }}>Inspect ›</span>}
           </button>
-          {showLost && <MLostControls s={s} set={set} user={user} row={r} />}
+          {showLost && <MLostControls s={s} set={set} user={user} row={r} compact />}
         </div>
       ))}</div>}
     </div>
