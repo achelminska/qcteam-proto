@@ -2797,19 +2797,19 @@ function MDocks({ s, user, go }) {
         {all.length > 0 && <>
           <p className="text-[11px] mb-2" style={{ color: C.muted }}>Seen from the hall — dock 1 on the right; 14 and D-00 face the line from across the aisle. Bar height = pallets standing there, colour = priority, <span style={{ color: C.bad, fontWeight: 600 }}>!N</span> = needed today. Tap a dock.</p>
           <div className="rounded-2xl px-2 pt-2 pb-2.5" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
+            <div className="grid mb-1.5" style={{ gridTemplateColumns: gridCols }}>
+              <div className="flex items-center gap-1 justify-center text-[10px] font-medium rounded-md py-0.5" style={{ gridColumn: `1 / span ${DOCK_CHILLED.length}`, background: C.surface, color: C.accent }}><Ic i={Snowflake} s={11} mr={0} />Chilled · 5–14</div>
+              <span />
+              <div className="flex items-center gap-1 justify-center text-[10px] font-medium rounded-md py-0.5" style={{ gridColumn: `${DOCK_CHILLED.length + 2} / span ${DOCK_AMBIENT.length + 2}`, background: C.surface, color: C.warn }}><Ic i={Thermometer} s={11} mr={0} />Ambient</div>
+            </div>
             <div className="grid items-end" style={{ gridTemplateColumns: gridCols }}>
               {DOCK_CHILLED.map(n => <DockCol key={n} n={n} />)}
               <div className="self-stretch mx-[3px]" style={{ borderLeft: `1px dashed ${C.line}` }} />
               {DOCK_AMBIENT.map(n => <DockCol key={n} n={n} />)}
             </div>
-            <div className="grid mt-1.5" style={{ gridTemplateColumns: gridCols }}>
-              <div className="flex items-center gap-1 justify-center text-[10px] font-medium rounded-md py-0.5" style={{ gridColumn: `1 / span ${DOCK_CHILLED.length}`, background: C.surface, color: C.accent }}><Ic i={Snowflake} s={11} mr={0} />Chilled · 5–14</div>
-              <span />
-              <div className="flex items-center gap-1 justify-center text-[10px] font-medium rounded-md py-0.5" style={{ gridColumn: `${DOCK_CHILLED.length + 2} / span ${DOCK_AMBIENT.length}`, background: C.surface, color: C.warn }}><Ic i={Thermometer} s={11} mr={0} />Ambient</div>
-            </div>
             <div className="grid items-end mt-1.5" style={{ gridTemplateColumns: gridCols }}>
               <DockCol n={14} area={acrossArea} />
-              <div className="self-center flex items-center gap-2 px-1" style={{ gridColumn: `2 / ${lastCol}` }}><span className="flex-1" style={{ borderTop: `1px dashed ${C.line}` }} /><span className="text-[9px] whitespace-nowrap" style={{ color: C.muted }}>across the aisle · 14 faces 13 · D-00 faces 1</span><span className="flex-1" style={{ borderTop: `1px dashed ${C.line}` }} /></div>
+              <div className="self-center mx-1" style={{ gridColumn: `2 / ${lastCol}`, borderTop: `1px dashed ${C.line}` }} />
               <DockCol n={0} area={acrossArea} />
             </div>
           </div>

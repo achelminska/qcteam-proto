@@ -1169,19 +1169,19 @@ function DockMapPage({ s, user, openProduct }) {
       {all.length === 0 && <Empty icon={Warehouse} title="No dock data yet" hint="The map fills in as soon as the dock sheet syncs." />}
       {all.length > 0 && <>
         <Card style={{ marginBottom: 12 }}>
+          <div className="grid mb-3" style={{ gridTemplateColumns: gridCols }}>
+            <div className="flex items-center gap-1.5 justify-center text-xs font-medium rounded-lg py-1" style={{ gridColumn: `1 / span ${DOCK_CHILLED.length}`, background: C.bg, color: C.accent }}><Ic i={Snowflake} s={13} mr={0} />Chilled hall · docks 5–14</div>
+            <span />
+            <div className="flex items-center gap-1.5 justify-center text-xs font-medium rounded-lg py-1" style={{ gridColumn: `${DOCK_CHILLED.length + 2} / span ${DOCK_AMBIENT.length + 2}`, background: C.bg, color: C.warn }}><Ic i={Thermometer} s={13} mr={0} />Ambient · 1–3 · D-00</div>
+          </div>
           <div className="grid items-end" style={{ gridTemplateColumns: gridCols }}>
             {DOCK_CHILLED.map(n => <DockCol key={n} n={n} />)}
             <div className="self-stretch mx-2" style={{ borderLeft: `1px dashed ${C.line}` }} />
             {DOCK_AMBIENT.map(n => <DockCol key={n} n={n} />)}
           </div>
-          <div className="grid mt-3" style={{ gridTemplateColumns: gridCols }}>
-            <div className="flex items-center gap-1.5 justify-center text-xs font-medium rounded-lg py-1" style={{ gridColumn: `1 / span ${DOCK_CHILLED.length}`, background: C.bg, color: C.accent }}><Ic i={Snowflake} s={13} mr={0} />Chilled hall · docks 5–14</div>
-            <span />
-            <div className="flex items-center gap-1.5 justify-center text-xs font-medium rounded-lg py-1" style={{ gridColumn: `${DOCK_CHILLED.length + 2} / span ${DOCK_AMBIENT.length}`, background: C.bg, color: C.warn }}><Ic i={Thermometer} s={13} mr={0} />Ambient · 1–3 · D-00</div>
-          </div>
           <div className="grid items-end mt-3" style={{ gridTemplateColumns: gridCols }}>
             <DockCol n={14} area={acrossArea} />
-            <div className="self-center flex items-center gap-3 px-2" style={{ gridColumn: `2 / ${lastCol}` }}><span className="flex-1" style={{ borderTop: `1px dashed ${C.line}` }} /><span className="text-[11px] whitespace-nowrap" style={{ color: C.muted }}>across the aisle · dock 14 faces 13 · D-00 faces dock 1</span><span className="flex-1" style={{ borderTop: `1px dashed ${C.line}` }} /></div>
+            <div className="self-center mx-2" style={{ gridColumn: `2 / ${lastCol}`, borderTop: `1px dashed ${C.line}` }} />
             <DockCol n={0} area={acrossArea} />
           </div>
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-3">{DOCK_BUCKETS.map(([k, l]) => <span key={k} className="text-[11px] flex items-center gap-1.5" style={{ color: C.muted }}><span className="inline-block w-3 h-3 rounded-[3px]" style={{ background: dockBucketColor(k) }} />{l}</span>)}
