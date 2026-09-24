@@ -720,6 +720,10 @@ const unreportedStats = (s, now = Date.now()) => { const list = unreportedList(s
   return { total: list.length, open: list.filter(x => !x.reviewedAt).length, today: list.filter(x => (x.detectedAt || "").slice(0, 10) === today).length, week: list.filter(x => new Date(x.detectedAt).getTime() >= weekAgo).length }; };
 const reviewUnreported = (set, id, user, note = "") => set(x => ({ ...x, unreportedPallets: (x.unreportedPallets || []).map(u => u.id === id ? { ...u, reviewedAt: nowISO(), reviewedByUserId: user.id, reviewNote: String(note || "").trim() } : u) }));
 const unreviewUnreported = (set, id) => set(x => ({ ...x, unreportedPallets: (x.unreportedPallets || []).map(u => u.id === id ? { ...u, reviewedAt: null, reviewedByUserId: null, reviewNote: "" } : u) }));
+// Head-only reset of the log: wipes the incidents AND the server's pending "gone but not yet confirmed" candidates
+// (otherwise the very next dock push would re-log pallets that vanished just before the reset). Keeps one line of
+// audit (who / when / how many) so a suddenly empty list is explainable.
+const clearUnreported = (set, user) => set(x => ({ ...x, unreportedPallets: [], dockGoneCandidates: {}, unreportedCleared: { at: nowISO(), byUserId: user.id, count: (x.unreportedPallets || []).length } }));
 // QC status: from the sheet when it has one; otherwise derived from the queue (claim) and finished inspections of that pallet/article.
 const blockedQueue = s => blockedRowsLive(s).map(b => { const claim = claimOf(s, b); let status = b.status; if (!status) { const done = s.inspections.some(i => i.status === "Completed" && ((b.hu && (i.pallets || []).some(h => String(h).replace(/\D/g, "").endsWith(b.hu.replace(/^0+/, "")))) || (!b.hu && (s.products.find(p => p.id === i.productId)?.articleId === b.article) && (i.completedAt || "") > (claim?.at || "1970")))); status = done ? "Completed" : claim?.status === "taken" ? "Started" : "Not started"; } return { ...b, claim, status, key: claimKey(b), lost: lostOf(s, b) }; });
 const dockRowsLive = s => { const it = (s.integrations || []).find(i => i.purpose === "Dock" && i.rows?.length); if (!it) return CLEAN_START ? [] : SHEET.dock; return dedupeByHu(it.rows.filter(r => !r._errors?.length)).map(r => ({ hu: String(r.hu || "").trim(), article: String(r.article || ""), name: r.name || "", location: r.location || "", priority: r.priority || (r.skippable ? "Skippable" : "Inspection due"), blocking: !!r.blocking, skippable: !!r.skippable, arrived: r.arrived || "", arrivedTime: r.arrivedTime || "", transporter: r.transporter || "", po: r.po || "", cusPerTu: r.cusPerTu ? Number(r.cusPerTu) : null, sortable: !!r.sortable, onDock: 0, inBuffer: 0 })); };
@@ -3667,9 +3671,15 @@ function UnreportedPalletsPage({ s, set, user, setSel, setPage }) {
   const shown = (view === "open" ? unreportedList(s).filter(x => !x.reviewedAt) : unreportedList(s));
   const groups = []; shown.forEach(x => { const k = dayLabel(x.detectedAt); let g = groups.find(g => g.k === k); if (!g) { g = { k, items: [] }; groups.push(g); } g.items.push(x); });
   const review = id => { reviewUnreported(set, id, user, notes[id] || ""); setNotes(n => { const { [id]: _, ...rest } = n; return rest; }); };
+  const [confirmClear, setConfirmClear] = useState(false);
+  const cleared = s.unreportedCleared; const clearedBy = cleared && s.users.find(u => u.id === cleared.byUserId);
   return (
     <div>
-      <h1 className="mb-1">Unreported pallets</h1>
+      <div className="flex items-center gap-3 mb-1"><h1 className="flex-1">Unreported pallets</h1>
+        {isHead && stats.total > 0 && !confirmClear && <button onClick={() => setConfirmClear(true)} className="text-xs px-3 py-1.5 rounded-lg" style={{ border: `1px solid ${C.line}`, color: C.muted }}>Clear the log</button>}
+        {isHead && confirmClear && <span className="flex items-center gap-2 text-xs rounded-lg px-3 py-1.5" style={{ background: C.badBg, color: C.bad }}>Delete all {stats.total} logged pallet{stats.total === 1 ? "" : "s"}? This cannot be undone.<button onClick={() => { clearUnreported(set, user); setConfirmClear(false); setNotes({}); }} className="px-2.5 py-1 rounded-md font-medium" style={{ background: C.bad, color: C.onDark }}>Yes, clear</button><button onClick={() => setConfirmClear(false)} className="px-2 py-1" style={{ color: C.bad }}>Cancel</button></span>}
+      </div>
+      {cleared && stats.total === 0 && <p className="text-xs mb-2" style={{ color: C.muted }}>Log cleared {fmtTime(cleared.at)}{clearedBy ? ` by ${clearedBy.name}` : ""} · {cleared.count} entr{cleared.count === 1 ? "y" : "ies"} removed. New disappearances will be logged again from the next dock push.</p>}
       <p className="text-sm mb-4" style={{ color: C.muted, maxWidth: 680 }}>Pallets that dropped off the dock sheet — picked or moved on — before QC ever inspected them. Nobody scans a pallet that leaves this way, so without this list nobody would know it happened. Detected automatically from the dock pushes, independent of anyone having the app open; a pallet is only logged once it has stayed missing for a full push cycle, so a brief sheet hiccup (a formula recalculating) doesn't get logged as a real incident.</p>
       <div className="grid gap-3 mb-4" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))" }}>
         {[["Today", stats.today, C.bad], ["This week", stats.week, C.warn], ["Open", stats.open, C.warn], ["Total logged", stats.total, C.muted]].map(([l, v, col]) => (
