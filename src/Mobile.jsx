@@ -2185,6 +2185,27 @@ function MPhotoRow({ photos, size = 64 }) {
   );
 }
 // Collapsible profile section: one header line (title · count · chevron), tight body. Module-level so its open state survives re-renders.
+// One Reference-guide remark: collapsed to its title row (problem path, leaf name, source chip, photo count); the
+// description and photos unfold on tap so a long guide stays scannable.
+function MGuideNote({ note: n, parent, leaf, last }) {
+  const [open, setOpen] = useState(false); const photos = asPhotoList(n.photos); const hasBody = !!(n.description || photos.length);
+  return (
+    <div style={{ borderBottom: last ? "none" : `1px solid ${C.line}` }}>
+      <button onClick={() => hasBody && setOpen(o => !o)} className="w-full text-left py-2.5 flex items-center gap-2" style={{ cursor: hasBody ? "pointer" : "default" }}>
+        <span className="flex-1 min-w-0">
+          {parent && <span className="block text-[10px] uppercase tracking-wide leading-tight" style={{ color: C.muted }}>{parent}</span>}
+          <span className="text-[13px] font-semibold leading-snug flex items-center gap-1.5 flex-wrap">{leaf}{n.inherited && <span className="text-[10px] font-medium px-1.5 rounded-full leading-[16px]" style={{ background: C.accentSoft, color: C.accent }}>{n.source}</span>}</span>
+        </span>
+        {photos.length > 0 && !open && <span className="text-[10px] inline-flex items-center gap-0.5 flex-shrink-0" style={{ color: C.muted }}><Ic i={ImageIcon} s={11} mr={0} />{photos.length}</span>}
+        {hasBody && <Ic i={open ? ChevronDown : ChevronRight} s={15} mr={0} style={{ color: C.muted, flexShrink: 0 }} />}
+      </button>
+      {open && hasBody && <div className="pb-3 -mt-1">
+        {n.description && <p className="text-[13px] leading-snug" style={{ color: C.muted, whiteSpace: "pre-wrap" }}>{n.description}</p>}
+        {photos.length > 0 && <div className="mt-1.5"><MPhotoRow photos={n.photos} size={72} /></div>}
+      </div>}
+    </div>
+  );
+}
 function MSection({ title, count, action, tone, defaultOpen = false, children }) {
   const [open, setOpen] = useState(defaultOpen);
   const fg = tone === "bad" ? C.bad : C.ink;
@@ -2267,14 +2288,7 @@ function MProductInfo({ s, user, product, go, setState, embedded }) {
       {specs.length > 0 && <MSection title="Specifications" count={specs.length}>{specs.map((q, ix) => <MRow key={q.id} k={q.name} v={specLabel(q)} last={ix === specs.length - 1} />)}</MSection>}
       {attrs.length > 0 && <MSection title="Properties" count={attrs.length}>{attrs.map((a, ix) => <MRow key={a.dictionaryId} k={a.list} v={a.value} last={ix === attrs.length - 1} />)}</MSection>}
       {refNotes.length > 0 && <MSection title="Reference guide" count={refNotes.length}>
-        {refNotes.map((n, ix) => { const [parent, leaf] = splitPath(n.problemId); return (
-          <div key={n.id} className="py-2" style={{ borderBottom: ix === refNotes.length - 1 ? "none" : `1px solid ${C.line}` }}>
-            {parent && <p className="text-[10px] uppercase tracking-wide leading-tight" style={{ color: C.muted }}>{parent}</p>}
-            <p className="text-[13px] font-semibold leading-snug flex items-center gap-1.5">{leaf}{n.inherited && <span className="text-[10px] font-medium px-1.5 rounded-full leading-[16px]" style={{ background: C.accentSoft, color: C.accent }}>{n.source}</span>}</p>
-            {n.description && <p className="text-[13px] mt-0.5 leading-snug" style={{ color: C.muted, whiteSpace: "pre-wrap" }}>{n.description}</p>}
-            {asPhotoList(n.photos).length > 0 && <div className="mt-1.5"><MPhotoRow photos={n.photos} size={56} /></div>}
-          </div>
-        ); })}
+        {refNotes.map((n, ix) => { const [parent, leaf] = splitPath(n.problemId); return <MGuideNote key={n.id} note={n} parent={parent} leaf={leaf} last={ix === refNotes.length - 1} />; })}
       </MSection>}
       {last3.length > 0 && <MSection title="Recent inspections" count={allCompleted.length || null} action={<button onClick={() => go("productHistory", product.id)} className="text-[12px] px-2 py-1 rounded-lg" style={{ color: C.accent }}>all ›</button>}>
         {last3.map((i, ix) => <button key={i.id} onClick={() => go("inspection", i.id)} className="w-full flex items-center gap-2 py-1.5 text-left" style={{ borderBottom: ix === last3.length - 1 ? "none" : `1px solid ${C.line}` }}><span className="text-[13px] flex-1 min-w-0 truncate"><span style={{ fontVariantNumeric: "tabular-nums" }}>{dayLabel(i.completedAt)}, {hhmm(i.completedAt)}</span><span className="text-[12px] ml-1.5" style={{ color: C.muted }}>{s.users.find(u => u.id === i.controllerId)?.name.split(" ")[0]}</span></span><ResultPill i={i} s={s} /></button>)}
@@ -2634,14 +2648,7 @@ function MCategoryKnowledge({ s, catId }) {
         </div>)}
       </MSection>}
       {notes.length > 0 && <MSection title="Reference guide" count={notes.length}>
-        {notes.map((n, ix) => { const [parent, leaf] = splitPath(n.problemId); return (
-          <div key={n.id} className="py-2" style={{ borderBottom: ix === notes.length - 1 ? "none" : `1px solid ${C.line}` }}>
-            {parent && <p className="text-[10px] uppercase tracking-wide leading-tight" style={{ color: C.muted }}>{parent}</p>}
-            <p className="text-[13px] font-semibold leading-snug flex items-center gap-1.5">{leaf}{n.inherited && <span className="text-[10px] font-medium px-1.5 rounded-full leading-[16px]" style={{ background: C.accentSoft, color: C.accent }}>{n.source}</span>}</p>
-            {n.description && <p className="text-[13px] mt-0.5 leading-snug" style={{ color: C.muted, whiteSpace: "pre-wrap" }}>{n.description}</p>}
-            {asPhotoList(n.photos).length > 0 && <div className="mt-1.5"><MPhotoRow photos={n.photos} size={56} /></div>}
-          </div>
-        ); })}
+        {notes.map((n, ix) => { const [parent, leaf] = splitPath(n.problemId); return <MGuideNote key={n.id} note={n} parent={parent} leaf={leaf} last={ix === notes.length - 1} />; })}
       </MSection>}
     </div>
   );
