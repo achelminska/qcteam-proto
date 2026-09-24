@@ -2607,6 +2607,37 @@ function MProductHistory({ s, user, go, productId }) {
 const productCodes = p => [["article", p.articleId], ["CU", p.barcodeCu], ["TU", p.barcodeTu]].filter(([, v]) => v && String(v).trim());
 const codeKind = (p, c) => (productCodes(p).find(([, v]) => String(v).trim() === String(c).trim()) || [null])[0];
 const matchesCode = (p, c) => !!codeKind(p, c);
+// Category-level knowledge in the catalog: the category's own Encyclopedia entries and Reference guide notes plus what it
+// inherits from parent categories (chip with the source), same look as the product profile sections — collapsed by default.
+function MCategoryKnowledge({ s, catId }) {
+  const cat = s.categories.find(c => c.id === catId); if (!cat) return null;
+  const guide = guideChainFor(s, catId).filter(e => e.title || e.body || asPhotoList(e.photos).length).map(e => ({ ...e, inherited: e.categoryId !== catId }));
+  const probs = problemsFor(s, { kind: "Category", id: catId }, new Set(cat.hiddenProblemIds || []));
+  const notes = probs.filter(p => isLeaf(probs, p.id)).map(p => { const n = inheritedNoteFor(s, catId, p.id); return n ? { ...n, inherited: n.source !== cat.name } : null; }).filter(Boolean);
+  const splitPath = id => { const parts = pathOf(probs, id).split(" › "); return [parts.slice(0, -1).join(" › "), parts[parts.length - 1]]; };
+  if (!guide.length && !notes.length) return null;
+  return (
+    <div className="mb-3">
+      {guide.length > 0 && <MSection title="Encyclopedia" count={guide.length}>
+        {guide.map((e, ix) => <div key={e.id} className="py-2" style={{ borderBottom: ix === guide.length - 1 ? "none" : `1px solid ${C.line}` }}>
+          <p className="text-[13px] font-semibold leading-snug flex items-center gap-1.5">{e.title || "Untitled"}{e.inherited && <span className="text-[10px] font-medium px-1.5 rounded-full leading-[16px]" style={{ background: C.accentSoft, color: C.accent }}>{e.source}</span>}</p>
+          {e.body && <p className="text-[13px] mt-0.5 leading-snug" style={{ color: C.muted, whiteSpace: "pre-wrap" }}>{e.body}</p>}
+          {asPhotoList(e.photos).length > 0 && <div className="mt-1.5"><MPhotoRow photos={e.photos} size={64} /></div>}
+        </div>)}
+      </MSection>}
+      {notes.length > 0 && <MSection title="Reference guide" count={notes.length}>
+        {notes.map((n, ix) => { const [parent, leaf] = splitPath(n.problemId); return (
+          <div key={n.id} className="py-2" style={{ borderBottom: ix === notes.length - 1 ? "none" : `1px solid ${C.line}` }}>
+            {parent && <p className="text-[10px] uppercase tracking-wide leading-tight" style={{ color: C.muted }}>{parent}</p>}
+            <p className="text-[13px] font-semibold leading-snug flex items-center gap-1.5">{leaf}{n.inherited && <span className="text-[10px] font-medium px-1.5 rounded-full leading-[16px]" style={{ background: C.accentSoft, color: C.accent }}>{n.source}</span>}</p>
+            {n.description && <p className="text-[13px] mt-0.5 leading-snug" style={{ color: C.muted, whiteSpace: "pre-wrap" }}>{n.description}</p>}
+            {asPhotoList(n.photos).length > 0 && <div className="mt-1.5"><MPhotoRow photos={n.photos} size={56} /></div>}
+          </div>
+        ); })}
+      </MSection>}
+    </div>
+  );
+}
 function MCatalog({ s, user, go, onStart, setState, notify, onVisual, preset }) {
   const [q, setQ] = useState(""); const [sel, setSel] = useBackSel("catalogSel", preset || null); const [cat, setCat] = useBackSel("catalogCat", null); const [fOpen, setFOpen] = useState(false);
   const [f, setF] = useState({ bio: "", supplier: "", flagged: false, reference: false, sort: "name" });
@@ -2653,6 +2684,7 @@ function MCatalog({ s, user, go, onStart, setState, notify, onVisual, preset }) 
           <h2 className="mb-1">{catOf(cat)?.name}</h2>
           <p className="text-xs mb-3" style={{ color: C.muted }}>{products.length} products{(catOf(cat)?.specs || []).length ? ` · category specs: ${catOf(cat).specs.map(x => `${x.name} ${specLabel(x)}`).join(", ")}` : ""}</p>
           {subCats.length > 0 && <div className="flex gap-1.5 overflow-x-auto pb-2 mb-2">{subCats.map(c => <Chip key={c.id} on={false} onClick={() => setCat(c.id)}>{c.name} · {countIn(c.id)}</Chip>)}</div>}
+          <MCategoryKnowledge s={s} catId={cat} />
           <Grid items={products} />
         </div>
       ) : (
