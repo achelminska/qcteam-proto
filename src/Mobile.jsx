@@ -1849,8 +1849,10 @@ function MBlockedInfo({ s, set, user, go, itemKey }) {
 // "Lost" controls for a pallet screen: a dimmed banner with Found when it's marked, a quiet "Can't find it?" otherwise.
 // compact: for a list of several pallet rows (the product profile's "On the docks now" tile) a full-sentence button on
 // every single row reads as clutter, so it collapses to a small "?" icon instead — tapping it opens the same panel.
-function MLostControls({ s, set, user, row, compact }) {
-  const [ask, setAsk] = useState(false); const [note, setNote] = useState("");
+function MLostControls({ s, set, user, row, compact, open, onClose }) {
+  // `open` (with onClose) makes the form externally driven — the "?" trigger then lives wherever the parent puts it.
+  const [askLocal, setAskLocal] = useState(false); const [note, setNote] = useState("");
+  const controlled = open !== undefined; const ask = controlled ? open : askLocal; const setAsk = v => { if (controlled) { if (!v) onClose && onClose(); } else setAskLocal(v); };
   const lost = lostOf(s, row); const by = lost && s.users.find(u => u.id === lost.byUserId);
   if (lost) return (
     <div className="rounded-2xl px-3.5 py-3 mb-3" style={{ background: C.bg, border: `1px dashed ${C.line}` }}>
@@ -1859,6 +1861,7 @@ function MLostControls({ s, set, user, row, compact }) {
       <button onClick={() => markFound(set, row, user)} className="mt-2 text-xs px-3 py-1.5 rounded-lg font-semibold" style={{ background: C.ink, color: C.onDark }}>Found — it's back</button>
     </div>
   );
+  if (!ask && controlled) return null;
   if (!ask) return compact
     ? <div className="flex justify-end"><button onClick={() => setAsk(true)} className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: C.bg, color: C.muted, border: `1px solid ${C.line}` }} title="Not on the docks? Mark it lost" aria-label="Not on the docks? Mark it lost"><Ic i={HelpCircle} s={13} mr={0} /></button></div>
     : <button onClick={() => setAsk(true)} className="w-full py-2 text-xs mt-1" style={{ color: C.muted }}>Not on the docks? Mark it lost</button>;
@@ -1903,7 +1906,7 @@ function MProductHeader({ s, product, article, name, go }) {
 // Shared by the scan result and the pallet page opened from any list, so both places look and behave the same and the
 // inspection starts right here (no hop to a twin screen). Hero = product identity + pallet status + where/when; then the
 // inspection-type buttons; details and sibling pallets fold away underneath.
-function MPalletSheet({ s, set, user, go, row: r, onStart, onPickPallet, onAssign, onCancel, cancelLabel }) {
+function MPalletSheet({ s, set, user, go, row: r, onStart, onPickPallet, onAssign, onCancel, cancelLabel, lostOpen, onLostClose }) {
   const product = s.products.find(p => p.articleId === r.article);
   const done = completedInspectionFor(s, r.hu); const lost = lostOf(s, r);
   const draft = s.inspections.find(i => (i.pallets || []).some(x => samePallet(x, r.hu)) && ["Draft", "PendingReview"].includes(i.status));
@@ -1944,8 +1947,14 @@ function MPalletSheet({ s, set, user, go, row: r, onStart, onPickPallet, onAssig
             <Fact k="Arrived" v={`${arrivedDay}${r.arrivedTime ? ` ${r.arrivedTime}` : ""}`.trim()} />
             <Fact k="Transporter" v={r.transporter} />
           </div>
+          <div className="flex items-center gap-1.5 flex-wrap mt-2.5">
+            <span className="text-[11px] px-2 py-0.5 rounded-md inline-flex items-center gap-1" style={{ background: C.surface, border: `1px solid ${C.line}`, color: C.ink }}><span style={{ color: C.muted }}>PO</span><span className="font-mono font-medium">{r.po || "—"}</span></span>
+            <span className="text-[11px] px-2 py-0.5 rounded-md inline-flex items-center gap-1" style={{ background: r.sortable ? C.okBg : C.surface, border: `1px solid ${r.sortable ? "transparent" : C.line}`, color: r.sortable ? C.ok : C.muted }}>{r.sortable ? <Ic i={Check} s={11} mr={0} /> : <Ic i={X} s={11} mr={0} />}{r.sortable ? "Sortable" : "Not sortable"}</span>
+            {r.cusPerTu != null && r.cusPerTu !== "" && <span className="text-[11px] px-2 py-0.5 rounded-md" style={{ background: C.surface, border: `1px solid ${C.line}`, color: C.muted }}>{r.cusPerTu} CU/TU</span>}
+          </div>
         </div>
       </div>
+      <MLostControls s={s} set={set} user={user} row={r} open={lost ? undefined : !!lostOpen} onClose={onLostClose} />
 
       {done && <div className="rounded-2xl p-3.5 mb-3" style={{ background: C.okBg }}>
         <p className="text-sm font-medium mb-1 flex items-center" style={{ color: C.ok }}><Ic i={Check} s={14} />Already inspected — the dock sheet hasn't caught up yet</p>
@@ -1967,9 +1976,6 @@ function MPalletSheet({ s, set, user, go, row: r, onStart, onPickPallet, onAssig
         </div>
       </div>}
 
-      <MSection title="Pallet details">
-        {[["Handling Unit", <span className="font-mono">{r.hu}</span>], ["Article", r.article], ["PO", r.po || "—"], ["Arrival", [r.arrived, r.arrivedTime].filter(Boolean).join(" ") || "—"], ["CU per TU (UOM)", r.cusPerTu ?? "—"], ["Sortable", r.sortable ? "yes" : "no"]].map(([k, v], ix, arr) => <MRow key={k} k={k} v={v} last={ix === arr.length - 1} />)}
-      </MSection>
       {others.length > 0 && <MSection title="Same article on the docks" count={others.length}>
         {pos.length > 1 && <p className="mb-2 px-2.5 py-1.5 rounded-lg text-[11px] flex items-center" style={{ background: C.warnBg, color: C.warn }}><Ic i={AlertTriangle} s={11} mr={4} />Different PO numbers ({pos.join(", ")}) — likely separate deliveries, one inspection doesn't cover all.</p>}
         {others.map((x, ix) => { const st = dockStatus(x); return (
@@ -1983,20 +1989,21 @@ function MPalletSheet({ s, set, user, go, row: r, onStart, onPickPallet, onAssig
 
       <div className="mt-2">
         {user.role === "Head" && onAssign && !lost && <button onClick={() => onAssign(r)} className="w-full py-2 text-xs inline-flex items-center justify-center" style={{ color: C.accent }}><Ic i={MessageSquare} s={12} />Assign to someone in chat</button>}
-        <MLostControls s={s} set={set} user={user} row={r} compact />
         {onCancel && <button onClick={onCancel} className="w-full py-2.5 text-sm" style={{ color: C.muted }}>{cancelLabel || "Cancel"}</button>}
       </div>
       <StartModal open={!!starting} kind={starting} s={s} pallet={r.hu} presetProductId={product?.id || null} onClose={() => setStarting(null)} onConfirm={({ productId }) => { const k = starting; setStarting(null); onStart(productId, k); }} />
     </div>
   );
 }
+const LostTrigger = ({ on, onClick, lost }) => lost ? <span className="text-[11px] px-2 py-1 rounded-full inline-flex items-center gap-1" style={{ background: C.line, color: C.muted }}><Ic i={Search} s={11} mr={0} />Lost</span> : <button onClick={onClick} className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: on ? C.ink : C.bg, color: on ? C.onDark : C.muted, border: `1px solid ${on ? C.ink : C.line}` }} title="Not on the docks? Mark it lost" aria-label="Not on the docks? Mark it lost"><Ic i={HelpCircle} s={16} mr={0} /></button>;
 function MPalletInfo({ s, set, user, go, hu, onAssign, onStart }) {
-  const r = dockRowsLive(s).find(x => samePallet(x.hu, hu));
+  const r = dockRowsLive(s).find(x => samePallet(x.hu, hu)); const [lostOpen, setLostOpen] = useState(false);
+  useEffect(() => { setLostOpen(false); }, [hu]);
   if (!r) return <div><TopBar title="Pallet" onBack={() => go("home")} /><div className="px-4 pt-10 text-center"><p className="text-sm" style={{ color: C.muted }}>Not found — it may already be inspected or off the sheet.</p></div></div>;
   return (
     <div className="pb-4">
-      <TopBar title="Pallet on dock" onBack={() => go("home")} />
-      <div className="px-4 pt-3"><MPalletSheet s={s} set={set} user={user} go={go} row={r} onStart={(pid, typeId) => onStart(pid, r.hu, typeId)} onPickPallet={h => go("palletInfo", h)} onAssign={onAssign} /></div>
+      <TopBar title="Pallet on dock" onBack={() => go("home")} right={<LostTrigger on={lostOpen} lost={!!lostOf(s, r)} onClick={() => setLostOpen(o => !o)} />} />
+      <div className="px-4 pt-3"><MPalletSheet s={s} set={set} user={user} go={go} row={r} onStart={(pid, typeId) => onStart(pid, r.hu, typeId)} onPickPallet={h => go("palletInfo", h)} onAssign={onAssign} lostOpen={lostOpen} onLostClose={() => setLostOpen(false)} /></div>
     </div>
   );
 }
@@ -2107,7 +2114,7 @@ function MDashboard({ s, set, user, go, dismissed, setDismissed, onAssign }) {
     <div style={bottomPad}>
       <div className="flex items-center justify-between px-5 pt-2 pb-2">
         <div><p className="text-xs" style={{ color: C.muted }}>{new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "short" })}</p><p className="text-lg font-semibold">Hi, {user.name.split(" ")[0]}</p></div>
-        <div className="flex items-center gap-3"><button onClick={() => go("notifications")} className="relative flex"><Ic i={Bell} s={22} mr={0} />{unread > 0 && <span className="absolute -top-1 -right-2 text-[9px] px-1 rounded-full" style={{ background: C.bad, color: C.onDark }}>{unread}</span>}</button><button onClick={() => go("profile")} className="flex"><Avatar user={user} size={36} /></button></div>
+        <div className="flex items-center gap-3">{(() => { const n = complaintsNewCount(s, user.id); return <button onClick={() => go("complaints")} className="relative flex" title="Complaints"><Ic i={ThumbsDown} s={22} mr={0} />{n > 0 && <span className="absolute -top-1 -right-2 text-[9px] px-1 rounded-full" style={{ background: C.bad, color: C.onDark }}>{n}</span>}</button>; })()}<button onClick={() => go("notifications")} className="relative flex"><Ic i={Bell} s={22} mr={0} />{unread > 0 && <span className="absolute -top-1 -right-2 text-[9px] px-1 rounded-full" style={{ background: C.bad, color: C.onDark }}>{unread}</span>}</button><button onClick={() => go("profile")} className="flex"><Avatar user={user} size={36} /></button></div>
       </div>
       {(() => { const fr = sheetFreshness(s); if (!fr.length) return null; const now = Date.now(); const ago = t => { const m = Math.round((now - new Date(t).getTime()) / 60000); return m < 1 ? "just now" : m < 60 ? `${m} min ago` : `${Math.round(m / 60)} h ago`; }; return (
         <div className="px-5 pb-2 flex items-center gap-3 flex-wrap">
@@ -2466,9 +2473,8 @@ function DockPresence({ s, set, user, product, onPickPallet, showLost, compact }
         <div key={r.hu} className="py-2" style={{ borderTop: `1px solid ${C.line}` }}>
           <button onClick={() => onPickPallet && onPickPallet(r.hu)} className="w-full text-left flex items-center gap-2">
             <span className="flex-1 min-w-0"><span className="block text-xs font-mono truncate">HU {r.hu}</span><span className="block text-[11px]" style={{ color: C.muted }}>{r.location} · {r.priority} · {r.transporter} {r.arrivedTime}{r.po ? ` · PO ${r.po}` : ""}{r.blocking ? " · needed today" : ""}</span></span>
-            {onPickPallet && <span className="text-xs font-medium" style={{ color: C.accent }}>Inspect ›</span>}
+            {onPickPallet && <Ic i={ChevronRight} s={15} mr={0} style={{ color: C.muted }} />}
           </button>
-          {showLost && <MLostControls s={s} set={set} user={user} row={r} compact />}
         </div>
       ))}</div>}
     </div>
@@ -2476,7 +2482,7 @@ function DockPresence({ s, set, user, product, onPickPallet, showLost, compact }
 }
 function MScan({ s, user, go, onStart, onVisual, onSkip, setState, notify, preset }) {
   const [code, setCode] = useState(preset || ""); const [mode, setMode] = useState(null); const [confirmCollision, setConfirmCollision] = useState(null); const [starting, setStarting] = useState(null);
-  const [pallet, setPallet] = useState(""); const [askInspect, setAskInspect] = useState(false);
+  const [pallet, setPallet] = useState(""); const [askInspect, setAskInspect] = useState(false); const [lostOpen, setLostOpen] = useState(false);
   const scanned = code.trim();
   const byPallet = pallet ? s.inspections.filter(i => (i.pallets || []).some(x => samePallet(x, pallet)) && i.status !== "Cancelled") : [];
   const completed = byPallet.find(i => i.status === "Completed"), draft = byPallet.find(i => ["Draft", "PendingReview"].includes(i.status));
@@ -2512,7 +2518,8 @@ function MScan({ s, user, go, onStart, onVisual, onSkip, setState, notify, prese
           <div className="flex items-center gap-2 rounded-xl px-3 py-2 mb-3" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
             <Ic i={ScanLine} s={15} mr={0} style={{ color: C.accent }} />
             <span className="flex-1 min-w-0 text-[12px] font-mono truncate">{pallet || scanned}</span>
-            <button onClick={() => { setMode(null); setPallet(""); setCode(""); }} className="text-xs font-medium flex-shrink-0" style={{ color: C.accent }}>Scan another</button>
+            <button onClick={() => { setMode(null); setPallet(""); setCode(""); setLostOpen(false); }} className="text-xs font-medium flex-shrink-0" style={{ color: C.accent }}>Scan another</button>
+            {mode === "pallet" && wms && <LostTrigger on={lostOpen} lost={!!lostOf(s, wms)} onClick={() => setLostOpen(o => !o)} />}
           </div>
         ) : (<>
           <LiveScanner onCode={code => scan(code)} />
@@ -2548,7 +2555,7 @@ function MScan({ s, user, go, onStart, onVisual, onSkip, setState, notify, prese
           </div>
         )}
 
-        {mode === "pallet" && wms && <MPalletSheet s={s} set={setState} user={user} go={go} row={wms} onStart={(pid, typeId) => start(pid, typeId)} onPickPallet={pickPalletOfProduct} onCancel={() => { setMode(null); setPallet(""); setCode(""); }} cancelLabel="Scan another code" />}
+        {mode === "pallet" && wms && <MPalletSheet s={s} set={setState} user={user} go={go} row={wms} onStart={(pid, typeId) => start(pid, typeId)} onPickPallet={pickPalletOfProduct} onCancel={() => { setMode(null); setPallet(""); setCode(""); setLostOpen(false); }} cancelLabel="Scan another code" lostOpen={lostOpen} onLostClose={() => setLostOpen(false)} />}
 
         {mode === "pallet" && !wms && blockedRow && (
           <div className="rounded-2xl p-4 mb-3" style={{ background: C.badBg }}>
@@ -2924,8 +2931,14 @@ const complaintsMeta = s => s.complaints || { period: "", updatedAt: null, byUse
 const complaintsFor = (s, articleId) => { const k = normArticle(articleId); if (!k) return null; return complaintsMeta(s).rows.find(r => normArticle(r.articleId) === k) || null; };
 const productForArticle = (s, articleId) => { const k = normArticle(articleId); return k ? s.products.find(p => normArticle(p.articleId) === k) || null : null; };
 const complaintsLine = (s, articleId) => { const c = complaintsFor(s, articleId); if (!c || !c.count) return null; const meta = complaintsMeta(s); return { count: c.count, sub: c.subType ? `${c.subType}${c.subCount != null ? ` (${c.subCount})` : ""}` : "", period: meta.period || "" }; };
+// "New" complaints = rows changed since this user last opened the Complaints screen on this device. Per-device on
+// purpose: it's a reading cue, not shared state, so it never touches the synced document.
+const complaintsSeenKey = userId => `qcteam-complaints-seen-${userId}`;
+const complaintsNewCount = (s, userId) => { const meta = complaintsMeta(s); if (!meta.rows.length) return 0; let seen = ""; try { seen = localStorage.getItem(complaintsSeenKey(userId)) || ""; } catch {} return meta.rows.filter(r => (r.updatedAt || meta.updatedAt || "") > seen).length; };
+const markComplaintsSeen = userId => { try { localStorage.setItem(complaintsSeenKey(userId), nowISO()); } catch {} };
 function MComplaints({ s, user, go }) {
   const meta = complaintsMeta(s); const [q, setQ] = useState(""); const qq = q.trim().toLowerCase();
+  useEffect(() => { markComplaintsSeen(user.id); }, [meta.updatedAt]);
   const rows = [...meta.rows].sort((a, b) => (b.count || 0) - (a.count || 0) || (a.name || "").localeCompare(b.name || ""));
   const shown = qq ? rows.filter(r => `${r.articleId} ${r.name} ${r.subType || ""}`.toLowerCase().includes(qq)) : rows;
   const total = rows.reduce((a, r) => a + (r.count || 0), 0); const max = Math.max(1, ...rows.map(r => r.count || 0));
@@ -2992,15 +3005,14 @@ function MDocks({ s, user, go }) {
   // `flip` mirrors the column for the facing row: baseline on top, bar hanging outward (down). No hover on a phone, so the
   // SKU count shows on the bar of the selected dock instead.
   const DockCol = ({ n, area = BAR_H, flip = false }) => { const arr = byDock[n] || []; const c = counts(arr); const h = arr.length ? Math.min(area, Math.max(6, Math.round(arr.length / max * BAR_H))) : 0; const active = sel === n; const skus = skusOf(arr);
-    const base = `2px solid ${C.ink}`; const inside = h >= 16;
+    const base = `2px solid ${C.ink}`;
     return (
       <button onClick={() => setSel(active ? null : n)} className="flex flex-col items-center min-w-0 rounded-lg pt-1 pb-1.5 transition-colors" style={{ background: active ? C.accentSoft : "transparent", outline: active ? `1px solid ${C.accent}` : "none" }}>
-        <div className="w-full px-[3px] flex flex-col relative" style={{ height: area, justifyContent: flip ? "flex-start" : "flex-end", borderTop: flip ? base : "none", borderBottom: flip ? "none" : base }}>
+        <div className="w-full px-[3px] flex flex-col relative order-1" style={{ height: area, justifyContent: flip ? "flex-start" : "flex-end", borderTop: flip ? base : "none", borderBottom: flip ? "none" : base }}>
           {h > 0 ? <div className="w-full flex overflow-hidden" style={{ height: h, borderRadius: flip ? "0 0 3px 3px" : "3px 3px 0 0", flexDirection: flip ? "column-reverse" : "column" }}>{DOCK_STATUS.map(([k]) => c[k] > 0 && <div key={k} style={{ flex: c[k], background: dockStatusColor(k) }} />)}</div> : <div className="w-full" style={{ height: 3, background: C.line }} />}
-          {active && arr.length > 0 && <span className="absolute left-0 right-0 text-center text-[9px] font-semibold leading-none pointer-events-none" style={inside ? { [flip ? "top" : "bottom"]: h / 2 - 5, color: "#fff", textShadow: "0 1px 2px rgba(0,0,0,.65)" } : { [flip ? "top" : "bottom"]: h + 3, color: C.ink }}>{skus} SKU</span>}
         </div>
-        <span className="text-[11px] mt-1 font-semibold leading-none" style={{ color: active ? C.accent : C.ink }}>{n === 0 ? "00" : n}</span>
-        <span className="text-[9px] leading-none mt-0.5" style={{ color: arr.length ? C.muted : C.line, fontVariantNumeric: "tabular-nums" }}>{arr.length || "–"}</span>
+        <span className={`text-[9px] leading-none mt-1 ${flip ? "order-3" : ""}`} style={{ color: arr.length ? C.muted : C.line, fontVariantNumeric: "tabular-nums" }}>{arr.length || "–"}</span>
+        <span className={`text-[11px] font-semibold leading-none ${flip ? "order-first mb-1" : "order-2 mt-1"}`} style={{ color: active ? C.accent : C.ink }}>{n === 0 ? "00" : n}</span>
       </button>
     ); };
   const gridCols = `repeat(${DOCK_CHILLED.length}, minmax(0, 1fr)) 10px repeat(${DOCK_AMBIENT.length}, minmax(0, 1fr)) 10px minmax(0, 1fr)`;
@@ -3010,7 +3022,7 @@ function MDocks({ s, user, go }) {
     return Object.values(groups).map(g => { const first = g[0]; const product = s.products.find(p => p.articleId === first.article); const checked = g.filter(x => completedInspectionFor(s, x.hu)).length; const subs = [...new Set(g.map(r => r.sub).filter(Boolean))].sort(); const earliest = [...g].sort((x, y) => `${x.arrived || ""}${x.arrivedTime || "99"}`.localeCompare(`${y.arrived || ""}${y.arrivedTime || "99"}`))[0];
       return { key: first.article || first.hu, name: first.name || product?.name || first.article, count: g.length, checked, subs, hu: earliest.hu, productId: product?.id || null, priority: first.priority, status: dockStatus(g.find(r => r.blocking) || first), blocking: g.some(r => r.blocking), transporter: earliest.transporter, arrived: earliest.arrived, arrivedTime: earliest.arrivedTime, location: sel === "other" ? [...new Set(g.map(r => r.location).filter(Boolean))].join(", ") : "" };
     }).sort((a, b) => (dockStatusRank(a.status) - dockStatusRank(b.status)) || `${a.arrived || ""}${a.arrivedTime || "99"}`.localeCompare(`${b.arrived || ""}${b.arrivedTime || "99"}`)); })();
-  const quickRows = [14, ...DOCK_CHILLED, ...DOCK_AMBIENT, 0].map(n => ({ key: n, label: n === 14 || n === 0 ? `${dockLabel(n)} · across` : dockLabel(n), zone: dockZone(n), arr: byDock[n] || [] })).concat(other.length ? [{ key: "other", label: "Other locations", zone: null, arr: other }] : []);
+  const quickRows = [14, ...DOCK_CHILLED, ...DOCK_AMBIENT, 0].map(n => ({ key: n, label: n === 14 || n === 0 ? `${dockLabel(n)} · across` : dockLabel(n), zone: dockZone(n), arr: byDock[n] || [] })).filter(q => q.arr.length).concat(other.length ? [{ key: "other", label: "Other locations", zone: null, arr: other }] : []);
   const ZoneRow = ({ icon, title, st, tint }) => (
     <div className="flex items-center gap-3 py-2.5" style={{ borderBottom: `1px solid ${C.line}` }}>
       <span className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: C.bg, color: tint }}><Ic i={icon} s={16} mr={0} /></span>
@@ -3037,9 +3049,9 @@ function MDocks({ s, user, go }) {
               <div className="self-stretch mx-[3px]" style={{ borderLeft: `1px dashed ${C.line}` }} />
               {DOCK_AMBIENT.map(n => <DockCol key={n} n={n} />)}
             </div>
-            <div className="grid items-start mt-2" style={{ gridTemplateColumns: gridCols }}>
+            <div className="grid items-start mt-4" style={{ gridTemplateColumns: gridCols }}>
               <DockCol n={14} area={acrossArea} flip />
-              <div className="self-start mx-1 mt-1" style={{ gridColumn: `2 / ${lastCol}`, borderTop: `1px dashed ${C.line}` }} />
+              <div className="self-start mx-1" style={{ gridColumn: `2 / ${lastCol}`, marginTop: 22, borderTop: `1px dashed ${C.line}` }} />
               <DockCol n={0} area={acrossArea} flip />
             </div>
           </div>
