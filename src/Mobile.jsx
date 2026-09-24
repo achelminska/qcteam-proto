@@ -2750,9 +2750,11 @@ const parseDock = loc => { const m = String(loc || "").trim().match(/^D[-\s]?0*(
 const dockZone = n => n >= 5 && n <= 14 ? "chilled" : (n >= 1 && n <= 3) || n === 0 ? "ambient" : null;
 const dockLabel = n => n === 0 ? "D-00" : String(n);
 // One colour per pallet status, most severe first. "Needed today" (the sheet's blocking flag) trumps the priority label.
-const DOCK_STATUS = [["blocked", "Needed today", "#9b111e"], ["Now needed", "Now needed", "#ef6c4d"], ["High risk", "High risk", "#e8871e"], ["High issues", "High issues", "#d4a72c"], ["Late inspection", "Late inspection", "#7c5cbf"], ["Inspection due", "Inspection due", "#5b7fa6"], ["Skippable", "Skippable", "#c3cad3"]];
+// [key, label, bar colour, text colour for pills] — hues spread around the wheel so neighbours never blur together.
+const DOCK_STATUS = [["blocked", "Needed today", "#9b111e", "#9b111e"], ["Now needed", "Now needed", "#e0457b", "#b8265c"], ["High risk", "High risk", "#f28c28", "#b35e0a"], ["High issues", "High issues", "#f2c531", "#7d6200"], ["Late inspection", "Late inspection", "#7c5cbf", "#5f42a3"], ["Inspection due", "Inspection due", "#2a9d8f", "#1f7a6f"], ["Skippable", "Skippable", "#c3cad3", "#6b7480"]];
 const dockStatus = r => r.blocking ? "blocked" : DOCK_STATUS.some(([k]) => k === r.priority) ? r.priority : "Inspection due";
-const dockStatusColor = k => DOCK_STATUS.find(x => x[0] === k)?.[2] || "#5b7fa6";
+const dockStatusColor = k => DOCK_STATUS.find(x => x[0] === k)?.[2] || "#2a9d8f";
+const dockStatusText = k => DOCK_STATUS.find(x => x[0] === k)?.[3] || dockStatusColor(k);
 const dockStatusRank = k => { const i = DOCK_STATUS.findIndex(x => x[0] === k); return i < 0 ? 99 : i; };
 const dockUrgent = r => dockStatusRank(dockStatus(r)) <= 2;
 function MDocks({ s, user, go }) {
@@ -2796,7 +2798,7 @@ function MDocks({ s, user, go }) {
       {st.needed > 0 && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ background: dockStatusColor("blocked") + "1f", color: dockStatusColor("blocked") }}>{st.needed} needed today</span>}
     </div>
   );
-  const StatusPill = ({ k }) => <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ background: dockStatusColor(k) + "22", color: k === "Skippable" ? C.muted : dockStatusColor(k) }}>{DOCK_STATUS.find(x => x[0] === k)?.[1] || k}</span>;
+  const StatusPill = ({ k }) => <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ background: dockStatusColor(k) + "22", color: dockStatusText(k) }}>{DOCK_STATUS.find(x => x[0] === k)?.[1] || k}</span>;
   const selZone = typeof sel === "number" ? dockZone(sel) : null;
   return (
     <div className="pb-6">
