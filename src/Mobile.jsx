@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, Fragment } from "react";
 import { createSyncer, guardUnload } from "./sync.js";
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceArea, ReferenceLine, Legend } from "recharts";
-import { Clock, MessageCircle, Link2, List as ListIcon, BarChart3, Printer, SlidersHorizontal, SkipForward, LayoutDashboard, ClipboardList, Flag, Bell, FolderTree, ListTree, Package, LayoutTemplate, Truck, Globe, Megaphone, MessageSquare, Users, Search, Sun, Moon, Database, Home, Menu as MenuIcon, ScanLine, Plus, ChevronLeft, ChevronRight, ChevronDown, User, Camera, Image as ImageIcon, Paperclip, Send, Star, Pencil, Sparkles, HelpCircle, Download, Lock as LockIcon, AlertTriangle, Inbox, FileText, ShieldAlert, Tag, Layers, BookOpen, Filter, Check, X, Ruler, Boxes, Warehouse, Snowflake, Thermometer } from "lucide-react";
+import { Clock, MessageCircle, Link2, List as ListIcon, BarChart3, Printer, SlidersHorizontal, SkipForward, LayoutDashboard, ClipboardList, Flag, Bell, FolderTree, ListTree, Package, LayoutTemplate, Truck, Globe, Megaphone, MessageSquare, Users, Search, Sun, Moon, Database, Home, Menu as MenuIcon, ScanLine, Plus, ChevronLeft, ChevronRight, ChevronDown, User, Camera, Image as ImageIcon, Paperclip, Send, Star, Pencil, Sparkles, HelpCircle, Download, Lock as LockIcon, AlertTriangle, Inbox, FileText, ShieldAlert, Tag, Layers, BookOpen, Filter, Check, X, Ruler, Boxes, Warehouse, Snowflake, Thermometer, ThumbsDown } from "lucide-react";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // QCteam — controller mobile app (prototype) — shares the state format with the Head portal
@@ -1145,7 +1145,7 @@ function Ghost({ children, onClick }) { return <button onClick={onClick} classNa
 function Empty({ icon, title, hint, action }) {
   return (
     <div className="text-center py-10 px-4">
-      <div className="w-14 h-14 rounded-full mx-auto mb-3 flex items-center justify-center" style={{ background: C.bg, border: `1px solid ${C.line}`, color: C.muted }}>{EMPTY_ICON[icon] ? <Ic i={EMPTY_ICON[icon]} s={22} mr={0} /> : <span className="text-2xl">{icon}</span>}</div>
+      <div className="w-14 h-14 rounded-full mx-auto mb-3 flex items-center justify-center" style={{ background: C.bg, border: `1px solid ${C.line}`, color: C.muted }}>{EMPTY_ICON[icon] ? <Ic i={EMPTY_ICON[icon]} s={22} mr={0} /> : typeof icon === "string" ? <span className="text-2xl">{icon}</span> : icon ? <Ic i={icon} s={22} mr={0} /> : null}</div>
       <p className="font-semibold mb-1">{title}</p>
       <p className="text-sm mb-4 max-w-sm mx-auto" style={{ color: C.muted }}>{hint}</p>
       {action}
@@ -2253,6 +2253,7 @@ function MProductInfo({ s, user, product, go, setState, embedded }) {
 
       {/* Alerts: one line each, highest priority first. */}
       {hist.count > 0 && <div className="rounded-xl px-3 py-2 mb-2 flex items-start gap-2" style={{ background: C.badBg, color: C.bad }}><Ic i={AlertTriangle} s={14} mr={0} style={{ marginTop: 2 }} /><div className="min-w-0 text-[13px] leading-snug"><b>{hist.count} rejected</b> in 14 days · {hist.problems.slice(0, 3).map(x => `${x.name} ×${x.count}`).join(", ")}{hist.problems.length > 3 ? "…" : ""}<span className="block text-[11px] mt-0.5" style={{ opacity: .8 }}>last {dayLabel(hist.lastAt)} — look for these first</span></div></div>}
+      {(() => { const l = complaintsLine(s, product.articleId); return l && <button onClick={() => go("complaints")} className="w-full text-left rounded-xl px-3 py-2 mb-2 flex items-start gap-2" style={{ background: C.badBg, color: C.bad }}><Ic i={ThumbsDown} s={14} mr={0} style={{ marginTop: 2 }} /><span className="min-w-0 text-[13px] leading-snug"><b>{l.count} freshness complaint{l.count === 1 ? "" : "s"}</b>{l.sub ? <> · mostly <b>{l.sub}</b></> : null}{l.period && <span className="block text-[11px] mt-0.5" style={{ opacity: .8 }}>{l.period} — customers noticed this, look closer</span>}</span><Ic i={ChevronRight} s={14} mr={0} style={{ marginLeft: "auto", marginTop: 2 }} /></button>; })()}
       {anns.map(a => <div key={a.id} className="rounded-xl px-3 py-2 mb-2 flex items-start gap-2 text-[13px] leading-snug" style={{ background: C.accentSoft, color: C.ink }}><Ic i={Megaphone} s={14} mr={0} style={{ marginTop: 2, color: C.accent }} /><span className="min-w-0"><b>{a.title}</b>{a.body && <span style={{ color: C.muted }}> — {a.body}</span>}</span></div>)}
       {ref && <button onClick={() => go("inspection", ref.id)} className="w-full rounded-xl px-3 py-2 mb-2 text-[13px] text-left flex items-center" style={{ background: C.okBg, color: C.ok }}><Ic i={Star} s={14} />Reference inspection<span className="ml-1" style={{ opacity: .75 }}>· what a good pallet looks like</span><Ic i={ChevronRight} s={14} mr={0} style={{ marginLeft: "auto" }} /></button>}
 
@@ -2850,6 +2851,48 @@ function MChat({ s, set, user, go, initialContext, clearInitialContext }) {
 }
 
 // ── Menu / profile / notifications / announcements ──
+// ───────── Complaints (read-only on the phone; the Head keys them in on the portal) ─────────
+// Article IDs match loosely: "HE10573488-36", "10573488" and the catalog's article ID normalise to the same key.
+const normArticle = x => String(x || "").trim().replace(/^HE/i, "").split("-")[0].replace(/\D/g, "").replace(/^0+/, "");
+const complaintsMeta = s => s.complaints || { period: "", updatedAt: null, byUserId: null, rows: [] };
+const complaintsFor = (s, articleId) => { const k = normArticle(articleId); if (!k) return null; return complaintsMeta(s).rows.find(r => normArticle(r.articleId) === k) || null; };
+const productForArticle = (s, articleId) => { const k = normArticle(articleId); return k ? s.products.find(p => normArticle(p.articleId) === k) || null : null; };
+const complaintsLine = (s, articleId) => { const c = complaintsFor(s, articleId); if (!c || !c.count) return null; const meta = complaintsMeta(s); return { count: c.count, sub: c.subType ? `${c.subType}${c.subCount != null ? ` (${c.subCount})` : ""}` : "", period: meta.period || "" }; };
+function MComplaints({ s, user, go }) {
+  const meta = complaintsMeta(s); const [q, setQ] = useState(""); const qq = q.trim().toLowerCase();
+  const rows = [...meta.rows].sort((a, b) => (b.count || 0) - (a.count || 0) || (a.name || "").localeCompare(b.name || ""));
+  const shown = qq ? rows.filter(r => `${r.articleId} ${r.name} ${r.subType || ""}`.toLowerCase().includes(qq)) : rows;
+  const total = rows.reduce((a, r) => a + (r.count || 0), 0); const max = Math.max(1, ...rows.map(r => r.count || 0));
+  const by = meta.byUserId && s.users.find(u => u.id === meta.byUserId);
+  return (
+    <div className="pb-4">
+      <TopBar title="Complaints" onBack={() => go("home")} />
+      <div className="px-4 pt-3">
+        {rows.length === 0 ? <Empty icon={ThumbsDown} title="No complaints entered yet" hint="The Head enters customer freshness complaints on the portal — they show up here and on each product profile." /> : <>
+          <div className="rounded-2xl p-3.5 flex items-center gap-3" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
+            <span className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: C.badBg, color: C.bad }}><Ic i={ThumbsDown} s={18} mr={0} /></span>
+            <div className="flex-1 min-w-0"><p className="text-[15px] font-semibold leading-tight">{total} freshness complaint{total === 1 ? "" : "s"} · {rows.length} article{rows.length === 1 ? "" : "s"}</p><p className="text-[11px] mt-0.5 truncate" style={{ color: C.muted }}>{meta.period ? `${meta.period} · ` : ""}{meta.updatedAt ? `updated ${dayLabel(meta.updatedAt)}${by ? ` by ${by.name.split(" ")[0]}` : ""}` : ""}</p></div>
+          </div>
+          {rows.length > 6 && <div className="mt-3"><SearchBox value={q} onChange={setQ} placeholder="Search article or ID" inputClass="rounded-xl py-2" /></div>}
+          <p className="text-xs mt-3 mb-1" style={{ color: C.muted }}>Most complaints first · tap an article to open its profile</p>
+          {shown.length === 0 && <p className="text-sm py-6 text-center" style={{ color: C.muted }}>Nothing matches “{q}”.</p>}
+          {shown.map(r => { const p = productForArticle(s, r.articleId); return (
+            <button key={r.id} onClick={() => p && go("catalog", p.id)} disabled={!p} className="w-full text-left py-2.5 active:opacity-60" style={{ borderBottom: `1px solid ${C.line}` }}>
+              <div className="flex items-center gap-3">
+                <span className="text-[11px] w-5 text-right flex-shrink-0" style={{ color: C.muted, fontVariantNumeric: "tabular-nums" }}>{rows.indexOf(r) + 1}</span>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2"><p className="text-sm font-medium flex-1 truncate">{r.name || p?.name || r.articleId}</p><span className="text-[15px] font-semibold flex-shrink-0" style={{ color: C.bad, fontVariantNumeric: "tabular-nums" }}>{r.count}</span></div>
+                  <div className="flex items-center gap-2 mt-0.5"><span className="text-[11px] font-mono flex-shrink-0" style={{ color: C.muted }}>{r.articleId}</span>{r.subType && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ background: C.warnBg, color: C.warn }}>{r.subType}{r.subCount != null ? ` (${r.subCount})` : ""}</span>}{!p && <span className="text-[10px]" style={{ color: C.muted }}>not in catalog</span>}<span className="flex-1" />{p && <Ic i={ChevronRight} s={14} mr={0} style={{ color: C.muted }} />}</div>
+                  <div className="h-1 rounded-full mt-1.5" style={{ background: C.bg }}><div className="h-1 rounded-full" style={{ width: `${Math.round((r.count || 0) / max * 100)}%`, background: C.bad, opacity: .8 }} /></div>
+                </div>
+              </div>
+            </button>
+          ); })}
+        </>}
+      </div>
+    </div>
+  );
+}
 // ───────── Dock map ─────────
 // The dock line as it stands in the hall: dock 1 on the right, ambient docks 1–3, then chilled docks 5–13 going left. Across
 // the aisle, facing that line: dock 14 opposite 13 (left end) and D-00 opposite dock 1 but further right (right end) — drawn
@@ -2968,7 +3011,7 @@ function MDocks({ s, user, go }) {
   );
 }
 function MMenu({ s, set, user, go, users, setUser, onLogout, dark, onTheme, simOffline, onSimOffline, onSync, syncMsg }) {
-  const items = user.role === "Head" ? [["profile", User, "Profile and statistics"], ["docks", Warehouse, "Dock map"], ["head-escalations", HelpCircle, "Questions from controllers"], ["head-flags", Flag, "Flags to resolve"], ["head-announce", Megaphone, "New announcement"], ["announcements", Megaphone, "Announcements"], ["unreported", ShieldAlert, "Unreported pallets"], ["notifications", Bell, "Notifications"], ["history", ClipboardList, "Inspection history"]] : [["profile", User, "Profile and statistics"], ["docks", Warehouse, "Dock map"], ["announcements", Megaphone, "Announcements"], ["unreported", ShieldAlert, "Unreported pallets"], ["notifications", Bell, "Notifications"], ["flags", Flag, "My flags"], ["history", ClipboardList, "Inspection history"]];
+  const items = user.role === "Head" ? [["profile", User, "Profile and statistics"], ["docks", Warehouse, "Dock map"], ["complaints", ThumbsDown, "Complaints"], ["head-escalations", HelpCircle, "Questions from controllers"], ["head-flags", Flag, "Flags to resolve"], ["head-announce", Megaphone, "New announcement"], ["announcements", Megaphone, "Announcements"], ["unreported", ShieldAlert, "Unreported pallets"], ["notifications", Bell, "Notifications"], ["history", ClipboardList, "Inspection history"]] : [["profile", User, "Profile and statistics"], ["docks", Warehouse, "Dock map"], ["complaints", ThumbsDown, "Complaints"], ["announcements", Megaphone, "Announcements"], ["unreported", ShieldAlert, "Unreported pallets"], ["notifications", Bell, "Notifications"], ["flags", Flag, "My flags"], ["history", ClipboardList, "Inspection history"]];
   const [dataOpen, setDataOpen] = useState(false); const [io, setIo] = useState(""); const [msg, setMsg] = useState("");
   const exportState = async () => { const json = JSON.stringify(s, null, 2); setIo(json); try { await navigator.clipboard.writeText(json); setMsg("Copied."); } catch { setMsg("Copy manually from the field."); } };
   const importState = () => { try { const p = JSON.parse(io); if (!p || !Array.isArray(p.categories)) throw 0; set(normalize(p)); setMsg("Loaded — portal data is on the phone."); } catch { setMsg("Not a valid export."); } };
@@ -3246,7 +3289,7 @@ export default function App() {
   // The bottom bar is on every screen: a controller is never more than one tap from home, chat, catalog or the menu.
   // Leaving a running inspection this way is safe — it stays a Draft and can be resumed from History or by scanning the
   // pallet again. Sub-screens light up the tab they were opened from (menu pages → Menu, product history → Catalog).
-  const MENU_PAGES = ["profile", "notifications", "announcements", "flags", "history", "unreported", "docks", "head-escalations", "head-flags", "head-announce"];
+  const MENU_PAGES = ["profile", "notifications", "announcements", "flags", "history", "unreported", "docks", "complaints", "head-escalations", "head-flags", "head-announce"];
   const navPage = ["home", "chat", "catalog", "menu"].includes(page) ? page : MENU_PAGES.includes(page) ? "menu" : page === "productHistory" ? "catalog" : null;
   const unreadMsgs = s.conversations.filter(c => c.participantIds.includes(user.id)).reduce((a, c) => a + unreadIn(c, user.id), 0);
   const withNav = true;
@@ -3278,6 +3321,7 @@ export default function App() {
       {page === "flags" && <MFlags s={s} user={user} go={go} />}
       {page === "unreported" && <MUnreported s={s} set={set} user={user} go={go} />}
       {page === "docks" && <MDocks s={s} user={user} go={go} />}
+      {page === "complaints" && <MComplaints s={s} user={user} go={go} />}
       {page === "head-escalations" && <MHeadEscalations s={s} set={set} user={user} go={go} notify={notify} />}
       {page === "head-flags" && <MHeadFlags s={s} set={set} user={user} go={go} notify={notify} />}
       {page === "head-announce" && <MHeadAnnounce s={s} set={set} user={user} go={go} notify={notify} />}
