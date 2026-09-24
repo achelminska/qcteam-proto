@@ -1150,11 +1150,11 @@ function ComplaintsPage({ s, set, user, openProduct }) {
   const matched = rows.filter(r => productForArticle(s, r.articleId)).length;
   const by = meta.byUserId && s.users.find(u => u.id === meta.byUserId);
   const parsed = pasteOpen ? parseComplaintRows(paste) : [];
-  const upsert = (list, incoming) => { const out = [...list]; incoming.forEach(n => { const k = normArticle(n.articleId); const ix = out.findIndex(r => normArticle(r.articleId) === k); const row = { id: ix >= 0 ? out[ix].id : uid(), articleId: n.articleId, name: n.name || productForArticle(s, n.articleId)?.name || out[ix]?.name || "", count: Number(n.count) || 0, subType: n.subType || "", subCount: n.subCount === "" || n.subCount == null ? null : Number(n.subCount) }; if (ix >= 0) out[ix] = row; else out.push(row); }); return out; };
+  const upsert = (list, incoming) => { const out = [...list]; incoming.forEach(n => { const k = normArticle(n.articleId); const ix = out.findIndex(r => normArticle(r.articleId) === k); const row = { id: ix >= 0 ? out[ix].id : uid(), articleId: n.articleId, name: n.name || productForArticle(s, n.articleId)?.name || out[ix]?.name || "", count: Number(n.count) || 0, subType: n.subType || "", subCount: n.subCount === "" || n.subCount == null ? null : Number(n.subCount) }; const same = ix >= 0 && out[ix].count === row.count && (out[ix].subType || "") === row.subType && (out[ix].subCount ?? null) === row.subCount && (out[ix].name || "") === row.name; row.updatedAt = same ? out[ix].updatedAt : nowISO(); if (ix >= 0) out[ix] = row; else out.push(row); }); return out; };
   const importRows = replace => { if (!parsed.length) return; saveComplaints(set, user, { rows: replace ? upsert([], parsed) : upsert(meta.rows, parsed) }); setMsg(`${parsed.length} row${parsed.length === 1 ? "" : "s"} ${replace ? "imported — the previous list was replaced" : "merged into the list"}.`); setPaste(""); setPasteOpen(false); };
   const addDraft = () => { if (!draft.articleId.trim() || draft.count === "") return; saveComplaints(set, user, { rows: upsert(meta.rows, [draft]) }); setDraft({ articleId: "", name: "", count: "", subType: "", subCount: "" }); setMsg("Saved."); };
   const remove = id => saveComplaints(set, user, { rows: meta.rows.filter(r => r.id !== id) });
-  const commitEdit = () => { if (!edit) return; saveComplaints(set, user, { rows: meta.rows.map(r => r.id === editId ? { ...r, name: edit.name, count: Number(edit.count) || 0, subType: edit.subType, subCount: edit.subCount === "" || edit.subCount == null ? null : Number(edit.subCount) } : r) }); setEditId(null); setEdit(null); };
+  const commitEdit = () => { if (!edit) return; saveComplaints(set, user, { rows: meta.rows.map(r => r.id === editId ? { ...r, name: edit.name, count: Number(edit.count) || 0, subType: edit.subType, subCount: edit.subCount === "" || edit.subCount == null ? null : Number(edit.subCount), updatedAt: nowISO() } : r) }); setEditId(null); setEdit(null); };
   const onDraftId = v => { const p = productForArticle(s, v); setDraft(d => ({ ...d, articleId: v, name: d.name || (p ? p.name : "") })); };
   return (
     <div>
@@ -1257,12 +1257,12 @@ function DockMapPage({ s, user, openProduct }) {
     const skuTag = arr.length > 0 && <span className="qc-sku absolute left-0 right-0 text-center text-[11px] font-semibold pointer-events-none leading-none" style={inside ? { [flip ? "top" : "bottom"]: h / 2 - 6, color: "#fff", textShadow: "0 1px 2px rgba(0,0,0,.65)" } : { [flip ? "top" : "bottom"]: h + 3, color: C.ink }}>{skus} SKU{skus === 1 ? "" : "s"}</span>;
     return (
       <button onClick={() => setSel(active ? null : n)} className="qc-dock flex flex-col items-center min-w-0 rounded-xl pt-1.5 pb-2 px-1 transition-colors" style={{ background: active ? C.accentSoft : "transparent", outline: active ? `1px solid ${C.accent}` : "none", cursor: "pointer" }}>
-        <div className="w-full px-1.5 flex flex-col relative" style={{ height: area, justifyContent: flip ? "flex-start" : "flex-end", borderTop: flip ? base : "none", borderBottom: flip ? "none" : base }}>
+        <div className="w-full px-1.5 flex flex-col relative order-1" style={{ height: area, justifyContent: flip ? "flex-start" : "flex-end", borderTop: flip ? base : "none", borderBottom: flip ? "none" : base }}>
           {h > 0 ? <div className="w-full flex flex-col overflow-hidden" style={{ height: h, borderRadius: flip ? "0 0 4px 4px" : "4px 4px 0 0", flexDirection: flip ? "column-reverse" : "column" }}>{segs}</div> : <div className="w-full" style={{ height: 3, background: C.line, borderRadius: flip ? "0 0 2px 2px" : "2px 2px 0 0" }} />}
           {skuTag}
         </div>
-        <span className="text-[13px] mt-1.5 font-semibold leading-none" style={{ color: active ? C.accent : C.ink }}>{dockLabel(n)}</span>
-        <span className="text-[11px] leading-none mt-1" style={{ color: arr.length ? C.muted : C.line, fontVariantNumeric: "tabular-nums" }}>{arr.length ? `${arr.length} pallet${arr.length === 1 ? "" : "s"}` : "empty"}</span>
+        <span className={`text-[13px] font-semibold leading-none ${flip ? "order-first mb-1.5" : "order-2 mt-1.5"}`} style={{ color: active ? C.accent : C.ink }}>{dockLabel(n)}</span>
+        <span className="text-[11px] leading-none mt-1.5 order-3" style={{ color: arr.length ? C.muted : C.line, fontVariantNumeric: "tabular-nums" }}>{arr.length ? `${arr.length} pallet${arr.length === 1 ? "" : "s"}` : "empty"}</span>
       </button>
     ); };
   const gridCols = `repeat(${DOCK_CHILLED.length}, minmax(0, 1fr)) 18px repeat(${DOCK_AMBIENT.length}, minmax(0, 1fr)) 18px minmax(0, 1fr)`;
@@ -1273,7 +1273,7 @@ function DockMapPage({ s, user, openProduct }) {
       return { key: first.article || first.hu, name: first.name || product?.name || first.article, article: first.article, count: g.length, checked, subs, product, priority: first.priority, status: dockStatus(g.find(r => r.blocking) || first), blocking: g.some(r => r.blocking), transporter: earliest.transporter, arrived: earliest.arrived, arrivedTime: earliest.arrivedTime, po: [...pos].join(", "), mixedPO: pos.size > 1, locations: [...new Set(g.map(r => r.location).filter(Boolean))].join(", ") };
     }).sort((a, b) => (dockStatusRank(a.status) - dockStatusRank(b.status)) || `${a.arrived || ""}${a.arrivedTime || "99"}`.localeCompare(`${b.arrived || ""}${b.arrivedTime || "99"}`)); })();
   const selZone = typeof sel === "number" ? dockZone(sel) : null;
-  const quickRows = [14, ...DOCK_CHILLED, ...DOCK_AMBIENT, 0].map(n => ({ key: n, label: n === 14 || n === 0 ? `${dockLabel(n)} · across` : dockLabel(n), zone: dockZone(n), arr: byDock[n] || [] })).concat(other.length ? [{ key: "other", label: "Other locations", zone: null, arr: other }] : []);
+  const quickRows = [14, ...DOCK_CHILLED, ...DOCK_AMBIENT, 0].map(n => ({ key: n, label: n === 14 || n === 0 ? `${dockLabel(n)} · across` : dockLabel(n), zone: dockZone(n), arr: byDock[n] || [] })).filter(q => q.arr.length).concat(other.length ? [{ key: "other", label: "Other locations", zone: null, arr: other }] : []);
   const ZoneCard = ({ icon, title, st, tint }) => (
     <Card>
       <div className="flex items-center gap-2 mb-2"><span className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: C.bg, color: tint }}><Ic i={icon} s={16} mr={0} /></span><p className="font-medium text-sm flex-1">{title}</p>{st.needed > 0 && <span className="text-[11px] px-2 py-0.5 rounded-full" style={{ background: dockStatusColor("blocked") + "1f", color: dockStatusColor("blocked") }}>{st.needed} needed today</span>}</div>
@@ -1300,9 +1300,9 @@ function DockMapPage({ s, user, openProduct }) {
             <div className="self-stretch mx-2" style={{ borderLeft: `1px dashed ${C.line}` }} />
             {DOCK_AMBIENT.map(n => <DockCol key={n} n={n} />)}
           </div>
-          <div className="grid items-start mt-4" style={{ gridTemplateColumns: gridCols }}>
+          <div className="grid items-start mt-7" style={{ gridTemplateColumns: gridCols }}>
             <DockCol n={14} area={acrossArea} flip />
-            <div className="self-start mx-2 mt-1.5" style={{ gridColumn: `2 / ${lastCol}`, borderTop: `1px dashed ${C.line}` }} />
+            <div className="self-start mx-2" style={{ gridColumn: `2 / ${lastCol}`, marginTop: 28, borderTop: `1px dashed ${C.line}` }} />
             <DockCol n={0} area={acrossArea} flip />
           </div>
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-3">{DOCK_STATUS.map(([k, l, col]) => <span key={k} className="text-[11px] flex items-center gap-1.5" style={{ color: C.muted }}><span className="inline-block w-3 h-3 rounded-[3px]" style={{ background: col }} />{l}</span>)}
