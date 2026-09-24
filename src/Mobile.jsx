@@ -2741,34 +2741,41 @@ function MChat({ s, set, user, go, initialContext, clearInitialContext }) {
 // ── Menu / profile / notifications / announcements ──
 // ───────── Dock map ─────────
 // The dock line as it stands in the hall: dock 1 on the right, ambient docks 1–3, then chilled docks 5–13 going left. Across
-// the aisle, facing that line: dock 14 opposite 13 (left end) and D-00 opposite dock 1 but further right (right end). The
-// sheet's Location column ("D-07A") tells which dock each pallet stands on — the trailing letter is the spot within the
-// dock; "D-00E" parses to dock 0. Anything else lands in "Other locations".
+// the aisle, facing that line: dock 14 opposite 13 (left end) and D-00 opposite dock 1 but further right (right end) — drawn
+// mirrored (baseline on top, bar hanging down). The sheet's Location column ("D-07A") tells which dock each pallet stands
+// on — the trailing letter is the spot within the dock; "D-00E" parses to dock 0. Anything else lands in "Other locations".
+// Same drawing as the portal's DockMapPage — keep the two in step.
 const DOCK_CHILLED = [13, 12, 11, 10, 9, 8, 7, 6, 5], DOCK_AMBIENT = [3, 2, 1];
 const parseDock = loc => { const m = String(loc || "").trim().match(/^D[-\s]?0*(\d+)\s*([A-Z]?)$/i); return m ? { n: Number(m[1]), sub: (m[2] || "").toUpperCase() } : null; };
 const dockZone = n => n >= 5 && n <= 14 ? "chilled" : (n >= 1 && n <= 3) || n === 0 ? "ambient" : null;
 const dockLabel = n => n === 0 ? "D-00" : String(n);
-const dockBucket = p => p === "Now needed" || p === "High risk" ? "urgent" : p === "High issues" || p === "Late inspection" ? "attention" : p === "Skippable" ? "skippable" : "regular";
-const DOCK_BUCKETS = [["urgent", "Now needed · High risk"], ["attention", "High issues · Late inspection"], ["regular", "Inspection due"], ["skippable", "Skippable"]];
-const dockBucketColor = k => k === "urgent" ? C.bad : k === "attention" ? C.warn : k === "regular" ? C.muted : C.line;
+// One colour per pallet status, most severe first. "Needed today" (the sheet's blocking flag) trumps the priority label.
+const DOCK_STATUS = [["blocked", "Needed today", "#9b111e"], ["Now needed", "Now needed", "#ef6c4d"], ["High risk", "High risk", "#e8871e"], ["High issues", "High issues", "#d4a72c"], ["Late inspection", "Late inspection", "#7c5cbf"], ["Inspection due", "Inspection due", "#5b7fa6"], ["Skippable", "Skippable", "#c3cad3"]];
+const dockStatus = r => r.blocking ? "blocked" : DOCK_STATUS.some(([k]) => k === r.priority) ? r.priority : "Inspection due";
+const dockStatusColor = k => DOCK_STATUS.find(x => x[0] === k)?.[2] || "#5b7fa6";
+const dockStatusRank = k => { const i = DOCK_STATUS.findIndex(x => x[0] === k); return i < 0 ? 99 : i; };
+const dockUrgent = r => dockStatusRank(dockStatus(r)) <= 2;
 function MDocks({ s, user, go }) {
   const all = dockRowsLive(s); const rows = all.filter(r => !lostOf(s, r)); const lostN = all.length - rows.length;
   const byDock = {}; const other = [];
   rows.forEach(r => { const d = parseDock(r.location); if (d && dockZone(d.n)) (byDock[d.n] = byDock[d.n] || []).push({ ...r, sub: d.sub }); else other.push(r); });
-  const [sel, setSel] = useState(null);
+  const [sel, setSel] = useState(null); const [quick, setQuick] = useState(false);
   const max = Math.max(1, ...Object.values(byDock).map(a => a.length));
-  const counts = arr => { const c = { urgent: 0, attention: 0, regular: 0, skippable: 0 }; arr.forEach(r => c[dockBucket(r.priority)]++); return c; };
-  const zoneStats = ns => { const arr = ns.flatMap(n => byDock[n] || []); return { pallets: arr.length, skus: new Set(arr.map(r => r.article || r.hu)).size, needed: arr.filter(r => r.blocking).length, urgent: arr.filter(r => dockBucket(r.priority) === "urgent").length }; };
+  const skusOf = arr => new Set(arr.map(r => r.article || r.hu)).size;
+  const counts = arr => { const c = {}; arr.forEach(r => { const k = dockStatus(r); c[k] = (c[k] || 0) + 1; }); return c; };
+  const zoneStats = ns => { const arr = ns.flatMap(n => byDock[n] || []); return { pallets: arr.length, skus: skusOf(arr), needed: arr.filter(r => r.blocking).length, urgent: arr.filter(dockUrgent).length }; };
   const chilled = zoneStats([14, ...DOCK_CHILLED]), ambient = zoneStats([...DOCK_AMBIENT, 0]);
   const BAR_H = 72;
-  // `area` is the column's bar area: the facing row (14 and D-00) only gets as much height as its taller bar needs.
   const acrossArea = Math.min(BAR_H, Math.max(14, Math.round(Math.max((byDock[14] || []).length, (byDock[0] || []).length) / max * BAR_H)));
-  const DockCol = ({ n, area = BAR_H }) => { const arr = byDock[n] || []; const c = counts(arr); const h = arr.length ? Math.min(area, Math.max(6, Math.round(arr.length / max * BAR_H))) : 0; const needed = arr.filter(r => r.blocking).length; const active = sel === n;
+  // `flip` mirrors the column for the facing row: baseline on top, bar hanging outward (down). No hover on a phone, so the
+  // SKU count shows on the bar of the selected dock instead.
+  const DockCol = ({ n, area = BAR_H, flip = false }) => { const arr = byDock[n] || []; const c = counts(arr); const h = arr.length ? Math.min(area, Math.max(6, Math.round(arr.length / max * BAR_H))) : 0; const active = sel === n; const skus = skusOf(arr);
+    const base = `2px solid ${C.ink}`; const inside = h >= 16;
     return (
       <button onClick={() => setSel(active ? null : n)} className="flex flex-col items-center min-w-0 rounded-lg pt-1 pb-1.5 transition-colors" style={{ background: active ? C.accentSoft : "transparent", outline: active ? `1px solid ${C.accent}` : "none" }}>
-        <span className="text-[9px] leading-3 font-semibold" style={{ height: 12, color: C.bad }}>{needed ? `!${needed}` : ""}</span>
-        <div className="w-full px-[3px] flex flex-col justify-end" style={{ height: area, borderBottom: `2px solid ${C.ink}` }}>
-          {h > 0 ? <div className="w-full flex flex-col rounded-t-[3px] overflow-hidden" style={{ height: h }}>{DOCK_BUCKETS.map(([k]) => c[k] > 0 && <div key={k} style={{ flex: c[k], background: dockBucketColor(k) }} />)}</div> : <div className="w-full rounded-t-[2px]" style={{ height: 3, background: C.line }} />}
+        <div className="w-full px-[3px] flex flex-col relative" style={{ height: area, justifyContent: flip ? "flex-start" : "flex-end", borderTop: flip ? base : "none", borderBottom: flip ? "none" : base }}>
+          {h > 0 ? <div className="w-full flex overflow-hidden" style={{ height: h, borderRadius: flip ? "0 0 3px 3px" : "3px 3px 0 0", flexDirection: flip ? "column-reverse" : "column" }}>{DOCK_STATUS.map(([k]) => c[k] > 0 && <div key={k} style={{ flex: c[k], background: dockStatusColor(k) }} />)}</div> : <div className="w-full" style={{ height: 3, background: C.line }} />}
+          {active && arr.length > 0 && <span className="absolute left-0 right-0 text-center text-[9px] font-semibold leading-none pointer-events-none" style={inside ? { [flip ? "top" : "bottom"]: h / 2 - 5, color: "#fff", textShadow: "0 1px 2px rgba(0,0,0,.65)" } : { [flip ? "top" : "bottom"]: h + 3, color: C.ink }}>{skus} SKU</span>}
         </div>
         <span className="text-[11px] mt-1 font-semibold leading-none" style={{ color: active ? C.accent : C.ink }}>{n === 0 ? "00" : n}</span>
         <span className="text-[9px] leading-none mt-0.5" style={{ color: arr.length ? C.muted : C.line, fontVariantNumeric: "tabular-nums" }}>{arr.length || "–"}</span>
@@ -2779,26 +2786,27 @@ function MDocks({ s, user, go }) {
   const selRows = sel === "other" ? other : sel !== null ? (byDock[sel] || []) : [];
   const items = (() => { const groups = {}; selRows.forEach(r => { const k = r.article || r.hu; (groups[k] = groups[k] || []).push(r); });
     return Object.values(groups).map(g => { const first = g[0]; const product = s.products.find(p => p.articleId === first.article); const checked = g.filter(x => completedInspectionFor(s, x.hu)).length; const subs = [...new Set(g.map(r => r.sub).filter(Boolean))].sort(); const earliest = [...g].sort((x, y) => `${x.arrived || ""}${x.arrivedTime || "99"}`.localeCompare(`${y.arrived || ""}${y.arrivedTime || "99"}`))[0];
-      return { key: first.article || first.hu, name: first.name || product?.name || first.article, count: g.length, checked, subs, hu: earliest.hu, productId: product?.id || null, priority: first.priority, blocking: g.some(r => r.blocking), transporter: earliest.transporter, arrived: earliest.arrived, arrivedTime: earliest.arrivedTime, location: sel === "other" ? [...new Set(g.map(r => r.location).filter(Boolean))].join(", ") : "" };
-    }).sort((a, b) => (b.blocking - a.blocking) || (["urgent", "attention", "regular", "skippable"].indexOf(dockBucket(a.priority)) - ["urgent", "attention", "regular", "skippable"].indexOf(dockBucket(b.priority))) || `${a.arrived || ""}${a.arrivedTime || "99"}`.localeCompare(`${b.arrived || ""}${b.arrivedTime || "99"}`)); })();
-  const ZoneRow = ({ icon, title, docks, st, tint }) => (
+      return { key: first.article || first.hu, name: first.name || product?.name || first.article, count: g.length, checked, subs, hu: earliest.hu, productId: product?.id || null, priority: first.priority, status: dockStatus(g.find(r => r.blocking) || first), blocking: g.some(r => r.blocking), transporter: earliest.transporter, arrived: earliest.arrived, arrivedTime: earliest.arrivedTime, location: sel === "other" ? [...new Set(g.map(r => r.location).filter(Boolean))].join(", ") : "" };
+    }).sort((a, b) => (dockStatusRank(a.status) - dockStatusRank(b.status)) || `${a.arrived || ""}${a.arrivedTime || "99"}`.localeCompare(`${b.arrived || ""}${b.arrivedTime || "99"}`)); })();
+  const quickRows = [14, ...DOCK_CHILLED, ...DOCK_AMBIENT, 0].map(n => ({ key: n, label: n === 14 || n === 0 ? `${dockLabel(n)} · across` : dockLabel(n), zone: dockZone(n), arr: byDock[n] || [] })).concat(other.length ? [{ key: "other", label: "Other locations", zone: null, arr: other }] : []);
+  const ZoneRow = ({ icon, title, st, tint }) => (
     <div className="flex items-center gap-3 py-2.5" style={{ borderBottom: `1px solid ${C.line}` }}>
       <span className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: C.bg, color: tint }}><Ic i={icon} s={16} mr={0} /></span>
-      <div className="flex-1 min-w-0"><p className="text-sm font-medium leading-tight">{title} <span className="text-[11px] font-normal" style={{ color: C.muted }}>· docks {docks}</span></p><p className="text-[11px] mt-0.5" style={{ color: C.muted }}>{st.pallets} pallet{st.pallets === 1 ? "" : "s"} · {st.skus} SKU{st.skus === 1 ? "" : "s"}{st.urgent ? ` · ${st.urgent} urgent` : ""}</p></div>
-      {st.needed > 0 && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ background: C.badBg, color: C.bad }}>{st.needed} needed today</span>}
+      <div className="flex-1 min-w-0"><p className="text-sm font-medium leading-tight">{title}</p><p className="text-[11px] mt-0.5" style={{ color: C.muted }}>{st.pallets} pallet{st.pallets === 1 ? "" : "s"} · {st.skus} SKU{st.skus === 1 ? "" : "s"}{st.urgent ? ` · ${st.urgent} urgent` : ""}</p></div>
+      {st.needed > 0 && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ background: dockStatusColor("blocked") + "1f", color: dockStatusColor("blocked") }}>{st.needed} needed today</span>}
     </div>
   );
+  const StatusPill = ({ k }) => <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ background: dockStatusColor(k) + "22", color: k === "Skippable" ? C.muted : dockStatusColor(k) }}>{DOCK_STATUS.find(x => x[0] === k)?.[1] || k}</span>;
   const selZone = typeof sel === "number" ? dockZone(sel) : null;
   return (
     <div className="pb-6">
-      <TopBar title="Dock map" onBack={() => go("home")} />
+      <TopBar title="Dock map" onBack={() => go("home")} right={all.length > 0 && <button onClick={() => setQuick(q => !q)} className="text-xs px-2.5 py-1.5 rounded-full inline-flex items-center gap-1 font-medium" style={{ border: `1px solid ${quick ? C.accent : C.line}`, background: quick ? C.accentSoft : "transparent", color: quick ? C.accent : C.ink }}><Ic i={ListIcon} s={12} mr={0} />Quick list</button>} />
       <div className="px-4 pt-3">
         {all.length === 0 && <Empty icon={Warehouse} title="No dock data yet" hint="The map fills in as soon as the dock sheet syncs." />}
         {all.length > 0 && <>
-          <p className="text-[11px] mb-2" style={{ color: C.muted }}>Seen from the hall — dock 1 on the right; 14 and D-00 face the line from across the aisle. Bar height = pallets standing there, colour = priority, <span style={{ color: C.bad, fontWeight: 600 }}>!N</span> = needed today. Tap a dock.</p>
           <div className="rounded-2xl px-2 pt-2 pb-2.5" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
             <div className="grid mb-1.5" style={{ gridTemplateColumns: gridCols }}>
-              <div className="flex items-center gap-1 justify-center text-[10px] font-medium rounded-md py-0.5" style={{ gridColumn: `1 / span ${DOCK_CHILLED.length}`, background: C.surface, color: C.accent }}><Ic i={Snowflake} s={11} mr={0} />Chilled · 5–14</div>
+              <div className="flex items-center gap-1 justify-center text-[10px] font-medium rounded-md py-0.5" style={{ gridColumn: `1 / span ${DOCK_CHILLED.length}`, background: C.surface, color: C.accent }}><Ic i={Snowflake} s={11} mr={0} />Chilled</div>
               <span />
               <div className="flex items-center gap-1 justify-center text-[10px] font-medium rounded-md py-0.5" style={{ gridColumn: `${DOCK_CHILLED.length + 2} / span ${DOCK_AMBIENT.length + 2}`, background: C.surface, color: C.warn }}><Ic i={Thermometer} s={11} mr={0} />Ambient</div>
             </div>
@@ -2807,19 +2815,24 @@ function MDocks({ s, user, go }) {
               <div className="self-stretch mx-[3px]" style={{ borderLeft: `1px dashed ${C.line}` }} />
               {DOCK_AMBIENT.map(n => <DockCol key={n} n={n} />)}
             </div>
-            <div className="grid items-end mt-1.5" style={{ gridTemplateColumns: gridCols }}>
-              <DockCol n={14} area={acrossArea} />
-              <div className="self-center mx-1" style={{ gridColumn: `2 / ${lastCol}`, borderTop: `1px dashed ${C.line}` }} />
-              <DockCol n={0} area={acrossArea} />
+            <div className="grid items-start mt-2" style={{ gridTemplateColumns: gridCols }}>
+              <DockCol n={14} area={acrossArea} flip />
+              <div className="self-start mx-1 mt-1" style={{ gridColumn: `2 / ${lastCol}`, borderTop: `1px dashed ${C.line}` }} />
+              <DockCol n={0} area={acrossArea} flip />
             </div>
           </div>
-          <div className="flex flex-wrap gap-x-3 gap-y-1 mt-2 px-1">{DOCK_BUCKETS.map(([k, l]) => <span key={k} className="text-[10px] flex items-center gap-1" style={{ color: C.muted }}><span className="inline-block w-2.5 h-2.5 rounded-[2px]" style={{ background: dockBucketColor(k) }} />{l}</span>)}</div>
+          <div className="flex flex-wrap gap-x-3 gap-y-1 mt-2 px-1">{DOCK_STATUS.map(([k, l, col]) => <span key={k} className="text-[10px] flex items-center gap-1" style={{ color: C.muted }}><span className="inline-block w-2.5 h-2.5 rounded-[2px]" style={{ background: col }} />{l}</span>)}</div>
           {other.length > 0 && <button onClick={() => setSel(sel === "other" ? null : "other")} className="mt-3 w-full flex items-center gap-2 rounded-xl px-3 py-2 text-left" style={{ background: sel === "other" ? C.accentSoft : C.bg, border: `1px solid ${sel === "other" ? C.accent : C.line}` }}><Ic i={Warehouse} s={14} mr={0} style={{ color: C.muted }} /><span className="text-xs flex-1">Other locations <span style={{ color: C.muted }}>· {[...new Set(other.map(r => r.location || "no location"))].slice(0, 4).join(", ")}{new Set(other.map(r => r.location)).size > 4 ? "…" : ""}</span></span><span className="text-xs font-semibold">{other.length}</span></button>}
           {lostN > 0 && <p className="text-[11px] mt-2 px-1" style={{ color: C.muted }}>{lostN} pallet{lostN === 1 ? "" : "s"} marked lost — not drawn on the map.</p>}
+          {quick && <div className="mt-3 rounded-2xl px-3 py-2" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
+            <div className="grid text-[10px] font-medium py-1" style={{ gridTemplateColumns: "1fr 64px 64px", color: C.muted, borderBottom: `1px solid ${C.line}` }}><span>Dock</span><span className="text-right">Pallets</span><span className="text-right">SKUs</span></div>
+            {quickRows.map(q => <button key={q.key} onClick={() => setSel(sel === q.key ? null : q.key)} className="grid w-full text-left py-1.5 text-[13px]" style={{ gridTemplateColumns: "1fr 64px 64px", borderBottom: `1px solid ${C.line}`, background: sel === q.key ? C.accentSoft : "transparent", opacity: q.arr.length ? 1 : .5 }}><span className="inline-flex items-center gap-1.5 font-medium">{q.zone && <Ic i={q.zone === "chilled" ? Snowflake : Thermometer} s={11} mr={0} style={{ color: q.zone === "chilled" ? C.accent : C.warn }} />}{q.label}</span><span className="text-right" style={{ fontVariantNumeric: "tabular-nums" }}>{q.arr.length || "—"}</span><span className="text-right" style={{ fontVariantNumeric: "tabular-nums" }}>{q.arr.length ? skusOf(q.arr) : "—"}</span></button>)}
+            <div className="grid py-1.5 text-[13px] font-semibold" style={{ gridTemplateColumns: "1fr 64px 64px" }}><span>Total</span><span className="text-right" style={{ fontVariantNumeric: "tabular-nums" }}>{rows.length}</span><span className="text-right" style={{ fontVariantNumeric: "tabular-nums" }}>{skusOf(rows)}</span></div>
+          </div>}
           {sel === null && <div className="mt-4">
             <p className="label-sm mb-1" style={{ color: C.muted }}>By hall</p>
-            <ZoneRow icon={Snowflake} title="Chilled" docks="5–14" st={chilled} tint={C.accent} />
-            <ZoneRow icon={Thermometer} title="Ambient" docks="1–3 · D-00" st={ambient} tint={C.warn} />
+            <ZoneRow icon={Snowflake} title="Chilled" st={chilled} tint={C.accent} />
+            <ZoneRow icon={Thermometer} title="Ambient" st={ambient} tint={C.warn} />
           </div>}
           {sel !== null && <div className="mt-4">
             <div className="flex items-center gap-2 mb-1">
@@ -2831,8 +2844,8 @@ function MDocks({ s, user, go }) {
             {items.length === 0 && <p className="text-sm py-6 text-center" style={{ color: C.muted }}>Nothing standing here right now.</p>}
             {items.map(it => (
               <button key={it.key} onClick={() => it.count > 1 && it.productId ? go("catalog", it.productId) : go("palletInfo", it.hu)} className="w-full text-left py-3 active:opacity-60" style={{ borderBottom: `1px solid ${C.line}` }}>
-                <div className="flex items-center gap-2">{it.priority && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ background: PRIORITY[it.priority]?.[1] || C.line, color: PRIORITY[it.priority]?.[0] || C.muted }}>{it.priority}</span>}<p className="text-sm font-medium flex-1 truncate">{it.name}</p>{it.count > 1 && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ background: C.accentSoft, color: C.accent }}>×{it.count}</span>}{it.blocking && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0 inline-flex items-center gap-1" style={{ background: C.badBg, color: C.bad }}><Ic i={AlertTriangle} s={10} mr={0} />needed today</span>}{it.checked > 0 && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0 inline-flex items-center gap-1" style={{ background: C.okBg, color: C.ok }}><Ic i={Check} s={10} mr={0} />{it.checked === it.count ? "inspected" : `${it.checked}/${it.count}`}</span>}</div>
-                <p className="text-xs mt-0.5" style={{ color: C.muted }}>{sel === "other" ? it.location : it.subs.length ? `spot ${it.subs.join("/")}` : `dock ${dockLabel(sel)}`} · {it.transporter || "—"} · {it.arrived ? `${dayLabel(it.arrived + "T12:00:00")} ` : ""}{it.arrivedTime}</p>
+                <div className="flex items-center gap-2"><StatusPill k={it.status} /><p className="text-sm font-medium flex-1 truncate">{it.name}</p>{it.count > 1 && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ background: C.accentSoft, color: C.accent }}>×{it.count}</span>}{it.checked > 0 && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0 inline-flex items-center gap-1" style={{ background: C.okBg, color: C.ok }}><Ic i={Check} s={10} mr={0} />{it.checked === it.count ? "inspected" : `${it.checked}/${it.count}`}</span>}</div>
+                <p className="text-xs mt-0.5" style={{ color: C.muted }}>{sel === "other" ? it.location : it.subs.length ? `spot ${it.subs.join("/")}` : `dock ${dockLabel(sel)}`}{it.blocking && it.priority && it.priority !== "Skippable" ? ` · ${it.priority}` : ""} · {it.transporter || "—"} · {it.arrived ? `${dayLabel(it.arrived + "T12:00:00")} ` : ""}{it.arrivedTime}</p>
               </button>
             ))}
           </div>}
