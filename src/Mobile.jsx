@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { createSyncer, guardUnload } from "./sync.js";
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceArea, ReferenceLine, Legend } from "recharts";
-import { Clock, MessageCircle, Link2, List as ListIcon, BarChart3, Printer, SlidersHorizontal, SkipForward, LayoutDashboard, ClipboardList, Flag, Bell, FolderTree, ListTree, Package, LayoutTemplate, Truck, Globe, Megaphone, MessageSquare, Users, Search, Sun, Moon, Database, Home, Menu as MenuIcon, ScanLine, Plus, ChevronLeft, ChevronRight, ChevronDown, User, Camera, Image as ImageIcon, Paperclip, Send, Star, Pencil, Sparkles, HelpCircle, Download, Lock as LockIcon, AlertTriangle, Inbox, FileText, ShieldAlert, Tag, Layers, BookOpen, Filter, Check, X, Ruler, Boxes } from "lucide-react";
+import { Clock, MessageCircle, Link2, List as ListIcon, BarChart3, Printer, SlidersHorizontal, SkipForward, LayoutDashboard, ClipboardList, Flag, Bell, FolderTree, ListTree, Package, LayoutTemplate, Truck, Globe, Megaphone, MessageSquare, Users, Search, Sun, Moon, Database, Home, Menu as MenuIcon, ScanLine, Plus, ChevronLeft, ChevronRight, ChevronDown, User, Camera, Image as ImageIcon, Paperclip, Send, Star, Pencil, Sparkles, HelpCircle, Download, Lock as LockIcon, AlertTriangle, Inbox, FileText, ShieldAlert, Tag, Layers, BookOpen, Filter, Check, X, Ruler, Boxes, Warehouse, Snowflake, Thermometer } from "lucide-react";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // QCteam — controller mobile app (prototype) — shares the state format with the Head portal
@@ -2707,8 +2707,105 @@ function MChat({ s, set, user, go, initialContext, clearInitialContext }) {
 }
 
 // ── Menu / profile / notifications / announcements ──
+// ───────── Dock map ─────────
+// The dock line as it stands in the hall: dock 1 on the right, ambient docks 1–3, then chilled docks 5–13 going left, and
+// dock 14 across the aisle facing 13. The sheet's Location column ("D-07A") tells which dock each pallet stands on — the
+// trailing letter is the spot within the dock. Anything that doesn't parse to a dock 1–14 lands in "Other locations".
+const DOCK_CHILLED = [13, 12, 11, 10, 9, 8, 7, 6, 5], DOCK_AMBIENT = [3, 2, 1];
+const parseDock = loc => { const m = String(loc || "").trim().match(/^D[-\s]?0*(\d+)\s*([A-Z]?)$/i); return m ? { n: Number(m[1]), sub: (m[2] || "").toUpperCase() } : null; };
+const dockZone = n => n >= 5 && n <= 14 ? "chilled" : n >= 1 && n <= 3 ? "ambient" : null;
+const dockBucket = p => p === "Now needed" || p === "High risk" ? "urgent" : p === "High issues" || p === "Late inspection" ? "attention" : p === "Skippable" ? "skippable" : "regular";
+const DOCK_BUCKETS = [["urgent", "Now needed · High risk"], ["attention", "High issues · Late inspection"], ["regular", "Inspection due"], ["skippable", "Skippable"]];
+const dockBucketColor = k => k === "urgent" ? C.bad : k === "attention" ? C.warn : k === "regular" ? C.muted : C.line;
+function MDocks({ s, user, go }) {
+  const all = dockRowsLive(s); const rows = all.filter(r => !lostOf(s, r)); const lostN = all.length - rows.length;
+  const byDock = {}; const other = [];
+  rows.forEach(r => { const d = parseDock(r.location); if (d && dockZone(d.n)) (byDock[d.n] = byDock[d.n] || []).push({ ...r, sub: d.sub }); else other.push(r); });
+  const [sel, setSel] = useState(null);
+  const max = Math.max(1, ...Object.values(byDock).map(a => a.length));
+  const counts = arr => { const c = { urgent: 0, attention: 0, regular: 0, skippable: 0 }; arr.forEach(r => c[dockBucket(r.priority)]++); return c; };
+  const zoneStats = ns => { const arr = ns.flatMap(n => byDock[n] || []); return { pallets: arr.length, skus: new Set(arr.map(r => r.article || r.hu)).size, needed: arr.filter(r => r.blocking).length, urgent: arr.filter(r => dockBucket(r.priority) === "urgent").length }; };
+  const chilled = zoneStats([14, ...DOCK_CHILLED]), ambient = zoneStats(DOCK_AMBIENT);
+  const BAR_H = 72;
+  // `area` is the column's bar area: dock 14 sits alone across the aisle, so its row only gets as much height as it needs.
+  const DockCol = ({ n, area = BAR_H }) => { const arr = byDock[n] || []; const c = counts(arr); const h = arr.length ? Math.min(area, Math.max(6, Math.round(arr.length / max * BAR_H))) : 0; const needed = arr.filter(r => r.blocking).length; const active = sel === n;
+    return (
+      <button onClick={() => setSel(active ? null : n)} className="flex flex-col items-center min-w-0 rounded-lg pt-1 pb-1.5 transition-colors" style={{ background: active ? C.accentSoft : "transparent", outline: active ? `1px solid ${C.accent}` : "none" }}>
+        <span className="text-[9px] leading-3 font-semibold" style={{ height: 12, color: C.bad }}>{needed ? `!${needed}` : ""}</span>
+        <div className="w-full px-[3px] flex flex-col justify-end" style={{ height: area, borderBottom: `2px solid ${C.ink}` }}>
+          {h > 0 ? <div className="w-full flex flex-col rounded-t-[3px] overflow-hidden" style={{ height: h }}>{DOCK_BUCKETS.map(([k]) => c[k] > 0 && <div key={k} style={{ flex: c[k], background: dockBucketColor(k) }} />)}</div> : <div className="w-full rounded-t-[2px]" style={{ height: 3, background: C.line }} />}
+        </div>
+        <span className="text-[11px] mt-1 font-semibold leading-none" style={{ color: active ? C.accent : C.ink }}>{n}</span>
+        <span className="text-[9px] leading-none mt-0.5" style={{ color: arr.length ? C.muted : C.line, fontVariantNumeric: "tabular-nums" }}>{arr.length || "–"}</span>
+      </button>
+    ); };
+  const gridCols = `repeat(${DOCK_CHILLED.length}, minmax(0, 1fr)) 10px repeat(${DOCK_AMBIENT.length}, minmax(0, 1fr))`;
+  const selRows = sel === "other" ? other : sel ? (byDock[sel] || []) : [];
+  const items = (() => { const groups = {}; selRows.forEach(r => { const k = r.article || r.hu; (groups[k] = groups[k] || []).push(r); });
+    return Object.values(groups).map(g => { const first = g[0]; const product = s.products.find(p => p.articleId === first.article); const checked = g.filter(x => completedInspectionFor(s, x.hu)).length; const subs = [...new Set(g.map(r => r.sub).filter(Boolean))].sort(); const earliest = [...g].sort((x, y) => `${x.arrived || ""}${x.arrivedTime || "99"}`.localeCompare(`${y.arrived || ""}${y.arrivedTime || "99"}`))[0];
+      return { key: first.article || first.hu, name: first.name || product?.name || first.article, count: g.length, checked, subs, hu: earliest.hu, productId: product?.id || null, priority: first.priority, blocking: g.some(r => r.blocking), transporter: earliest.transporter, arrived: earliest.arrived, arrivedTime: earliest.arrivedTime, location: sel === "other" ? [...new Set(g.map(r => r.location).filter(Boolean))].join(", ") : "" };
+    }).sort((a, b) => (b.blocking - a.blocking) || (["urgent", "attention", "regular", "skippable"].indexOf(dockBucket(a.priority)) - ["urgent", "attention", "regular", "skippable"].indexOf(dockBucket(b.priority))) || `${a.arrived || ""}${a.arrivedTime || "99"}`.localeCompare(`${b.arrived || ""}${b.arrivedTime || "99"}`)); })();
+  const ZoneRow = ({ icon, title, docks, st, tint }) => (
+    <div className="flex items-center gap-3 py-2.5" style={{ borderBottom: `1px solid ${C.line}` }}>
+      <span className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: C.bg, color: tint }}><Ic i={icon} s={16} mr={0} /></span>
+      <div className="flex-1 min-w-0"><p className="text-sm font-medium leading-tight">{title} <span className="text-[11px] font-normal" style={{ color: C.muted }}>· docks {docks}</span></p><p className="text-[11px] mt-0.5" style={{ color: C.muted }}>{st.pallets} pallet{st.pallets === 1 ? "" : "s"} · {st.skus} SKU{st.skus === 1 ? "" : "s"}{st.urgent ? ` · ${st.urgent} urgent` : ""}</p></div>
+      {st.needed > 0 && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ background: C.badBg, color: C.bad }}>{st.needed} needed today</span>}
+    </div>
+  );
+  const selZone = typeof sel === "number" ? dockZone(sel) : null;
+  return (
+    <div className="pb-6">
+      <TopBar title="Dock map" onBack={() => go("home")} />
+      <div className="px-4 pt-3">
+        {all.length === 0 && <Empty icon={Warehouse} title="No dock data yet" hint="The map fills in as soon as the dock sheet syncs." />}
+        {all.length > 0 && <>
+          <p className="text-[11px] mb-2" style={{ color: C.muted }}>Seen from the hall — dock 1 on the right. Bar height = pallets standing there, colour = priority, <span style={{ color: C.bad, fontWeight: 600 }}>!N</span> = needed today. Tap a dock.</p>
+          <div className="rounded-2xl px-2 pt-2 pb-2.5" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
+            <div className="grid items-end" style={{ gridTemplateColumns: gridCols }}>
+              <DockCol n={14} area={Math.min(BAR_H, Math.max(14, Math.round((byDock[14] || []).length / max * BAR_H)))} />
+              <div className="self-center flex items-center gap-2 pl-1" style={{ gridColumn: `2 / span ${DOCK_CHILLED.length - 1}` }}><span className="text-[9px] whitespace-nowrap" style={{ color: C.muted }}>aisle · 14 faces 13</span><span className="flex-1" style={{ borderTop: `1px dashed ${C.line}` }} /></div>
+            </div>
+            <div className="grid items-end mt-1" style={{ gridTemplateColumns: gridCols }}>
+              {DOCK_CHILLED.map(n => <DockCol key={n} n={n} />)}
+              <div className="self-stretch mx-[3px]" style={{ borderLeft: `1px dashed ${C.line}` }} />
+              {DOCK_AMBIENT.map(n => <DockCol key={n} n={n} />)}
+            </div>
+            <div className="grid mt-1.5" style={{ gridTemplateColumns: gridCols }}>
+              <div className="flex items-center gap-1 justify-center text-[10px] font-medium rounded-md py-0.5" style={{ gridColumn: `1 / span ${DOCK_CHILLED.length}`, background: C.surface, color: C.accent }}><Ic i={Snowflake} s={11} mr={0} />Chilled · 5–14</div>
+              <span />
+              <div className="flex items-center gap-1 justify-center text-[10px] font-medium rounded-md py-0.5" style={{ gridColumn: `${DOCK_CHILLED.length + 2} / span ${DOCK_AMBIENT.length}`, background: C.surface, color: C.warn }}><Ic i={Thermometer} s={11} mr={0} />Ambient</div>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-x-3 gap-y-1 mt-2 px-1">{DOCK_BUCKETS.map(([k, l]) => <span key={k} className="text-[10px] flex items-center gap-1" style={{ color: C.muted }}><span className="inline-block w-2.5 h-2.5 rounded-[2px]" style={{ background: dockBucketColor(k) }} />{l}</span>)}</div>
+          {other.length > 0 && <button onClick={() => setSel(sel === "other" ? null : "other")} className="mt-3 w-full flex items-center gap-2 rounded-xl px-3 py-2 text-left" style={{ background: sel === "other" ? C.accentSoft : C.bg, border: `1px solid ${sel === "other" ? C.accent : C.line}` }}><Ic i={Warehouse} s={14} mr={0} style={{ color: C.muted }} /><span className="text-xs flex-1">Other locations <span style={{ color: C.muted }}>· {[...new Set(other.map(r => r.location || "no location"))].slice(0, 4).join(", ")}{new Set(other.map(r => r.location)).size > 4 ? "…" : ""}</span></span><span className="text-xs font-semibold">{other.length}</span></button>}
+          {lostN > 0 && <p className="text-[11px] mt-2 px-1" style={{ color: C.muted }}>{lostN} pallet{lostN === 1 ? "" : "s"} marked lost — not drawn on the map.</p>}
+          {sel === null && <div className="mt-4">
+            <p className="label-sm mb-1" style={{ color: C.muted }}>By hall</p>
+            <ZoneRow icon={Snowflake} title="Chilled" docks="5–14" st={chilled} tint={C.accent} />
+            <ZoneRow icon={Thermometer} title="Ambient" docks="1–3" st={ambient} tint={C.warn} />
+          </div>}
+          {sel !== null && <div className="mt-4">
+            <div className="flex items-center gap-2 mb-1">
+              <p className="text-base font-semibold flex-1">{sel === "other" ? "Other locations" : `Dock ${sel}`}</p>
+              {selZone && <span className="text-[10px] px-1.5 py-0.5 rounded-full inline-flex items-center gap-1" style={{ background: C.bg, color: selZone === "chilled" ? C.accent : C.warn, border: `1px solid ${C.line}` }}><Ic i={selZone === "chilled" ? Snowflake : Thermometer} s={10} mr={0} />{selZone}</span>}
+              <button onClick={() => setSel(null)} className="text-xs" style={{ color: C.muted }}>Clear</button>
+            </div>
+            <p className="text-xs mb-1" style={{ color: C.muted }}>{selRows.length} pallet{selRows.length === 1 ? "" : "s"} · {items.length} SKU{items.length === 1 ? "" : "s"}{selRows.filter(r => r.blocking).length ? ` · ${selRows.filter(r => r.blocking).length} needed today` : ""}</p>
+            {items.length === 0 && <p className="text-sm py-6 text-center" style={{ color: C.muted }}>Nothing standing here right now.</p>}
+            {items.map(it => (
+              <button key={it.key} onClick={() => it.count > 1 && it.productId ? go("catalog", it.productId) : go("palletInfo", it.hu)} className="w-full text-left py-3 active:opacity-60" style={{ borderBottom: `1px solid ${C.line}` }}>
+                <div className="flex items-center gap-2">{it.priority && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ background: PRIORITY[it.priority]?.[1] || C.line, color: PRIORITY[it.priority]?.[0] || C.muted }}>{it.priority}</span>}<p className="text-sm font-medium flex-1 truncate">{it.name}</p>{it.count > 1 && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ background: C.accentSoft, color: C.accent }}>×{it.count}</span>}{it.blocking && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0 inline-flex items-center gap-1" style={{ background: C.badBg, color: C.bad }}><Ic i={AlertTriangle} s={10} mr={0} />needed today</span>}{it.checked > 0 && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0 inline-flex items-center gap-1" style={{ background: C.okBg, color: C.ok }}><Ic i={Check} s={10} mr={0} />{it.checked === it.count ? "inspected" : `${it.checked}/${it.count}`}</span>}</div>
+                <p className="text-xs mt-0.5" style={{ color: C.muted }}>{sel === "other" ? it.location : it.subs.length ? `spot ${it.subs.join("/")}` : `dock ${sel}`} · {it.transporter || "—"} · {it.arrived ? `${dayLabel(it.arrived + "T12:00:00")} ` : ""}{it.arrivedTime}</p>
+              </button>
+            ))}
+          </div>}
+        </>}
+      </div>
+    </div>
+  );
+}
 function MMenu({ s, set, user, go, users, setUser, onLogout, dark, onTheme, simOffline, onSimOffline, onSync, syncMsg }) {
-  const items = user.role === "Head" ? [["profile", User, "Profile and statistics"], ["head-escalations", HelpCircle, "Questions from controllers"], ["head-flags", Flag, "Flags to resolve"], ["head-announce", Megaphone, "New announcement"], ["announcements", Megaphone, "Announcements"], ["unreported", ShieldAlert, "Unreported pallets"], ["notifications", Bell, "Notifications"], ["history", ClipboardList, "Inspection history"]] : [["profile", User, "Profile and statistics"], ["announcements", Megaphone, "Announcements"], ["unreported", ShieldAlert, "Unreported pallets"], ["notifications", Bell, "Notifications"], ["flags", Flag, "My flags"], ["history", ClipboardList, "Inspection history"]];
+  const items = user.role === "Head" ? [["profile", User, "Profile and statistics"], ["docks", Warehouse, "Dock map"], ["head-escalations", HelpCircle, "Questions from controllers"], ["head-flags", Flag, "Flags to resolve"], ["head-announce", Megaphone, "New announcement"], ["announcements", Megaphone, "Announcements"], ["unreported", ShieldAlert, "Unreported pallets"], ["notifications", Bell, "Notifications"], ["history", ClipboardList, "Inspection history"]] : [["profile", User, "Profile and statistics"], ["docks", Warehouse, "Dock map"], ["announcements", Megaphone, "Announcements"], ["unreported", ShieldAlert, "Unreported pallets"], ["notifications", Bell, "Notifications"], ["flags", Flag, "My flags"], ["history", ClipboardList, "Inspection history"]];
   const [dataOpen, setDataOpen] = useState(false); const [io, setIo] = useState(""); const [msg, setMsg] = useState("");
   const exportState = async () => { const json = JSON.stringify(s, null, 2); setIo(json); try { await navigator.clipboard.writeText(json); setMsg("Copied."); } catch { setMsg("Copy manually from the field."); } };
   const importState = () => { try { const p = JSON.parse(io); if (!p || !Array.isArray(p.categories)) throw 0; set(normalize(p)); setMsg("Loaded — portal data is on the phone."); } catch { setMsg("Not a valid export."); } };
@@ -3013,6 +3110,7 @@ export default function App() {
       {page === "announcements" && <MAnnouncements s={s} set={set} user={user} go={go} />}
       {page === "flags" && <MFlags s={s} user={user} go={go} />}
       {page === "unreported" && <MUnreported s={s} set={set} user={user} go={go} />}
+      {page === "docks" && <MDocks s={s} user={user} go={go} />}
       {page === "head-escalations" && <MHeadEscalations s={s} set={set} user={user} go={go} notify={notify} />}
       {page === "head-flags" && <MHeadFlags s={s} set={set} user={user} go={go} notify={notify} />}
       {page === "head-announce" && <MHeadAnnounce s={s} set={set} user={user} go={go} notify={notify} />}
