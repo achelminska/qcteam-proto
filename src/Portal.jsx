@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, Fragment } from "react";
 import { createSyncer, guardUnload } from "./sync.js";
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceArea, ReferenceLine, Legend } from "recharts";
-import { Clock, MessageCircle, Link2, List as ListIcon, BarChart3, Printer, SlidersHorizontal, SkipForward, LayoutDashboard, ClipboardList, Flag, Bell, FolderTree, ListTree, Package, LayoutTemplate, Truck, Globe, Megaphone, MessageSquare, Users, Search, Sun, Moon, Database, Home, Menu as MenuIcon, ScanLine, Plus, ChevronLeft, ChevronDown, ChevronRight, User, Camera, Image as ImageIcon, Paperclip, Send, Star, Pencil, Sparkles, HelpCircle, Download, Lock as LockIcon, AlertTriangle, Inbox, FileText, ShieldAlert, Tag, Layers, BookOpen, Filter, Check, X, Ruler, Boxes, Warehouse, Snowflake, Thermometer } from "lucide-react";
+import { Clock, MessageCircle, Link2, List as ListIcon, BarChart3, Printer, SlidersHorizontal, SkipForward, LayoutDashboard, ClipboardList, Flag, Bell, FolderTree, ListTree, Package, LayoutTemplate, Truck, Globe, Megaphone, MessageSquare, Users, Search, Sun, Moon, Database, Home, Menu as MenuIcon, ScanLine, Plus, ChevronLeft, ChevronDown, ChevronRight, User, Camera, Image as ImageIcon, Paperclip, Send, Star, Pencil, Sparkles, HelpCircle, Download, Lock as LockIcon, AlertTriangle, Inbox, FileText, ShieldAlert, Tag, Layers, BookOpen, Filter, Check, X, Ruler, Boxes, Warehouse, Snowflake, Thermometer, ThumbsDown, ClipboardPaste, Trash2 } from "lucide-react";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // QCteam — portal Head of Quality (mini-aplikacja, stan startowy pusty)
@@ -48,7 +48,7 @@ const notifLook = t => { const [I, tone] = NOTIF[t] || [Bell, "info"]; const fg 
 const cleanMsg = m => String(m || "").replace(/^[\p{Extended_Pictographic}\uFE0F\s]+/u, "");
 const NotifIcon = ({ type, size = 32 }) => { const { I, fg, bg } = notifLook(type); return <span className="rounded-full flex items-center justify-center flex-shrink-0" style={{ width: size, height: size, background: bg, color: fg }}><I size={Math.round(size * 0.5)} strokeWidth={2} /></span>; };
 const Dot = ({ on }) => <span className="inline-block rounded-full ml-2 align-middle" style={{ width: 7, height: 7, background: on ? C.ok : C.line }} />;
-const NAV_ICON = { blocked: LockIcon, lost: Search, unreported: ShieldAlert, integrations: Link2, lists: ListIcon, analytics: BarChart3, settings: SlidersHorizontal, dashboard: LayoutDashboard, inspections: ClipboardList, flags: Flag, notifications: Bell, categories: FolderTree, problems: ListTree, products: Package, forms: LayoutTemplate, suppliers: Truck, countries: Globe, announcements: Megaphone, messages: MessageSquare, users: Users, catalog: Package, home: Home, chat: MessageSquare, menu: MenuIcon, docks: Warehouse };
+const NAV_ICON = { blocked: LockIcon, lost: Search, unreported: ShieldAlert, integrations: Link2, lists: ListIcon, analytics: BarChart3, settings: SlidersHorizontal, dashboard: LayoutDashboard, inspections: ClipboardList, flags: Flag, notifications: Bell, categories: FolderTree, problems: ListTree, products: Package, forms: LayoutTemplate, suppliers: Truck, countries: Globe, announcements: Megaphone, messages: MessageSquare, users: Users, catalog: Package, home: Home, chat: MessageSquare, menu: MenuIcon, docks: Warehouse, complaints: ThumbsDown };
 const EMPTY_ICON = { "📁": FolderTree, "🌳": ListTree, "📦": Package, "🧩": LayoutTemplate, "📖": BookOpen, "📏": Ruler, "📋": ClipboardList, "🚩": Flag, "🔔": Bell, "📣": Megaphone, "💬": MessageSquare, "🔒": LockIcon };
 
 
@@ -1054,7 +1054,7 @@ function Ghost({ children, onClick }) { return <button onClick={onClick} classNa
 function Empty({ icon, title, hint, action }) {
   return (
     <div className="text-center py-10 px-4">
-      <div className="w-14 h-14 rounded-full mx-auto mb-3 flex items-center justify-center" style={{ background: C.bg, border: `1px solid ${C.line}`, color: C.muted }}>{EMPTY_ICON[icon] ? <Ic i={EMPTY_ICON[icon]} s={22} mr={0} /> : <span className="text-2xl">{icon}</span>}</div>
+      <div className="w-14 h-14 rounded-full mx-auto mb-3 flex items-center justify-center" style={{ background: C.bg, border: `1px solid ${C.line}`, color: C.muted }}>{EMPTY_ICON[icon] ? <Ic i={EMPTY_ICON[icon]} s={22} mr={0} /> : typeof icon === "string" ? <span className="text-2xl">{icon}</span> : icon ? <Ic i={icon} s={22} mr={0} /> : null}</div>
       <p className="font-semibold mb-1">{title}</p>
       <p className="text-sm mb-4 max-w-sm mx-auto" style={{ color: C.muted }}>{hint}</p>
       {action}
@@ -1068,14 +1068,14 @@ function Note({ tone: t = "info", children }) {
 
 // ═══════════════════ SHELL: top bar + sidebar ═══════════════════
 const NAV_HEAD = [
-  { group: null, items: [["dashboard", "🏠", "Dashboard"], ["docks", "🏭", "Dock map"], ["inspections", "📋", "Inspections"], ["blocked", "🔒", "Blocked pallets"], ["lost", "🔍", "Lost pallets"], ["unreported", "🛡️", "Unreported pallets"], ["analytics", "📊", "Analytics"], ["flags", "🚩", "Flags"], ["notifications", "🔔", "Notifications"]] },
+  { group: null, items: [["dashboard", "🏠", "Dashboard"], ["docks", "🏭", "Dock map"], ["inspections", "📋", "Inspections"], ["complaints", "👎", "Complaints"], ["blocked", "🔒", "Blocked pallets"], ["lost", "🔍", "Lost pallets"], ["unreported", "🛡️", "Unreported pallets"], ["analytics", "📊", "Analytics"], ["flags", "🚩", "Flags"], ["notifications", "🔔", "Notifications"]] },
   { group: "Catalog", items: [["categories", "📁", "Categories"], ["problems", "🌳", "Problem types"], ["products", "📦", "Products"], ["forms", "🧩", "Forms"]] },
   { group: "Dictionaries", items: [["suppliers", "🚚", "Suppliers"], ["lists", "📋", "Lists"]] },
   { group: "Communication", items: [["announcements", "📣", "Announcements"], ["messages", "💬", "Messages"]] },
   { group: "Administration", items: [["integrations", "🔗", "Integrations"], ["settings", "⚙️", "Settings"], ["users", "👤", "Users"]] },
 ];
 const NAV_CONTROLLER = [
-  { group: null, items: [["dashboard", "🏠", "Dashboard"], ["docks", "🏭", "Dock map"], ["inspections", "📋", "Inspections"], ["catalog", "📦", "Products"], ["unreported", "🛡️", "Unreported pallets"], ["messages", "💬", "Messages"], ["flags", "🚩", "My flags"], ["notifications", "🔔", "Notifications"]] },
+  { group: null, items: [["dashboard", "🏠", "Dashboard"], ["docks", "🏭", "Dock map"], ["inspections", "📋", "Inspections"], ["catalog", "📦", "Products"], ["complaints", "👎", "Complaints"], ["unreported", "🛡️", "Unreported pallets"], ["messages", "💬", "Messages"], ["flags", "🚩", "My flags"], ["notifications", "🔔", "Notifications"]] },
 ];
 
 function Shell({ page, setPage, children, badge, topRight, users, user, setUser, onLogout, unread, onBell, onSearch }) {
@@ -1114,6 +1114,106 @@ function Shell({ page, setPage, children, badge, topRight, users, user, setUser,
         </aside>
         <main className="flex-1 px-8 py-7" style={{ maxWidth: 1120 }}>{children}</main>
       </div>
+    </div>
+  );
+}
+
+// ═══════════════════ PAGE: Complaints ═══════════════════
+// Customer freshness complaints per article, keyed in by the Head (typed or pasted from the BI table) and shown to
+// everyone: on this page, on the phones (Menu → Complaints) and as a line on every product profile. Article IDs are
+// matched loosely — "HE10573488-36" (dock sheet), "10573488" (complaints table) and the catalog's article ID all normalise
+// to the same key, so one entry lights up wherever that product appears.
+const normArticle = x => String(x || "").trim().replace(/^HE/i, "").split("-")[0].replace(/\D/g, "").replace(/^0+/, "");
+const complaintsMeta = s => s.complaints || { period: "", updatedAt: null, byUserId: null, rows: [] };
+const complaintsFor = (s, articleId) => { const k = normArticle(articleId); if (!k) return null; return complaintsMeta(s).rows.find(r => normArticle(r.articleId) === k) || null; };
+const productForArticle = (s, articleId) => { const k = normArticle(articleId); return k ? s.products.find(p => normArticle(p.articleId) === k) || null : null; };
+// Parses rows pasted from a spreadsheet: tab / semicolon / comma separated, optional header, optional leading row number.
+// Expects: article id · article name · complaints count · top sub-type ("Spoiled (36)" or plain text).
+const parseComplaintRows = text => { const out = []; String(text || "").split(/\r?\n/).forEach(line => { if (!line.trim()) return; const sep = line.includes("\t") ? "\t" : line.includes(";") ? ";" : ","; let cells = line.split(sep).map(c => c.trim().replace(/^"|"$/g, "")); if (cells.length >= 4 && /^\d{1,4}$/.test(cells[0]) && /^(HE)?\d{5,}/i.test(cells[1])) cells = cells.slice(1); const idIx = cells.findIndex(c => /^(HE)?\d{5,}(-\d+)?$/i.test(c)); if (idIx < 0) return; const articleId = cells[idIx]; const rest = cells.slice(idIx + 1); const countIx = rest.findIndex((c, i) => i > 0 && /^\d+$/.test(c)); const name = rest.slice(0, countIx > 0 ? countIx : 1).join(" ").trim(); const count = countIx > 0 ? Number(rest[countIx]) : Number(rest.find(c => /^\d+$/.test(c)) || 0); const tail = rest.slice(countIx > 0 ? countIx + 1 : 1).join(" ").trim(); const m = tail.match(/^(.*?)\s*\((\d+)\)\s*$/); out.push({ articleId, name, count: isFinite(count) ? count : 0, subType: m ? m[1].trim() : tail, subCount: m ? Number(m[2]) : null }); }); return out; };
+const saveComplaints = (set, user, patch) => set(x => ({ ...x, complaints: { ...complaintsMeta(x), ...patch, updatedAt: nowISO(), byUserId: user.id } }));
+// One-line summary used on product profiles (portal + phone share the wording).
+const complaintsLine = (s, articleId) => { const c = complaintsFor(s, articleId); if (!c || !c.count) return null; const meta = complaintsMeta(s); return { count: c.count, sub: c.subType ? `${c.subType}${c.subCount != null ? ` (${c.subCount})` : ""}` : "", period: meta.period || "" }; };
+function ComplaintsNote({ s, articleId, onOpenList }) {
+  const l = complaintsLine(s, articleId); if (!l) return null;
+  return <Note tone="bad"><span className="inline-flex items-center gap-1.5 flex-wrap"><Ic i={ThumbsDown} s={14} mr={0} /><b>{l.count} freshness complaint{l.count === 1 ? "" : "s"}</b>{l.sub && <span>· mostly <b>{l.sub}</b></span>}{l.period && <span style={{ color: C.muted }}>· {l.period}</span>}{onOpenList && <button onClick={onOpenList} className="underline text-xs" style={{ color: C.accent }}>all complaints</button>}</span></Note>;
+}
+function ComplaintsPage({ s, set, user, openProduct }) {
+  const isHead = user.role === "Head"; const meta = complaintsMeta(s);
+  const rows = [...meta.rows].sort((a, b) => (b.count || 0) - (a.count || 0) || (a.name || "").localeCompare(b.name || ""));
+  const [q, setQ] = useState(""); const qq = q.trim().toLowerCase();
+  const shown = qq ? rows.filter(r => `${r.articleId} ${r.name} ${r.subType || ""}`.toLowerCase().includes(qq)) : rows;
+  const [paste, setPaste] = useState(""); const [pasteOpen, setPasteOpen] = useState(false); const [msg, setMsg] = useState("");
+  const [draft, setDraft] = useState({ articleId: "", name: "", count: "", subType: "", subCount: "" });
+  const [editId, setEditId] = useState(null); const [edit, setEdit] = useState(null); const [confirmClear, setConfirmClear] = useState(false);
+  const total = rows.reduce((a, r) => a + (r.count || 0), 0); const max = Math.max(1, ...rows.map(r => r.count || 0));
+  const subTotals = {}; rows.forEach(r => { if (r.subType) subTotals[r.subType] = (subTotals[r.subType] || 0) + (r.subCount != null ? r.subCount : 0); }); const topSub = Object.entries(subTotals).sort((a, b) => b[1] - a[1])[0];
+  const matched = rows.filter(r => productForArticle(s, r.articleId)).length;
+  const by = meta.byUserId && s.users.find(u => u.id === meta.byUserId);
+  const parsed = pasteOpen ? parseComplaintRows(paste) : [];
+  const upsert = (list, incoming) => { const out = [...list]; incoming.forEach(n => { const k = normArticle(n.articleId); const ix = out.findIndex(r => normArticle(r.articleId) === k); const row = { id: ix >= 0 ? out[ix].id : uid(), articleId: n.articleId, name: n.name || productForArticle(s, n.articleId)?.name || out[ix]?.name || "", count: Number(n.count) || 0, subType: n.subType || "", subCount: n.subCount === "" || n.subCount == null ? null : Number(n.subCount) }; if (ix >= 0) out[ix] = row; else out.push(row); }); return out; };
+  const importRows = replace => { if (!parsed.length) return; saveComplaints(set, user, { rows: replace ? upsert([], parsed) : upsert(meta.rows, parsed) }); setMsg(`${parsed.length} row${parsed.length === 1 ? "" : "s"} ${replace ? "imported — the previous list was replaced" : "merged into the list"}.`); setPaste(""); setPasteOpen(false); };
+  const addDraft = () => { if (!draft.articleId.trim() || draft.count === "") return; saveComplaints(set, user, { rows: upsert(meta.rows, [draft]) }); setDraft({ articleId: "", name: "", count: "", subType: "", subCount: "" }); setMsg("Saved."); };
+  const remove = id => saveComplaints(set, user, { rows: meta.rows.filter(r => r.id !== id) });
+  const commitEdit = () => { if (!edit) return; saveComplaints(set, user, { rows: meta.rows.map(r => r.id === editId ? { ...r, name: edit.name, count: Number(edit.count) || 0, subType: edit.subType, subCount: edit.subCount === "" || edit.subCount == null ? null : Number(edit.subCount) } : r) }); setEditId(null); setEdit(null); };
+  const onDraftId = v => { const p = productForArticle(s, v); setDraft(d => ({ ...d, articleId: v, name: d.name || (p ? p.name : "") })); };
+  return (
+    <div>
+      <div className="flex items-center gap-3 mb-1"><h1 className="flex-1">Complaints</h1>
+        {isHead && <button onClick={() => setPasteOpen(o => !o)} className="text-xs px-3 py-1.5 rounded-lg inline-flex items-center gap-1.5" style={{ border: `1px solid ${pasteOpen ? C.accent : C.line}`, background: pasteOpen ? C.accentSoft : C.surface, color: pasteOpen ? C.accent : C.ink }}><Ic i={ClipboardPaste} s={13} mr={0} />Paste from spreadsheet</button>}
+        {isHead && rows.length > 0 && !confirmClear && <button onClick={() => setConfirmClear(true)} className="text-xs px-3 py-1.5 rounded-lg" style={{ border: `1px solid ${C.line}`, color: C.muted }}>Clear list</button>}
+        {isHead && confirmClear && <span className="flex items-center gap-2 text-xs rounded-lg px-3 py-1.5" style={{ background: C.badBg, color: C.bad }}>Remove all {rows.length} articles?<button onClick={() => { saveComplaints(set, user, { rows: [] }); setConfirmClear(false); }} className="px-2.5 py-1 rounded-md font-medium" style={{ background: C.bad, color: C.onDark }}>Yes, clear</button><button onClick={() => setConfirmClear(false)} className="px-2 py-1" style={{ color: C.bad }}>Cancel</button></span>}
+      </div>
+      <p className="text-sm mb-4" style={{ color: C.muted, maxWidth: 720 }}>Customer freshness complaints per article{isHead ? ", keyed in here by the Head" : ""}. Everyone sees the same numbers — on this page, in the phone app and on every product profile.{meta.updatedAt ? ` Last updated ${fmtTime(meta.updatedAt)}${by ? ` by ${by.name}` : ""}.` : ""}</p>
+      <div className="grid gap-3 mb-4" style={{ gridTemplateColumns: "repeat(4, 1fr)" }}>
+        {[["Complaints", total, C.bad], ["Articles", rows.length, C.ink], ["Top sub-type", topSub ? topSub[0] : "—", C.warn, topSub ? `${topSub[1]} complaints` : ""], ["Period", meta.period || "—", C.accent, matched < rows.length ? `${rows.length - matched} article${rows.length - matched === 1 ? "" : "s"} not in the catalog` : rows.length ? "all articles matched to products" : ""]].map(([l, v, col, sub]) => (
+          <div key={l} className="rounded-2xl p-4" style={{ background: C.surface, border: `1px solid ${C.line}`, borderLeft: `3px solid ${col}` }}><p className="text-xs" style={{ color: C.muted }}>{l}</p><p className={`${typeof v === "number" ? "text-[26px]" : "text-[17px]"} leading-tight font-semibold mt-0.5 truncate`} title={String(v)}>{v}</p>{sub && <p className="text-[11px] mt-0.5" style={{ color: C.muted }}>{sub}</p>}</div>
+        ))}
+      </div>
+      {isHead && <Card style={{ marginBottom: 12 }}>
+        <div className="flex items-center gap-3 mb-3 flex-wrap">
+          <p className="font-medium text-sm">Period</p>
+          <FastInput value={meta.period || ""} onCommit={v => saveComplaints(set, user, { period: v })} placeholder="e.g. Week 38 · 15–21 Sept" className="text-sm rounded-lg px-2.5 py-1.5 outline-none" style={{ ...inp, width: 260 }} />
+          <span className="text-xs" style={{ color: C.muted }}>Shown next to every number so the floor knows which weeks these complaints cover.</span>
+        </div>
+        {pasteOpen && <div className="rounded-xl p-3 mb-3" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
+          <p className="text-xs mb-2" style={{ color: C.muted }}>Copy the rows from the BI table (Article ID · Article · Freshness complaints · Top sub-type) and paste them here. A header row and a leading row number are ignored; “Spoiled (36)” is split into the sub-type and its count.</p>
+          <textarea value={paste} onChange={e => setPaste(e.target.value)} rows={6} placeholder={"10573488\tMerkloos komkommer (1 st)\t39\tSpoiled (36)\n11539732\tMerkloos kiwibessen (125 gram)\t36\tOverripe (35)"} className="w-full text-xs rounded-lg px-2.5 py-2 outline-none font-mono" style={{ ...inp }} />
+          <div className="flex items-center gap-2 mt-2 flex-wrap">
+            <span className="text-xs flex-1" style={{ color: parsed.length ? C.ink : C.muted }}>{parsed.length ? `${parsed.length} row${parsed.length === 1 ? "" : "s"} recognised · ${parsed.filter(r => productForArticle(s, r.articleId)).length} matched to catalog products` : "Nothing recognised yet."}</span>
+            <button onClick={() => importRows(false)} disabled={!parsed.length} className="text-xs px-3 py-1.5 rounded-lg font-semibold" style={{ background: parsed.length ? C.accent : C.line, color: parsed.length ? C.onDark : C.muted }}>Merge into list</button>
+            <button onClick={() => importRows(true)} disabled={!parsed.length} className="text-xs px-3 py-1.5 rounded-lg font-semibold" style={{ background: parsed.length ? C.ink : C.line, color: parsed.length ? C.onDark : C.muted }}>Replace list</button>
+          </div>
+        </div>}
+        <p className="font-medium text-sm mb-2">Add or update an article</p>
+        <div className="grid gap-2 items-end" style={{ gridTemplateColumns: "150px 1fr 110px 160px 90px auto" }}>
+          <label className="text-[11px]" style={{ color: C.muted }}>Article ID<input list="qc-article-ids" value={draft.articleId} onChange={e => onDraftId(e.target.value)} placeholder="10573488" className="w-full text-sm rounded-lg px-2.5 py-1.5 outline-none mt-0.5 font-mono" style={{ ...inp }} /><datalist id="qc-article-ids">{s.products.filter(p => p.articleId).map(p => <option key={p.id} value={p.articleId}>{p.name}</option>)}</datalist></label>
+          <label className="text-[11px]" style={{ color: C.muted }}>Article<input value={draft.name} onChange={e => setDraft(d => ({ ...d, name: e.target.value }))} placeholder={productForArticle(s, draft.articleId)?.name || "name as in the complaints table"} className="w-full text-sm rounded-lg px-2.5 py-1.5 outline-none mt-0.5" style={{ ...inp }} /></label>
+          <label className="text-[11px]" style={{ color: C.muted }}>Complaints<input type="number" min="0" value={draft.count} onChange={e => setDraft(d => ({ ...d, count: e.target.value }))} className="w-full text-sm rounded-lg px-2.5 py-1.5 outline-none mt-0.5" style={{ ...inp }} /></label>
+          <label className="text-[11px]" style={{ color: C.muted }}>Top sub-type<input list="qc-subtypes" value={draft.subType} onChange={e => setDraft(d => ({ ...d, subType: e.target.value }))} placeholder="Spoiled" className="w-full text-sm rounded-lg px-2.5 py-1.5 outline-none mt-0.5" style={{ ...inp }} /><datalist id="qc-subtypes">{["Spoiled", "Overripe", "Underripe", "Mouldy", "Damaged", "Wrong product"].map(x => <option key={x} value={x} />)}</datalist></label>
+          <label className="text-[11px]" style={{ color: C.muted }}>Sub-type #<input type="number" min="0" value={draft.subCount} onChange={e => setDraft(d => ({ ...d, subCount: e.target.value }))} className="w-full text-sm rounded-lg px-2.5 py-1.5 outline-none mt-0.5" style={{ ...inp }} /></label>
+          <button onClick={addDraft} disabled={!draft.articleId.trim() || draft.count === ""} className="text-sm px-4 py-1.5 rounded-lg font-semibold" style={{ background: draft.articleId.trim() && draft.count !== "" ? C.accent : C.line, color: draft.articleId.trim() && draft.count !== "" ? C.onDark : C.muted, height: 34 }}>{complaintsFor(s, draft.articleId) ? "Update" : "Add"}</button>
+        </div>
+        {msg && <p className="text-xs mt-2" style={{ color: C.accent }}>{msg}</p>}
+      </Card>}
+      <Card>
+        <div className="flex items-center gap-3 mb-2"><p className="font-medium text-sm flex-1">Articles · {shown.length}{qq ? ` of ${rows.length}` : ""} · most complaints first</p><SearchBox value={q} onChange={setQ} placeholder="Search article or ID" style={{ width: 260 }} inputClass="rounded-lg" size={13} /></div>
+        {rows.length === 0 ? <Empty icon={ThumbsDown} title="No complaints entered yet" hint={isHead ? "Paste the BI table or add articles one by one above." : "The Head hasn't entered this period's complaints yet."} /> : shown.length === 0 ? <p className="text-xs py-4" style={{ color: C.muted }}>Nothing matches “{q}”.</p> : (
+          <table className="w-full text-sm">
+            <thead><tr className="text-xs text-left" style={{ color: C.muted }}>{["#", "Article ID", "Article", "Complaints", "", "Top sub-type", isHead ? "" : null].filter(h => h !== null).map((h, i) => <th key={i} className="py-1.5 pr-3 font-medium" style={{ borderBottom: `1px solid ${C.line}` }}>{h}</th>)}</tr></thead>
+            <tbody>{shown.map((r, i) => { const p = productForArticle(s, r.articleId); const editing = editId === r.id; return (
+              <tr key={r.id} style={{ borderBottom: `1px solid ${C.line}`, background: editing ? C.accentSoft : "transparent" }}>
+                <td className="py-1.5 pr-3 text-xs" style={{ color: C.muted, width: 28 }}>{rows.indexOf(r) + 1}</td>
+                <td className="py-1.5 pr-3 font-mono text-xs whitespace-nowrap">{r.articleId}</td>
+                <td className="py-1.5 pr-3">{editing ? <input value={edit.name} onChange={e => setEdit(x => ({ ...x, name: e.target.value }))} className="w-full text-sm rounded px-2 py-1 outline-none" style={{ ...inp }} /> : <>{p && openProduct ? <button onClick={() => openProduct(p.id)} className="text-left font-medium" style={{ color: C.ink }}>{r.name || p.name}</button> : <span>{r.name || "—"}</span>}{!p && <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded-full" style={{ background: C.bg, color: C.muted, border: `1px solid ${C.line}` }}>not in catalog</span>}</>}</td>
+                <td className="py-1.5 pr-3 font-semibold" style={{ fontVariantNumeric: "tabular-nums", width: 90 }}>{editing ? <input type="number" min="0" value={edit.count} onChange={e => setEdit(x => ({ ...x, count: e.target.value }))} className="w-20 text-sm rounded px-2 py-1 outline-none" style={{ ...inp }} /> : r.count}</td>
+                <td className="py-1.5 pr-3" style={{ width: 160 }}><div className="h-2 rounded-full" style={{ background: C.bg }}><div className="h-2 rounded-full" style={{ width: `${Math.round((r.count || 0) / max * 100)}%`, background: C.bad, opacity: .85 }} /></div></td>
+                <td className="py-1.5 pr-3 text-xs">{editing ? <span className="inline-flex gap-1"><input value={edit.subType} onChange={e => setEdit(x => ({ ...x, subType: e.target.value }))} placeholder="sub-type" className="w-28 text-sm rounded px-2 py-1 outline-none" style={{ ...inp }} /><input type="number" min="0" value={edit.subCount ?? ""} onChange={e => setEdit(x => ({ ...x, subCount: e.target.value }))} placeholder="#" className="w-16 text-sm rounded px-2 py-1 outline-none" style={{ ...inp }} /></span> : r.subType ? <span className="px-1.5 py-0.5 rounded-full" style={{ background: C.warnBg, color: C.warn }}>{r.subType}{r.subCount != null ? ` (${r.subCount})` : ""}</span> : <span style={{ color: C.muted }}>—</span>}</td>
+                {isHead && <td className="py-1.5 text-right whitespace-nowrap" style={{ width: 120 }}>{editing ? <><button onClick={commitEdit} className="text-xs px-2.5 py-1 rounded-lg font-semibold mr-1" style={{ background: C.accent, color: C.onDark }}>Save</button><button onClick={() => { setEditId(null); setEdit(null); }} className="text-xs" style={{ color: C.muted }}>cancel</button></> : <><button onClick={() => { setEditId(r.id); setEdit({ name: r.name || "", count: r.count || 0, subType: r.subType || "", subCount: r.subCount ?? "" }); }} className="text-xs mr-2" style={{ color: C.accent }}>edit</button><button onClick={() => remove(r.id)} className="text-xs" style={{ color: C.muted }} title="remove"><Ic i={Trash2} s={13} mr={0} /></button></>}</td>}
+              </tr>
+            ); })}</tbody>
+          </table>
+        )}
+      </Card>
     </div>
   );
 }
@@ -2360,6 +2460,7 @@ function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset, onMessag
               </div>
               <div className="px-4 py-4">
                 {tab === "profile" && <div style={{ maxWidth: 760 }}>
+                  <ComplaintsNote s={s} articleId={product.articleId} />
                   <Group title="Identity" cols={6}>
                     <Field label="Name" className="col-span-4"><FastInput value={product.name} onCommit={v => patchP({ name: v })} /></Field>
                     <Field label="Article ID"><FastInput value={product.articleId || ""} onCommit={v => patchP({ articleId: v })} className="font-mono" style={{ borderColor: product.articleId ? C.line : C.warn }} /></Field>
@@ -3295,6 +3396,7 @@ function ProductPeek({ s, product, onClose }) {
         <div className="flex-1 overflow-y-auto px-5 pb-6">
           {tab === "overview" && <div>
             {anns.length > 0 && <div className="mt-4">{anns.map(a => <Note key={a.id} tone="warn">📣 <b>{a.title}</b>{a.body && <> — {a.body}</>}</Note>)}</div>}
+            <div className="mt-4"><ComplaintsNote s={s} articleId={product.articleId} /></div>
             {photos.length > 0 && <><H>Photos · {photos.length}</H><Photos list={photos} size={104} /></>}
             <H>Facts</H>
             <Row k="Article ID" v={product.articleId} />
@@ -3388,6 +3490,7 @@ function CatalogPage({ s, set, user, notify, onStartInspection }) {
                 </div>
               </div>
               {s.announcements.filter(a => annMatchesProduct(s, a, product)).map(a => <Note key={a.id} tone="warn">📣 <b>{a.title}</b> — {a.body}</Note>)}
+              <ComplaintsNote s={s} articleId={product.articleId} />
               {openFlags.length > 0 && <Note tone="warn">🚩 {openFlags.length} open flag on this product — the Head hasn't resolved it yet.</Note>}
               {asPhotoList(product.photos).length > 1 && <div className="mb-3"><PhotoStrip photos={product.photos} size={56} /></div>}
               {effectiveAttributes(s, product).length > 0 && <div className="flex flex-wrap gap-1.5 mb-3">{effectiveAttributes(s, product).map(a => <span key={a.dictionaryId} className="text-xs px-2.5 py-1 rounded-full" style={{ background: C.bg, border: `1px solid ${C.line}` }}><span style={{ color: C.muted }}>{a.list}:</span> <b>{a.value}</b></span>)}</div>}
@@ -4285,6 +4388,7 @@ export default function App() {
       {safePage === "lists" && <ListsPage s={s} set={set} />}
       {safePage === "blocked" && <BlockedQueuePage s={s} set={set} user={user} setSel={setSelProduct} setPage={setPage} />}
       {safePage === "lost" && <LostPalletsPage s={s} set={set} user={user} setSel={setSelProduct} setPage={setPage} />}
+      {safePage === "complaints" && <ComplaintsPage s={s} set={set} user={user} openProduct={id => { setSelProduct(id); setPage(user.role === "Head" ? "products" : "catalog"); }} />}
       {safePage === "docks" && <DockMapPage s={s} user={user} openProduct={id => { setSelProduct(id); setPage(user.role === "Head" ? "products" : "catalog"); }} />}
       {safePage === "unreported" && <UnreportedPalletsPage s={s} set={set} user={user} setSel={setSelProduct} setPage={setPage} />}
       {safePage === "inspections" && <InspectionsPage s={s} set={set} user={user} notify={notify} openId={openInspId} setOpenId={setOpenInspId} preset={presetProduct} clearPreset={() => setPresetProduct("")} />}
