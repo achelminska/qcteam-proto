@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, Fragment } from "react";
 import { createSyncer, guardUnload } from "./sync.js";
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceArea, ReferenceLine, Legend } from "recharts";
 import { Clock, MessageCircle, Link2, List as ListIcon, BarChart3, Printer, SlidersHorizontal, SkipForward, LayoutDashboard, ClipboardList, Flag, Bell, FolderTree, ListTree, Package, LayoutTemplate, Truck, Globe, Megaphone, MessageSquare, Users, Search, Sun, Moon, Database, Home, Menu as MenuIcon, ScanLine, Plus, ChevronLeft, ChevronRight, ChevronDown, User, Camera, Image as ImageIcon, Paperclip, Send, Star, Pencil, Sparkles, HelpCircle, Download, Lock as LockIcon, AlertTriangle, Inbox, FileText, ShieldAlert, Tag, Layers, BookOpen, Filter, Check, X, Ruler, Boxes, Warehouse, Snowflake, Thermometer } from "lucide-react";
@@ -941,7 +941,9 @@ function AttachmentList({ attachments, dark }) {
   </div>;
 }
 // Composer add-ons: pending attachments + context picker (products, recent inspections, pallets on dock, open flags)
-function ComposerExtras({ s, user, pending, setPending, compact }) {
+// `bar`: the input row (textarea + send). When given, the attach / context actions become round icon buttons sitting
+// inline to the left of it — the chat composer look; without it the old labelled buttons render above whatever follows.
+function ComposerExtras({ s, user, pending, setPending, compact, bar }) {
   const [open, setOpen] = useState(false); const [q, setQ] = useState(""); const [tab, setTab] = useState("product");
   const qq = q.trim().toLowerCase();
   const has = ctx => (pending.contexts || []).some(c => c.kind === ctx.kind && c.id === ctx.id);
@@ -960,10 +962,10 @@ function ComposerExtras({ s, user, pending, setPending, compact }) {
         {(pending.contexts || []).map((c, i) => { const { icon, text } = contextLabel(s, c); return <span key={"c" + i} className="text-[11px] px-2 py-0.5 rounded-full inline-flex items-center" style={{ background: C.accentSoft, color: C.accent }}><Ic i={icon} s={11} mr={4} />{text}<button onClick={() => setPending(p => ({ ...p, contexts: p.contexts.filter((_, j) => j !== i) }))} className="ml-1">×</button></span>; })}
         {(pending.attachments || []).map(a => <span key={a.id} className="text-[11px] px-2 py-0.5 rounded-full inline-flex items-center" style={{ background: C.bg, border: `1px solid ${C.line}` }}>{a.kind === "image" ? <img src={a.dataUrl} alt="" className="rounded mr-1" style={{ width: 18, height: 18, objectFit: "cover" }} /> : <Ic i={Paperclip} s={11} mr={4} />}{a.name}<button onClick={() => setPending(p => ({ ...p, attachments: p.attachments.filter(x => x.id !== a.id) }))} className="ml-1">×</button></span>)}
       </div>}
-      <div className="flex gap-1.5 mb-1.5">
+      {!bar && <div className="flex gap-1.5 mb-1.5">
         <button onClick={addFiles} disabled={busy} className="text-[11px] px-2 py-1 rounded-lg inline-flex items-center" style={{ background: C.bg, border: `1px solid ${C.line}`, color: C.ink }} title="MessageAttachment"><Ic i={Paperclip} s={12} mr={4} />{busy ? "Processing…" : "Attach"}</button>
         <button onClick={() => setOpen(o => !o)} className="text-[11px] px-2 py-1 rounded-lg inline-flex items-center" style={{ background: open ? C.ink : C.bg, border: `1px solid ${open ? C.ink : C.line}`, color: open ? C.onDark : C.ink }} title="MessageContext — link a product, inspection, pallet or flag"><Ic i={Tag} s={12} mr={4} />Add context</button>
-      </div>
+      </div>}
       {open && <div className="rounded-xl p-2 mb-2" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
         <div className="flex gap-1 mb-1.5 flex-wrap">{[["product", "Products"], ["inspection", "Inspections"], ["pallet", "Pallets on dock"], ["flag", "Open flags"]].map(([k, l]) => <button key={k} onClick={() => setTab(k)} className="text-[11px] px-2 py-1 rounded-full" style={{ background: tab === k ? C.ink : "transparent", color: tab === k ? C.onDark : C.ink, border: `1px solid ${tab === k ? C.ink : C.line}` }}>{l}</button>)}</div>
         <div className="flex gap-1.5 mb-1"><input autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder="search…" className="flex-1 text-sm" style={{ minHeight: 30 }} /><button onClick={() => { setOpen(false); setQ(""); }} className="text-xs px-3 rounded-lg font-semibold" style={{ background: C.ink, color: C.onDark }}>Done{(pending.contexts || []).length ? ` (${pending.contexts.length})` : ""}</button></div>
@@ -974,6 +976,11 @@ function ComposerExtras({ s, user, pending, setPending, compact }) {
           {tab === "flag" && flags.map(f => <Row key={f.id} icon={Flag} main={(f.description || "").slice(0, 60)} sub={s.products.find(p => p.id === f.productId)?.name} on={has({ kind: "flag", id: f.id })} onClick={() => add({ kind: "flag", id: f.id })} />)}
           {((tab === "product" && !products.length) || (tab === "inspection" && !inspections.length) || (tab === "pallet" && !pallets.length) || (tab === "flag" && !flags.length)) && <p className="text-xs px-2 py-2" style={{ color: C.muted }}>Nothing matches.</p>}
         </div>
+      </div>}
+      {bar && <div className="flex items-end gap-1.5">
+        <button onClick={addFiles} disabled={busy} className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: C.bg, color: busy ? C.muted : C.ink, border: `1px solid ${C.line}` }} title="Attach a photo or file"><Ic i={Paperclip} s={16} mr={0} /></button>
+        <button onClick={() => setOpen(o => !o)} className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 relative" style={{ background: open ? C.ink : C.bg, color: open ? C.onDark : C.ink, border: `1px solid ${open ? C.ink : C.line}` }} title="Link a product, inspection, pallet or flag"><Ic i={Tag} s={16} mr={0} />{(pending.contexts || []).length > 0 && <span className="absolute -top-1 -right-1 text-[9px] font-semibold min-w-[16px] h-4 px-1 rounded-full flex items-center justify-center" style={{ background: C.accent, color: C.onDark }}>{pending.contexts.length}</span>}</button>
+        {bar}
       </div>}
     </div>
   );
@@ -2712,28 +2719,132 @@ function MCatalog({ s, user, go, onStart, setState, notify, onVisual, preset }) 
 }
 
 // ── Chat ──
+// ───────── Chat presentation shared by the conversation list and the thread ─────────
+const convOther = (conv, s, userId) => conv.isGroup ? null : s.users.find(u => u.id === conv.participantIds.find(id => id !== userId));
+const ConvAvatar = ({ conv, s, userId, size = 40 }) => { const other = convOther(conv, s, userId); if (other) return <Avatar user={other} size={size} />; return <div className="rounded-full flex items-center justify-center flex-shrink-0" style={{ width: size, height: size, background: C.ink, color: C.onDark }}><Ic i={Users} s={Math.round(size * .45)} mr={0} /></div>; };
+const msgPreview = (m, s, userId) => { if (!m) return ""; const who = m.senderId === userId ? "You" : (s.users.find(u => u.id === m.senderId)?.name.split(" ")[0] || "?"); const body = m.text || ((m.attachments || []).length ? ((m.attachments || []).some(a => a.kind === "image") ? "Photo" : "Attachment") : (m.contexts || []).length ? "Linked item" : ""); return `${who}: ${body}`; };
+const chatTime = iso => { if (!iso) return ""; const d = new Date(iso), t = new Date(); if (d.toDateString() === t.toDateString()) return d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }); const diff = Math.round((new Date(t.getFullYear(), t.getMonth(), t.getDate()) - new Date(d.getFullYear(), d.getMonth(), d.getDate())) / 86400000); if (diff === 1) return "Yesterday"; if (diff < 7) return d.toLocaleDateString("en-GB", { weekday: "short" }); return d.toLocaleDateString("en-GB", { day: "numeric", month: "short" }); };
+const chatDayLabel = iso => { const l = dayLabel(iso); return l === "Today" || l === "Yesterday" ? l : new Date(iso).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" }); };
+const lastMsgAt = c => (c.messages?.slice(-1)[0]?.at) || c.createdAt || "";
+// One conversation row: avatar, name, time of the last message, preview with the sender, unread badge.
+function ConvRow({ conv, s, user, active, onClick }) {
+  const un = unreadIn(conv, user.id); const last = (conv.messages || []).slice(-1)[0];
+  return (
+    <button onClick={onClick} className="w-full text-left flex items-center gap-3 px-3 py-2.5 rounded-2xl transition-colors" style={{ background: active ? C.accentSoft : "transparent" }}>
+      <ConvAvatar conv={conv} s={s} userId={user.id} size={44} />
+      <div className="flex-1 min-w-0">
+        <div className="flex items-baseline gap-2"><p className="text-[14px] flex-1 truncate" style={{ fontWeight: un ? 650 : 500, color: C.ink }}>{convName(conv, s, user.id)}</p><span className="text-[11px] flex-shrink-0" style={{ color: un ? C.accent : C.muted, fontWeight: un ? 600 : 400 }}>{chatTime(last?.at)}</span></div>
+        <div className="flex items-center gap-2 mt-0.5"><p className="text-[12.5px] flex-1 truncate" style={{ color: un ? C.ink : C.muted, fontWeight: un ? 500 : 400 }}>{last ? msgPreview(last, s, user.id) : (conv.isGroup ? `${conv.participantIds.length} people · no messages yet` : "No messages yet")}</p>{un > 0 && <span className="text-[10.5px] font-semibold min-w-[20px] h-5 px-1.5 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: C.accent, color: C.onDark }}>{un}</span>}</div>
+      </div>
+    </button>
+  );
+}
+// The message thread: day separators, runs of messages from one sender grouped (avatar once, tight corners inside a run),
+// mine on the right in accent, theirs on the left in surface. Scrolls to the newest message on open and on every send.
+function ChatThread({ s, conv, user, onOpenCtx, wide }) {
+  const ref = useRef(null); const msgs = conv.messages || [];
+  useEffect(() => { const el = ref.current; if (el) el.scrollTop = el.scrollHeight; }, [conv.id, msgs.length]);
+  const hh = iso => new Date(iso).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+  const gap = (a, b) => Math.abs(new Date(a) - new Date(b)) > 5 * 60000;
+  return (
+    <div ref={ref} className="flex-1 overflow-y-auto px-3 py-3" style={{ background: C.bg }}>
+      {msgs.length === 0 && <div className="flex flex-col items-center justify-center text-center py-10 px-6"><ConvAvatar conv={conv} s={s} userId={user.id} size={56} /><p className="text-sm font-semibold mt-3">{convName(conv, s, user.id)}</p><p className="text-xs mt-1 leading-snug" style={{ color: C.muted }}>No messages yet. Say hello, attach a photo or link a pallet, product or inspection.</p></div>}
+      {msgs.map((m, i) => { const me = m.senderId === user.id; const prev = msgs[i - 1], next = msgs[i + 1];
+        const newDay = !prev || new Date(prev.at).toDateString() !== new Date(m.at).toDateString();
+        const firstOfRun = newDay || prev.senderId !== m.senderId || gap(prev.at, m.at);
+        const lastOfRun = !next || next.senderId !== m.senderId || new Date(next.at).toDateString() !== new Date(m.at).toDateString() || gap(next.at, m.at);
+        const sender = s.users.find(u => u.id === m.senderId);
+        const R = 18, r = 6; const radius = me ? `${R}px ${firstOfRun ? R : r}px ${lastOfRun ? R : r}px ${R}px` : `${firstOfRun ? R : r}px ${R}px ${R}px ${lastOfRun ? R : r}px`;
+        return (
+          <Fragment key={m.id}>
+            {newDay && <div className="flex items-center gap-2 my-3"><span className="flex-1" style={{ borderTop: `1px solid ${C.line}` }} /><span className="text-[10.5px] font-medium px-2" style={{ color: C.muted }}>{chatDayLabel(m.at)}</span><span className="flex-1" style={{ borderTop: `1px solid ${C.line}` }} /></div>}
+            <div className={`flex items-end gap-2 ${me ? "justify-end" : "justify-start"}`} style={{ marginTop: firstOfRun ? 8 : 2 }}>
+              {!me && <span className="flex-shrink-0" style={{ width: 28 }}>{lastOfRun && <Avatar user={sender} size={28} />}</span>}
+              <div style={{ maxWidth: wide ? "68%" : "80%" }}>
+                {!me && conv.isGroup && firstOfRun && <p className="text-[11px] font-medium mb-0.5 ml-2" style={{ color: C.muted }}>{sender?.name.split(" ")[0]}</p>}
+                <div className="px-3.5 py-2" style={{ background: me ? C.accent : C.surface, color: me ? C.onDark : C.ink, borderRadius: radius, border: me ? "none" : `1px solid ${C.line}`, boxShadow: "0 1px 1px rgba(0,0,0,.04)" }}>
+                  <ContextChips s={s} contexts={m.contexts?.length ? m.contexts : (m.productId ? [{ kind: "product", id: m.productId }] : [])} onOpen={onOpenCtx} dark={me} />
+                  <AttachmentList attachments={m.attachments} dark={me} />
+                  {m.text && <p className="text-[14px] leading-snug" style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{m.text}</p>}
+                  <p className="text-[10px] mt-1 text-right leading-none" style={{ color: me ? C.onDarkMuted : C.muted }}>{hh(m.at)}</p>
+                </div>
+              </div>
+            </div>
+          </Fragment>
+        ); })}
+    </div>
+  );
+}
+// People picker for a new conversation: one person = direct message, more = group (optional name).
+function NewConversation({ s, user, pick, setPick, gname, setGname, onCreate, onCancel }) {
+  const others = s.users.filter(u => u.id !== user.id && u.active !== false).sort((a, b) => (a.role === "Head" ? -1 : 1) - (b.role === "Head" ? -1 : 1) || a.name.localeCompare(b.name));
+  const toggle = id => setPick(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id]);
+  return (
+    <div>
+      <p className="text-xs mb-2" style={{ color: C.muted }}>Pick one person for a direct message, or several for a group.</p>
+      <div className="rounded-2xl overflow-hidden" style={{ border: `1px solid ${C.line}` }}>
+        {others.map((u, i) => { const on = pick.includes(u.id); return (
+          <button key={u.id} onClick={() => toggle(u.id)} className="w-full flex items-center gap-3 px-3 py-2.5 text-left" style={{ background: on ? C.accentSoft : C.surface, borderTop: i ? `1px solid ${C.line}` : "none" }}>
+            <Avatar user={u} size={36} />
+            <span className="flex-1 min-w-0"><span className="block text-sm font-medium truncate">{u.name}</span><span className="block text-[11px]" style={{ color: C.muted }}>{u.role === "Head" ? "Head of QC" : "Controller"}</span></span>
+            <span className="w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: on ? C.accent : "transparent", border: `1.5px solid ${on ? C.accent : C.line}`, color: C.onDark }}>{on && <Ic i={Check} s={12} mr={0} />}</span>
+          </button>
+        ); })}
+        {others.length === 0 && <p className="text-xs px-3 py-3" style={{ color: C.muted }}>Nobody else to message yet.</p>}
+      </div>
+      {pick.length > 1 && <input value={gname} onChange={e => setGname(e.target.value)} placeholder="Group name (optional)" className="w-full text-sm rounded-xl px-3 py-2.5 outline-none mt-3" style={{ ...inp }} />}
+      <div className="flex gap-2 mt-3">
+        <button onClick={onCancel} className="flex-1 py-2.5 rounded-xl text-sm" style={{ border: `1px solid ${C.line}`, color: C.muted }}>Cancel</button>
+        <button onClick={onCreate} disabled={!pick.length} className="flex-1 py-2.5 rounded-xl text-sm font-semibold" style={{ background: pick.length ? C.accent : C.line, color: pick.length ? C.onDark : C.muted }}>{pick.length > 1 ? `Start group · ${pick.length}` : "Start chat"}</button>
+      </div>
+    </div>
+  );
+}
 function MChat({ s, set, user, go, initialContext, clearInitialContext }) {
-  const [open, setOpen] = useBackSel("chatOpen", null); const [text, setText] = useState(""); const [creating, setCreating] = useState(false); const [pick, setPick] = useState([]); const [gname, setGname] = useState("");
-  const mine = s.conversations.filter(c => c.participantIds.includes(user.id) && c.isActive !== false).sort((a, b) => ((b.messages?.slice(-1)[0]?.at) || b.createdAt || "").localeCompare((a.messages?.slice(-1)[0]?.at) || a.createdAt || ""));
+  const [open, setOpen] = useBackSel("chatOpen", null); const [text, setText] = useState(""); const [creating, setCreating] = useState(false); const [pick, setPick] = useState([]); const [gname, setGname] = useState(""); const [q, setQ] = useState("");
+  const mine = s.conversations.filter(c => c.participantIds.includes(user.id) && c.isActive !== false).sort((a, b) => lastMsgAt(b).localeCompare(lastMsgAt(a)));
+  const qq = q.trim().toLowerCase();
+  const shown = qq ? mine.filter(c => convName(c, s, user.id).toLowerCase().includes(qq) || (c.messages || []).some(m => (m.text || "").toLowerCase().includes(qq))) : mine;
+  const totalUnread = mine.reduce((a, c) => a + unreadIn(c, user.id), 0);
   const conv = s.conversations.find(c => c.id === open);
   const markRead = id => set(x => ({ ...x, conversations: x.conversations.map(c => c.id === id ? { ...c, lastRead: { ...(c.lastRead || {}), [user.id]: nowISO() } } : c) }));
   const [pending, setPending] = useState({ attachments: [], contexts: initialContext ? [initialContext] : [] });
   useEffect(() => { if (initialContext) { setPending(p => ({ ...p, contexts: [...p.contexts.filter(c => !(c.kind === initialContext.kind && c.id === initialContext.id)), initialContext] })); clearInitialContext && clearInitialContext(); } }, [initialContext]);
-  const send = () => { if ((!text.trim() && !pending.attachments.length && !pending.contexts.length) || !conv) return; set(x => ({ ...x, conversations: x.conversations.map(c => c.id === conv.id ? { ...c, messages: [...(c.messages || []), { id: uid(), senderId: user.id, text: text.trim(), at: nowISO(), attachments: pending.attachments, contexts: pending.contexts, productId: pending.contexts.find(k => k.kind === "product")?.id || null }], lastRead: { ...(c.lastRead || {}), [user.id]: nowISO() } } : c) })); setText(""); setPending({ attachments: [], contexts: [] }); };
+  const canSend = !!(text.trim() || pending.attachments.length || pending.contexts.length);
+  const send = () => { if (!canSend || !conv) return; set(x => ({ ...x, conversations: x.conversations.map(c => c.id === conv.id ? { ...c, messages: [...(c.messages || []), { id: uid(), senderId: user.id, text: text.trim(), at: nowISO(), attachments: pending.attachments, contexts: pending.contexts, productId: pending.contexts.find(k => k.kind === "product")?.id || null }], lastRead: { ...(c.lastRead || {}), [user.id]: nowISO() } } : c) })); setText(""); setPending({ attachments: [], contexts: [] }); };
   const openCtx = c => { if (c.kind === "product") go("catalog", c.id); else if (c.kind === "inspection") go("inspection", c.id); else if (c.kind === "pallet") go("palletInfo", c.id); else if (c.kind === "flag") go(user.role === "Head" ? "head-flags" : "flags"); };
   const create = () => { if (!pick.length) return; const isGroup = pick.length > 1 || !!gname.trim(); if (!isGroup) { const ex = s.conversations.find(c => !c.isGroup && c.participantIds.length === 2 && c.participantIds.includes(user.id) && c.participantIds.includes(pick[0])); if (ex) { setOpen(ex.id); markRead(ex.id); setCreating(false); setPick([]); return; } } const id = uid(); set(x => ({ ...x, conversations: [...x.conversations, { id, isGroup, name: isGroup ? (gname.trim() || null) : null, participantIds: [user.id, ...pick], createdBy: user.id, createdAt: nowISO(), messages: [], lastRead: { [user.id]: nowISO() }, isActive: true }] })); setOpen(id); setCreating(false); setPick([]); setGname(""); };
-  if (conv) return (
+  if (conv) { const other = convOther(conv, s, user.id); const people = conv.participantIds.map(id => s.users.find(u => u.id === id)?.name.split(" ")[0]).filter(Boolean); return (
     <div className="flex flex-col" style={{ height: "100%" }}>
-      <TopBar title={convName(conv, s, user.id)} onBack={() => setOpen(null)} />
-      <div className="flex-1 overflow-y-auto px-4 py-3" style={{ background: C.bg }}>{(conv.messages || []).map(m => { const me = m.senderId === user.id; return <div key={m.id} className={`flex mb-1.5 ${me ? "justify-end" : "justify-start"}`}><div className="rounded-2xl px-3 py-2 max-w-[78%]" style={{ background: me ? C.accent : C.surface, color: me ? C.onDark : C.ink }}>{!me && conv.isGroup && <p className="text-[10px] font-medium" style={{ color: C.accent }}>{s.users.find(u => u.id === m.senderId)?.name}</p>}<ContextChips s={s} contexts={m.contexts?.length ? m.contexts : (m.productId ? [{ kind: "product", id: m.productId }] : [])} onOpen={openCtx} dark={me} /><AttachmentList attachments={m.attachments} dark={me} />{m.text && <p className="text-sm" style={{ whiteSpace: "pre-wrap" }}>{m.text}</p>}<p className="text-[10px] mt-0.5" style={{ color: me ? C.onDarkMuted : C.muted }}>{hhmm(m.at)}</p></div></div>; })}</div>
-      <div className="p-3" style={{ borderTop: `1px solid ${C.line}` }}><ComposerExtras s={s} user={user} pending={pending} setPending={setPending} compact /><div className="flex gap-2 items-end"><textarea value={text} onChange={e => setText(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); send(); } }} placeholder="Message… (Enter = new line)" rows={1} className="flex-1 text-sm rounded-2xl px-3 py-2 outline-none resize-none" style={{ ...inp, background: C.bg, maxHeight: 120 }} /><button onClick={send} className="w-9 h-9 rounded-full flex-shrink-0" style={{ background: C.accent, color: C.onDark }}><Ic i={Send} s={16} mr={0} /></button></div></div>
+      <div className="flex items-center gap-2.5 px-3 pt-2 pb-2.5" style={{ borderBottom: `1px solid ${C.line}`, background: C.surface }}>
+        <button onClick={() => setOpen(null)} className="flex -ml-1" style={{ color: C.ink }}><Ic i={ChevronLeft} s={22} mr={0} /></button>
+        <ConvAvatar conv={conv} s={s} userId={user.id} size={36} />
+        <div className="flex-1 min-w-0"><p className="text-[15px] font-semibold leading-tight truncate">{convName(conv, s, user.id)}</p><p className="text-[11px] truncate" style={{ color: C.muted }}>{other ? (other.role === "Head" ? "Head of QC" : "Controller") : `${people.length} people · ${people.join(", ")}`}</p></div>
+      </div>
+      <ChatThread s={s} conv={conv} user={user} onOpenCtx={openCtx} />
+      <div className="px-3 pt-2 pb-2.5" style={{ borderTop: `1px solid ${C.line}`, background: C.surface }}>
+        <ComposerExtras s={s} user={user} pending={pending} setPending={setPending} compact bar={<>
+          <textarea value={text} onChange={e => setText(e.target.value)} placeholder="Message…" rows={1} className="flex-1 text-[14px] px-3.5 py-2 outline-none resize-none" style={{ ...inp, background: C.bg, borderRadius: 20, maxHeight: 120, minHeight: 36, lineHeight: "20px" }} />
+          <button onClick={send} disabled={!canSend} className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 transition-colors" style={{ background: canSend ? C.accent : C.line, color: canSend ? C.onDark : C.muted }}><Ic i={Send} s={16} mr={0} style={{ marginLeft: -2 }} /></button>
+        </>} />
+      </div>
     </div>
-  );
+  ); }
   return (
-    <div>
-      <TopBar title="Chat" right={<button onClick={() => setCreating(o => !o)} className="text-sm" style={{ color: C.accent }}>{creating ? "cancel" : "+ new"}</button>} />
-      {creating && <div className="px-4 pt-3"><div className="rounded-xl p-3" style={{ background: C.bg }}>{s.users.filter(u => u.id !== user.id && u.active !== false).map(u => <label key={u.id} className="flex items-center gap-2 text-sm py-1.5"><input type="checkbox" checked={pick.includes(u.id)} onChange={e => setPick(p => e.target.checked ? [...p, u.id] : p.filter(x => x !== u.id))} />{u.name}<span className="text-xs" style={{ color: C.muted }}>{u.role === "Head" ? "Head" : "Controller"}</span></label>)}{pick.length > 1 && <input value={gname} onChange={e => setGname(e.target.value)} placeholder="group name" className="w-full text-sm rounded-lg px-2 py-1.5 outline-none my-2" style={{ ...inp }} />}<button onClick={create} disabled={!pick.length} className="w-full py-2.5 rounded-xl text-sm font-medium mt-2" style={{ background: pick.length ? C.ink : C.line, color: pick.length ? C.onDark : C.muted }}>Create</button></div></div>}
-      <div className="px-4 pt-2">{mine.length === 0 && !creating && <p className="text-sm py-8 text-center" style={{ color: C.muted }}>No conversations.</p>}{mine.map(c => { const un = unreadIn(c, user.id), last = (c.messages || []).slice(-1)[0]; return <button key={c.id} onClick={() => { setOpen(c.id); markRead(c.id); }} className="w-full text-left flex items-center gap-3 py-3" style={{ borderBottom: `1px solid ${C.line}` }}><div className="w-10 h-10 rounded-full flex items-center justify-center text-sm" style={{ background: C.accentSoft, color: C.accent }}>{c.isGroup ? <Ic i={Users} s={16} mr={0} /> : convName(c, s, user.id).split(" ").map(x => x[0]).join("").slice(0, 2)}</div><div className="flex-1 min-w-0"><p className="text-sm truncate" style={{ fontWeight: un ? 600 : 400 }}>{convName(c, s, user.id)}</p>{last && <p className="text-xs truncate" style={{ color: C.muted }}>{last.text}</p>}</div>{un > 0 && <span className="text-[10px] px-1.5 py-0.5 rounded-full" style={{ background: C.bad, color: C.onDark }}>{un}</span>}</button>; })}</div>
+    <div className="pb-4">
+      <div className="flex items-center gap-3 px-4 pt-3 pb-2">
+        <div className="flex-1"><h2 className="leading-tight">Chat</h2><p className="text-[11px]" style={{ color: C.muted }}>{totalUnread ? `${totalUnread} unread` : mine.length ? `${mine.length} conversation${mine.length === 1 ? "" : "s"}` : "Talk to the Head and the team"}</p></div>
+        <button onClick={() => setCreating(true)} className="w-10 h-10 rounded-full flex items-center justify-center" style={{ background: C.accent, color: C.onDark, boxShadow: "0 4px 12px rgba(0,0,0,.15)" }} title="New conversation"><Ic i={Plus} s={20} mr={0} /></button>
+      </div>
+      {mine.length > 3 && <div className="px-4 pb-2"><SearchBox value={q} onChange={setQ} placeholder="Search people or messages" inputClass="rounded-xl py-2" /></div>}
+      <div className="px-2">
+        {shown.length === 0 && !qq && <div className="flex flex-col items-center text-center px-8 py-12"><span className="w-14 h-14 rounded-full flex items-center justify-center mb-3" style={{ background: C.accentSoft, color: C.accent }}><Ic i={MessageSquare} s={26} mr={0} /></span><p className="text-sm font-semibold">No conversations yet</p><p className="text-xs mt-1 leading-snug" style={{ color: C.muted }}>Ask the Head a question or start a group with the team. Photos and pallets can be attached to any message.</p><button onClick={() => setCreating(true)} className="mt-4 px-4 py-2.5 rounded-xl text-sm font-semibold" style={{ background: C.accent, color: C.onDark }}>Start a conversation</button></div>}
+        {shown.length === 0 && qq && <p className="text-sm py-8 text-center" style={{ color: C.muted }}>Nothing matches “{q}”.</p>}
+        {shown.map(c => <ConvRow key={c.id} conv={c} s={s} user={user} onClick={() => { setOpen(c.id); markRead(c.id); }} />)}
+      </div>
+      <Sheet open={creating} onClose={() => { setCreating(false); setPick([]); setGname(""); }} title="New conversation">
+        <NewConversation s={s} user={user} pick={pick} setPick={setPick} gname={gname} setGname={setGname} onCreate={create} onCancel={() => { setCreating(false); setPick([]); setGname(""); }} />
+      </Sheet>
     </div>
   );
 }
