@@ -1108,13 +1108,15 @@ function Shell({ page, setPage, children, badge, topRight, users, user, setUser,
 }
 
 // ═══════════════════ PAGE: Dock map ═══════════════════
-// The dock line as it stands in the hall: dock 1 on the right, ambient docks 1–3, then chilled docks 5–13 going left, and
-// dock 14 across the aisle facing 13. The sheet's Location column ("D-07A") tells which dock each pallet stands on — the
-// trailing letter is the spot within the dock. Anything that doesn't parse to a dock 1–14 lands in "Other locations".
+// The dock line as it stands in the hall: dock 1 on the right, ambient docks 1–3, then chilled docks 5–13 going left. Across
+// the aisle, facing that line: dock 14 opposite 13 (left end) and D-00 opposite dock 1 but further right (right end). The
+// sheet's Location column ("D-07A") tells which dock each pallet stands on — the trailing letter is the spot within the
+// dock; "D-00E" parses to dock 0. Anything else lands in "Other locations".
 // Same drawing as the phone's Dock map (Mobile.jsx MDocks) — keep the two in step.
 const DOCK_CHILLED = [13, 12, 11, 10, 9, 8, 7, 6, 5], DOCK_AMBIENT = [3, 2, 1];
 const parseDock = loc => { const m = String(loc || "").trim().match(/^D[-\s]?0*(\d+)\s*([A-Z]?)$/i); return m ? { n: Number(m[1]), sub: (m[2] || "").toUpperCase() } : null; };
-const dockZone = n => n >= 5 && n <= 14 ? "chilled" : n >= 1 && n <= 3 ? "ambient" : null;
+const dockZone = n => n >= 5 && n <= 14 ? "chilled" : (n >= 1 && n <= 3) || n === 0 ? "ambient" : null;
+const dockLabel = n => n === 0 ? "D-00" : String(n);
 const dockBucket = p => p === "Now needed" || p === "High risk" ? "urgent" : p === "High issues" || p === "Late inspection" ? "attention" : p === "Skippable" ? "skippable" : "regular";
 const DOCK_BUCKETS = [["urgent", "Now needed · High risk"], ["attention", "High issues · Late inspection"], ["regular", "Inspection due"], ["skippable", "Skippable"]];
 const dockBucketColor = k => k === "urgent" ? C.bad : k === "attention" ? C.warn : k === "regular" ? C.muted : C.line;
@@ -1126,22 +1128,24 @@ function DockMapPage({ s, user, openProduct }) {
   const max = Math.max(1, ...Object.values(byDock).map(a => a.length));
   const counts = arr => { const c = { urgent: 0, attention: 0, regular: 0, skippable: 0 }; arr.forEach(r => c[dockBucket(r.priority)]++); return c; };
   const zoneStats = ns => { const arr = ns.flatMap(n => byDock[n] || []); return { pallets: arr.length, skus: new Set(arr.map(r => r.article || r.hu)).size, needed: arr.filter(r => r.blocking).length, urgent: arr.filter(r => dockBucket(r.priority) === "urgent").length, docksUsed: ns.filter(n => (byDock[n] || []).length).length }; };
-  const chilled = zoneStats([14, ...DOCK_CHILLED]), ambient = zoneStats(DOCK_AMBIENT);
+  const chilled = zoneStats([14, ...DOCK_CHILLED]), ambient = zoneStats([...DOCK_AMBIENT, 0]);
   const BAR_H = 150;
+  const acrossArea = Math.min(BAR_H, Math.max(24, Math.round(Math.max((byDock[14] || []).length, (byDock[0] || []).length) / max * BAR_H)));
   const fresh = sheetFreshness(s).find(x => x.purpose === "Dock");
   const DockCol = ({ n, area = BAR_H }) => { const arr = byDock[n] || []; const c = counts(arr); const h = arr.length ? Math.min(area, Math.max(8, Math.round(arr.length / max * BAR_H))) : 0; const needed = arr.filter(r => r.blocking).length; const active = sel === n; const skus = new Set(arr.map(r => r.article || r.hu)).size;
     return (
-      <button onClick={() => setSel(active ? null : n)} title={arr.length ? `Dock ${n} · ${arr.length} pallets · ${skus} SKUs${needed ? ` · ${needed} needed today` : ""}` : `Dock ${n} · empty`} className="flex flex-col items-center min-w-0 rounded-xl pt-1.5 pb-2 px-1 transition-colors" style={{ background: active ? C.accentSoft : "transparent", outline: active ? `1px solid ${C.accent}` : "none", cursor: "pointer" }}>
+      <button onClick={() => setSel(active ? null : n)} title={arr.length ? `Dock ${dockLabel(n)} · ${arr.length} pallets · ${skus} SKUs${needed ? ` · ${needed} needed today` : ""}` : `Dock ${dockLabel(n)} · empty`} className="flex flex-col items-center min-w-0 rounded-xl pt-1.5 pb-2 px-1 transition-colors" style={{ background: active ? C.accentSoft : "transparent", outline: active ? `1px solid ${C.accent}` : "none", cursor: "pointer" }}>
         <span className="text-[11px] leading-4 font-semibold" style={{ height: 16, color: C.bad }}>{needed ? `!${needed}` : ""}</span>
         <div className="w-full px-1.5 flex flex-col justify-end" style={{ height: area, borderBottom: `2px solid ${C.ink}` }}>
           {h > 0 ? <div className="w-full flex flex-col rounded-t-[4px] overflow-hidden" style={{ height: h }}>{DOCK_BUCKETS.map(([k]) => c[k] > 0 && <div key={k} title={`${c[k]} × ${DOCK_BUCKETS.find(b => b[0] === k)[1]}`} style={{ flex: c[k], background: dockBucketColor(k) }} />)}</div> : <div className="w-full rounded-t-[2px]" style={{ height: 3, background: C.line }} />}
         </div>
-        <span className="text-[13px] mt-1.5 font-semibold leading-none" style={{ color: active ? C.accent : C.ink }}>{n}</span>
+        <span className="text-[13px] mt-1.5 font-semibold leading-none" style={{ color: active ? C.accent : C.ink }}>{dockLabel(n)}</span>
         <span className="text-[11px] leading-none mt-1" style={{ color: arr.length ? C.muted : C.line, fontVariantNumeric: "tabular-nums" }}>{arr.length ? `${arr.length} · ${skus} SKU${skus === 1 ? "" : "s"}` : "empty"}</span>
       </button>
     ); };
-  const gridCols = `repeat(${DOCK_CHILLED.length}, minmax(0, 1fr)) 18px repeat(${DOCK_AMBIENT.length}, minmax(0, 1fr))`;
-  const selRows = sel === "other" ? other : sel ? (byDock[sel] || []) : [];
+  const gridCols = `repeat(${DOCK_CHILLED.length}, minmax(0, 1fr)) 18px repeat(${DOCK_AMBIENT.length}, minmax(0, 1fr)) 18px minmax(0, 1fr)`;
+  const lastCol = DOCK_CHILLED.length + DOCK_AMBIENT.length + 3;
+  const selRows = sel === "other" ? other : sel !== null ? (byDock[sel] || []) : [];
   const order = ["urgent", "attention", "regular", "skippable"];
   const items = (() => { const groups = {}; selRows.forEach(r => { const k = r.article || r.hu; (groups[k] = groups[k] || []).push(r); });
     return Object.values(groups).map(g => { const first = g[0]; const product = s.products.find(p => p.articleId === first.article); const checked = g.filter(x => completedInspectionFor(s, x.hu)).length; const subs = [...new Set(g.map(r => r.sub).filter(Boolean))].sort(); const earliest = [...g].sort((x, y) => `${x.arrived || ""}${x.arrivedTime || "99"}`.localeCompare(`${y.arrived || ""}${y.arrivedTime || "99"}`))[0]; const pos = new Set(g.map(r => (r.po || "").trim()).filter(Boolean));
@@ -1157,15 +1161,11 @@ function DockMapPage({ s, user, openProduct }) {
   return (
     <div>
       <div className="flex items-baseline gap-3 mb-1"><h1>Dock map</h1><span className="text-xs" style={{ color: C.muted }}>{fresh ? `dock sheet ${agoShort(fresh.at)}` : "no dock sheet connected"}{lostN ? ` · ${lostN} lost pallet${lostN === 1 ? "" : "s"} not drawn` : ""}</span></div>
-      <p className="text-sm mb-4" style={{ color: C.muted }}>Seen from the hall — dock 1 on the right. Bar height = pallets standing on the dock, colour = priority, <span style={{ color: C.bad, fontWeight: 600 }}>!N</span> = needed today. Click a dock to see what is standing there.</p>
+      <p className="text-sm mb-4" style={{ color: C.muted }}>Seen from the hall — dock 1 on the right; dock 14 and D-00 face the line from across the aisle. Bar height = pallets standing on the dock, colour = priority, <span style={{ color: C.bad, fontWeight: 600 }}>!N</span> = needed today. Click a dock to see what is standing there.</p>
       {all.length === 0 && <Empty icon={Warehouse} title="No dock data yet" hint="The map fills in as soon as the dock sheet syncs." />}
       {all.length > 0 && <>
         <Card style={{ marginBottom: 12 }}>
           <div className="grid items-end" style={{ gridTemplateColumns: gridCols }}>
-            <DockCol n={14} area={Math.min(BAR_H, Math.max(24, Math.round((byDock[14] || []).length / max * BAR_H)))} />
-            <div className="self-center flex items-center gap-3 pl-2" style={{ gridColumn: `2 / span ${DOCK_CHILLED.length - 1}` }}><span className="text-[11px] whitespace-nowrap" style={{ color: C.muted }}>aisle · dock 14 faces dock 13</span><span className="flex-1" style={{ borderTop: `1px dashed ${C.line}` }} /></div>
-          </div>
-          <div className="grid items-end mt-2" style={{ gridTemplateColumns: gridCols }}>
             {DOCK_CHILLED.map(n => <DockCol key={n} n={n} />)}
             <div className="self-stretch mx-2" style={{ borderLeft: `1px dashed ${C.line}` }} />
             {DOCK_AMBIENT.map(n => <DockCol key={n} n={n} />)}
@@ -1173,7 +1173,12 @@ function DockMapPage({ s, user, openProduct }) {
           <div className="grid mt-3" style={{ gridTemplateColumns: gridCols }}>
             <div className="flex items-center gap-1.5 justify-center text-xs font-medium rounded-lg py-1" style={{ gridColumn: `1 / span ${DOCK_CHILLED.length}`, background: C.bg, color: C.accent }}><Ic i={Snowflake} s={13} mr={0} />Chilled hall · docks 5–14</div>
             <span />
-            <div className="flex items-center gap-1.5 justify-center text-xs font-medium rounded-lg py-1" style={{ gridColumn: `${DOCK_CHILLED.length + 2} / span ${DOCK_AMBIENT.length}`, background: C.bg, color: C.warn }}><Ic i={Thermometer} s={13} mr={0} />Ambient · 1–3</div>
+            <div className="flex items-center gap-1.5 justify-center text-xs font-medium rounded-lg py-1" style={{ gridColumn: `${DOCK_CHILLED.length + 2} / span ${DOCK_AMBIENT.length}`, background: C.bg, color: C.warn }}><Ic i={Thermometer} s={13} mr={0} />Ambient · 1–3 · D-00</div>
+          </div>
+          <div className="grid items-end mt-3" style={{ gridTemplateColumns: gridCols }}>
+            <DockCol n={14} area={acrossArea} />
+            <div className="self-center flex items-center gap-3 px-2" style={{ gridColumn: `2 / ${lastCol}` }}><span className="flex-1" style={{ borderTop: `1px dashed ${C.line}` }} /><span className="text-[11px] whitespace-nowrap" style={{ color: C.muted }}>across the aisle · dock 14 faces 13 · D-00 faces dock 1</span><span className="flex-1" style={{ borderTop: `1px dashed ${C.line}` }} /></div>
+            <DockCol n={0} area={acrossArea} />
           </div>
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-3">{DOCK_BUCKETS.map(([k, l]) => <span key={k} className="text-[11px] flex items-center gap-1.5" style={{ color: C.muted }}><span className="inline-block w-3 h-3 rounded-[3px]" style={{ background: dockBucketColor(k) }} />{l}</span>)}
             {other.length > 0 && <button onClick={() => setSel(sel === "other" ? null : "other")} className="ml-auto flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs" style={{ background: sel === "other" ? C.accentSoft : C.bg, border: `1px solid ${sel === "other" ? C.accent : C.line}`, color: sel === "other" ? C.accent : C.ink }}><Ic i={Warehouse} s={13} mr={0} />Other locations <span style={{ color: C.muted }}>· {[...new Set(other.map(r => r.location || "no location"))].slice(0, 4).join(", ")}{new Set(other.map(r => r.location)).size > 4 ? "…" : ""}</span><span className="font-semibold">{other.length}</span></button>}
@@ -1181,11 +1186,11 @@ function DockMapPage({ s, user, openProduct }) {
         </Card>
         {sel === null && <div className="grid grid-cols-2 gap-3">
           <ZoneCard icon={Snowflake} title="Chilled hall" docks="5–14" st={chilled} tint={C.accent} />
-          <ZoneCard icon={Thermometer} title="Ambient hall" docks="1–3" st={ambient} tint={C.warn} />
+          <ZoneCard icon={Thermometer} title="Ambient hall" docks="1–3 · D-00" st={ambient} tint={C.warn} />
         </div>}
         {sel !== null && <Card>
           <div className="flex items-center gap-2 mb-2">
-            <p className="font-medium text-sm">{sel === "other" ? "Other locations" : `Dock ${sel}`}</p>
+            <p className="font-medium text-sm">{sel === "other" ? "Other locations" : sel === 0 ? "D-00 · opposite dock 1" : `Dock ${sel}`}</p>
             {selZone && <span className="text-[11px] px-2 py-0.5 rounded-full inline-flex items-center gap-1" style={{ background: C.bg, color: selZone === "chilled" ? C.accent : C.warn, border: `1px solid ${C.line}` }}><Ic i={selZone === "chilled" ? Snowflake : Thermometer} s={11} mr={0} />{selZone}</span>}
             <span className="text-xs flex-1" style={{ color: C.muted }}>· {selRows.length} pallet{selRows.length === 1 ? "" : "s"} · {items.length} SKU{items.length === 1 ? "" : "s"}{selRows.filter(r => r.blocking).length ? ` · ${selRows.filter(r => r.blocking).length} needed today` : ""} · needed today and urgent first</span>
             <button onClick={() => setSel(null)} className="text-xs" style={{ color: C.muted }}>close</button>
