@@ -2050,13 +2050,15 @@ function MDashboard({ s, set, user, go, dismissed, setDismissed, onAssign }) {
         // Dashboard = tiles, nothing else: one component, one size, even counts per block (2 columns). Every tile is a
         // door to the list behind it — lists themselves live on their own screens, never here.
         const st = sheetStats(s);
-        const Tile = ({ label, value, sub, color, icon, onClick, solid }) => (
-          <button onClick={onClick} disabled={!onClick} className="rounded-2xl p-3.5 text-left flex flex-col justify-between transition-transform active:scale-95" style={{ minHeight: 88, background: solid ? color : C.bg, border: `1px solid ${solid ? color : C.line}`, borderLeft: `3px solid ${solid ? color : (color && value > 0 ? color : C.line)}`, color: solid ? C.onDark : C.ink }}>
-            <p className="text-[11px] font-medium leading-tight flex items-center gap-1" style={{ color: solid ? "rgba(255,255,255,.85)" : C.muted }}>{icon && <Ic i={icon} s={12} mr={0} />}{label}</p>
-            <div className="mt-1.5"><p className="text-[26px] leading-none font-semibold" style={{ color: solid ? C.onDark : (color && value > 0 ? color : C.ink), fontVariantNumeric: "tabular-nums" }}>{value}</p>{sub && <p className="text-[10px] mt-1 leading-tight truncate" style={{ color: solid ? "rgba(255,255,255,.8)" : C.muted }}>{sub}</p>}</div>
+        // `compact` blocks sit four-in-a-row on phones (< sm) with smaller type and no icons; from tablet width up they fall
+        // back to the same 2-column tiles as everything else.
+        const Tile = ({ label, value, sub, color, icon, onClick, solid, compact }) => (
+          <button onClick={onClick} disabled={!onClick} className={`${compact ? "rounded-xl sm:rounded-2xl p-2 sm:p-3.5 min-h-[64px] sm:min-h-[88px]" : "rounded-2xl p-3.5 min-h-[88px]"} text-left flex flex-col justify-between transition-transform active:scale-95 overflow-hidden`} style={{ background: solid ? color : C.bg, border: `1px solid ${solid ? color : C.line}`, borderLeft: `3px solid ${solid ? color : (color && value > 0 ? color : C.line)}`, color: solid ? C.onDark : C.ink }}>
+            <p className={`${compact ? "text-[10px] sm:text-[11px]" : "text-[11px]"} font-medium leading-tight flex items-center gap-1`} style={{ color: solid ? "rgba(255,255,255,.85)" : C.muted }}>{icon && <span className={compact ? "hidden sm:inline-flex" : "inline-flex"}><Ic i={icon} s={12} mr={0} /></span>}{label}</p>
+            <div className={compact ? "mt-1 sm:mt-1.5" : "mt-1.5"}><p className={`${compact ? "text-[20px] sm:text-[26px]" : "text-[26px]"} leading-none font-semibold`} style={{ color: solid ? C.onDark : (color && value > 0 ? color : C.ink), fontVariantNumeric: "tabular-nums" }}>{value}</p>{sub && <p className={`${compact ? "text-[9px] sm:text-[10px] line-clamp-2 sm:line-clamp-1" : "text-[10px] truncate"} mt-1 leading-tight`} style={{ color: solid ? "rgba(255,255,255,.8)" : C.muted }}>{sub}</p>}</div>
           </button>
         );
-        const Block = ({ title, children }) => <div className="px-5 mb-3"><p className="label-sm mb-1.5" style={{ color: C.muted }}>{title}</p><div className="grid grid-cols-2 gap-2">{children}</div></div>;
+        const Block = ({ title, compact, children }) => <div className="px-5 mb-3"><p className="label-sm mb-1.5" style={{ color: C.muted }}>{title}</p><div className={compact ? "grid grid-cols-4 sm:grid-cols-2 gap-1.5 sm:gap-2" : "grid grid-cols-2 gap-2"}>{children}</div></div>;
         const neededRows = dockRowsLive(s).filter(r => r.blocking && !lostOf(s, r)); const neededSkus = new Set(neededRows.map(r => r.article || r.hu)).size;
         const nowNeeded = st.prio("Now needed");
         const bs = blockedSummary(s) || {}; const bRows = blockedRowsLive(s); const bLost = blockedQueue(s).filter(b => b.lost && b.status !== "Completed").length;
@@ -2077,14 +2079,14 @@ function MDashboard({ s, set, user, go, dismissed, setDismissed, onAssign }) {
               <Tile label="SKUs on docks" value={st.skus} sub={st.expected != null ? `${st.expected} still expected` : "distinct articles"} icon={Boxes} onClick={() => go("priority", "All")} />
               <Tile label="Pallets on docks" value={st.pallets} sub={st.skippablePallets != null ? `${st.skippablePallets} skippable · ${st.skippableSkus ?? "—"} SKUs` : "in total"} icon={Layers} onClick={() => go("priority", "All")} />
             </Block>
-            <Block title="Queue & team">
-              <Tile label="Blocked pallets" value={blockedOpen} sub={blockedOpen ? "waiting for a check" : (bs.notStarted != null || bRows.length ? "queue is clear" : "no blocked-pallets sheet yet")} color={C.bad} icon={LockIcon} onClick={() => { setTab("blocked"); try { document.getElementById("qc-dash-tabs")?.scrollIntoView({ behavior: "smooth", block: "start" }); } catch {} }} />
-              <Tile label="Done today" value={doneToday} sub="inspections by the team" color={C.ok} icon={Check} onClick={() => { setTab("history"); try { document.getElementById("qc-dash-tabs")?.scrollIntoView({ behavior: "smooth", block: "start" }); } catch {} }} />
-              <Tile label="Unreported" value={unrep} sub={unrep ? "left the dock without a report" : "every pallet reported"} color={C.warn} icon={ShieldAlert} onClick={() => go("unreported")} />
-              <Tile label="Lost pallets" value={lostN} sub={lostN ? "marked lost — not counted above" : "nothing marked lost"} color={C.muted} icon={Search} onClick={() => go("priority", "All")} />
+            <Block title="Queue & team" compact>
+              <Tile compact label="Blocked" value={blockedOpen} sub={blockedOpen ? "waiting for a check" : (bs.notStarted != null || bRows.length ? "queue is clear" : "no blocked sheet yet")} color={C.bad} icon={LockIcon} onClick={() => { setTab("blocked"); try { document.getElementById("qc-dash-tabs")?.scrollIntoView({ behavior: "smooth", block: "start" }); } catch {} }} />
+              <Tile compact label="Done today" value={doneToday} sub="by the team" color={C.ok} icon={Check} onClick={() => { setTab("history"); try { document.getElementById("qc-dash-tabs")?.scrollIntoView({ behavior: "smooth", block: "start" }); } catch {} }} />
+              <Tile compact label="Unreported" value={unrep} sub={unrep ? "left without a report" : "all reported"} color={C.warn} icon={ShieldAlert} onClick={() => go("unreported")} />
+              <Tile compact label="Lost" value={lostN} sub={lostN ? "not counted above" : "none marked lost"} color={C.muted} icon={Search} onClick={() => go("priority", "All")} />
             </Block>
-            <Block title="Dock priorities">
-              {["High risk", "High issues", "Late inspection", "Inspection due"].map(l => <Tile key={l} label={l} value={st.prio(l)} sub={l === "High risk" ? "rejected before — check first" : l === "High issues" ? "history of remarks" : l === "Late inspection" ? "overdue on the dock" : "regular check"} color={PRIORITY[l][0]} onClick={() => go("priority", l)} />)}
+            <Block title="Dock priorities" compact>
+              {["High risk", "High issues", "Late inspection", "Inspection due"].map(l => <Tile compact key={l} label={l} value={st.prio(l)} sub={l === "High risk" ? "rejected before" : l === "High issues" ? "history of remarks" : l === "Late inspection" ? "overdue on dock" : "regular check"} color={PRIORITY[l][0]} onClick={() => go("priority", l)} />)}
             </Block>
             {dockRowsLive(s).length === 0 && <p className="text-[11px] px-5 -mt-1 mb-2" style={{ color: C.warn }}>{(s.integrations || []).some(i => i.purpose === "Dock" && i.needsRemap) ? "Dock sheet columns changed — the Head needs to re-map it in the portal." : (s.integrations || []).some(i => i.purpose === "Dock" && i.pushMode) ? "The last push from the dock sheet had no usable rows — showing zeros until the next one." : "No dock sheet connected yet."}</p>}
           </>
