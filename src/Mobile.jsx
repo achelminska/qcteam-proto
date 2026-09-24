@@ -3117,9 +3117,13 @@ export default function App() {
     set(x => ({ ...x, inspections: [...x.inspections, { id, type: "Skip", productId, controllerId: user.id, status: "Completed", result: "Accepted", startedAt: nowISO(), completedAt: nowISO(), skipReason: reason || null, template: null, values: {}, remarks: [], photos: {}, pallets: [pallet], sample: {}, comment: "", audit: [{ at: nowISO(), userId: user.id, action: "Skip", details: `HU ${pallet}${reason ? " · " + reason : ""}` }] }] }));
     go("inspection", id);
   };
-  const navPage = ["home", "chat", "catalog", "menu"].includes(page) ? page : null;
+  // The bottom bar is on every screen: a controller is never more than one tap from home, chat, catalog or the menu.
+  // Leaving a running inspection this way is safe — it stays a Draft and can be resumed from History or by scanning the
+  // pallet again. Sub-screens light up the tab they were opened from (menu pages → Menu, product history → Catalog).
+  const MENU_PAGES = ["profile", "notifications", "announcements", "flags", "history", "unreported", "docks", "head-escalations", "head-flags", "head-announce"];
+  const navPage = ["home", "chat", "catalog", "menu"].includes(page) ? page : MENU_PAGES.includes(page) ? "menu" : page === "productHistory" ? "catalog" : null;
   const unreadMsgs = s.conversations.filter(c => c.participantIds.includes(user.id)).reduce((a, c) => a + unreadIn(c, user.id), 0);
-  const withNav = !["inspection", "scan", "search"].includes(page);
+  const withNav = true;
   return (
     <Phone overlay={<MBlocking s={s} set={set} user={user} />} nav={withNav} page={navPage} onNav={k => go(k)} badges={{ chat: unreadMsgs }} fab={page === "home" ? { scan: () => go("scan"), add: () => go("search") } : null} dark={dark} onTheme={toggleTheme}>
       {toast && <div className="absolute left-4 right-4 rounded-xl px-3.5 py-2.5 text-sm" style={{ top: 44, zIndex: 60, background: C.ink, color: C.onDark, boxShadow: "0 8px 20px rgba(0,0,0,.25)" }}>{toast}</div>}
