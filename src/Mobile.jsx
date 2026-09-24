@@ -2046,63 +2046,51 @@ function MDashboard({ s, set, user, go, dismissed, setDismissed, onAssign }) {
       {anns.length === 1 && <button onClick={() => anns[0].productId ? go("catalog", anns[0].productId) : setAnnOpen(anns[0])} className="text-left mx-5 mb-3 rounded-xl px-3.5 py-2.5 flex items-start gap-2.5" style={{ background: C.surface, border: `1px solid ${C.line}`, borderLeft: `3px solid ${C.accent}` }}><span style={{ color: C.accent, marginTop: 2 }}><Ic i={Megaphone} s={14} mr={0} /></span><p className="text-sm flex-1"><b>{anns[0].title}</b><span style={{ color: C.muted }}> — {truncate(anns[0].body)}</span></p><span onClick={e => { e.stopPropagation(); setDismissed(d => [...d, anns[0].id]); }} className="text-sm" style={{ color: C.muted }}>×</span></button>}
       {anns.length > 1 && <div className="mx-5 mb-3 rounded-xl overflow-hidden" style={{ background: C.surface, border: `1px solid ${C.line}` }}>{anns.map((a, i) => <button key={a.id} onClick={() => a.productId ? go("catalog", a.productId) : setAnnOpen(a)} className="w-full text-left px-3.5 py-2 flex items-center gap-2.5" style={{ borderTop: i ? `1px solid ${C.line}` : "none", borderLeft: `3px solid ${C.accent}` }}><span style={{ color: C.accent }}><Ic i={Megaphone} s={13} mr={0} /></span><p className="text-sm flex-1 truncate"><b>{a.title}</b></p><span onClick={e => { e.stopPropagation(); setDismissed(d => [...d, a.id]); }} className="text-sm" style={{ color: C.muted }}>×</span></button>)}</div>}
       {annOpen && <MAnnouncementModal a={annOpen} onClose={() => setAnnOpen(null)} />}
-      {user.role === "Head" && (() => { const esc = s.inspections.filter(i => i.status === "PendingReview").length, fl = s.flags.filter(f => f.status === "Open").length; return (
-        <div className="px-5 mb-3">
-          <p className="label-sm mb-1.5">Needs you</p>
-          <div className="grid grid-cols-3 gap-2">
-            <button onClick={() => go("head-escalations")} className="rounded-2xl p-3 text-left" style={{ background: C.bg, border: `1px solid ${C.line}`, borderLeft: `3px solid ${esc ? C.warn : C.line}` }}><p className="text-[22px] leading-tight font-semibold" style={{ color: esc ? C.warn : C.ink }}>{esc}</p><p className="text-[11px]" style={{ color: C.muted }}>questions</p></button>
-            <button onClick={() => go("head-flags")} className="rounded-2xl p-3 text-left" style={{ background: C.bg, border: `1px solid ${C.line}`, borderLeft: `3px solid ${fl ? C.warn : C.line}` }}><p className="text-[22px] leading-tight font-semibold" style={{ color: fl ? C.warn : C.ink }}>{fl}</p><p className="text-[11px]" style={{ color: C.muted }}>open flags</p></button>
-            <button onClick={() => go("head-announce")} className="rounded-2xl p-3 text-left flex flex-col justify-between" style={{ background: C.accentSoft, border: `1px solid ${C.line}` }}><span style={{ color: C.accent }}><Ic i={Megaphone} s={18} mr={0} /></span><p className="text-[11px] font-medium" style={{ color: C.accent }}>announce</p></button>
-          </div>
-        </div>
-      ); })()}
-      <div className="grid grid-cols-2 gap-2 px-5">
-        <div className="rounded-2xl p-3.5" style={{ background: C.bg, border: `1px solid ${C.line}` }}><p className="text-xs" style={{ color: C.muted }}>Done today (team)</p><p className="text-[26px] leading-tight font-semibold mt-0.5">{doneToday}</p></div>
-        {(() => { const bs = blockedSummary(s) || {}; const rows = blockedRowsLive(s); const lostN = blockedQueue(s).filter(b => b.lost && b.status !== "Completed").length; const open = Math.max(0, (bs.notStarted != null ? (bs.notStarted || 0) + (bs.started || 0) : rows.filter(r => r.status !== "Completed").length) - lostN); return <div className="rounded-2xl p-3.5" style={{ background: C.bg, border: `1px solid ${C.line}` }}><p className="text-xs" style={{ color: C.muted }}>Blocked pallets</p><p className="text-[26px] leading-tight font-semibold mt-0.5" style={{ color: open ? C.bad : C.ink }}>{open}</p><p className="text-[10px]" style={{ color: C.muted }}>{(() => { const mine = blockedQueue(s).filter(b => b.status !== "Completed" && b.claim?.userId === user.id).length; const st = blockedQueue(s).filter(b => b.status !== "Completed" && b.claim?.status === "stacked").length; return rows.length ? `${mine} yours · ${st} in stack${lostN ? ` · ${lostN} lost` : ""}` : "no blocked-pallets sheet yet"; })()}</p></div>; })()}
-        <button onClick={() => go("priority", "All")} className="rounded-2xl p-3.5 text-left transition-transform active:scale-95" style={{ background: C.bg, border: `1px solid ${C.line}` }}><p className="text-xs" style={{ color: C.muted }}>SKUs on docks</p><p className="text-[26px] leading-tight font-semibold mt-0.5">{sheetStats(s).skus}</p><p className="text-[10px]" style={{ color: C.muted }}>{sheetStats(s).expected != null ? `${sheetStats(s).expected} still expected` : "distinct articles"}</p></button>
-        <button onClick={() => go("priority", "All")} className="rounded-2xl p-3.5 text-left transition-transform active:scale-95" style={{ background: C.bg, border: `1px solid ${C.line}` }}><p className="text-xs" style={{ color: C.muted }}>Pallets on docks</p><p className="text-[26px] leading-tight font-semibold mt-0.5">{sheetStats(s).pallets}</p><p className="text-[10px]" style={{ color: C.muted }}>{sheetStats(s).skippablePallets != null ? `${sheetStats(s).skippablePallets} skippable · ${sheetStats(s).skippableSkus ?? "—"} SKUs` : "in total"}</p></button>
-      </div>
       {(() => {
-        // Products flagged "needed today" on the dock sheet (blocking flag): one row per SKU, oldest arrival first. Always
-        // rendered — an empty tile says "nothing blocks picking", which is information too.
-        const rows = dockRowsLive(s).filter(r => r.blocking && !lostOf(s, r));
-        const groups = new Map(); rows.forEach(r => { const k = r.article || r.hu; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(r); });
-        const items = [...groups.values()].map(g => { const first = [...g].sort((a, b) => `${a.arrived} ${a.arrivedTime}`.localeCompare(`${b.arrived} ${b.arrivedTime}`))[0]; const product = s.products.find(p => p.articleId === first.article); return { key: first.article || first.hu, name: first.name || product?.name || first.article, count: g.length, checked: g.filter(x => completedInspectionFor(s, x.hu)).length, location: new Set(g.map(r => r.location).filter(Boolean)).size > 1 ? `${new Set(g.map(r => r.location)).size} locations` : first.location, priority: first.priority }; })
-          .sort((a, b) => (a.checked === a.count) - (b.checked === b.count) || a.name.localeCompare(b.name));
-        const n = items.length, shown = items.slice(0, 5);
-        return (
-          <button onClick={() => go("priority", "Needed today")} className="mx-5 mt-2 rounded-2xl text-left active:scale-[0.98] overflow-hidden" style={{ background: C.bg, border: `1px solid ${n ? C.bad : C.line}`, borderLeft: `3px solid ${n ? C.bad : C.line}`, width: "calc(100% - 40px)" }}>
-            <div className="flex items-center gap-3 px-3.5 pt-3 pb-2">
-              <p className="text-[26px] leading-none font-semibold" style={{ color: n ? C.bad : C.ink, fontVariantNumeric: "tabular-nums" }}>{n}</p>
-              <div className="flex-1 min-w-0"><p className="text-sm font-semibold leading-tight">Needed today</p><p className="text-[11px]" style={{ color: C.muted }}>{n ? `${n} product${n === 1 ? "" : "s"} · ${rows.length} pallet${rows.length === 1 ? "" : "s"} block picking until inspected` : "nothing is blocking picking right now"}</p></div>
-              <span style={{ color: C.muted }}>›</span>
-            </div>
-            {shown.length > 0 && <div className="px-3.5 pb-2.5">
-              {shown.map((it, ix) => <div key={it.key} className="flex items-center gap-2 py-1.5 text-[13px]" style={{ borderTop: `1px solid ${C.line}`, opacity: it.checked === it.count ? .55 : 1 }}>
-                <span className="inline-block rounded-full flex-shrink-0" style={{ width: 7, height: 7, background: it.checked === it.count ? C.ok : (PRIORITY[it.priority]?.[0] || C.bad) }} />
-                <span className="flex-1 min-w-0 truncate font-medium">{it.name}</span>
-                {it.count > 1 && <span className="text-[10px] px-1.5 rounded-full leading-[18px] flex-shrink-0" style={{ background: C.accentSoft, color: C.accent }}>×{it.count}</span>}
-                <span className="text-[11px] flex-shrink-0" style={{ color: it.checked === it.count ? C.ok : C.muted }}>{it.checked === it.count ? "reported" : it.checked ? `${it.checked}/${it.count} reported` : it.location || ""}</span>
-              </div>)}
-              {n > shown.length && <p className="text-[11px] pt-1.5" style={{ color: C.accent, borderTop: `1px solid ${C.line}` }}>+{n - shown.length} more ›</p>}
-            </div>}
+        // Dashboard = tiles, nothing else: one component, one size, even counts per block (2 columns). Every tile is a
+        // door to the list behind it — lists themselves live on their own screens, never here.
+        const st = sheetStats(s);
+        const Tile = ({ label, value, sub, color, icon, onClick, solid }) => (
+          <button onClick={onClick} disabled={!onClick} className="rounded-2xl p-3.5 text-left flex flex-col justify-between transition-transform active:scale-95" style={{ minHeight: 88, background: solid ? color : C.bg, border: `1px solid ${solid ? color : C.line}`, borderLeft: `3px solid ${solid ? color : (color && value > 0 ? color : C.line)}`, color: solid ? C.onDark : C.ink }}>
+            <p className="text-[11px] font-medium leading-tight flex items-center gap-1" style={{ color: solid ? "rgba(255,255,255,.85)" : C.muted }}>{icon && <Ic i={icon} s={12} mr={0} />}{label}</p>
+            <div className="mt-1.5"><p className="text-[26px] leading-none font-semibold" style={{ color: solid ? C.onDark : (color && value > 0 ? color : C.ink), fontVariantNumeric: "tabular-nums" }}>{value}</p>{sub && <p className="text-[10px] mt-1 leading-tight truncate" style={{ color: solid ? "rgba(255,255,255,.8)" : C.muted }}>{sub}</p>}</div>
           </button>
         );
+        const Block = ({ title, children }) => <div className="px-5 mb-3"><p className="label-sm mb-1.5" style={{ color: C.muted }}>{title}</p><div className="grid grid-cols-2 gap-2">{children}</div></div>;
+        const neededRows = dockRowsLive(s).filter(r => r.blocking && !lostOf(s, r)); const neededSkus = new Set(neededRows.map(r => r.article || r.hu)).size;
+        const nowNeeded = st.prio("Now needed");
+        const bs = blockedSummary(s) || {}; const bRows = blockedRowsLive(s); const bLost = blockedQueue(s).filter(b => b.lost && b.status !== "Completed").length;
+        const blockedOpen = Math.max(0, (bs.notStarted != null ? (bs.notStarted || 0) + (bs.started || 0) : bRows.filter(r => r.status !== "Completed").length) - bLost);
+        const unrep = unreportedStats(s).open; const lostN = st.lost + bLost;
+        const esc = s.inspections.filter(i => i.status === "PendingReview").length, fl = s.flags.filter(f => f.status === "Open").length;
+        return (
+          <>
+            {user.role === "Head" && <Block title="Needs you">
+              <Tile label="Awaiting review" value={esc} sub={esc ? "inspections escalated to you" : "nothing escalated"} color={C.warn} icon={HelpCircle} onClick={() => go("head-escalations")} />
+              <Tile label="Open flags" value={fl} sub={fl ? "profile issues reported" : "no open flags"} color={C.warn} icon={Flag} onClick={() => go("head-flags")} />
+              <Tile label="Notifications" value={unread} sub={unread ? "unread" : "all read"} color={C.accent} icon={Bell} onClick={() => go("notifications")} />
+              <Tile label="Announce" value="+" sub="new announcement to the floor" color={C.accent} icon={Megaphone} onClick={() => go("head-announce")} solid />
+            </Block>}
+            <Block title="Floor now">
+              <Tile label="Needed today" value={neededSkus} sub={neededSkus ? `${neededRows.length} pallet${neededRows.length === 1 ? "" : "s"} block picking` : "nothing blocks picking"} color={C.bad} icon={AlertTriangle} onClick={() => go("priority", "Needed today")} />
+              <Tile label="Now needed" value={nowNeeded} sub={nowNeeded ? "picking is waiting — inspect first" : "nothing marked now needed"} color={C.bad} icon={Clock} onClick={() => go("priority", "Now needed")} />
+              <Tile label="SKUs on docks" value={st.skus} sub={st.expected != null ? `${st.expected} still expected` : "distinct articles"} icon={Boxes} onClick={() => go("priority", "All")} />
+              <Tile label="Pallets on docks" value={st.pallets} sub={st.skippablePallets != null ? `${st.skippablePallets} skippable · ${st.skippableSkus ?? "—"} SKUs` : "in total"} icon={Layers} onClick={() => go("priority", "All")} />
+            </Block>
+            <Block title="Queue & team">
+              <Tile label="Blocked pallets" value={blockedOpen} sub={blockedOpen ? "waiting for a check" : (bs.notStarted != null || bRows.length ? "queue is clear" : "no blocked-pallets sheet yet")} color={C.bad} icon={LockIcon} onClick={() => { setTab("blocked"); try { document.getElementById("qc-dash-tabs")?.scrollIntoView({ behavior: "smooth", block: "start" }); } catch {} }} />
+              <Tile label="Done today" value={doneToday} sub="inspections by the team" color={C.ok} icon={Check} onClick={() => { setTab("history"); try { document.getElementById("qc-dash-tabs")?.scrollIntoView({ behavior: "smooth", block: "start" }); } catch {} }} />
+              <Tile label="Unreported" value={unrep} sub={unrep ? "left the dock without a report" : "every pallet reported"} color={C.warn} icon={ShieldAlert} onClick={() => go("unreported")} />
+              <Tile label="Lost pallets" value={lostN} sub={lostN ? "marked lost — not counted above" : "nothing marked lost"} color={C.muted} icon={Search} onClick={() => go("priority", "All")} />
+            </Block>
+            <Block title="Dock priorities">
+              {["High risk", "High issues", "Late inspection", "Inspection due"].map(l => <Tile key={l} label={l} value={st.prio(l)} sub={l === "High risk" ? "rejected before — check first" : l === "High issues" ? "history of remarks" : l === "Late inspection" ? "overdue on the dock" : "regular check"} color={PRIORITY[l][0]} onClick={() => go("priority", l)} />)}
+            </Block>
+            {dockRowsLive(s).length === 0 && <p className="text-[11px] px-5 -mt-1 mb-2" style={{ color: C.warn }}>{(s.integrations || []).some(i => i.purpose === "Dock" && i.needsRemap) ? "Dock sheet columns changed — the Head needs to re-map it in the portal." : (s.integrations || []).some(i => i.purpose === "Dock" && i.pushMode) ? "The last push from the dock sheet had no usable rows — showing zeros until the next one." : "No dock sheet connected yet."}</p>}
+          </>
+        );
       })()}
-      <p className="label-sm px-5 mt-3 mb-1" style={{ color: C.muted }}>Dock priorities</p>
-      {/* Skippable is a boolean flag, not a distinct priority — the "N skippable" figure above already covers it, so it's not a tile here. */}
-      {/* Fixed set of tiles — a 0 is information too, and a glitchy push (0 rows, unknown labels) must not make the whole panel vanish. */}
-      {sheetStats(s).prio("Now needed") > 0 && <button onClick={() => go("priority", "Now needed")} className="mx-5 mb-2 rounded-2xl px-4 py-3 flex items-center gap-3 text-left active:scale-[0.98]" style={{ background: C.bad, color: C.onDark, width: "calc(100% - 40px)" }}><p className="text-2xl font-bold tracking-tight">{sheetStats(s).prio("Now needed")}</p><p className="text-sm font-semibold leading-tight">Now needed<br /><span className="text-[11px] font-normal opacity-80">picking is waiting — inspect first</span></p></button>}
-      <div className="grid grid-cols-4 gap-2 px-5">
-        {["High risk", "High issues", "Late inspection", "Inspection due"].map(l => { const n = sheetStats(s).prio(l); const fg = PRIORITY[l][0]; return (
-          <button key={l} onClick={() => go("priority", l)} className="rounded-2xl py-3 text-center transition-transform active:scale-95" style={{ background: C.bg, border: `1px solid ${C.line}`, opacity: n ? 1 : 0.55 }}><p className="text-2xl font-bold tracking-tight" style={{ color: n ? fg : C.muted }}>{n}</p><p className="text-[10px] font-medium leading-tight mt-0.5" style={{ color: C.muted }}>{l}</p></button>
-        ); })}
-      </div>
-      {sheetStats(s).lost > 0 && <p className="text-[11px] px-5 mt-1.5" style={{ color: C.muted }}>{sheetStats(s).lost} pallet{sheetStats(s).lost === 1 ? "" : "s"} marked lost — not counted above, listed at the bottom of each priority.</p>}
-      {dockRowsLive(s).length === 0 && <p className="text-[11px] px-5 mt-1.5" style={{ color: C.warn }}>{(s.integrations || []).some(i => i.purpose === "Dock" && i.needsRemap) ? "Dock sheet columns changed — the Head needs to re-map it in the portal." : (s.integrations || []).some(i => i.purpose === "Dock" && i.pushMode) ? "The last push from the dock sheet had no usable rows — showing zeros until the next one." : "No dock sheet connected yet."}</p>}
-      {/* Everyone sees this, not just the Head — a pallet that left without a report is something the whole floor should know about. */}
-      {unreportedStats(s).open > 0 && <button onClick={() => go("unreported")} className="mx-5 mt-2.5 rounded-xl px-3.5 py-2.5 flex items-center gap-2.5 text-left active:scale-[0.98]" style={{ background: C.warnBg, border: `1px solid ${C.warn}`, width: "calc(100% - 40px)" }}><Ic i={ShieldAlert} s={16} mr={0} style={{ color: C.warn }} /><span className="text-sm flex-1">{unreportedStats(s).open} pallet{unreportedStats(s).open === 1 ? "" : "s"} left the dock without a report</span><span style={{ color: C.muted }}>›</span></button>}
-      <div className="flex gap-1 mx-5 mt-4" style={{ borderBottom: `1px solid ${C.line}` }}>
+      <div id="qc-dash-tabs" className="flex gap-1 mx-5 mt-4" style={{ borderBottom: `1px solid ${C.line}` }}>
         {[["history", "History"], ["blocked", "Blocked pallets"]].map(([k, l]) => <button key={k} onClick={() => setTab(k)} className="px-1 py-2 text-sm" style={{ marginRight: 14, borderBottom: tab === k ? `2px solid ${C.ink}` : "2px solid transparent", color: tab === k ? C.ink : C.muted, fontWeight: tab === k ? 500 : 400 }}>{l}</button>)}
         <div className="flex-1" />
         {tab === "history" && <button onClick={() => go("history")} className="text-xs py-2" style={{ color: C.accent }}>all ›</button>}
@@ -2188,7 +2176,7 @@ function MPhotoRow({ photos, size = 64 }) {
   );
 }
 // Collapsible profile section: one header line (title · count · chevron), tight body. Module-level so its open state survives re-renders.
-function MSection({ title, count, action, tone, defaultOpen = true, children }) {
+function MSection({ title, count, action, tone, defaultOpen = false, children }) {
   const [open, setOpen] = useState(defaultOpen);
   const fg = tone === "bad" ? C.bad : C.ink;
   return (
