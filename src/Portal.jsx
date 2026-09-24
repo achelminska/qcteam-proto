@@ -1262,7 +1262,7 @@ function DockMapPage({ s, user, openProduct }) {
           {skuTag}
         </div>
         <span className={`text-[13px] font-semibold leading-none ${flip ? "order-first mb-1.5" : "order-2 mt-1.5"}`} style={{ color: active ? C.accent : C.ink }}>{dockLabel(n)}</span>
-        <span className="text-[11px] leading-none mt-1.5 order-3" style={{ color: arr.length ? C.muted : C.line, fontVariantNumeric: "tabular-nums" }}>{arr.length ? `${arr.length} pallet${arr.length === 1 ? "" : "s"}` : "empty"}</span>
+        <span className={`text-[11px] leading-none ${flip ? "order-3 mt-1.5" : "order-first mb-1.5"}`} style={{ color: arr.length ? C.muted : C.line, fontVariantNumeric: "tabular-nums" }}>{arr.length ? `${arr.length} pallet${arr.length === 1 ? "" : "s"}` : "empty"}</span>
       </button>
     ); };
   const gridCols = `repeat(${DOCK_CHILLED.length}, minmax(0, 1fr)) 18px repeat(${DOCK_AMBIENT.length}, minmax(0, 1fr)) 18px minmax(0, 1fr)`;

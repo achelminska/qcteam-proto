@@ -3011,7 +3011,7 @@ function MDocks({ s, user, go }) {
         <div className="w-full px-[3px] flex flex-col relative order-1" style={{ height: area, justifyContent: flip ? "flex-start" : "flex-end", borderTop: flip ? base : "none", borderBottom: flip ? "none" : base }}>
           {h > 0 ? <div className="w-full flex overflow-hidden" style={{ height: h, borderRadius: flip ? "0 0 3px 3px" : "3px 3px 0 0", flexDirection: flip ? "column-reverse" : "column" }}>{DOCK_STATUS.map(([k]) => c[k] > 0 && <div key={k} style={{ flex: c[k], background: dockStatusColor(k) }} />)}</div> : <div className="w-full" style={{ height: 3, background: C.line }} />}
         </div>
-        <span className={`text-[9px] leading-none mt-1 ${flip ? "order-3" : ""}`} style={{ color: arr.length ? C.muted : C.line, fontVariantNumeric: "tabular-nums" }}>{arr.length || "–"}</span>
+        <span className={`text-[9px] leading-none ${flip ? "order-3 mt-1" : "order-first mb-1"}`} style={{ color: arr.length ? C.muted : C.line, fontVariantNumeric: "tabular-nums" }}>{arr.length || "–"}</span>
         <span className={`text-[11px] font-semibold leading-none ${flip ? "order-first mb-1" : "order-2 mt-1"}`} style={{ color: active ? C.accent : C.ink }}>{n === 0 ? "00" : n}</span>
       </button>
     ); };
