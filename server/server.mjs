@@ -13,7 +13,7 @@ const serveStatic = (req, res) => {
   if (!fs.existsSync(DIST)) return res.writeHead(404, cors).end("no dist/ — run npm run build");
   let p = decodeURIComponent(req.url.split("?")[0]); if (p === "/") p = "/index.html";
   let file = path.join(DIST, p); if (!file.startsWith(DIST) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) file = path.join(DIST, "index.html");
-  res.writeHead(200, { "Content-Type": MIME[path.extname(file)] || "application/octet-stream", "Cache-Control": file.endsWith("index.html") ? "no-cache" : "public, max-age=31536000, immutable" });
+  res.writeHead(200, { "Content-Type": MIME[path.extname(file)] || "application/octet-stream", "Cache-Control": file.endsWith("index.html") || file.endsWith("sw.js") || file.endsWith(".webmanifest") ? "no-cache" : "public, max-age=31536000, immutable" });
   fs.createReadStream(file).pipe(res);
 };
 const SYNC_KEY = process.env.QC_SYNC_KEY || "";
