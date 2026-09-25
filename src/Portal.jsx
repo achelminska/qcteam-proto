@@ -1100,38 +1100,46 @@ const NAV_CONTROLLER = [
 function Shell({ page, setPage, children, badge, topRight, users, user, setUser, onLogout, unread, onBell, onSearch }) {
   const [topQ, setTopQ] = useState("");
   const NAV = user.role === "Head" ? NAV_HEAD : NAV_CONTROLLER;
+  // The menu is a rail of icons until someone opens it — a fixed 224px column on every page was eating the width the forms need.
+  const [navOpen, setNavOpen] = useState(() => { try { return localStorage.getItem("qcteam-nav-open") !== "0"; } catch { return true; } });
+  const toggleNav = () => setNavOpen(v => { const n = !v; try { localStorage.setItem("qcteam-nav-open", n ? "1" : "0"); } catch {} return n; });
   return (
     <div className="qc min-h-screen" style={{ background: C.bg, color: C.ink }}>
       <style>{GLOBAL_CSS()}</style>
-      <div className="flex items-center gap-4 px-5" style={{ height: 56, background: C.surface, borderBottom: `1px solid ${C.line}` }}>
-        <div className="flex items-center gap-2.5" style={{ width: 190 }}><span className="w-7 h-7 rounded-lg flex items-center justify-center text-sm font-bold" style={{ background: C.accent, color: C.onDark }}>Q</span><span className="font-semibold text-[15px] tracking-tight">QCteam</span><span className="text-[11px] px-1.5 py-0.5 rounded-md" style={{ background: C.accentSoft, color: C.accent }}>{user.role}</span></div>
+      <div className="flex items-center gap-4 px-5 sticky top-0" style={{ height: 56, background: C.surface, borderBottom: `1px solid ${C.line}`, zIndex: 20 }}>
+        <button onClick={toggleNav} className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{ color: C.ink }} title={navOpen ? "Collapse menu" : "Expand menu"} aria-label={navOpen ? "Collapse menu" : "Expand menu"}><Ic i={MenuIcon} s={18} mr={0} /></button>
+        <div className="flex items-center gap-2.5"><span className="w-7 h-7 rounded-lg flex items-center justify-center text-sm font-bold" style={{ background: C.accent, color: C.onDark }}>Q</span><span className="font-semibold text-[15px] tracking-tight">QCteam</span><span className="text-[11px] px-1.5 py-0.5 rounded-md" style={{ background: C.accentSoft, color: C.accent }}>{user.role}</span></div>
 <SearchBox value={topQ} onChange={setTopQ} placeholder="Search products, inspections…" className="hidden md:block" style={{ width: 320 }} inputClass="rounded-xl" onKeyDown={e => { if (e.key === "Enter" && topQ.trim()) { onSearch && onSearch(topQ.trim()); } }} />
         <div className="flex-1" />
         {topRight}
         <button onClick={onBell} className="relative text-lg" title="notifications"><Ic i={Bell} s={18} mr={0} />{unread > 0 && <span className="absolute -top-1 -right-2 text-[10px] px-1.5 rounded-full" style={{ background: C.bad, color: C.onDark }}>{unread}</span>}</button>
         <div className="flex items-center gap-2">
           <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-medium" style={{ background: C.accentSoft, color: C.accent }}>{user.name.split(" ").map(x => x[0]).join("").slice(0, 2)}</div>
-          <span className="text-sm font-medium">{user.name} · {user.role}</span><button onClick={onLogout} className="text-xs px-2 py-1 rounded-lg" style={{ color: C.muted, border: `1px solid ${C.line}` }}>Log out</button>
+          <span className="text-sm font-medium hidden sm:inline">{user.name} · {user.role}</span><button onClick={onLogout} className="text-xs px-2 py-1 rounded-lg" style={{ color: C.muted, border: `1px solid ${C.line}` }}>Log out</button>
         </div>
       </div>
       <div className="flex">
-        <aside className="flex-shrink-0 px-3 py-4" style={{ width: 224, borderRight: `1px solid ${C.line}`, minHeight: "calc(100vh - 56px)", background: C.surface }}>
+        <aside className="flex-shrink-0 py-3 sticky self-start" style={{ width: navOpen ? 224 : 64, borderRight: `1px solid ${C.line}`, height: "calc(100vh - 56px)", overflowY: "auto", background: C.surface, top: 56, paddingLeft: navOpen ? 12 : 8, paddingRight: navOpen ? 12 : 8, transition: "width .15s ease", zIndex: 10 }}>
           {NAV.map((g, gi) => (
-            <div key={gi} className="mb-4">
-              {g.group && <p className="label-sm px-3 mb-1.5">{g.group}</p>}
+            <div key={gi} className="mb-3">
+              {g.group && navOpen && <p className="label-sm px-3 mb-1.5">{g.group}</p>}
+              {g.group && !navOpen && gi > 0 && <div className="mx-2 mb-2" style={{ borderTop: `1px solid ${C.line}` }} />}
               {g.items.map(([key, icon, label]) => {
                 const on = page === key;
                 return (
-                  <button key={key} onClick={() => setPage(key)} className="w-full flex items-center gap-2.5 px-3 rounded-xl text-[13.5px] text-left mb-0.5" style={{ height: 38, background: on ? C.accentSoft : "transparent", color: on ? C.accent : C.ink, fontWeight: on ? 600 : 450 }}>
-                    <span className="w-6 flex justify-center" style={{ opacity: on ? 1 : .85 }}>{NAV_ICON[key] ? <Ic i={NAV_ICON[key]} s={17} mr={0} /> : icon}</span><span className="flex-1">{label}</span>
-                    {badge?.[key] > 0 && <span className="text-[10.5px] font-semibold min-w-[20px] text-center px-1.5 py-0.5 rounded-full" style={{ background: on ? C.accent : C.warnBg, color: on ? C.onDark : C.warn }}>{badge[key]}</span>}
+                  <button key={key} onClick={() => setPage(key)} title={label} className="w-full flex items-center gap-2.5 rounded-xl text-[13.5px] text-left mb-0.5 relative" style={{ height: 38, paddingLeft: navOpen ? 12 : 0, paddingRight: navOpen ? 12 : 0, justifyContent: navOpen ? "flex-start" : "center", background: on ? C.accentSoft : "transparent", color: on ? C.accent : C.ink, fontWeight: on ? 600 : 450 }}>
+                    <span className="w-6 flex justify-center flex-shrink-0" style={{ opacity: on ? 1 : .85 }}>{NAV_ICON[key] ? <Ic i={NAV_ICON[key]} s={17} mr={0} /> : icon}</span>
+                    {navOpen && <span className="flex-1 truncate">{label}</span>}
+                    {badge?.[key] > 0 && (navOpen
+                      ? <span className="text-[10.5px] font-semibold min-w-[20px] text-center px-1.5 py-0.5 rounded-full" style={{ background: on ? C.accent : C.warnBg, color: on ? C.onDark : C.warn }}>{badge[key]}</span>
+                      : <span className="absolute top-1 right-1.5 w-2 h-2 rounded-full" style={{ background: C.warn }} title={String(badge[key])} />)}
                   </button>
                 );
               })}
             </div>
           ))}
         </aside>
-        <main className="flex-1 px-8 py-7" style={{ maxWidth: 1120 }}>{children}</main>
+        <main className="flex-1 min-w-0 px-6 py-6">{children}</main>
       </div>
     </div>
   );
@@ -2902,7 +2910,7 @@ function ControllerPreview({ s, typeId, scope, setScope }) {
     <div>
       <div className="flex items-center gap-2 mb-3 flex-wrap"><span className="text-xs" style={{ color: C.muted }}>Preview as the controller would see it for:</span><select value={pid} onChange={e => setPid(e.target.value)} className="text-sm">{products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select><span className="text-xs" style={{ color: C.muted }}>{t ? `composition: ${chainLabel(layerChain(s, { kind: "Product", id: pid }, typeId), s)}` : "no form for this type yet"}</span></div>
       {insp && t ? (
-        <div className="rounded-3xl p-3 mx-auto" style={{ maxWidth: 420, background: C.bg, border: `1px solid ${C.line}` }}>
+        <div className="rounded-3xl p-3" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
           <div className="rounded-2xl p-3" style={{ background: C.surface }}>
             <InspectionRunner key={typeId + pid + (t.id || "")} insp={insp} patch={fn => setInsp(prev => typeof fn === "function" ? fn(prev) : { ...prev, ...fn })} t={t} problems={problems} product={product} suppliers={s.suppliers || []} dictionaries={s.dictionaries || []} sctx={s} user={s.users.find(u => u.role === "Controller") || s.users[0]} onFinish={() => {}} onEscalate={() => {}} onRaiseFlag={() => {}} onCancel={() => {}} />
           </div>
@@ -2920,6 +2928,7 @@ function FormsPage({ s, set }) {
   // will see it the moment it's added. Collapsible so the builder can take the full width when wanted.
   const [preview, setPreview] = useState(true);
   const [layerQ, setLayerQ] = useState("");
+  const [layersOpen, setLayersOpen] = useState(true);
   useEffect(() => { if (!typeId && types[0]) setTypeId(types[0].id); }, [types.length]);
   const type = typeById(s, typeId) || types[0];
   const patchType = ch => set(x => ({ ...x, inspectionTypes: x.inspectionTypes.map(t => t.id === typeId ? { ...t, ...ch } : t) }));
@@ -2968,9 +2977,10 @@ function FormsPage({ s, set }) {
         </Card>
       )}
 }</>}
-      {type && <div className="flex gap-4 items-start" style={{ display: tab === "build" ? "flex" : "none" }}>
-        <aside className="w-52 flex-shrink-0">
-          <p className="label-sm px-2 mb-1" style={{ color: C.muted }}>Layer</p>
+      {type && <div className="flex gap-5 items-start w-full" style={{ display: tab === "build" ? "flex" : "none" }}>
+        <aside className="flex-shrink-0" style={{ width: layersOpen ? 208 : 44 }}>
+          <div className="flex items-center gap-1 mb-1">{layersOpen && <p className="label-sm px-2 flex-1" style={{ color: C.muted }}>Layer</p>}<button onClick={() => setLayersOpen(v => !v)} className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{ color: C.muted }} title={layersOpen ? "Hide layers" : "Show layers"}><Ic i={layersOpen ? ChevronLeft : ChevronRight} s={14} mr={0} /></button></div>
+          {layersOpen && <>
           <button onClick={() => setScope({ kind: "Global" })} className="w-full text-left text-sm px-2.5 py-2 rounded-lg mb-2" style={{ background: scope.kind === "Global" ? C.accentSoft : "transparent", color: scope.kind === "Global" ? C.accent : C.ink }}><Ic i={Globe} s={14} />Global<Dot on={!!globalT} /></button>
           <input value={layerQ} onChange={e => setLayerQ(e.target.value)} placeholder="Search categories and products…" className="w-full text-xs rounded-lg px-2 py-1.5 mb-2 outline-none" style={{ ...inp }} />
           {(() => { const lq = layerQ.trim().toLowerCase(); const cats = s.categories.filter(c => !lq || catPath(c).toLowerCase().includes(lq)); const prods = s.products.filter(p => !lq || p.name.toLowerCase().includes(lq) || (p.articleId || "").toLowerCase().includes(lq)); return (
@@ -2982,6 +2992,7 @@ function FormsPage({ s, set }) {
               {lq && !cats.length && !prods.length && <p className="text-xs px-2" style={{ color: C.muted }}>Nothing matches.</p>}
             </div>
           ); })()}
+          </>}
         </aside>
         <div className="flex-1 min-w-0">
           {scope.kind === "Global" && !globalT && <Empty icon="🧩" title="No global template" hint="The starting point for every product. Build it once — modules, fields, problem branches from the catalog." action={<Primary onClick={create}>Create global template</Primary>} />}
@@ -3007,7 +3018,7 @@ function FormsPage({ s, set }) {
             </>
           )}
         </div>
-        {preview && <aside className="flex-shrink-0" style={{ width: 400 }}>
+        {preview && <aside className="flex-shrink-0 self-start sticky" style={{ width: 400, top: 72, maxHeight: "calc(100vh - 88px)", overflowY: "auto" }}>
           <div className="flex items-center gap-2 mb-2"><p className="label-sm flex-1" style={{ color: C.muted }}>Controller preview</p><button onClick={() => setPreview(false)} className="text-xs" style={{ color: C.muted }}>hide</button></div>
           <ControllerPreview s={s} typeId={typeId} scope={scope} setScope={setScope} />
         </aside>}
