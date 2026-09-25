@@ -2849,6 +2849,16 @@ function FormsPage({ s, set }) {
   const parentChain = own ? chain.filter(t => t.id !== own.id) : chain;
   const setOwn = fn => set(x => ({ ...x, templates: x.templates.map(t => t.id === own.id ? (typeof fn === "function" ? fn(t) : fn) : t) }));
   const create = () => set(x => ({ ...x, templates: [...x.templates, emptyTemplate(scope.kind, { typeId, ...(scope.kind === "Category" ? { categoryId: scope.id } : scope.kind === "Product" ? { productId: scope.id } : {}) })] }));
+  // Start a category layer as a copy of another category's layer (same type). Own items get fresh ids (module references
+  // re-pointed), while suppressions / overrides of inherited items are kept only where the inherited item also exists here.
+  const copySources = scope.kind === "Category" ? s.templates.filter(x => x.scope === "Category" && (x.typeId || "type-full") === typeId && x.categoryId !== scope.id && (x.modules.length + x.fields.length + x.problemRefs.length + (x.suppressed || []).length + Object.keys(x.fieldOverrides || {}).length + (x.overrides || []).length) > 0) : [];
+  const createFrom = srcId => { const src = s.templates.find(x => x.id === srcId); if (!src) return; const parent = compose(s, layerChain(s, scope, typeId)); const validIds = new Set([...parent.modules, ...parent.fields, ...parent.problemRefs].map(x => x.id));
+    const deep = JSON.parse(JSON.stringify(src)); const idMap = {}; const nid = old => (idMap[old] = idMap[old] || uid());
+    const modules = (deep.modules || []).map(m => ({ ...m, id: nid(m.id) }));
+    const fields = (deep.fields || []).map(f => ({ ...f, id: nid(f.id), moduleId: idMap[f.moduleId] || f.moduleId }));
+    const problemRefs = (deep.problemRefs || []).map(r => ({ ...r, id: nid(r.id), moduleId: idMap[r.moduleId] || r.moduleId }));
+    const nt = { ...emptyTemplate("Category", { typeId, categoryId: scope.id }), modules, fields, problemRefs, overrides: deep.overrides || [], suppressed: (deep.suppressed || []).filter(id => validIds.has(id)), fieldOverrides: Object.fromEntries(Object.entries(deep.fieldOverrides || {}).filter(([k]) => validIds.has(k))), copiedFrom: { templateId: src.id, categoryId: src.categoryId, at: nowISO() } };
+    set(x => ({ ...x, templates: [...x.templates, nt] })); };
   const drop = () => set(x => ({ ...x, templates: x.templates.filter(t => t.id !== own.id) }));
   const catPath = c => { const p = c.parentId && s.categories.find(x => x.id === c.parentId); return p ? `${p.name} › ${c.name}` : c.name; };
   const specsHint = scope.kind === "Global" ? "specification — by name, or explicitly at product level" : scope.kind === "Category" ? "specification — by name, or explicitly at product level" : "";
@@ -2888,7 +2898,9 @@ function FormsPage({ s, set }) {
           {scope.kind !== "Global" && !globalT && <Empty icon="🧩" title="Global template first" hint="Without a global template there is nothing to inherit from." action={<Primary onClick={() => setScope({ kind: "Global" })}>Go to global</Primary>} />}
           {globalT && scope.kind !== "Global" && !own && eff && (
             <>
-              <div className="flex items-center gap-3 mb-3 flex-wrap"><Primary onClick={create}>Add own layer</Primary><span className="text-xs" style={{ color: C.muted }}>The inherited form below is read-only until this level has a layer of its own.</span></div>
+              <div className="flex items-center gap-3 mb-3 flex-wrap"><Primary onClick={create}>Add own layer</Primary>
+                {copySources.length > 0 && <label className="text-xs inline-flex items-center gap-2" style={{ color: C.muted }}>or copy from<select value="" onChange={e => e.target.value && createFrom(e.target.value)} className="text-xs rounded-lg px-2 py-1.5 outline-none" style={{ ...inp }}><option value="">another category's form…</option>{copySources.map(x => { const c = s.categories.find(k => k.id === x.categoryId); const n = x.modules.length + x.fields.length + x.problemRefs.length; return <option key={x.id} value={x.id}>{c ? catPath(c) : "?"} · {n} own item{n === 1 ? "" : "s"}{(x.suppressed || []).length ? ` · ${x.suppressed.length} hidden` : ""}</option>; })}</select></label>}
+                <span className="text-xs" style={{ color: C.muted }}>The inherited form below is read-only until this level has a layer of its own.</span></div>
               <Note tone="warn">This level <b>has no layer of its own</b> — you see the composition: {chainLabel(chain, s)}. Everything works as is. Add a layer only if you want to add, hide or override something here{scope.kind === "Product" ? " (e.g. explicitly link a field to this product's specification)" : ""}.</Note>
               <Builder eff={eff} own={null} setOwn={() => {}} problems={s.problems} specs={null} specsHint="—" readOnly s={s} scope={scope} />
             </>
@@ -2897,6 +2909,7 @@ function FormsPage({ s, set }) {
             <>
               <div className="flex items-center gap-3 mb-3 flex-wrap">
                 <span className="text-xs px-2 py-1 rounded-full" style={{ background: C.okBg, color: C.ok }}>{scope.kind === "Global" ? "global layer" : `own layer · ${ownCount} changes vs: ${chainLabel(parentChain, s) || "—"}`}</span>
+                {own.copiedFrom && <span className="text-xs px-2 py-1 rounded-full" style={{ background: C.accentSoft, color: C.accent }}>copied from {s.categories.find(c => c.id === own.copiedFrom.categoryId)?.name || "another category"}</span>}
                 {scope.kind !== "Global" && <button onClick={drop} className="text-xs" style={{ color: C.muted }}>Remove layer — back to pure inheritance</button>}
               </div>
               {scope.kind === "Product" && product?.specs.length === 0 && effectiveSpecs(s, product).length === 0 && <Note tone="warn">This product has no specifications, own or from the category — measurement fields will have no reference.</Note>}
