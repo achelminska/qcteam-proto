@@ -249,7 +249,7 @@ const problemsFor = (s, scope, suppressed) => {
 // another category, or hidden for this product. The form's explicit link wins: pull that node (and its ancestors) in, so
 // the runner raises it and the verdict counts it, instead of silently downgrading to "warning only".
 const withLinkedProblems = (s, problems, t) => { if (!t) return problems; const have = new Set(problems.map(p => p.id)); const out = [...problems]; const addChain = id => { let n = s.problems.find(p => p.id === id); while (n && !have.has(n.id)) { have.add(n.id); out.push(n); n = n.parentId ? s.problems.find(p => p.id === n.parentId) : null; } }; (t.fields || t.allFields || []).forEach(f => { if (f.type === "Number") { if (f.problemBelowId) addChain(f.problemBelowId); if (f.problemAboveId) addChain(f.problemAboveId); } }); return out; };
-const scopeTag = (p, s) => p.productId ? `product: ${s.products.find(x => x.id === p.productId)?.name ?? "?"}` : p.categoryId ? `kat. ${s.categories.find(x => x.id === p.categoryId)?.name ?? "?"}` : null;
+const scopeTag = (p, s) => p.productId ? `product: ${s.products.find(x => x.id === p.productId)?.name ?? "?"}` : p.categoryId ? `category ${s.categories.find(x => x.id === p.categoryId)?.name ?? "?"}` : null;
 // Required inspection level: Full (raport) < Visual (visual is enough) < Skip (can be skipped). Product → category → system setting.
 // Inspection types are Head-defined (InspectionTypes). Behaviour comes from flags, not from the name.
 // No default inspection types: the Head defines them (Forms → + new type). Legacy ids below only keep old records readable.
@@ -339,7 +339,7 @@ const layerChain = (s, scope, typeId = "type-full") => {
 const ownTemplate = (s, scope, typeId = "type-full") => { const T = s.templates.filter(t => (t.typeId || "type-full") === typeId); return scope.kind === "Global" ? T.find(t => t.scope === "Global")
   : scope.kind === "Category" ? T.find(t => t.scope === "Category" && t.categoryId === scope.id)
   : T.find(t => t.scope === "Product" && t.productId === scope.id); };
-const levelLabel = (t, s) => t.scope === "Global" ? "global" : t.scope === "Category" ? `kat. ${s.categories.find(c => c.id === t.categoryId)?.name ?? "?"}` : `product`;
+const levelLabel = (t, s) => t.scope === "Global" ? "global" : t.scope === "Category" ? `category ${s.categories.find(c => c.id === t.categoryId)?.name ?? "?"}` : `product`;
 
 // Composition: the result has the shape of a plain template + origin metadata.
 const compose = (s, chain) => {
@@ -364,7 +364,7 @@ const compose = (s, chain) => {
 const t_refsInModule = (eff, mid) => eff.problemRefs.filter(r => r.moduleId === mid);
 const bySort = (a, b) => (a.sort - b.sort) || ((a.level ?? 0) - (b.level ?? 0)) || String(a.id).localeCompare(String(b.id));
 const resolveTemplate = (s, product, typeId = "type-full") => { if (!product) return null; const chain = layerChain(s, { kind: "Product", id: product.id }, typeId); return chain.length ? compose(s, chain) : null; };
-const scopeLabel = (t, categories, products) => !t ? "—" : t.scope === "Global" ? "szablon global" : t.scope === "Category" ? `category „${categories.find(c => c.id === t.categoryId)?.name}"` : `product „${products.find(p => p.id === t.productId)?.name}"`;
+const scopeLabel = (t, categories, products) => !t ? "—" : t.scope === "Global" ? "global template" : t.scope === "Category" ? `category „${categories.find(c => c.id === t.categoryId)?.name}"` : `product „${products.find(p => p.id === t.productId)?.name}"`;
 const chainLabel = (chain, s) => chain.map(t => levelLabel(t, s)).join(" + ");
 const emptyTemplate = (scope, extra) => ({ id: uid(), scope, typeId: "type-full", ...extra, modules: [], fields: [], problemRefs: [], overrides: [], suppressed: [], fieldOverrides: {}, layered: true });
 
@@ -2634,7 +2634,7 @@ function MHistory({ s, user, go }) {
   const suppliers = [...new Set(s.inspections.map(i => i.supplier).filter(Boolean))];
   return (
     <div className="pb-4 relative" style={{ minHeight: "100%" }}>
-      <TopBar title="Inspection history" onBack={() => go("home")} right={<button onClick={() => setOpen(true)} className="text-xs px-3 py-1.5 rounded-full" style={{ border: `1px solid ${active ? C.ink : C.line}`, fontWeight: active ? 500 : 400 }}>Filtry{active ? ` · ${active}` : ""}</button>} />
+      <TopBar title="Inspection history" onBack={() => go("home")} right={<button onClick={() => setOpen(true)} className="text-xs px-3 py-1.5 rounded-full" style={{ border: `1px solid ${active ? C.ink : C.line}`, fontWeight: active ? 500 : 400 }}>Filters{active ? ` · ${active}` : ""}</button>} />
       <div className="px-4 pt-3"><SearchBox autoFocus value={q} onChange={setQ} placeholder="Search by product name or ID…" inputClass="rounded-xl py-2.5" /></div>
       <div className="px-4">{groups.length === 0 ? <p className="text-sm py-8 text-center" style={{ color: C.muted }}>Nothing matches.</p> : groups.map(g => <div key={g.k}><p className="label-sm mt-3 mb-1" style={{ color: C.muted }}>{g.k}</p>{g.items.map(i => <button key={i.id} onClick={() => go("inspection", i.id)} className="w-full text-left flex items-center gap-2 py-2.5" style={{ borderBottom: `1px solid ${C.line}` }}><div className="flex-1 min-w-0"><p className="text-sm truncate">{s.products.find(p => p.id === i.productId)?.name || `Pallet ${(i.pallets || [])[0] || ""}`}</p><p className="text-xs" style={{ color: C.muted }}>{hhmm(i.completedAt || i.startedAt)}{i.dateISO && ` · DC ${dateCode(i.dateISO)}`}{i.supplier && ` · ${i.supplier}`} · {s.users.find(u => u.id === i.controllerId)?.name.split(" ")[0]}</p></div><ResultPill i={i} s={s} /></button>)}</div>)}</div>
       <Sheet open={open} onClose={() => setOpen(false)} title="Filters">
@@ -2769,13 +2769,13 @@ function MCatalog({ s, user, go, onStart, setState, notify, onVisual, preset }) 
     <button onClick={() => setSel(p.id)} className="rounded-2xl p-2.5 text-left relative" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
       {asPhotoList(p.photos).length ? <img src={asPhotoList(p.photos)[0].dataUrl} alt="" className="w-full h-20 rounded-xl object-contain mb-2" style={{ background: PHOTO_BG }} /> : <div className="w-full h-20 rounded-xl flex items-center justify-center mb-2" style={{ background: C.surface, color: C.muted }}><Ic i={ImageIcon} s={22} mr={0} /></div>}
       <p className="text-xs font-medium leading-tight" style={{ minHeight: 32 }}>{p.name}</p>
-      <div className="flex items-center gap-1.5 mt-1.5"><span className="text-[10px]" style={{ color: C.muted }}>{p.articleId || "—"}</span>{p.isBio && <span className="text-[9px] px-1 rounded" style={{ background: C.okBg, color: C.ok }}>bio</span>}<div className="flex-1" />{openFlag && <Ic i={Flag} s={11} mr={0} style={{ color: C.warn }} />}{li && <span title={`ostatnia: ${li.result === "Accepted" ? "accepted" : "rejected"}, ${dayLabel(li.completedAt)}`} className="inline-block rounded-full" style={{ width: 8, height: 8, background: li.result === "Accepted" ? C.ok : C.bad }} />}</div>
+      <div className="flex items-center gap-1.5 mt-1.5"><span className="text-[10px]" style={{ color: C.muted }}>{p.articleId || "—"}</span>{p.isBio && <span className="text-[9px] px-1 rounded" style={{ background: C.okBg, color: C.ok }}>bio</span>}<div className="flex-1" />{openFlag && <Ic i={Flag} s={11} mr={0} style={{ color: C.warn }} />}{li && <span title={`last: ${li.result === "Accepted" ? "accepted" : "rejected"}, ${dayLabel(li.completedAt)}`} className="inline-block rounded-full" style={{ width: 8, height: 8, background: li.result === "Accepted" ? C.ok : C.bad }} />}</div>
     </button>
   ); };
   const Grid = ({ items }) => items.length === 0 ? <p className="text-sm py-6 text-center" style={{ color: C.muted }}>Nothing matches.</p> : <div className="grid grid-cols-2 gap-2">{items.map(p => <Tile key={p.id} p={p} />)}</div>;
   return (
     <div className="pb-4 relative" style={{ minHeight: "100%" }}>
-      <TopBar title="Product catalog" right={<button onClick={() => setFOpen(true)} className="text-xs px-3 py-1.5 rounded-full inline-flex items-center" style={{ border: `1px solid ${fCount ? C.ink : C.line}`, fontWeight: fCount ? 600 : 400 }}><Ic i={Filter} s={12} mr={4} />Filtry{fCount ? ` · ${fCount}` : ""}</button>} />
+      <TopBar title="Product catalog" right={<button onClick={() => setFOpen(true)} className="text-xs px-3 py-1.5 rounded-full inline-flex items-center" style={{ border: `1px solid ${fCount ? C.ink : C.line}`, fontWeight: fCount ? 600 : 400 }}><Ic i={Filter} s={12} mr={4} />Filters{fCount ? ` · ${fCount}` : ""}</button>} />
       <div className="px-4 pt-3"><SearchBox value={q} onChange={setQ} placeholder="Product, ID, category, supplier, variety…" inputClass="rounded-xl py-2.5" /></div>
       {qq ? (
         <div className="px-4 pt-3">
@@ -3279,7 +3279,7 @@ function MInspection({ s, set, user, inspId, go, notify }) {
   const [profileOpen, setProfileOpen] = useState(false);
   useEffect(() => { if (!profileOpen) return; const h = () => setProfileOpen(false); window.addEventListener("popstate", h); try { history.pushState({ ...history.state, __qcProfileSheet: true }, ""); } catch {} return () => window.removeEventListener("popstate", h); }, [profileOpen]);
   const closeProfile = () => { try { if (history.state && history.state.__qcProfileSheet) { history.back(); return; } } catch {} setProfileOpen(false); };
-  if (!insp) return <div><TopBar title="Inspection" onBack={() => go("home")} /><p className="text-sm p-4">No znaleziono.</p></div>;
+  if (!insp) return <div><TopBar title="Inspection" onBack={() => go("home")} /><p className="text-sm p-4">Not found.</p></div>;
   if (!insp.template) return <VisualView insp={insp} s={s} go={go} />;
   const product = s.products.find(p => p.id === insp.productId);
   const patchInsp = fn => set(x => ({ ...x, inspections: x.inspections.map(i => i.id === insp.id ? (typeof fn === "function" ? fn(i) : { ...i, ...fn }) : i) }));
