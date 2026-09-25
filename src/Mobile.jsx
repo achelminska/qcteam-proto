@@ -3015,27 +3015,38 @@ const dockStatus = r => r.blocking ? "blocked" : DOCK_STATUS.some(([k]) => k ===
 const dockStatusColor = k => { const e = DOCK_STATUS.find(x => x[0] === k); return e ? (C.isDark ? e[4] : e[2]) : (C.isDark ? "#5fd0c2" : "#2a9d8f"); };
 const dockStatusText = k => { const e = DOCK_STATUS.find(x => x[0] === k); return e ? (C.isDark ? e[5] : e[3]) : dockStatusColor(k); };
 const dockStatusRank = k => { const i = DOCK_STATUS.findIndex(x => x[0] === k); return i < 0 ? 99 : i; };
+// Second lens on the same bars: how long each pallet has been standing on the dock.
+const DOCK_AGE = [["old", "> 24 h on dock", "#9b111e", "#e05252"], ["day", "6–24 h", "#f2c531", "#ffd75e"], ["fresh", "< 6 h", "#2a9d8f", "#5fd0c2"], ["unknown", "no arrival time", "#c3cad3", "#4b5560"]];
+const dockAgeHours = r => { if (!r.arrived) return null; const d = new Date(`${r.arrived}T${String(r.arrivedTime || "12:00").padStart(5, "0")}:00`); return isNaN(d) ? null : (Date.now() - d.getTime()) / 3600000; };
+const dockAge = r => { const h = dockAgeHours(r); return h == null ? "unknown" : h > 24 ? "old" : h >= 6 ? "day" : "fresh"; };
+const dockAgeColor = k => { const e = DOCK_AGE.find(x => x[0] === k); return e ? (C.isDark ? e[3] : e[2]) : (C.isDark ? "#4b5560" : "#c3cad3"); };
 const dockUrgent = r => dockStatusRank(dockStatus(r)) <= 2;
 function MDocks({ s, user, go }) {
   const all = dockRowsLive(s); const rows = all.filter(r => !lostOf(s, r)); const lostN = all.length - rows.length;
   const byDock = {}; const other = [];
   rows.forEach(r => { const d = parseDock(r.location); if (d && dockZone(d.n)) (byDock[d.n] = byDock[d.n] || []).push({ ...r, sub: d.sub }); else other.push(r); });
   const [sel, setSel] = useState(null); const [quick, setQuick] = useState(false);
-  const max = Math.max(1, ...Object.values(byDock).map(a => a.length));
+  // Lens (status / age) and an optional legend filter: bars, counts and the selected dock's list follow both.
+  const [mode, setMode] = useState("status"); const [filter, setFilter] = useState(null);
+  const keyOf = r => mode === "age" ? dockAge(r) : dockStatus(r);
+  const legend = mode === "age" ? DOCK_AGE.map(([k, l]) => [k, l]) : DOCK_STATUS.map(([k, l]) => [k, l]);
+  const colorOf = k => mode === "age" ? dockAgeColor(k) : dockStatusColor(k);
+  const vis = arr => filter ? arr.filter(r => keyOf(r) === filter) : arr;
+  const max = Math.max(1, ...Object.values(byDock).map(a => vis(a).length));
   const skusOf = arr => new Set(arr.map(r => r.article || r.hu)).size;
-  const counts = arr => { const c = {}; arr.forEach(r => { const k = dockStatus(r); c[k] = (c[k] || 0) + 1; }); return c; };
+  const counts = arr => { const c = {}; arr.forEach(r => { const k = keyOf(r); c[k] = (c[k] || 0) + 1; }); return c; };
   const zoneStats = ns => { const arr = ns.flatMap(n => byDock[n] || []); return { pallets: arr.length, skus: skusOf(arr), needed: arr.filter(r => r.blocking).length, urgent: arr.filter(dockUrgent).length }; };
   const chilled = zoneStats([14, ...DOCK_CHILLED]), ambient = zoneStats([...DOCK_AMBIENT, 0]);
   const BAR_H = 72;
   const acrossArea = Math.min(BAR_H, Math.max(14, Math.round(Math.max((byDock[14] || []).length, (byDock[0] || []).length) / max * BAR_H)));
   // `flip` mirrors the column for the facing row: baseline on top, bar hanging outward (down). No hover on a phone, so the
   // SKU count shows on the bar of the selected dock instead.
-  const DockCol = ({ n, area = BAR_H, flip = false }) => { const arr = byDock[n] || []; const c = counts(arr); const h = arr.length ? Math.min(area, Math.max(6, Math.round(arr.length / max * BAR_H))) : 0; const active = sel === n; const skus = skusOf(arr);
+  const DockCol = ({ n, area = BAR_H, flip = false }) => { const arr = vis(byDock[n] || []); const c = counts(arr); const h = arr.length ? Math.min(area, Math.max(6, Math.round(arr.length / max * BAR_H))) : 0; const active = sel === n; const skus = skusOf(arr);
     const base = `2px solid ${C.ink}`;
     return (
       <button onClick={() => setSel(active ? null : n)} className="flex flex-col items-center min-w-0 rounded-lg pt-1 pb-1.5 transition-colors" style={{ background: active ? C.accentSoft : "transparent", outline: active ? `1px solid ${C.accent}` : "none" }}>
         <div className="w-full px-[3px] flex flex-col relative order-1" style={{ height: area, justifyContent: flip ? "flex-start" : "flex-end", borderTop: flip ? base : "none", borderBottom: flip ? "none" : base }}>
-          {h > 0 ? <div className="w-full flex overflow-hidden" style={{ height: h, borderRadius: flip ? "0 0 3px 3px" : "3px 3px 0 0", flexDirection: flip ? "column-reverse" : "column" }}>{DOCK_STATUS.map(([k]) => c[k] > 0 && <div key={k} style={{ flex: c[k], background: dockStatusColor(k) }} />)}</div> : <div className="w-full" style={{ height: 3, background: C.line }} />}
+          {h > 0 ? <div className="w-full flex overflow-hidden" style={{ height: h, borderRadius: flip ? "0 0 3px 3px" : "3px 3px 0 0", flexDirection: flip ? "column-reverse" : "column" }}>{legend.map(([k]) => c[k] > 0 && <div key={k} style={{ flex: c[k], background: colorOf(k) }} />)}</div> : <div className="w-full" style={{ height: 3, background: C.line }} />}
         </div>
         <span className={`text-[9px] leading-none ${flip ? "order-3 mt-1" : "order-first mb-1"}`} style={{ color: arr.length ? C.muted : C.line, fontVariantNumeric: "tabular-nums" }}>{arr.length || "–"}</span>
         <span className={`text-[11px] font-semibold leading-none ${flip ? "order-first mb-1" : "order-2 mt-1"}`} style={{ color: active ? C.accent : C.ink }}>{n === 0 ? "00" : n}</span>
@@ -3043,7 +3054,7 @@ function MDocks({ s, user, go }) {
     ); };
   const gridCols = `repeat(${DOCK_CHILLED.length}, minmax(0, 1fr)) 10px repeat(${DOCK_AMBIENT.length}, minmax(0, 1fr)) 10px minmax(0, 1fr)`;
   const lastCol = DOCK_CHILLED.length + DOCK_AMBIENT.length + 3;
-  const selRows = sel === "other" ? other : sel !== null ? (byDock[sel] || []) : [];
+  const selRows = vis(sel === "other" ? other : sel !== null ? (byDock[sel] || []) : []);
   const items = (() => { const groups = {}; selRows.forEach(r => { const k = r.article || r.hu; (groups[k] = groups[k] || []).push(r); });
     return Object.values(groups).map(g => { const first = g[0]; const product = s.products.find(p => p.articleId === first.article); const checked = g.filter(x => completedInspectionFor(s, x.hu)).length; const subs = [...new Set(g.map(r => r.sub).filter(Boolean))].sort(); const earliest = [...g].sort((x, y) => `${x.arrived || ""}${x.arrivedTime || "99"}`.localeCompare(`${y.arrived || ""}${y.arrivedTime || "99"}`))[0];
       return { key: first.article || first.hu, name: first.name || product?.name || first.article, count: g.length, checked, subs, hu: earliest.hu, productId: product?.id || null, priority: first.priority, status: dockStatus(g.find(r => r.blocking) || first), blocking: g.some(r => r.blocking), transporter: earliest.transporter, arrived: earliest.arrived, arrivedTime: earliest.arrivedTime, location: sel === "other" ? [...new Set(g.map(r => r.location).filter(Boolean))].join(", ") : "" };
@@ -3081,7 +3092,12 @@ function MDocks({ s, user, go }) {
               <DockCol n={0} area={acrossArea} flip />
             </div>
           </div>
-          <div className="flex flex-wrap gap-x-3 gap-y-1 mt-2 px-1">{DOCK_STATUS.map(([k, l]) => <span key={k} className="text-[10px] flex items-center gap-1" style={{ color: C.muted }}><span className="inline-block w-2.5 h-2.5 rounded-[2px]" style={{ background: dockStatusColor(k) }} />{l}</span>)}</div>
+          <div className="flex items-center gap-2 mt-2 px-1">
+            <div className="inline-flex rounded-lg overflow-hidden" style={{ border: `1px solid ${C.line}` }}>{[["status", "Status"], ["age", "Time on dock"]].map(([k, l]) => <button key={k} onClick={() => { setMode(k); setFilter(null); }} className="text-[10px] px-2 py-1" style={{ background: mode === k ? C.ink : "transparent", color: mode === k ? C.onDark : C.muted }}>{l}</button>)}</div>
+            {filter && <button onClick={() => setFilter(null)} className="text-[10px] underline" style={{ color: C.accent }}>show all</button>}
+            <span className="text-[10px] ml-auto" style={{ color: C.muted }}>tap a colour to filter</span>
+          </div>
+          <div className="flex flex-wrap gap-x-2 gap-y-1 mt-1.5 px-1">{legend.map(([k, l]) => <button key={k} onClick={() => setFilter(f => f === k ? null : k)} className="text-[10px] flex items-center gap-1 px-1.5 py-0.5 rounded-md" style={{ color: filter === k ? C.ink : C.muted, background: filter === k ? C.bg : "transparent", outline: filter === k ? `1px solid ${C.line}` : "none", opacity: filter && filter !== k ? .5 : 1 }}><span className="inline-block w-2.5 h-2.5 rounded-[2px]" style={{ background: colorOf(k) }} />{l}</button>)}</div>
           {other.length > 0 && <button onClick={() => setSel(sel === "other" ? null : "other")} className="mt-3 w-full flex items-center gap-2 rounded-xl px-3 py-2 text-left" style={{ background: sel === "other" ? C.accentSoft : C.bg, border: `1px solid ${sel === "other" ? C.accent : C.line}` }}><Ic i={Warehouse} s={14} mr={0} style={{ color: C.muted }} /><span className="text-xs flex-1">Other locations <span style={{ color: C.muted }}>· {[...new Set(other.map(r => r.location || "no location"))].slice(0, 4).join(", ")}{new Set(other.map(r => r.location)).size > 4 ? "…" : ""}</span></span><span className="text-xs font-semibold">{other.length}</span></button>}
           {lostN > 0 && <p className="text-[11px] mt-2 px-1" style={{ color: C.muted }}>{lostN} pallet{lostN === 1 ? "" : "s"} marked lost — not drawn on the map.</p>}
           {quick && <div className="mt-3 rounded-2xl px-3 py-2" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
