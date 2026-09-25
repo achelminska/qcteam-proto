@@ -1861,6 +1861,29 @@ function AnalyticsPage({ s, setPage, openInspection, initial }) {
           <table className="w-full text-sm"><thead><tr className="text-xs" style={{ color: C.muted }}><th className="text-left font-medium pb-2">Controller</th><th className="text-right font-medium pb-2">Full</th><th className="text-right font-medium pb-2">Visual</th><th className="text-right font-medium pb-2">Skips</th><th className="text-right font-medium pb-2">Reject rate</th><th className="text-right font-medium pb-2">Avg. time</th></tr></thead><tbody>{byCtrl.map(r => <tr key={r.name} style={{ borderTop: `1px solid ${C.line}` }}><td className="py-2">{r.name}</td><td className="py-2 text-right">{r.full}</td><td className="py-2 text-right">{r.visual}</td><td className="py-2 text-right" style={{ color: r.skip ? C.warn : C.ink }}>{r.skip}</td><td className="py-2 text-right" style={{ color: r.full && Math.abs(r.rejRate - pct1(rej, full.length)) > 25 ? C.warn : C.ink }}>{r.full ? `${r.rejRate}%` : "—"}</td><td className="py-2 text-right">{r.avg !== null ? `${fmt(r.avg)} min` : "—"}</td></tr>)}</tbody></table>
         </Card>
       </>}
+      {(() => { const meta = complaintsMeta(s); if (!meta.rows.length) return null;
+        // Complaints vs QC: where customers complain but QC in this period let the article through (or never saw it).
+        const rows = [...meta.rows].sort((a, b) => (b.count || 0) - (a.count || 0)).map(r => { const p = productForArticle(s, r.articleId); const ins = p ? s.inspections.filter(i => i.status === "Completed" && i.productId === p.id && isVerdictType(s, i) && countsAs(s, i) && new Date(i.completedAt || i.startedAt) >= since) : []; const rej = ins.filter(i => i.result === "Rejected").length; const rate = ins.length ? Math.round(rej / ins.length * 100) : null;
+          const top = Object.values(ins.flatMap(i => i.remarks || []).reduce((m, x) => { const n = pm[x.leafId]?.name || "?"; m[n] = m[n] || { name: n, count: 0 }; m[n].count++; return m; }, {})).sort((a, b) => b.count - a.count)[0];
+          const signal = !p ? ["Not in catalog", C.muted, C.line] : !ins.length ? ["No QC in period", C.warn, C.warnBg] : rate < 20 ? ["Passed QC — look closer", C.bad, C.badBg] : ["QC caught it", C.ok, C.okBg];
+          return { ...r, p, ins: ins.length, rej, rate, top, signal }; });
+        const maxC = Math.max(1, ...rows.map(r => r.count || 0)); const passed = rows.filter(r => r.signal[0].startsWith("Passed")).length, unseen = rows.filter(r => r.signal[0].startsWith("No QC")).length;
+        return <Card style={{ marginTop: 16 }}>
+          <div className="flex items-center gap-3 mb-1 flex-wrap"><h2 className="flex-1"><Ic i={ThumbsDown} s={16} />Complaints vs QC</h2><span className="text-xs" style={{ color: C.muted }}>{meta.period ? `complaints: ${meta.period} · ` : ""}QC: last {days} days</span></div>
+          <p className="text-xs mb-3" style={{ color: C.muted }}>Customer freshness complaints next to what QC decided on the same article. <b style={{ color: C.bad }}>{passed}</b> article{passed === 1 ? "" : "s"} with complaints went through QC almost always accepted{unseen ? <>, <b style={{ color: C.warn }}>{unseen}</b> {unseen === 1 ? "was" : "were"} not inspected at all in this period</> : ""} — those are where the inspection or its form misses what the customer sees.</p>
+          <table className="w-full text-sm"><thead><tr className="text-xs text-left" style={{ color: C.muted }}>{["Article", "Complaints", "", "Top sub-type", "QC inspections", "Rejected", "Rej. rate", "Top QC remark", "Signal"].map((h, i) => <th key={i} className="py-1.5 pr-3 font-medium" style={{ borderBottom: `1px solid ${C.line}` }}>{h}</th>)}</tr></thead>
+            <tbody>{rows.map(r => <tr key={r.id} style={{ borderBottom: `1px solid ${C.line}` }}>
+              <td className="py-1.5 pr-3">{r.p ? <button onClick={() => { setPage && setPage("products"); }} className="text-left font-medium" style={{ color: C.ink }}>{r.name || r.p.name}</button> : <span>{r.name || r.articleId}</span>}<span className="block text-[10px] font-mono" style={{ color: C.muted }}>{r.articleId}</span></td>
+              <td className="py-1.5 pr-3 font-semibold" style={{ fontVariantNumeric: "tabular-nums" }}>{r.count}</td>
+              <td className="py-1.5 pr-3" style={{ width: 120 }}><div className="h-2 rounded-full" style={{ background: C.bg }}><div className="h-2 rounded-full" style={{ width: `${Math.round((r.count || 0) / maxC * 100)}%`, background: C.bad, opacity: .85 }} /></div></td>
+              <td className="py-1.5 pr-3 text-xs">{r.subType ? <span className="px-1.5 py-0.5 rounded-full" style={{ background: C.warnBg, color: C.warn }}>{r.subType}{r.subCount != null ? ` (${r.subCount})` : ""}</span> : "—"}</td>
+              <td className="py-1.5 pr-3" style={{ fontVariantNumeric: "tabular-nums" }}>{r.p ? r.ins : "—"}</td>
+              <td className="py-1.5 pr-3" style={{ fontVariantNumeric: "tabular-nums" }}>{r.p ? r.rej : "—"}</td>
+              <td className="py-1.5 pr-3" style={{ fontVariantNumeric: "tabular-nums", color: r.rate == null ? C.muted : r.rate < 20 ? C.bad : C.ink }}>{r.rate == null ? "—" : `${r.rate}%`}</td>
+              <td className="py-1.5 pr-3 text-xs">{r.top ? `${r.top.name} ×${r.top.count}` : "—"}</td>
+              <td className="py-1.5 pr-3 text-xs"><span className="px-1.5 py-0.5 rounded-full whitespace-nowrap" style={{ background: r.signal[2], color: r.signal[1] }}>{r.signal[0]}</span></td>
+            </tr>)}</tbody></table>
+        </Card>; })()}
     </div>
   );
 }
