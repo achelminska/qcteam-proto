@@ -2828,7 +2828,7 @@ function Builder({ eff, own, setOwn, problems, specs, specsHint, readOnly, s, sc
       {modules.length > 0 && !hasProblems && <Note tone="warn">The form has <b>no problem branch</b> — the controller won't be able to report anything.</Note>}
       {hasProblems && !hasSample && <Note tone="warn">There are problem branches but no <b>Sample size</b> block — the percentage engine will have no divisor.</Note>}
       {orphanLinks.map(({ f, id }) => <Note key={f.id + id} tone="warn">Field “{f.label}“ raises problem <b>{pm[id]?.name}</b>, but no branch containing it is attached to a module.</Note>)}
-      {modules.length > 1 && <div className="flex justify-end gap-3 mb-2"><button type="button" onClick={() => setOpenMods(new Set(modules.map(m => m.id)))} className="text-xs" style={{ color: C.accent }}>Expand all</button><button type="button" onClick={() => setOpenMods(new Set())} className="text-xs" style={{ color: C.muted }}>Collapse all</button></div>}
+      {modules.length > 0 && <div className="flex justify-end gap-3 mb-2"><button type="button" onClick={() => setOpenMods(new Set(modules.map(m => m.id)))} className="text-xs" style={{ color: C.accent }}>Expand all</button><button type="button" onClick={() => setOpenMods(new Set())} className="text-xs" style={{ color: C.muted }}>Collapse all</button></div>}
       {modules.map((m, i) => (
         <div key={m.id} className="rounded-xl p-3 mb-3" style={{ background: C.surface, border: `1px solid ${isOwn(m) ? C.accent : C.line}` }}>
           <div className="flex items-center gap-2 mb-2">
@@ -2919,6 +2919,7 @@ function FormsPage({ s, set }) {
   // The controller preview sits next to the builder instead of on its own tab — a field shows up as the controller
   // will see it the moment it's added. Collapsible so the builder can take the full width when wanted.
   const [preview, setPreview] = useState(true);
+  const [layerQ, setLayerQ] = useState("");
   useEffect(() => { if (!typeId && types[0]) setTypeId(types[0].id); }, [types.length]);
   const type = typeById(s, typeId) || types[0];
   const patchType = ch => set(x => ({ ...x, inspectionTypes: x.inspectionTypes.map(t => t.id === typeId ? { ...t, ...ch } : t) }));
@@ -2970,11 +2971,17 @@ function FormsPage({ s, set }) {
       {type && <div className="flex gap-4 items-start" style={{ display: tab === "build" ? "flex" : "none" }}>
         <aside className="w-52 flex-shrink-0">
           <p className="label-sm px-2 mb-1" style={{ color: C.muted }}>Layer</p>
-          <button onClick={() => setScope({ kind: "Global" })} className="w-full text-left text-sm px-2.5 py-2 rounded-lg mb-0.5" style={{ background: scope.kind === "Global" ? C.accentSoft : "transparent", color: scope.kind === "Global" ? C.accent : C.ink }}><Ic i={Globe} s={14} />Global<Dot on={!!globalT} /></button>
-          {s.categories.length > 0 && <p className="label-sm px-2 mb-1 mt-3" style={{ color: C.muted }}>Categories</p>}
-          {s.categories.map(c => { const has = s.templates.some(t => t.scope === "Category" && t.categoryId === c.id); return <button key={c.id} onClick={() => setScope({ kind: "Category", id: c.id })} className="w-full text-left text-sm px-2.5 py-1.5 rounded-lg mb-0.5" style={{ background: scope.id === c.id ? C.accentSoft : "transparent", color: scope.id === c.id ? C.accent : C.ink, paddingLeft: c.parentId ? 22 : 10 }}>{catPath(c)}<Dot on={has} /></button>; })}
-          {s.products.length > 0 && <p className="label-sm px-2 mb-1 mt-3" style={{ color: C.muted }}>Products</p>}
-          {s.products.map(p => { const has = s.templates.some(t => t.scope === "Product" && t.productId === p.id); return <button key={p.id} onClick={() => setScope({ kind: "Product", id: p.id })} className="w-full text-left text-sm px-2.5 py-1.5 rounded-lg mb-0.5 truncate" style={{ background: scope.id === p.id ? C.accentSoft : "transparent", color: scope.id === p.id ? C.accent : C.ink }}>{p.name}<Dot on={has} /></button>; })}
+          <button onClick={() => setScope({ kind: "Global" })} className="w-full text-left text-sm px-2.5 py-2 rounded-lg mb-2" style={{ background: scope.kind === "Global" ? C.accentSoft : "transparent", color: scope.kind === "Global" ? C.accent : C.ink }}><Ic i={Globe} s={14} />Global<Dot on={!!globalT} /></button>
+          <input value={layerQ} onChange={e => setLayerQ(e.target.value)} placeholder="Search categories and products…" className="w-full text-xs rounded-lg px-2 py-1.5 mb-2 outline-none" style={{ ...inp }} />
+          {(() => { const lq = layerQ.trim().toLowerCase(); const cats = s.categories.filter(c => !lq || catPath(c).toLowerCase().includes(lq)); const prods = s.products.filter(p => !lq || p.name.toLowerCase().includes(lq) || (p.articleId || "").toLowerCase().includes(lq)); return (
+            <div style={{ maxHeight: "calc(100vh - 240px)", overflowY: "auto" }}>
+              {cats.length > 0 && <p className="label-sm px-2 mb-1" style={{ color: C.muted }}>Categories</p>}
+              {cats.map(c => { const has = s.templates.some(t => t.scope === "Category" && t.categoryId === c.id); return <button key={c.id} onClick={() => setScope({ kind: "Category", id: c.id })} className="w-full text-left text-sm px-2.5 py-1.5 rounded-lg mb-0.5" style={{ background: scope.id === c.id ? C.accentSoft : "transparent", color: scope.id === c.id ? C.accent : C.ink, paddingLeft: c.parentId ? 22 : 10 }}>{catPath(c)}<Dot on={has} /></button>; })}
+              {prods.length > 0 && <p className="label-sm px-2 mb-1 mt-3" style={{ color: C.muted }}>Products</p>}
+              {prods.map(p => { const has = s.templates.some(t => t.scope === "Product" && t.productId === p.id); return <button key={p.id} onClick={() => setScope({ kind: "Product", id: p.id })} className="w-full text-left text-sm px-2.5 py-1.5 rounded-lg mb-0.5 truncate" style={{ background: scope.id === p.id ? C.accentSoft : "transparent", color: scope.id === p.id ? C.accent : C.ink }}>{p.name}<Dot on={has} /></button>; })}
+              {lq && !cats.length && !prods.length && <p className="text-xs px-2" style={{ color: C.muted }}>Nothing matches.</p>}
+            </div>
+          ); })()}
         </aside>
         <div className="flex-1 min-w-0">
           {scope.kind === "Global" && !globalT && <Empty icon="🧩" title="No global template" hint="The starting point for every product. Build it once — modules, fields, problem branches from the catalog." action={<Primary onClick={create}>Create global template</Primary>} />}
