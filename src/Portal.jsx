@@ -1249,22 +1249,33 @@ const dockStatus = r => r.blocking ? "blocked" : DOCK_STATUS.some(([k]) => k ===
 const dockStatusColor = k => { const e = DOCK_STATUS.find(x => x[0] === k); return e ? (C.isDark ? e[4] : e[2]) : (C.isDark ? "#5fd0c2" : "#2a9d8f"); };
 const dockStatusText = k => { const e = DOCK_STATUS.find(x => x[0] === k); return e ? (C.isDark ? e[5] : e[3]) : dockStatusColor(k); };
 const dockStatusRank = k => { const i = DOCK_STATUS.findIndex(x => x[0] === k); return i < 0 ? 99 : i; };
+// Second lens on the same bars: how long each pallet has been standing on the dock.
+const DOCK_AGE = [["old", "> 24 h on dock", "#9b111e", "#e05252"], ["day", "6–24 h", "#f2c531", "#ffd75e"], ["fresh", "< 6 h", "#2a9d8f", "#5fd0c2"], ["unknown", "no arrival time", "#c3cad3", "#4b5560"]];
+const dockAgeHours = r => { if (!r.arrived) return null; const d = new Date(`${r.arrived}T${String(r.arrivedTime || "12:00").padStart(5, "0")}:00`); return isNaN(d) ? null : (Date.now() - d.getTime()) / 3600000; };
+const dockAge = r => { const h = dockAgeHours(r); return h == null ? "unknown" : h > 24 ? "old" : h >= 6 ? "day" : "fresh"; };
+const dockAgeColor = k => { const e = DOCK_AGE.find(x => x[0] === k); return e ? (C.isDark ? e[3] : e[2]) : (C.isDark ? "#4b5560" : "#c3cad3"); };
 const dockUrgent = r => dockStatusRank(dockStatus(r)) <= 2;
 function DockMapPage({ s, user, openProduct }) {
   const all = dockRowsLive(s); const rows = all.filter(r => !lostOf(s, r)); const lostN = all.length - rows.length;
   const byDock = {}; const other = [];
   rows.forEach(r => { const d = parseDock(r.location); if (d && dockZone(d.n)) (byDock[d.n] = byDock[d.n] || []).push({ ...r, sub: d.sub }); else other.push(r); });
   const [sel, setSel] = useState(null); const [quick, setQuick] = useState(false);
-  const max = Math.max(1, ...Object.values(byDock).map(a => a.length));
+  // Lens (status / age) and an optional legend filter: bars, counts and the selected dock's list follow both.
+  const [mode, setMode] = useState("status"); const [filter, setFilter] = useState(null);
+  const keyOf = r => mode === "age" ? dockAge(r) : dockStatus(r);
+  const legend = mode === "age" ? DOCK_AGE.map(([k, l]) => [k, l]) : DOCK_STATUS.map(([k, l]) => [k, l]);
+  const colorOf = k => mode === "age" ? dockAgeColor(k) : dockStatusColor(k);
+  const vis = arr => filter ? arr.filter(r => keyOf(r) === filter) : arr;
+  const max = Math.max(1, ...Object.values(byDock).map(a => vis(a).length));
   const skusOf = arr => new Set(arr.map(r => r.article || r.hu)).size;
-  const counts = arr => { const c = {}; arr.forEach(r => { const k = dockStatus(r); c[k] = (c[k] || 0) + 1; }); return c; };
+  const counts = arr => { const c = {}; arr.forEach(r => { const k = keyOf(r); c[k] = (c[k] || 0) + 1; }); return c; };
   const zoneStats = ns => { const arr = ns.flatMap(n => byDock[n] || []); return { pallets: arr.length, skus: skusOf(arr), needed: arr.filter(r => r.blocking).length, urgent: arr.filter(dockUrgent).length, docksUsed: ns.filter(n => (byDock[n] || []).length).length }; };
   const chilled = zoneStats([14, ...DOCK_CHILLED]), ambient = zoneStats([...DOCK_AMBIENT, 0]);
   const BAR_H = 150;
   const acrossArea = Math.min(BAR_H, Math.max(24, Math.round(Math.max((byDock[14] || []).length, (byDock[0] || []).length) / max * BAR_H)));
   // `flip` mirrors the column for the facing row: baseline on top, bar hanging outward (down), labels under it.
-  const DockCol = ({ n, area = BAR_H, flip = false }) => { const arr = byDock[n] || []; const c = counts(arr); const h = arr.length ? Math.min(area, Math.max(8, Math.round(arr.length / max * BAR_H))) : 0; const active = sel === n; const skus = skusOf(arr);
-    const segs = DOCK_STATUS.map(([k]) => c[k] > 0 && <div key={k} style={{ flex: c[k], background: dockStatusColor(k) }} />);
+  const DockCol = ({ n, area = BAR_H, flip = false }) => { const arr = vis(byDock[n] || []); const c = counts(arr); const h = arr.length ? Math.min(area, Math.max(8, Math.round(arr.length / max * BAR_H))) : 0; const active = sel === n; const skus = skusOf(arr);
+    const segs = legend.map(([k]) => c[k] > 0 && <div key={k} style={{ flex: c[k], background: colorOf(k) }} />);
     const base = `2px solid ${C.ink}`;
     const inside = h >= 20;
     const skuTag = arr.length > 0 && <span className="qc-sku absolute left-0 right-0 text-center text-[11px] font-semibold pointer-events-none leading-none" style={inside ? { [flip ? "top" : "bottom"]: h / 2 - 6, color: "#fff", textShadow: "0 1px 2px rgba(0,0,0,.65)" } : { [flip ? "top" : "bottom"]: h + 3, color: C.ink }}>{skus} SKU{skus === 1 ? "" : "s"}</span>;
@@ -1280,7 +1291,7 @@ function DockMapPage({ s, user, openProduct }) {
     ); };
   const gridCols = `repeat(${DOCK_CHILLED.length}, minmax(0, 1fr)) 18px repeat(${DOCK_AMBIENT.length}, minmax(0, 1fr)) 18px minmax(0, 1fr)`;
   const lastCol = DOCK_CHILLED.length + DOCK_AMBIENT.length + 3;
-  const selRows = sel === "other" ? other : sel !== null ? (byDock[sel] || []) : [];
+  const selRows = vis(sel === "other" ? other : sel !== null ? (byDock[sel] || []) : []);
   const items = (() => { const groups = {}; selRows.forEach(r => { const k = r.article || r.hu; (groups[k] = groups[k] || []).push(r); });
     return Object.values(groups).map(g => { const first = g[0]; const product = s.products.find(p => p.articleId === first.article); const checked = g.filter(x => completedInspectionFor(s, x.hu)).length; const subs = [...new Set(g.map(r => r.sub).filter(Boolean))].sort(); const earliest = [...g].sort((x, y) => `${x.arrived || ""}${x.arrivedTime || "99"}`.localeCompare(`${y.arrived || ""}${y.arrivedTime || "99"}`))[0]; const pos = new Set(g.map(r => (r.po || "").trim()).filter(Boolean));
       return { key: first.article || first.hu, name: first.name || product?.name || first.article, article: first.article, count: g.length, checked, subs, product, priority: first.priority, status: dockStatus(g.find(r => r.blocking) || first), blocking: g.some(r => r.blocking), transporter: earliest.transporter, arrived: earliest.arrived, arrivedTime: earliest.arrivedTime, po: [...pos].join(", "), mixedPO: pos.size > 1, locations: [...new Set(g.map(r => r.location).filter(Boolean))].join(", ") };
@@ -1318,7 +1329,10 @@ function DockMapPage({ s, user, openProduct }) {
             <div className="self-start mx-2" style={{ gridColumn: `2 / ${lastCol}`, marginTop: 28, borderTop: `1px dashed ${C.line}` }} />
             <DockCol n={0} area={acrossArea} flip />
           </div>
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-3">{DOCK_STATUS.map(([k, l]) => <span key={k} className="text-[11px] flex items-center gap-1.5" style={{ color: C.muted }}><span className="inline-block w-3 h-3 rounded-[3px]" style={{ background: dockStatusColor(k) }} />{l}</span>)}
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-3">
+            <div className="inline-flex rounded-lg overflow-hidden mr-1" style={{ border: `1px solid ${C.line}` }}>{[["status", "Status"], ["age", "Time on dock"]].map(([k, l]) => <button key={k} onClick={() => { setMode(k); setFilter(null); }} className="text-[11px] px-2.5 py-1" style={{ background: mode === k ? C.ink : "transparent", color: mode === k ? C.onDark : C.muted }}>{l}</button>)}</div>
+            {legend.map(([k, l]) => <button key={k} onClick={() => setFilter(f => f === k ? null : k)} className="text-[11px] flex items-center gap-1.5 px-1.5 py-0.5 rounded-md" style={{ color: filter === k ? C.ink : C.muted, background: filter === k ? C.bg : "transparent", outline: filter === k ? `1px solid ${C.line}` : "none", opacity: filter && filter !== k ? .5 : 1 }} title={filter === k ? "Show all" : `Only ${l}`}><span className="inline-block w-3 h-3 rounded-[3px]" style={{ background: colorOf(k) }} />{l}</button>)}
+            {filter && <button onClick={() => setFilter(null)} className="text-[11px] underline" style={{ color: C.accent }}>show all</button>}
             {lostN > 0 && <span className="text-[11px]" style={{ color: C.muted }}>· {lostN} lost pallet{lostN === 1 ? "" : "s"} not drawn</span>}
             {other.length > 0 && <button onClick={() => setSel(sel === "other" ? null : "other")} className="ml-auto flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs" style={{ background: sel === "other" ? C.accentSoft : C.bg, border: `1px solid ${sel === "other" ? C.accent : C.line}`, color: sel === "other" ? C.accent : C.ink }}><Ic i={Warehouse} s={13} mr={0} />Other locations <span style={{ color: C.muted }}>· {[...new Set(other.map(r => r.location || "no location"))].slice(0, 4).join(", ")}{new Set(other.map(r => r.location)).size > 4 ? "…" : ""}</span><span className="font-semibold">{other.length}</span></button>}
           </div>
