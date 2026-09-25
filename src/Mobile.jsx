@@ -28,7 +28,7 @@ const DARK = {
   onDark: "#0E1411", onDarkMuted: "rgba(14,20,17,.7)", onDarkSoft: "rgba(14,20,17,.15)", frameBg: "#080B09",
 };
 const C = { ...LIGHT };
-const applyTheme = dark => { Object.assign(C, dark ? DARK : LIGHT); };
+const applyTheme = dark => { Object.assign(C, dark ? DARK : LIGHT); C.isDark = !!dark; };
 const THEME_KEY = "qcteam-theme";
 const PHOTO_BG = "#E9EDDE";
 
@@ -3007,11 +3007,12 @@ const parseDock = loc => { const m = String(loc || "").trim().match(/^D[-\s]?0*(
 const dockZone = n => n >= 5 && n <= 14 ? "chilled" : (n >= 1 && n <= 3) || n === 0 ? "ambient" : null;
 const dockLabel = n => n === 0 ? "D-00" : String(n);
 // One colour per pallet status, most severe first. "Needed today" (the sheet's blocking flag) trumps the priority label.
-// [key, label, bar colour, text colour for pills] — hues spread around the wheel so neighbours never blur together.
-const DOCK_STATUS = [["blocked", "Needed today", "#9b111e", "#9b111e"], ["Now needed", "Now needed", "#e0457b", "#b8265c"], ["High risk", "High risk", "#f28c28", "#b35e0a"], ["High issues", "High issues", "#f2c531", "#7d6200"], ["Late inspection", "Late inspection", "#7c5cbf", "#5f42a3"], ["Inspection due", "Inspection due", "#2a9d8f", "#1f7a6f"], ["Skippable", "Skippable", "#c3cad3", "#6b7480"]];
+// [key, label, bar colour, pill text colour, dark-theme bar colour, dark-theme text colour] — hues spread around the wheel
+// so neighbours never blur together; the dark variants are lifted so they still read on the dark surfaces.
+const DOCK_STATUS = [["blocked", "Needed today", "#9b111e", "#9b111e", "#e05252", "#ff8a80"], ["Now needed", "Now needed", "#e0457b", "#b8265c", "#ff7aa8", "#ff9cbf"], ["High risk", "High risk", "#f28c28", "#b35e0a", "#ffa94d", "#ffb866"], ["High issues", "High issues", "#f2c531", "#7d6200", "#ffd75e", "#ffe07a"], ["Late inspection", "Late inspection", "#7c5cbf", "#5f42a3", "#b39ddb", "#c5b3e6"], ["Inspection due", "Inspection due", "#2a9d8f", "#1f7a6f", "#5fd0c2", "#7fe0d4"], ["Skippable", "Skippable", "#c3cad3", "#6b7480", "#4b5560", "#9aa5b1"]];
 const dockStatus = r => r.blocking ? "blocked" : DOCK_STATUS.some(([k]) => k === r.priority) ? r.priority : "Inspection due";
-const dockStatusColor = k => DOCK_STATUS.find(x => x[0] === k)?.[2] || "#2a9d8f";
-const dockStatusText = k => DOCK_STATUS.find(x => x[0] === k)?.[3] || dockStatusColor(k);
+const dockStatusColor = k => { const e = DOCK_STATUS.find(x => x[0] === k); return e ? (C.isDark ? e[4] : e[2]) : (C.isDark ? "#5fd0c2" : "#2a9d8f"); };
+const dockStatusText = k => { const e = DOCK_STATUS.find(x => x[0] === k); return e ? (C.isDark ? e[5] : e[3]) : dockStatusColor(k); };
 const dockStatusRank = k => { const i = DOCK_STATUS.findIndex(x => x[0] === k); return i < 0 ? 99 : i; };
 const dockUrgent = r => dockStatusRank(dockStatus(r)) <= 2;
 function MDocks({ s, user, go }) {
@@ -3079,7 +3080,7 @@ function MDocks({ s, user, go }) {
               <DockCol n={0} area={acrossArea} flip />
             </div>
           </div>
-          <div className="flex flex-wrap gap-x-3 gap-y-1 mt-2 px-1">{DOCK_STATUS.map(([k, l, col]) => <span key={k} className="text-[10px] flex items-center gap-1" style={{ color: C.muted }}><span className="inline-block w-2.5 h-2.5 rounded-[2px]" style={{ background: col }} />{l}</span>)}</div>
+          <div className="flex flex-wrap gap-x-3 gap-y-1 mt-2 px-1">{DOCK_STATUS.map(([k, l]) => <span key={k} className="text-[10px] flex items-center gap-1" style={{ color: C.muted }}><span className="inline-block w-2.5 h-2.5 rounded-[2px]" style={{ background: dockStatusColor(k) }} />{l}</span>)}</div>
           {other.length > 0 && <button onClick={() => setSel(sel === "other" ? null : "other")} className="mt-3 w-full flex items-center gap-2 rounded-xl px-3 py-2 text-left" style={{ background: sel === "other" ? C.accentSoft : C.bg, border: `1px solid ${sel === "other" ? C.accent : C.line}` }}><Ic i={Warehouse} s={14} mr={0} style={{ color: C.muted }} /><span className="text-xs flex-1">Other locations <span style={{ color: C.muted }}>· {[...new Set(other.map(r => r.location || "no location"))].slice(0, 4).join(", ")}{new Set(other.map(r => r.location)).size > 4 ? "…" : ""}</span></span><span className="text-xs font-semibold">{other.length}</span></button>}
           {lostN > 0 && <p className="text-[11px] mt-2 px-1" style={{ color: C.muted }}>{lostN} pallet{lostN === 1 ? "" : "s"} marked lost — not drawn on the map.</p>}
           {quick && <div className="mt-3 rounded-2xl px-3 py-2" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
