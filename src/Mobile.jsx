@@ -1818,7 +1818,7 @@ function VisualView({ insp, s, go }) {
   const product = s.products.find(p => p.id === insp.productId);
   return (
     <div>
-      <TopBar title={inspType(s, insp).name} onBack={() => go("home")} />
+      <TopBar title={inspType(s, insp).name} onBack={() => go("back")} />
       <div className="px-4 pt-4">
         <div className="rounded-2xl p-4 mb-3" style={{ background: !countsAs(s, insp) ? C.bg : C.accentSoft, border: !countsAs(s, insp) ? `1px solid ${C.line}` : "none" }}>
           <p className="text-sm font-semibold flex items-center" style={{ color: !countsAs(s, insp) ? C.muted : C.accent }}>{!countsAs(s, insp) ? <><Ic i={SkipForward} s={16} />Pallet skipped — accepted without inspection</> : <><Ic i={Check} s={16} />{inspType(s, insp).name} — done</>}</p>
@@ -1841,7 +1841,7 @@ function VisualView({ insp, s, go }) {
 // actions that matter — take / in stack / release — with inspecting as an explicit, separate step, not the default tap.
 function MBlockedInfo({ s, set, user, go, itemKey }) {
   const b = blockedQueue(s).find(x => x.key === itemKey);
-  if (!b) return <div><TopBar title="Pallet" onBack={() => go("home")} /><div className="px-4 pt-10 text-center"><p className="text-sm" style={{ color: C.muted }}>Not found — it may already be done.</p></div></div>;
+  if (!b) return <div><TopBar title="Pallet" onBack={() => go("back")} /><div className="px-4 pt-10 text-center"><p className="text-sm" style={{ color: C.muted }}>Not found — it may already be done.</p></div></div>;
   const product = s.products.find(p => p.articleId === b.article);
   const c = b.claim; const me = c && c.userId === user.id; const who = c && s.users.find(u => u.id === c.userId); const stacked = c?.status === "stacked"; const done = b.status === "Completed";
   const take = () => setClaim(set, b, { userId: user.id, at: nowISO(), status: "taken" });
@@ -1850,7 +1850,7 @@ function MBlockedInfo({ s, set, user, go, itemKey }) {
   const fields = [["Article", b.article], ["Location", b.location], ["Zone", b.zone], ["Pick location", b.pickLocation], ["Needed by", b.deadline], ["WMS status", b.wmsStatus], b.hu ? ["Pallet", `…${b.hu.slice(-8)}`] : null].filter(x => x && x[1]);
   return (
     <div className="pb-4">
-      <TopBar title="Blocked pallet" onBack={() => go("home")} />
+      <TopBar title="Blocked pallet" onBack={() => go("back")} />
       <div className="px-4 pt-3">
         <MProductHeader s={s} product={product} article={b.article} name={b.name} go={go} />
         {b.lost && <MLostControls s={s} set={set} user={user} row={b} />}
@@ -2023,10 +2023,10 @@ const LostTrigger = ({ on, onClick, lost }) => lost ? <span className="text-[11p
 function MPalletInfo({ s, set, user, go, hu, onAssign, onStart }) {
   const r = dockRowsLive(s).find(x => samePallet(x.hu, hu)); const [lostOpen, setLostOpen] = useState(false);
   useEffect(() => { setLostOpen(false); }, [hu]);
-  if (!r) return <div><TopBar title="Pallet" onBack={() => go("home")} /><div className="px-4 pt-10 text-center"><p className="text-sm" style={{ color: C.muted }}>Not found — it may already be inspected or off the sheet.</p></div></div>;
+  if (!r) return <div><TopBar title="Pallet" onBack={() => go("back")} /><div className="px-4 pt-10 text-center"><p className="text-sm" style={{ color: C.muted }}>Not found — it may already be inspected or off the sheet.</p></div></div>;
   return (
     <div className="pb-4">
-      <TopBar title="Pallet on dock" onBack={() => go("home")} right={<LostTrigger on={lostOpen} lost={!!lostOf(s, r)} onClick={() => setLostOpen(o => !o)} />} />
+      <TopBar title="Pallet on dock" onBack={() => go("back")} right={<LostTrigger on={lostOpen} lost={!!lostOf(s, r)} onClick={() => setLostOpen(o => !o)} />} />
       <div className="px-4 pt-3"><MPalletSheet s={s} set={set} user={user} go={go} row={r} onStart={(pid, typeId) => onStart(pid, r.hu, typeId)} onPickPallet={h => go("palletInfo", h)} onAssign={onAssign} lostOpen={lostOpen} onLostClose={() => setLostOpen(false)} /></div>
     </div>
   );
@@ -2072,7 +2072,7 @@ function MPriorityList({ s, user, go, priority }) {
   const skus = new Set(rows.map(r => r.article || r.hu)).size;
   return (
     <div className="pb-4">
-      <TopBar title={isAll ? "Pallets on docks" : priority} onBack={() => go("home")} />
+      <TopBar title={isAll ? "Pallets on docks" : priority} onBack={() => go("back")} />
       {isAll && <div className="flex gap-1 px-4 mt-2" style={{ borderBottom: `1px solid ${C.line}` }}>
         {[["regular", "Priorities"], ["skippable", "Skippable"]].map(([k, l]) => <button key={k} onClick={() => setSubTab(k)} className="px-1 py-2 text-sm" style={{ marginRight: 14, borderBottom: subTab === k ? `2px solid ${C.ink}` : "2px solid transparent", color: subTab === k ? C.ink : C.muted, fontWeight: subTab === k ? 500 : 400 }}>{l}</button>)}
       </div>}
@@ -2241,7 +2241,7 @@ function MSearch({ s, user, go, onStart, setState, notify, onVisual }) {
   if (product) return <MProductCard s={s} user={user} product={product} onBack={() => setSel(null)} onStart={typeId => onStart(product.id, null, typeId)} go={go} setState={setState} notify={notify} onVisual={onVisual} />;
   return (
     <div>
-      <TopBar title="New inspection" onBack={() => go("home")} />
+      <TopBar title="New inspection" onBack={() => go("back")} />
       <div className="px-4 pt-3"><input autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder="Product name or article ID…" className="w-full text-sm rounded-xl px-3 py-2.5 outline-none" style={{ ...inp, background: C.bg }} /></div>
       <div className="px-4 pt-2">{list.slice(0, 40).map(p => <button key={p.id} onClick={() => setSel(p.id)} className="w-full text-left flex items-center gap-3 py-2.5" style={{ borderBottom: `1px solid ${C.line}` }}>{asPhotoList(p.photos).length ? <img src={asPhotoList(p.photos)[0].dataUrl} alt="" className="w-10 h-10 rounded-lg object-contain" style={{ background: PHOTO_BG }} /> : <div className="w-10 h-10 rounded-lg flex items-center justify-center" style={{ background: C.bg, color: C.muted }}><Ic i={ImageIcon} s={18} mr={0} /></div>}<div className="flex-1 min-w-0"><p className="text-sm truncate">{p.name}</p><p className="text-xs" style={{ color: C.muted }}>{p.articleId || "no ID"}{p.isBio && " · bio"}</p></div><span style={{ color: C.muted }}>›</span></button>)}{list.length === 0 && <p className="text-sm py-6 text-center" style={{ color: C.muted }}>No results.</p>}</div>
     </div>
@@ -2535,7 +2535,7 @@ function MScan({ s, user, go, onStart, onVisual, onSkip, setState, notify, prese
   const P = ({ label }) => { const [fg, bg, solid] = PRIORITY[label]; return <span className="text-[11px] font-semibold px-2.5 py-1 rounded-full inline-flex items-center gap-1.5" style={{ background: solid ? C.ink : C.surface, color: solid ? C.onDark : C.ink, border: `1px solid ${solid ? C.ink : C.line}` }}><span className="inline-block rounded-full" style={{ width: 6, height: 6, background: solid ? C.bad : fg }} />{label}</span>; };
   return (
     <div className="pb-4">
-      <TopBar title="Scan code" onBack={() => go("home")} />
+      <TopBar title="Scan code" onBack={() => go("back")} />
       <div className="px-4 pt-3">
         {/* Once a code resolved, the camera and input fold into one line so the result gets the screen. */}
         {mode ? (
@@ -2634,7 +2634,7 @@ function MHistory({ s, user, go }) {
   const suppliers = [...new Set(s.inspections.map(i => i.supplier).filter(Boolean))];
   return (
     <div className="pb-4 relative" style={{ minHeight: "100%" }}>
-      <TopBar title="Inspection history" onBack={() => go("home")} right={<button onClick={() => setOpen(true)} className="text-xs px-3 py-1.5 rounded-full" style={{ border: `1px solid ${active ? C.ink : C.line}`, fontWeight: active ? 500 : 400 }}>Filters{active ? ` · ${active}` : ""}</button>} />
+      <TopBar title="Inspection history" onBack={() => go("back")} right={<button onClick={() => setOpen(true)} className="text-xs px-3 py-1.5 rounded-full" style={{ border: `1px solid ${active ? C.ink : C.line}`, fontWeight: active ? 500 : 400 }}>Filters{active ? ` · ${active}` : ""}</button>} />
       <div className="px-4 pt-3"><SearchBox autoFocus value={q} onChange={setQ} placeholder="Search by product name or ID…" inputClass="rounded-xl py-2.5" /></div>
       <div className="px-4">{groups.length === 0 ? <p className="text-sm py-8 text-center" style={{ color: C.muted }}>Nothing matches.</p> : groups.map(g => <div key={g.k}><p className="label-sm mt-3 mb-1" style={{ color: C.muted }}>{g.k}</p>{g.items.map(i => <button key={i.id} onClick={() => go("inspection", i.id)} className="w-full text-left flex items-center gap-2 py-2.5" style={{ borderBottom: `1px solid ${C.line}` }}><div className="flex-1 min-w-0"><p className="text-sm truncate">{s.products.find(p => p.id === i.productId)?.name || `Pallet ${(i.pallets || [])[0] || ""}`}</p><p className="text-xs" style={{ color: C.muted }}>{hhmm(i.completedAt || i.startedAt)}{i.dateISO && ` · DC ${dateCode(i.dateISO)}`}{i.supplier && ` · ${i.supplier}`} · {s.users.find(u => u.id === i.controllerId)?.name.split(" ")[0]}</p></div><ResultPill i={i} s={s} /></button>)}</div>)}</div>
       <Sheet open={open} onClose={() => setOpen(false)} title="Filters">
@@ -2969,7 +2969,7 @@ function MComplaints({ s, user, go }) {
   const by = meta.byUserId && s.users.find(u => u.id === meta.byUserId);
   return (
     <div className="pb-4">
-      <TopBar title="Complaints" onBack={() => go("home")} />
+      <TopBar title="Complaints" onBack={() => go("back")} />
       <div className="px-4 pt-3">
         {rows.length === 0 ? <Empty icon={ThumbsDown} title="No complaints entered yet" hint="The Head enters customer freshness complaints on the portal — they show up here and on each product profile." /> : <>
           <div className="rounded-2xl p-3.5 flex items-center gap-3" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
@@ -3058,7 +3058,7 @@ function MDocks({ s, user, go }) {
   const selZone = typeof sel === "number" ? dockZone(sel) : null;
   return (
     <div className="pb-6">
-      <TopBar title="Dock map" onBack={() => go("home")} right={all.length > 0 && <button onClick={() => setQuick(q => !q)} className="text-xs px-2.5 py-1.5 rounded-full inline-flex items-center gap-1 font-medium" style={{ border: `1px solid ${quick ? C.accent : C.line}`, background: quick ? C.accentSoft : "transparent", color: quick ? C.accent : C.ink }}><Ic i={ListIcon} s={12} mr={0} />Quick list</button>} />
+      <TopBar title="Dock map" onBack={() => go("back")} right={all.length > 0 && <button onClick={() => setQuick(q => !q)} className="text-xs px-2.5 py-1.5 rounded-full inline-flex items-center gap-1 font-medium" style={{ border: `1px solid ${quick ? C.accent : C.line}`, background: quick ? C.accentSoft : "transparent", color: quick ? C.accent : C.ink }}><Ic i={ListIcon} s={12} mr={0} />Quick list</button>} />
       <div className="px-4 pt-3">
         {all.length === 0 && <Empty icon={Warehouse} title="No dock data yet" hint="The map fills in as soon as the dock sheet syncs." />}
         {all.length > 0 && <>
@@ -3151,7 +3151,7 @@ function MProfile({ s, set, user, go }) {
   const Tile = ({ l, v, sub }) => <div className="rounded-2xl p-3.5" style={{ background: C.bg, border: `1px solid ${C.line}` }}><p className="text-xs" style={{ color: C.muted }}>{l}</p><p className="text-2xl font-semibold">{v}</p>{sub && <p className="text-[10px]" style={{ color: C.muted }}>{sub}</p>}</div>;
   return (
     <div>
-      <TopBar title="Profile" onBack={() => go("home")} />
+      <TopBar title="Profile" onBack={() => go("back")} />
       <div className="px-4 pt-4"><div className="flex items-center gap-3 mb-4"><Avatar user={user} size={56} onPick={url => set(x => ({ ...x, users: x.users.map(q => q.id === user.id ? { ...q, photoUrl: url } : q) }))} /><div><p className="font-semibold">{user.name}</p><p className="text-xs" style={{ color: C.muted }}>{user.email} · {user.role === "Head" ? "Head of Quality" : "Controller"}</p></div></div>
         <div className="grid grid-cols-2 gap-2"><Tile l="Today" v={todayN} /><Tile l="This week" v={week} /><Tile l="Total" v={mine.length} /><Tile l="Accepted" v={mine.length ? `${Math.round(acc / mine.length * 100)}%` : "—"} sub={`${acc} of ${mine.length}`} /><Tile l="Avg. active time" v={avg !== null ? `${fmt(avg)} min` : "—"} sub="excl. waiting for the Head" /><Tile l="Traces" v={skips} sub="types that don't count" /></div>
       <p className="label-sm mt-4 mb-1.5">By type</p><div className="grid grid-cols-2 gap-2">{typesOf(s).map(t => { const m = allMine.filter(i => (i.typeId || legacyTypeId(i.type)) === t.id); return <div key={t.id} className="rounded-2xl p-3.5" style={{ background: C.bg, border: `1px solid ${C.line}`, borderTop: `3px solid ${t.color}` }}><p className="text-xs" style={{ color: C.muted }}>{t.name}</p><p className="text-[22px] leading-tight font-semibold">{m.length}</p>{!t.autoAccept && m.length > 0 && <p className="text-[10px]" style={{ color: C.muted }}>{Math.round(m.filter(i => i.result === "Rejected").length / m.length * 100)}% rejected</p>}</div>; })}</div>
@@ -3162,14 +3162,14 @@ function MProfile({ s, set, user, go }) {
 function MNotifications({ s, set, user, go }) {
   const mine = s.notifications.filter(n => n.userId === user.id).sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
   const read = id => set(x => ({ ...x, notifications: x.notifications.map(n => n.id === id ? { ...n, readAt: n.readAt || nowISO() } : n) }));
-  return <div><TopBar title="Notifications" onBack={() => go("home")} /><div className="px-4">{mine.length === 0 ? <p className="text-sm py-8 text-center" style={{ color: C.muted }}>Quiet.</p> : mine.map(n => <button key={n.id} onClick={() => { read(n.id); if (n.entityType === "Inspection" && n.entityId) go("inspection", n.entityId); else if (n.entityType === "ProductFlag") go(user.role === "Head" ? "head-flags" : "flags"); else if (n.entityType === "Conversation") go("chat"); else if (n.entityType === "Announcement") go("announcements"); else if (n.entityType === "Product" && n.entityId) go("catalog", n.entityId); }} className="w-full text-left flex items-center gap-3 py-3" style={{ borderBottom: `1px solid ${C.line}` }}><NotifIcon type={n.type} size={36} /><span className="flex-1 min-w-0"><span className="block text-sm" style={{ fontWeight: n.readAt ? 400 : 600 }}>{cleanMsg(n.message)}</span><span className="block text-xs" style={{ color: C.muted }}>{dayLabel(n.createdAt)}, {hhmm(n.createdAt)}</span></span>{!n.readAt && <span className="rounded-full flex-shrink-0" style={{ width: 8, height: 8, background: C.accent }} />}</button>)}</div></div>;
+  return <div><TopBar title="Notifications" onBack={() => go("back")} /><div className="px-4">{mine.length === 0 ? <p className="text-sm py-8 text-center" style={{ color: C.muted }}>Quiet.</p> : mine.map(n => <button key={n.id} onClick={() => { read(n.id); if (n.entityType === "Inspection" && n.entityId) go("inspection", n.entityId); else if (n.entityType === "ProductFlag") go(user.role === "Head" ? "head-flags" : "flags"); else if (n.entityType === "Conversation") go("chat"); else if (n.entityType === "Announcement") go("announcements"); else if (n.entityType === "Product" && n.entityId) go("catalog", n.entityId); }} className="w-full text-left flex items-center gap-3 py-3" style={{ borderBottom: `1px solid ${C.line}` }}><NotifIcon type={n.type} size={36} /><span className="flex-1 min-w-0"><span className="block text-sm" style={{ fontWeight: n.readAt ? 400 : 600 }}>{cleanMsg(n.message)}</span><span className="block text-xs" style={{ color: C.muted }}>{dayLabel(n.createdAt)}, {hhmm(n.createdAt)}</span></span>{!n.readAt && <span className="rounded-full flex-shrink-0" style={{ width: 8, height: 8, background: C.accent }} />}</button>)}</div></div>;
 }
 function MAnnouncements({ s, set, user, go }) {
   const list = s.announcements.filter(a => a.showOnDashboard || a.isBlocking || a.productId || a.categoryId).sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
   const catPath = id => { const c = s.categories.find(x => x.id === id); if (!c) return null; const p = c.parentId && s.categories.find(x => x.id === c.parentId); return p ? `${p.name} › ${c.name}` : c.name; };
   // Same "×" as the web portal — Head can publish from the phone, so Head needs to be able to take one back from here too.
   const remove = id => set(x => ({ ...x, announcements: x.announcements.filter(a => a.id !== id) }));
-  return <div><TopBar title="Announcements" onBack={() => go("home")} /><div className="px-4">{list.length === 0 ? <p className="text-sm py-8 text-center" style={{ color: C.muted }}>No announcements.</p> : list.map(a => <div key={a.id} className="py-3" style={{ borderBottom: `1px solid ${C.line}` }}><div className="flex items-center gap-2 mb-1">{a.isBlocking && <span className="text-[10px] px-1.5 rounded" style={{ background: C.badBg, color: C.bad }}>blocking</span>}{a.productId && <span className="text-[10px] px-1.5 rounded" style={{ background: C.warnBg, color: C.warn }}>{s.products.find(p => p.id === a.productId)?.name}</span>}{a.categoryId && <span className="text-[10px] px-1.5 rounded" style={{ background: C.okBg, color: C.ok }}>{catPath(a.categoryId)}</span>}<p className="text-sm font-medium flex-1">{a.title}</p>{user.role === "Head" && <button onClick={() => remove(a.id)} className="text-sm px-1" style={{ color: C.muted }}>×</button>}</div><p className="text-sm">{a.body}</p><p className="text-xs" style={{ color: C.muted }}>{dayLabel(a.createdAt)}{(a.acks || {})[user.id] && " · acknowledged ✓"}</p></div>)}</div></div>;
+  return <div><TopBar title="Announcements" onBack={() => go("back")} /><div className="px-4">{list.length === 0 ? <p className="text-sm py-8 text-center" style={{ color: C.muted }}>No announcements.</p> : list.map(a => <div key={a.id} className="py-3" style={{ borderBottom: `1px solid ${C.line}` }}><div className="flex items-center gap-2 mb-1">{a.isBlocking && <span className="text-[10px] px-1.5 rounded" style={{ background: C.badBg, color: C.bad }}>blocking</span>}{a.productId && <span className="text-[10px] px-1.5 rounded" style={{ background: C.warnBg, color: C.warn }}>{s.products.find(p => p.id === a.productId)?.name}</span>}{a.categoryId && <span className="text-[10px] px-1.5 rounded" style={{ background: C.okBg, color: C.ok }}>{catPath(a.categoryId)}</span>}<p className="text-sm font-medium flex-1">{a.title}</p>{user.role === "Head" && <button onClick={() => remove(a.id)} className="text-sm px-1" style={{ color: C.muted }}>×</button>}</div><p className="text-sm">{a.body}</p><p className="text-xs" style={{ color: C.muted }}>{dayLabel(a.createdAt)}{(a.acks || {})[user.id] && " · acknowledged ✓"}</p></div>)}</div></div>;
 }
 // Unreported pallets: the audit trail for "who moved this without QC ever seeing it" — detected server-side on
 // every dock push (server/misslogic.mjs), so this list updates itself even with nobody's app open. Both roles see
@@ -3184,7 +3184,7 @@ function MUnreported({ s, set, user, go }) {
   const review = id => { reviewUnreported(set, id, user, notes[id] || ""); setNotes(n => { const { [id]: _, ...rest } = n; return rest; }); setNoteFor(null); };
   return (
     <div>
-      <TopBar title="Unreported pallets" onBack={() => go("home")} />
+      <TopBar title="Unreported pallets" onBack={() => go("back")} />
       <div className="px-4 pt-3">
         <p className="text-sm mb-3" style={{ color: C.muted }}>Pallets that dropped off the dock sheet before QC ever inspected them — picked or moved on. Logged automatically once a pallet has stayed missing for a full push cycle, so a brief sheet hiccup doesn't count.</p>
         <div className="grid grid-cols-4 gap-2 mb-3">
@@ -3218,7 +3218,7 @@ function MUnreported({ s, set, user, go }) {
 }
 function MFlags({ s, user, go }) {
   const mine = s.flags.filter(f => f.raisedBy === user.id).sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
-  return <div><TopBar title="My flags" onBack={() => go("home")} /><div className="px-4">{mine.length === 0 ? <p className="text-sm py-8 text-center" style={{ color: C.muted }}>You haven't raised any flags yet.</p> : mine.map(f => <div key={f.id} className="py-3" style={{ borderBottom: `1px solid ${C.line}` }}><div className="flex items-center gap-2 mb-1"><span className="text-[10px] px-1.5 rounded" style={{ background: f.status === "Open" ? C.warnBg : C.okBg, color: f.status === "Open" ? C.warn : C.ok }}>{f.status === "Open" ? "open" : "resolved"}</span><p className="text-sm font-medium">{s.products.find(p => p.id === f.productId)?.name}</p></div><p className="text-sm">„{f.description}"</p>{f.resolution && <p className="text-xs mt-1" style={{ color: C.ok }}>✓ {f.resolution}</p>}</div>)}</div></div>;
+  return <div><TopBar title="My flags" onBack={() => go("back")} /><div className="px-4">{mine.length === 0 ? <p className="text-sm py-8 text-center" style={{ color: C.muted }}>You haven't raised any flags yet.</p> : mine.map(f => <div key={f.id} className="py-3" style={{ borderBottom: `1px solid ${C.line}` }}><div className="flex items-center gap-2 mb-1"><span className="text-[10px] px-1.5 rounded" style={{ background: f.status === "Open" ? C.warnBg : C.okBg, color: f.status === "Open" ? C.warn : C.ok }}>{f.status === "Open" ? "open" : "resolved"}</span><p className="text-sm font-medium">{s.products.find(p => p.id === f.productId)?.name}</p></div><p className="text-sm">„{f.description}"</p>{f.resolution && <p className="text-xs mt-1" style={{ color: C.ok }}>✓ {f.resolution}</p>}</div>)}</div></div>;
 }
 
 // ── Head on the phone: communication first (escalations, flags, announcements); inspections like any controller ──
@@ -3228,7 +3228,7 @@ function MHeadEscalations({ s, set, user, go, notify }) {
   const answer = i => { const txt = (answers[i.id] || "").trim(); if (!txt) return;
     set(x => ({ ...x, inspections: x.inspections.map(q => q.id === i.id ? { ...q, status: "Draft", headAnswer: txt, answeredAt: nowISO(), audit: [...(q.audit || []), { at: nowISO(), userId: user.id, action: "Head's answer", details: txt }] } : q) }));
     notify && notify("Answered", `The Head answered re ${s.products.find(p => p.id === i.productId)?.name}: “${txt}”`, "Inspection", i.id, i.controllerId); setAnswers(a => ({ ...a, [i.id]: "" })); };
-  return <div><TopBar title="Questions from controllers" onBack={() => go("home")} /><div className="px-4 pt-2">
+  return <div><TopBar title="Questions from controllers" onBack={() => go("back")} /><div className="px-4 pt-2">
     {list.length === 0 ? <p className="text-sm py-8 text-center" style={{ color: C.muted }}>Nothing is waiting for you.</p> : list.map(i => { const p = s.products.find(x => x.id === i.productId); const u = s.users.find(x => x.id === i.controllerId); return (
       <div key={i.id} className="rounded-2xl p-3.5 mb-3" style={{ background: C.surface, border: `1px solid ${C.line}`, borderLeft: `3px solid ${C.warn}` }}>
         <p className="text-sm font-semibold">{p?.name}</p><p className="text-xs mb-2" style={{ color: C.muted }}>{u?.name} · {dayLabel(i.escalatedAt || i.startedAt)} {hhmm(i.escalatedAt || i.startedAt)} · inspection paused</p>
@@ -3242,7 +3242,7 @@ function MHeadFlags({ s, set, user, go, notify }) {
   const open = s.flags.filter(f => f.status === "Open").sort((a, b) => (a.createdAt || "").localeCompare(b.createdAt || ""));
   const [res, setRes] = useState({});
   const resolve = f => { const txt = (res[f.id] || "").trim(); if (!txt) return; set(x => ({ ...x, flags: x.flags.map(q => q.id === f.id ? { ...q, status: "Resolved", resolution: txt, resolvedBy: user.id, resolvedAt: nowISO() } : q) })); notify && notify("Flag", `Flag resolved: ${txt}`, "ProductFlag", f.id, f.raisedBy); };
-  return <div><TopBar title="Flags to resolve" onBack={() => go("home")} /><div className="px-4 pt-2">
+  return <div><TopBar title="Flags to resolve" onBack={() => go("back")} /><div className="px-4 pt-2">
     {open.length === 0 ? <p className="text-sm py-8 text-center" style={{ color: C.muted }}>No open flags.</p> : open.map(f => { const p = s.products.find(x => x.id === f.productId); const u = s.users.find(x => x.id === f.raisedBy); return (
       <div key={f.id} className="rounded-2xl p-3.5 mb-3" style={{ background: C.surface, border: `1px solid ${C.line}`, borderLeft: `3px solid ${C.warn}` }}>
         <p className="text-sm font-semibold">{p?.name || "product"}</p><p className="text-xs mb-2" style={{ color: C.muted }}>{u?.name} · {dayLabel(f.createdAt)} {hhmm(f.createdAt)}</p>
@@ -3256,7 +3256,7 @@ function MHeadAnnounce({ s, set, user, go, notify }) {
   const [d, setD] = useState({ title: "", body: "", isBlocking: false, showOnDashboard: true, productId: "", categoryId: "", validTo: "" });
   const publish = () => { if (!d.title.trim()) return; const id = uid(); set(x => ({ ...x, announcements: [...x.announcements, { id, title: d.title.trim(), body: d.body.trim(), productId: d.productId || null, categoryId: d.categoryId || null, validTo: d.validTo || null, createdBy: user.id, createdAt: nowISO(), acks: {}, isBlocking: d.isBlocking, showOnDashboard: d.showOnDashboard }] })); if (d.isBlocking && notify) s.users.filter(u => u.role === "Controller" && u.active !== false).forEach(u => notify("Announcement", `New blocking announcement: ${d.title.trim()}`, "Announcement", id, u.id)); go("home"); };
   const Chip = ({ on, onClick, children }) => <button onClick={onClick} className="text-xs px-3 py-1.5 rounded-full" style={{ background: on ? C.ink : "transparent", color: on ? C.onDark : C.ink, border: `1px solid ${on ? C.ink : C.line}` }}>{children}</button>;
-  return <div><TopBar title="New announcement" onBack={() => go("home")} /><div className="px-4 pt-3">
+  return <div><TopBar title="New announcement" onBack={() => go("back")} /><div className="px-4 pt-3">
     <input value={d.title} onChange={e => setD(x => ({ ...x, title: e.target.value }))} placeholder="title" className="w-full text-sm mb-2" />
     <textarea value={d.body} onChange={e => setD(x => ({ ...x, body: e.target.value }))} placeholder="body" rows={4} className="w-full text-sm mb-3" />
     <p className="label-sm mb-1.5">Channels</p>
@@ -3279,7 +3279,7 @@ function MInspection({ s, set, user, inspId, go, notify }) {
   const [profileOpen, setProfileOpen] = useState(false);
   useEffect(() => { if (!profileOpen) return; const h = () => setProfileOpen(false); window.addEventListener("popstate", h); try { history.pushState({ ...history.state, __qcProfileSheet: true }, ""); } catch {} return () => window.removeEventListener("popstate", h); }, [profileOpen]);
   const closeProfile = () => { try { if (history.state && history.state.__qcProfileSheet) { history.back(); return; } } catch {} setProfileOpen(false); };
-  if (!insp) return <div><TopBar title="Inspection" onBack={() => go("home")} /><p className="text-sm p-4">Not found.</p></div>;
+  if (!insp) return <div><TopBar title="Inspection" onBack={() => go("back")} /><p className="text-sm p-4">Not found.</p></div>;
   if (!insp.template) return <VisualView insp={insp} s={s} go={go} />;
   const product = s.products.find(p => p.id === insp.productId);
   const patchInsp = fn => set(x => ({ ...x, inspections: x.inspections.map(i => i.id === insp.id ? (typeof fn === "function" ? fn(i) : { ...i, ...fn }) : i) }));
@@ -3293,7 +3293,7 @@ function MInspection({ s, set, user, inspId, go, notify }) {
   const problems = withLinkedProblems(s, problemsFor(s, { kind: "Product", id: product.id }, new Set(insp.template.suppressed || [])), insp.template);
   return (
     <div className="pb-4">
-      <TopBar title={runner ? "Inspection" : "Report"} onBack={() => { setEditing(false); go("home"); }} right={product && <button onClick={() => setProfileOpen(true)} className="text-xs px-2.5 py-1.5 rounded-full inline-flex items-center font-medium" style={{ background: C.accentSoft, color: C.accent }}><Ic i={BookOpen} s={13} mr={4} />Product</button>} />
+      <TopBar title={runner ? "Inspection" : "Report"} onBack={() => { setEditing(false); go("back"); }} right={product && <button onClick={() => setProfileOpen(true)} className="text-xs px-2.5 py-1.5 rounded-full inline-flex items-center font-medium" style={{ background: C.accentSoft, color: C.accent }}><Ic i={BookOpen} s={13} mr={4} />Product</button>} />
       {profileOpen && product && (
         <div className="fixed inset-0 flex flex-col" style={{ background: C.bg, zIndex: 70 }}>
           <div className="flex items-center gap-3 px-4 pt-2 pb-3 flex-shrink-0" style={{ borderBottom: `1px solid ${C.line}`, background: C.surface }}>
@@ -3330,13 +3330,16 @@ export default function App() {
   // screen instead of leaving the app. skipPushRef swallows the one page-state update right after a pop (it's
   // already reflecting history — pushing it again would double it up) and the very first render (nothing to push yet).
   const skipPushRef = useRef(true);
+  // In-app depth of the history stack we pushed ourselves: the back arrow uses history.back() while there is somewhere
+  // to go back to (so a list → pallet → back lands on the list), and falls back to Home at the root.
+  const depthRef = useRef(0); const curRef = useRef({ page, param }); curRef.current = { page, param };
   useEffect(() => {
     if (skipPushRef.current) { skipPushRef.current = false; return; }
-    try { history.pushState({ __qcNav: true, page, param }, ""); } catch {}
+    try { history.pushState({ __qcNav: true, page, param }, ""); depthRef.current += 1; } catch {}
   }, [page, param]);
   useEffect(() => {
     try { history.replaceState({ __qcNav: true, page, param }, ""); } catch {}
-    const onPop = e => { skipPushRef.current = true; const st = e.state; setPage(st && st.__qcNav ? st.page : "home"); setParam(st && st.__qcNav ? (st.param ?? null) : null); };
+    const onPop = e => { const st = e.state; const np = st && st.__qcNav ? st.page : "home", nprm = st && st.__qcNav ? (st.param ?? null) : null; if (np === curRef.current.page && nprm === curRef.current.param) return; skipPushRef.current = true; depthRef.current = Math.max(0, depthRef.current - 1); setPage(np); setParam(nprm); };
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
   }, []);
@@ -3367,7 +3370,7 @@ export default function App() {
   if (!loaded) return <div className="min-h-screen flex items-center justify-center text-sm" style={{ color: C.muted }}>Loading…</div>;
   const user = s.users.find(u => u.id === userId && u.active !== false) || null;
   if (!user) return <LoginScreen s={s} onLogin={id => setUserId(id)} />;
-  const go = (p, prm = null) => { setPage(p); setParam(prm); };
+  const go = (p, prm = null) => { if (p === "back") { if (depthRef.current > 0) { try { history.back(); return; } catch {} } setPage("home"); setParam(null); return; } setPage(p); setParam(prm); };
   const notify = (type, message, entityType, entityId, toUserId) => set(x => { const targets = toUserId ? [toUserId] : x.users.filter(u => u.role === "Head").map(u => u.id); return { ...x, notifications: [...x.notifications, ...targets.map(t => ({ id: uid(), userId: t, type, message, entityType, entityId, createdAt: nowISO(), readAt: null }))] }; });
   const startInspection = (pid, palletNo, force = false, typeId = "type-full") => {
     const p = s.products.find(x => x.id === pid); const t = resolveTemplate(s, p, typeId); if (!p || !t) { setToast(`No form for “${typeById(s, typeId)?.name || "this type"}” — the Head must build it in Forms.`); return; }
