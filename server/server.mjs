@@ -1,7 +1,7 @@
 // QCteam local state server — one file, no dependencies. Run: node server/server.mjs
 // HTTP on :3001 and, if server/cert.pem + server/key.pem exist, HTTPS on :3002 (needed when the app itself runs over HTTPS —
 // browsers block mixed content). Create the cert once:  npm run cert
-import http from "node:http"; import https from "node:https"; import fs from "node:fs"; import os from "node:os"; import path from "node:path"; import zlib from "node:zlib";
+import http from "node:http"; import https from "node:https"; import fs from "node:fs"; import os from "node:os"; import path from "node:path"; import { fileURLToPath } from "node:url"; import zlib from "node:zlib";
 import { targetsFor, suggestMappings, applyMapping, detectTable, extractSummary } from "./sheetlogic.mjs";
 import { applyDeadlineAlerts } from "./alertlogic.mjs";
 import { computeMissingPalletUpdate } from "./misslogic.mjs";
@@ -26,7 +26,7 @@ if (STATE_DIR && !fs.existsSync(STATE_DIR)) fs.mkdirSync(STATE_DIR, { recursive:
 const store = fs.existsSync(FILE) ? JSON.parse(fs.readFileSync(FILE, "utf8")) : {};
 console.log(`state file: ${FILE}`);
 const save = () => fs.writeFileSync(FILE, JSON.stringify(store));
-const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET,PUT,DELETE,OPTIONS", "Access-Control-Allow-Headers": "Content-Type,If-Match,X-Force,X-Sync-Key" };
+const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET,PUT,POST,DELETE,OPTIONS", "Access-Control-Allow-Headers": "Content-Type,If-Match,X-Force,X-Sync-Key" };
 // Bandwidth: the state and the sheet dumps are text — gzip them when the client accepts it (Render's plan meters egress).
 const sendJson = (req, res, status, body) => { const txt = typeof body === "string" ? body : JSON.stringify(body); const h = { ...cors, "Content-Type": "application/json", "Cache-Control": "no-store" }; if (txt.length > 1024 && /\bgzip\b/.test(req.headers["accept-encoding"] || "")) { h["Content-Encoding"] = "gzip"; res.writeHead(status, h); res.end(zlib.gzipSync(txt)); } else { res.writeHead(status, h); res.end(txt); } };
 // Server-side processing: apply the mapping the Head saved in the app state to every push, so the dashboard is current
@@ -102,6 +102,13 @@ const handler = async (req, res) => {
   // /proxy?url=…  — fetch a public sheet endpoint (Apps Script JSON or published CSV) server-side, so the browser's CORS rules don't apply
   if (req.url.startsWith("/proxy?")) { try { const url = new URL(req.url, "http://x").searchParams.get("url"); if (!/^https:\/\/(script\.google\.com|docs\.google\.com|script\.googleusercontent\.com)\//.test(url || "")) { res.writeHead(400, cors).end("only Google Sheets / Apps Script URLs"); return; } const r = await fetch(url, { redirect: "follow" }); const txt = await r.text(); res.writeHead(r.ok ? 200 : r.status, { ...cors, "Content-Type": r.headers.get("content-type") || "text/plain" }); res.end(txt); } catch (e) { res.writeHead(502, cors).end(String(e.message || e)); } return; }
   // /sheet/<purpose>  — PUSH from Google Apps Script (UrlFetchApp) and PULL by the apps. The sheet pushes {header, rows}; a shared key guards the POST.
+  // Photos live as files, not as base64 inside the shared state — the state stays small and sync stays fast.
+  // POST { dataUrl } → { path }; GET returns the bytes. Only image data URLs are accepted.
+  if (req.url.startsWith("/photos")) {
+    const PHOTOS = STATE_DIR ? path.join(STATE_DIR, "photos") : path.join(path.dirname(fileURLToPath(import.meta.url)), "photos");
+    if (req.method === "POST" && req.url.split("?")[0] === "/photos") { const chunks = []; req.on("data", c => chunks.push(c)); req.on("end", () => { try { const j = JSON.parse(Buffer.concat(chunks).toString("utf8")); const m = /^data:(image\/[a-z0-9.+-]+);base64,([A-Za-z0-9+/=\s]+)$/.exec(j.dataUrl || ""); if (!m) throw new Error("expected an image data URL"); const ext = m[1] === "image/png" ? "png" : m[1] === "image/webp" ? "webp" : "jpg"; const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 8); fs.mkdirSync(PHOTOS, { recursive: true }); fs.writeFileSync(path.join(PHOTOS, id + "." + ext), Buffer.from(m[2].replace(/\s/g, ""), "base64")); res.writeHead(200, { ...cors, "Content-Type": "application/json" }).end(JSON.stringify({ path: "/photos/" + id + "." + ext })); } catch (e) { res.writeHead(400, cors).end(String(e.message || e)); } }); return; }
+    if (req.method === "GET") { const name = path.basename(decodeURIComponent(req.url.split("?")[0].replace(/^\/photos\/?/, ""))); const file = path.join(PHOTOS, name); if (!name || !fs.existsSync(file)) { res.writeHead(404, cors); return res.end(""); } res.writeHead(200, { ...cors, "Content-Type": name.endsWith(".png") ? "image/png" : name.endsWith(".webp") ? "image/webp" : "image/jpeg", "Cache-Control": "public, max-age=31536000, immutable" }); return fs.createReadStream(file).pipe(res); }
+  }
   if (req.url.startsWith("/sheet/")) {
     const purpose = req.url.replace(/^\/sheet\//, "").split("?")[0].toLowerCase();
     if (req.method === "POST") { if (SYNC_KEY && req.headers["x-sync-key"] !== SYNC_KEY && req.headers["x-secret"] !== SYNC_KEY) { res.writeHead(401, cors).end("bad X-Sync-Key"); return; } const chunks = []; req.on("data", c => chunks.push(c)); req.on("end", () => { const body = Buffer.concat(chunks).toString("utf8"); try { let j = JSON.parse(body);

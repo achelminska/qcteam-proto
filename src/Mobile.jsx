@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, Fragment } from "react";
 import { createSyncer, guardUnload } from "./sync.js";
+import { hasV, specLabel, dayLabel, typesOf, typeById, legacyTypeId, inspType, countsAs } from "./shared/format.js";
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceArea, ReferenceLine, Legend } from "recharts";
 import { Clock, MessageCircle, Link2, List as ListIcon, BarChart3, Printer, SlidersHorizontal, SkipForward, LayoutDashboard, ClipboardList, Flag, Bell, FolderTree, ListTree, Package, LayoutTemplate, Truck, Globe, Megaphone, MessageSquare, Users, Search, Sun, Moon, Database, Home, Menu as MenuIcon, ScanLine, Plus, ChevronLeft, ChevronRight, ChevronDown, User, Camera, Image as ImageIcon, Paperclip, Send, Star, Pencil, Sparkles, HelpCircle, Download, Lock as LockIcon, AlertTriangle, Inbox, FileText, ShieldAlert, Tag, Layers, BookOpen, Filter, Check, X, Ruler, Boxes, Warehouse, Snowflake, Thermometer, ThumbsDown } from "lucide-react";
 
@@ -42,6 +43,27 @@ const SearchBox = ({ value, onChange, placeholder, className = "", style = {}, i
     <input autoFocus={autoFocus} value={value} onChange={e => onChange(e.target.value)} onKeyDown={onKeyDown} placeholder={placeholder} className={`w-full text-sm ${inputClass}`} style={{ paddingLeft: size + 18 }} />
   </div>
 );
+// Dropdown with a search box — supplier and category lists grow without limit, and scrolling a native
+// select on a phone is exactly what nobody wants to do.
+function SearchSelect({ value, onChange, options, empty = "all", placeholder = "Search…" }) {
+  const [open, setOpen] = useState(false); const [q, setQ] = useState(""); const ref = useRef(null);
+  useEffect(() => { if (!open) return; const h = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); }; document.addEventListener("mousedown", h); return () => document.removeEventListener("mousedown", h); }, [open]);
+  const chosen = options.find(o => o.value === value); const qq = q.trim().toLowerCase();
+  const shown = qq ? options.filter(o => o.label.toLowerCase().includes(qq)) : options;
+  return (
+    <div ref={ref} className="relative">
+      <button type="button" onClick={() => { setOpen(o => !o); setQ(""); }} className="w-full text-left text-sm rounded-lg px-2 py-2 flex items-center gap-1" style={{ ...inp }}><span className="flex-1 truncate" style={{ color: chosen ? C.ink : C.muted }}>{chosen ? chosen.label : empty}</span><Ic i={ChevronDown} s={13} mr={0} style={{ color: C.muted }} /></button>
+      {open && <div className="absolute left-0 right-0 mt-1 rounded-xl p-1.5" style={{ background: C.surface, border: `1px solid ${C.line}`, boxShadow: "0 10px 24px rgba(0,0,0,.18)", zIndex: 50 }}>
+        <input autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder={placeholder} className="w-full text-sm rounded-lg px-2 py-2 outline-none mb-1" style={{ ...inp }} />
+        <div style={{ maxHeight: 240, overflowY: "auto" }}>
+          {!qq && <button type="button" onClick={() => { onChange(""); setOpen(false); }} className="w-full text-left text-sm px-2 py-2 rounded-lg" style={{ color: C.muted }}>{empty}</button>}
+          {shown.map(o => <button type="button" key={o.value} onClick={() => { onChange(o.value); setOpen(false); }} className="w-full text-left text-sm px-2 py-2 rounded-lg truncate" style={{ background: o.value === value ? C.accentSoft : "transparent", color: o.value === value ? C.accent : C.ink }}>{o.label}</button>)}
+          {shown.length === 0 && <p className="text-xs px-2 py-2" style={{ color: C.muted }}>Nothing matches.</p>}
+        </div>
+      </div>}
+    </div>
+  );
+}
 // Searchable product picker — an alphabetical <select> of the whole catalog (hundreds of products) is unusable on a phone.
 const MProductPicker = ({ products, value, onChange, placeholder = "Search product…" }) => {
   const [q, setQ] = useState(""); const [open, setOpen] = useState(false);
@@ -215,9 +237,7 @@ const statusOf = (problems, overrides, remarks, id, totals) => {
 const tone = s => s === "exceeded" ? [C.bad, C.badBg] : s === "flagged" ? [C.warn, C.warnBg] : [C.ok, C.okBg];
 
 // ProductSpecification: MinValue / MaxValue (at least one). The "bad when" direction follows from what is set.
-const hasV = v => v !== null && v !== undefined && v !== "";
 const basisTag = q => q?.basis === "cu" ? " /CU" : "";
-const specLabel = q => { const mn = hasV(q.min), mx = hasV(q.max); const core = mn && mx ? `${q.min}–${q.max}` : mn ? `min ${q.min}` : mx ? `max ${q.max}` : "—"; return `${core} ${q.unit || ""}`.trim(); };
 // Specification cascade by name: product → category → parent category
 const effectiveSpecs = (s, product) => {
   if (!product) return [];
@@ -255,11 +275,6 @@ const scopeTag = (p, s) => p.productId ? `product: ${s.products.find(x => x.id =
 // No default inspection types: the Head defines them (Forms → + new type). Legacy ids below only keep old records readable.
 const SEED_TYPES = () => [];
 const SKIP_REASONS = ["no time", "stable product", "same delivery as earlier", "checked at the supplier"];
-const typesOf = s => [...(s.inspectionTypes || [])].sort((a, b) => a.sort - b.sort);
-const typeById = (s, id) => (s.inspectionTypes || []).find(t => t.id === id) || null;
-const legacyTypeId = t => t === "Visual" ? "type-visual" : t === "Skip" ? "type-skip" : "type-full";
-const inspType = (s, insp) => typeById(s, insp.typeId || legacyTypeId(insp.type)) || { id: "type-full", name: "Full", color: "#1F5C3E", autoAccept: false, countsAsInspection: true, reason: "none" };
-const countsAs = (s, insp) => inspType(s, insp).countsAsInspection !== false;
 const isVerdictType = (s, insp) => !inspType(s, insp).autoAccept;
 const settingsOf = s => ({ companyName: "Picnic Technologies", qcEmail: "qc@picnic.nl", rejectionWindowHours: 24, deadlineWarnHours: 6, deadlineWarnHoursRisky: 10, riskyLookbackDays: 14, ...(s.settings || {}) });
 // Policy = the set of allowed inspection types. Product → category chain → types allowed by default. A product always has one.
@@ -414,6 +429,9 @@ const shrinkImage = file => new Promise(res => {
 let _pickerEl = null;
 const mountPicker = i => { if (_pickerEl) _pickerEl.remove(); i.style.cssText = "position:fixed;left:-9999px;width:1px;height:1px;opacity:0"; document.body.appendChild(i); _pickerEl = i; };
 const unmountPicker = i => { i.remove(); if (_pickerEl === i) _pickerEl = null; };
+// Photos are files on the state server, not base64 inside the shared state — a photo is { id, path, at, name }.
+// If the upload fails (offline, old server) the data URL stays in place, so nothing is ever lost.
+const uploadPhoto = async dataUrl => { try { const r = await fetch("/photos", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ dataUrl }) }); if (!r.ok) return null; const j = await r.json(); return j.path || null; } catch { return null; } };
 const pickPhotos = (opts = {}) => new Promise(res => {
   const i = document.createElement("input"); i.type = "file"; i.accept = "image/*,.heic,.heif"; i.multiple = !opts.capture; if (opts.capture) i.setAttribute("capture", "environment");
   mountPicker(i);
@@ -422,13 +440,15 @@ const pickPhotos = (opts = {}) => new Promise(res => {
     for (const f of Array.from(i.files || [])) {
       let d = await shrinkImage(f);
       if (!d && f.size <= 2.5 * 1024 * 1024) d = await readAsDataUrl(f);   // fallback: original (e.g. HEIC in Safari)
-      if (d) out.push({ id: uid(), dataUrl: d, at: nowISO(), name: f.name, size: f.size }); else failed.push(f.name);
+      if (d) { const path = await uploadPhoto(d); out.push(path ? { id: uid(), path, at: nowISO(), name: f.name } : { id: uid(), dataUrl: d, at: nowISO(), name: f.name, size: f.size }); } else failed.push(f.name);
     }
     unmountPicker(i); res({ out, failed });
   };
   i.click();
 });
 const asPhotoList = v => Array.isArray(v) ? v : [];
+const photoSrc = ph => (ph && (ph.path || ph.dataUrl)) || "";
+const photoData = async ph => { const src = photoSrc(ph); if (!src) return null; if (src.startsWith("data:")) return src; try { const b = await (await fetch(src)).blob(); return await new Promise(res => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = () => res(null); r.readAsDataURL(b); }); } catch { return null; } };
 function PhotoStrip({ photos, onAdd, onRemove, size = 64, addLabel = "Add photo" }) {
   const [view, setView] = useState(null); const [busy, setBusy] = useState(false);
   const list = asPhotoList(photos);
@@ -437,13 +457,13 @@ function PhotoStrip({ photos, onAdd, onRemove, size = 64, addLabel = "Add photo"
   const touch = typeof navigator !== "undefined" && navigator.maxTouchPoints > 0;
   return (
     <div className="flex flex-wrap gap-2 items-center">
-      {list.map(ph => <div key={ph.id} className="relative"><img src={ph.dataUrl} alt="" onClick={() => setView(ph)} className="object-cover rounded-lg cursor-pointer" style={{ width: size, height: size, border: `1px solid ${C.line}` }} />{onRemove && <button onClick={() => onRemove(ph.id)} className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full text-[10px] leading-none" style={{ background: C.bad, color: C.onDark }} title="delete">×</button>}</div>)}
+      {list.map(ph => <div key={ph.id} className="relative"><img src={ph.path || photoSrc(ph)} alt="" onClick={() => setView(ph)} className="object-cover rounded-lg cursor-pointer" style={{ width: size, height: size, border: `1px solid ${C.line}` }} />{onRemove && <button onClick={() => onRemove(ph.id)} className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full text-[10px] leading-none" style={{ background: C.bad, color: C.onDark }} title="delete">×</button>}</div>)}
       {busy && <div className="rounded-lg flex items-center justify-center text-[10px]" style={{ width: size, height: size, background: C.bg, color: C.muted, border: `1px solid ${C.line}` }}>uploading…</div>}
       {onAdd && touch && <button onClick={() => add(true)} disabled={busy} className="rounded-lg flex flex-col items-center justify-center text-xs" style={{ width: size, height: size, border: `1px solid ${C.accent}`, color: C.onDark, background: C.accent, gap: 2 }}><Ic i={Camera} s={size >= 56 ? 18 : 14} mr={0} />{size >= 56 && <span className="text-[10px] leading-tight">Take photo</span>}</button>}
       {onAdd && <button onClick={() => add(false)} disabled={busy} className="rounded-lg flex flex-col items-center justify-center text-xs" style={{ width: size, height: size, border: `1px dashed ${C.line}`, color: C.accent, background: C.accentSoft, gap: 2 }}><Ic i={ImageIcon} s={size >= 56 ? 18 : 14} mr={0} />{size >= 56 && <span className="text-[10px] leading-tight">{touch ? "From library" : addLabel}</span>}</button>}
       {!onAdd && list.length === 0 && <span className="text-xs" style={{ color: C.muted }}>no photos</span>}
       {err && <span className="text-xs w-full" style={{ color: C.bad }}>{err}</span>}
-      {view && <div className="fixed inset-0 flex items-center justify-center p-6" style={{ background: "rgba(0,0,0,.85)", zIndex: 60 }} onClick={() => setView(null)}><img src={view.dataUrl} alt="" className="max-w-full max-h-full rounded-xl" /><button className="absolute top-4 right-5 text-2xl" style={{ color: "#fff" }}>×</button></div>}
+      {view && <div className="fixed inset-0 flex items-center justify-center p-6" style={{ background: "rgba(0,0,0,.85)", zIndex: 60 }} onClick={() => setView(null)}><img src={view.path || view.dataUrl} alt="" className="max-w-full max-h-full rounded-xl" /><button className="absolute top-4 right-5 text-2xl" style={{ color: "#fff" }}>×</button></div>}
     </div>
   );
 }
@@ -506,7 +526,7 @@ async function buildReportPdf(insp, s) {
   h2("Comment"); doc.setFontSize(9.5); doc.setTextColor(...INK); const lines = doc.splitTextToSize(insp.comment || "—", 178); doc.text(lines, L, y + 3); y += lines.length * 5 + 4;
   // photos
   const groups = []; (t.fields || []).forEach(f => { const ph = asPhotoList((insp.photos || {})[f.id]); if (ph.length) groups.push({ label: f.type === "Photos" ? photoBlockLabel(f, t) : f.label, photos: ph }); }); (insp.remarks || []).forEach(r => { const ph = asPhotoList(r.photos); if (ph.length) groups.push({ label: `Problem: ${pathOf(problems, r.leafId)}`, photos: ph }); });
-  if (groups.length) { h2("Photos"); for (const g of groups) { if (y > 240) { doc.addPage(); y = 16; } doc.setFontSize(8); doc.setTextColor(...MUTED); doc.text(g.label, L, y + 3); y += 5; let x = L; for (const ph of g.photos) { if (x + 40 > R) { x = L; y += 32; } if (y > 250) { doc.addPage(); y = 16; x = L; } try { doc.addImage(ph.dataUrl, "JPEG", x, y, 40, 30); } catch (e) {} x += 43; } y += 34; } }
+  if (groups.length) { h2("Photos"); for (const g of groups) { if (y > 240) { doc.addPage(); y = 16; } doc.setFontSize(8); doc.setTextColor(...MUTED); doc.text(g.label, L, y + 3); y += 5; let x = L; for (const ph of g.photos) { if (x + 40 > R) { x = L; y += 32; } if (y > 250) { doc.addPage(); y = 16; x = L; } try { const d = await photoData(ph); if (d) doc.addImage(d, "JPEG", x, y, 40, 30); } catch (e) {} x += 43; } y += 34; } }
   if ((insp.audit || []).length) { h2("Report history"); doc.autoTable({ ...tableBase, startY: y, body: insp.audit.map(a => [a.action, `${fmtTime(a.at)} · ${users[a.userId]?.name || ""}${users[a.userId]?.email ? ` (${users[a.userId].email})` : ""}${a.details ? ` — ${a.details}` : ""}`]), columnStyles: { 0: { cellWidth: 38, textColor: MUTED, fontStyle: "bold", fontSize: 8 } } }); }
   pageFooter();
   return doc;
@@ -937,7 +957,7 @@ function AttachmentList({ attachments, dark }) {
   if (!attachments?.length) return null;
   return <div className="flex flex-wrap gap-1.5 mb-1">
     {attachments.map(a => a.kind === "image" ? <img key={a.id} src={a.dataUrl} alt={a.name} onClick={() => setView(a)} className="rounded-lg object-cover cursor-pointer" style={{ width: 96, height: 72 }} /> : <a key={a.id} href={a.tooBig ? undefined : a.dataUrl} download={a.name} className="text-[11px] px-2 py-1 rounded-lg inline-flex items-center" style={{ background: dark ? C.onDarkSoft : C.bg, color: dark ? C.onDark : C.ink, border: dark ? "none" : `1px solid ${C.line}` }}><Ic i={Paperclip} s={11} mr={4} />{a.name}{a.tooBig ? " (too large for the prototype)" : ` · ${Math.round(a.size / 1024)} KB`}</a>)}
-    {view && <div className="fixed inset-0 flex items-center justify-center p-6" style={{ background: "rgba(0,0,0,.85)", zIndex: 80 }} onClick={() => setView(null)}><img src={view.dataUrl} alt="" className="max-w-full max-h-full rounded-xl" /></div>}
+    {view && <div className="fixed inset-0 flex items-center justify-center p-6" style={{ background: "rgba(0,0,0,.85)", zIndex: 80 }} onClick={() => setView(null)}><img src={view.path || view.dataUrl} alt="" className="max-w-full max-h-full rounded-xl" /></div>}
   </div>;
 }
 // Composer add-ons: pending attachments + context picker (products, recent inspections, pallets on dock, open flags)
@@ -1705,7 +1725,6 @@ const M = { pad: 18 };
 const sheetStats = s => { const rows = dockRowsLive(s).filter(r => !lostOf(s, r)); const lost = dockRowsLive(s).length - rows.length; const sm = dockSummary(s) || {}; const has = k => sm[k] != null; const pallets = has("nonUrgentPallets") || has("urgentPallets") ? (sm.nonUrgentPallets || 0) + (sm.urgentPallets || 0) : rows.length; const skus = has("skus") ? sm.skus : new Set(rows.map(r => r.article)).size; const blocked = has("urgentPallets") ? sm.urgentPallets : rows.filter(r => r.blocking).length; // "Skippable" is a boolean flag on the sheet, not mutually exclusive with Priority item — count it by the flag, not the label.
   const prio = k => k === "Skippable" ? rows.filter(r => r.skippable).length : rows.filter(r => r.priority === k).length; return { pallets, skus, blocked, prio, lost, expected: sm.expected, skippableSkus: sm.skippableSkus, skippablePallets: sm.skippablePallets, fromSheet: Object.keys(sm).length > 0 }; };
 const PRIORITY = { "Now needed": [C.bad, C.onDark, true], "High risk": [C.bad, C.badBg, false], "High issues": [C.warn, C.warnBg, false], "Late inspection": [C.warn, C.warnBg, false], "Inspection due": [C.muted, C.line, false], "Skippable": [C.muted, C.line, false] };
-const dayLabel = iso => { if (!iso) return "—"; const d = new Date(iso), t = new Date(); const day = x => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime(); const diff = Math.round((day(t) - day(d)) / 86400000); return diff === 0 ? "Today" : diff === 1 ? "Yesterday" : d.toLocaleDateString("en-GB", { day: "numeric", month: "short" }); };
 const hhmm = iso => { const d = new Date(iso); return isNaN(d) ? "" : d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }); };
 const ResultPill = ({ i, s }) => { const it = s ? inspType(s, i) : null; const [fg, bg, l] = i.status !== "Completed" ? [STATUS[i.status][1], STATUS[i.status][2], STATUS[i.status][0]] : it && it.autoAccept ? [it.color, C.accentSoft, it.name] : i.result === "Accepted" ? [C.ok, C.okBg, "Accepted"] : i.result === "Rejected" ? [C.bad, C.badBg, "Rejected"] : [STATUS[i.status][1], STATUS[i.status][2], STATUS[i.status][0]]; return <span className="text-xs font-medium px-2.5 py-1 rounded-full whitespace-nowrap inline-flex items-center gap-1.5" style={{ background: C.surface, color: C.ink, border: `1px solid ${C.line}` }}><span className="inline-block rounded-full" style={{ width: 7, height: 7, background: fg }} />{l}</span>; };
 const Lock = () => null;
@@ -1907,7 +1926,7 @@ function MProductHeader({ s, product, article, name, go }) {
   return (
     <button onClick={() => go("catalog", product.id)} className="w-full text-left rounded-2xl p-3.5 mb-3 active:opacity-70" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
       <div className="flex gap-3 items-start">
-        {photos.length ? <img src={photos[0].dataUrl} alt="" className="w-20 h-20 rounded-xl object-contain flex-shrink-0" style={{ background: PHOTO_BG }} /> : <div className="w-20 h-20 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: C.surface, color: C.muted }}><Ic i={ImageIcon} s={28} mr={0} /></div>}
+        {photos.length ? <img src={photoSrc(photos[0])} alt="" className="w-20 h-20 rounded-xl object-contain flex-shrink-0" style={{ background: PHOTO_BG }} /> : <div className="w-20 h-20 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: C.surface, color: C.muted }}><Ic i={ImageIcon} s={28} mr={0} /></div>}
         <div className="min-w-0 flex-1">
           <p className="font-semibold leading-tight">{product.name}</p>
           <p className="text-xs mt-1" style={{ color: C.muted }}>ID {product.articleId || "—"} · {catPath(product.categoryId)}{product.isBio && " · bio"}</p>
@@ -1959,7 +1978,7 @@ function MPalletSheet({ s, set, user, go, row: r, onStart, onPickPallet, onAssig
             <span className="ml-auto text-[11px] font-mono" style={{ color: C.muted }}>HU …{String(r.hu).slice(-8)}</span>
           </div>
           <button onClick={() => product && go("catalog", product.id)} className="w-full text-left flex items-center gap-3 active:opacity-70" disabled={!product}>
-            {photos.length ? <img src={photos[0].dataUrl} alt="" className="rounded-xl object-cover flex-shrink-0" style={{ width: 60, height: 60, background: PHOTO_BG, border: `1px solid ${C.line}` }} /> : <div className="rounded-xl flex items-center justify-center flex-shrink-0" style={{ width: 60, height: 60, background: C.surface, color: C.muted, border: `1px solid ${C.line}` }}><Ic i={Package} s={24} mr={0} /></div>}
+            {photos.length ? <img src={photoSrc(photos[0])} alt="" className="rounded-xl object-cover flex-shrink-0" style={{ width: 60, height: 60, background: PHOTO_BG, border: `1px solid ${C.line}` }} /> : <div className="rounded-xl flex items-center justify-center flex-shrink-0" style={{ width: 60, height: 60, background: C.surface, color: C.muted, border: `1px solid ${C.line}` }}><Ic i={Package} s={24} mr={0} /></div>}
             <div className="min-w-0 flex-1">
               <p className="font-semibold leading-tight" style={{ fontSize: 16 }}>{product?.name || r.name || r.article}</p>
               {product ? <p className="text-[12px] mt-0.5 truncate" style={{ color: C.muted }}>ID {product.articleId} · {catPath(product.categoryId)}{product.isBio ? " · bio" : ""}</p> : <p className="text-[12px] mt-0.5" style={{ color: C.warn }}>Article {r.article} · no product profile yet</p>}
@@ -2243,7 +2262,7 @@ function MSearch({ s, user, go, onStart, setState, notify, onVisual }) {
     <div>
       <TopBar title="New inspection" onBack={() => go("back")} />
       <div className="px-4 pt-3"><input autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder="Product name or article ID…" className="w-full text-sm rounded-xl px-3 py-2.5 outline-none" style={{ ...inp, background: C.bg }} /></div>
-      <div className="px-4 pt-2">{list.slice(0, 40).map(p => <button key={p.id} onClick={() => setSel(p.id)} className="w-full text-left flex items-center gap-3 py-2.5" style={{ borderBottom: `1px solid ${C.line}` }}>{asPhotoList(p.photos).length ? <img src={asPhotoList(p.photos)[0].dataUrl} alt="" className="w-10 h-10 rounded-lg object-contain" style={{ background: PHOTO_BG }} /> : <div className="w-10 h-10 rounded-lg flex items-center justify-center" style={{ background: C.bg, color: C.muted }}><Ic i={ImageIcon} s={18} mr={0} /></div>}<div className="flex-1 min-w-0"><p className="text-sm truncate">{p.name}</p><p className="text-xs" style={{ color: C.muted }}>{p.articleId || "no ID"}{p.isBio && " · bio"}</p></div><span style={{ color: C.muted }}>›</span></button>)}{list.length === 0 && <p className="text-sm py-6 text-center" style={{ color: C.muted }}>No results.</p>}</div>
+      <div className="px-4 pt-2">{list.slice(0, 40).map(p => <button key={p.id} onClick={() => setSel(p.id)} className="w-full text-left flex items-center gap-3 py-2.5" style={{ borderBottom: `1px solid ${C.line}` }}>{asPhotoList(p.photos).length ? <img src={photoSrc(asPhotoList(p.photos)[0])} alt="" className="w-10 h-10 rounded-lg object-contain" style={{ background: PHOTO_BG }} /> : <div className="w-10 h-10 rounded-lg flex items-center justify-center" style={{ background: C.bg, color: C.muted }}><Ic i={ImageIcon} s={18} mr={0} /></div>}<div className="flex-1 min-w-0"><p className="text-sm truncate">{p.name}</p><p className="text-xs" style={{ color: C.muted }}>{p.articleId || "no ID"}{p.isBio && " · bio"}</p></div><span style={{ color: C.muted }}>›</span></button>)}{list.length === 0 && <p className="text-sm py-6 text-center" style={{ color: C.muted }}>No results.</p>}</div>
     </div>
   );
 }
@@ -2260,7 +2279,7 @@ function MPhotoViewer({ photos, index, onIndex, onClose }) {
     <div className="fixed inset-0 flex flex-col" style={{ background: "rgba(0,0,0,.94)", zIndex: 80 }} onClick={onClose}
       onTouchStart={e => { touch.current = e.touches[0].clientX; }} onTouchEnd={e => { if (touch.current == null) return; const dx = e.changedTouches[0].clientX - touch.current; touch.current = null; if (Math.abs(dx) > 40 && n > 1) { step(dx < 0 ? 1 : -1); } }}>
       <div className="flex items-center justify-between px-4 py-3" style={{ color: "#fff" }}><span className="text-sm font-medium" style={{ fontVariantNumeric: "tabular-nums" }}>{n > 1 ? `${ix + 1} / ${n}` : ""}</span><button onClick={onClose} className="w-9 h-9 rounded-full flex items-center justify-center" style={{ background: "rgba(255,255,255,.14)" }}><Ic i={X} s={18} mr={0} /></button></div>
-      <div className="flex-1 flex items-center justify-center px-3 min-h-0"><img src={photos[ix].dataUrl} alt="" style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain", borderRadius: 10 }} /></div>
+      <div className="flex-1 flex items-center justify-center px-3 min-h-0"><img src={photoSrc(photos[ix])} alt="" style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain", borderRadius: 10 }} /></div>
       <div className="flex items-center justify-center gap-6 py-4" onClick={e => e.stopPropagation()}>
         {n > 1 && <button onClick={() => step(-1)} className="w-11 h-11 rounded-full flex items-center justify-center" style={{ background: "rgba(255,255,255,.14)", color: "#fff" }}><Ic i={ChevronLeft} s={20} mr={0} /></button>}
         {n > 1 && <div className="flex gap-1.5">{photos.map((_, k) => <button key={k} onClick={() => onIndex(k)} className="rounded-full" style={{ width: 7, height: 7, background: k === ix ? "#fff" : "rgba(255,255,255,.35)" }} />)}</div>}
@@ -2275,7 +2294,7 @@ function MPhotoRow({ photos, size = 64 }) {
   if (!list.length) return null;
   return (
     <>
-      <div className="flex gap-1.5 overflow-x-auto" style={{ scrollbarWidth: "none", WebkitOverflowScrolling: "touch" }}>{list.map((ph, k) => <button key={ph.id || k} onClick={() => setView(k)} className="flex-shrink-0 rounded-lg overflow-hidden" style={{ width: size, height: size, border: `1px solid ${C.line}`, background: PHOTO_BG }}><img src={ph.dataUrl} alt="" className="w-full h-full object-cover" /></button>)}</div>
+      <div className="flex gap-1.5 overflow-x-auto" style={{ scrollbarWidth: "none", WebkitOverflowScrolling: "touch" }}>{list.map((ph, k) => <button key={ph.id || k} onClick={() => setView(k)} className="flex-shrink-0 rounded-lg overflow-hidden" style={{ width: size, height: size, border: `1px solid ${C.line}`, background: PHOTO_BG }}><img src={photoSrc(ph)} alt="" className="w-full h-full object-cover" /></button>)}</div>
       {view != null && <MPhotoViewer photos={list} index={view} onIndex={setView} onClose={() => setView(null)} />}
     </>
   );
@@ -2298,6 +2317,22 @@ function MGuideNote({ note: n, parent, leaf, last }) {
       {open && hasBody && <div className="pb-3 -mt-1">
         {n.description && <p className="text-[13px] leading-snug" style={{ color: C.muted, whiteSpace: "pre-wrap" }}>{n.description}</p>}
         {photos.length > 0 && <div className="mt-1.5"><MPhotoRow photos={n.photos} size={72} /></div>}
+      </div>}
+    </div>
+  );
+}
+function MEncyclopediaEntry({ e, last }) {
+  const photos = asPhotoList(e.photos); const hasBody = !!(e.body || photos.length); const [open, setOpen] = useState(false);
+  return (
+    <div style={{ borderBottom: last ? "none" : `1px solid ${C.line}` }}>
+      <button onClick={() => hasBody && setOpen(o => !o)} className="w-full text-left py-2.5 flex items-center gap-2" style={{ cursor: hasBody ? "pointer" : "default" }}>
+        <span className="flex-1 min-w-0 text-[13px] font-semibold leading-snug flex items-center gap-1.5 flex-wrap">{e.title || "Untitled"}{e.inherited && <span className="text-[10px] font-medium px-1.5 rounded-full leading-[16px]" style={{ background: C.accentSoft, color: C.accent }}>{e.source}</span>}</span>
+        {photos.length > 0 && !open && <span className="text-[10px] inline-flex items-center gap-0.5 flex-shrink-0" style={{ color: C.muted }}><Ic i={ImageIcon} s={11} mr={0} />{photos.length}</span>}
+        {hasBody && <Ic i={open ? ChevronDown : ChevronRight} s={15} mr={0} style={{ color: C.muted, flexShrink: 0 }} />}
+      </button>
+      {open && hasBody && <div className="pb-3 -mt-1">
+        {e.body && <p className="text-[13px] leading-snug" style={{ color: C.muted, whiteSpace: "pre-wrap" }}>{e.body}</p>}
+        {photos.length > 0 && <div className="mt-1.5"><MPhotoRow photos={e.photos} size={72} /></div>}
       </div>}
     </div>
   );
@@ -2343,7 +2378,7 @@ function MProductInfo({ s, user, product, go, setState, embedded }) {
       {/* Identity: photo + name + codes in one card. Tap the photo for a full-screen viewer (the controller compares the pallet to it). */}
       <div className="rounded-2xl p-3 flex gap-3" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
         <button onClick={() => photos.length && setZoom(photoIx)} className="flex-shrink-0 rounded-xl overflow-hidden relative" style={{ width: 96, height: 96, background: PHOTO_BG, border: `1px solid ${C.line}` }} aria-label="product photo">
-          {thumb ? <img src={thumb.dataUrl} alt="" className="w-full h-full object-cover" /> : <div className="w-full h-full flex flex-col items-center justify-center" style={{ color: C.muted }}><Ic i={Package} s={28} mr={0} /><span className="text-[10px] mt-1">no photo</span></div>}
+          {thumb ? <img src={photoSrc(thumb)} alt="" className="w-full h-full object-cover" /> : <div className="w-full h-full flex flex-col items-center justify-center" style={{ color: C.muted }}><Ic i={Package} s={28} mr={0} /><span className="text-[10px] mt-1">no photo</span></div>}
           {photos.length > 1 && <span className="absolute bottom-1 right-1 text-[10px] font-semibold px-1.5 rounded-full leading-[16px]" style={{ background: "rgba(0,0,0,.55)", color: "#fff" }}>{photos.length}</span>}
         </button>
         <div className="flex-1 min-w-0">
@@ -2359,7 +2394,7 @@ function MProductInfo({ s, user, product, go, setState, embedded }) {
           </div>}
         </div>
       </div>
-      {photos.length > 1 && <div className="flex gap-1.5 mt-2 overflow-x-auto" style={{ scrollbarWidth: "none" }}>{photos.map((ph, ix) => <button key={ph.id || ix} onClick={() => setPhotoIx(ix)} className="flex-shrink-0 rounded-lg overflow-hidden" style={{ width: 44, height: 44, outline: ix === photoIx ? `2px solid ${C.accent}` : `1px solid ${C.line}`, outlineOffset: -1 }}><img src={ph.dataUrl} alt="" className="w-full h-full object-cover" /></button>)}</div>}
+      {photos.length > 1 && <div className="flex gap-1.5 mt-2 overflow-x-auto" style={{ scrollbarWidth: "none" }}>{photos.map((ph, ix) => <button key={ph.id || ix} onClick={() => setPhotoIx(ix)} className="flex-shrink-0 rounded-lg overflow-hidden" style={{ width: 44, height: 44, outline: ix === photoIx ? `2px solid ${C.accent}` : `1px solid ${C.line}`, outlineOffset: -1 }}><img src={photoSrc(ph)} alt="" className="w-full h-full object-cover" /></button>)}</div>}
       {zoom != null && photos.length > 0 && <MPhotoViewer photos={photos} index={zoom} onIndex={k => { setZoom(k); setPhotoIx(k); }} onClose={() => setZoom(null)} />}
 
       {facts.length > 0 && <div className="grid mt-2 rounded-2xl overflow-hidden" style={{ gridTemplateColumns: `repeat(${facts.length}, 1fr)`, background: C.surface, border: `1px solid ${C.line}` }}>
@@ -2374,13 +2409,7 @@ function MProductInfo({ s, user, product, go, setState, embedded }) {
       {anns.map(a => <div key={a.id} className="rounded-xl px-3 py-2 mb-2 flex items-start gap-2 text-[13px] leading-snug" style={{ background: C.accentSoft, color: C.ink }}><Ic i={Megaphone} s={14} mr={0} style={{ marginTop: 2, color: C.accent }} /><span className="min-w-0"><b>{a.title}</b>{a.body && <span style={{ color: C.muted }}> — {a.body}</span>}</span></div>)}
       {ref && <button onClick={() => go("inspection", ref.id)} className="w-full rounded-xl px-3 py-2 mb-2 text-[13px] text-left flex items-center" style={{ background: C.okBg, color: C.ok }}><Ic i={Star} s={14} />Reference inspection<span className="ml-1" style={{ opacity: .75 }}>· what a good pallet looks like</span><Ic i={ChevronRight} s={14} mr={0} style={{ marginLeft: "auto" }} /></button>}
 
-      {guide.length > 0 && <MSection title="Encyclopedia" count={guide.length}>
-        {guide.map((e, ix) => <div key={e.id} className="py-2" style={{ borderBottom: ix === guide.length - 1 ? "none" : `1px solid ${C.line}` }}>
-          {(e.title || e.inherited) && <p className="text-[13px] font-semibold leading-snug flex items-center gap-1.5">{e.title || "Untitled"}{e.inherited && <span className="text-[10px] font-medium px-1.5 rounded-full leading-[16px]" style={{ background: C.accentSoft, color: C.accent }}>{e.source}</span>}</p>}
-          {e.body && <p className="text-[13px] mt-0.5 leading-snug" style={{ color: C.muted, whiteSpace: "pre-wrap" }}>{e.body}</p>}
-          {asPhotoList(e.photos).length > 0 && <div className="mt-1.5"><MPhotoRow photos={e.photos} size={64} /></div>}
-        </div>)}
-      </MSection>}
+      {guide.length > 0 && <MSection title="Encyclopedia" count={guide.length}>{guide.map((e, ix) => <MEncyclopediaEntry key={e.id} e={e} last={ix === guide.length - 1} />)}</MSection>}
       {specs.length > 0 && <MSection title="Specifications" count={specs.length}>{specs.map((q, ix) => <MRow key={q.id} k={q.name} v={specLabel(q)} last={ix === specs.length - 1} />)}</MSection>}
       {attrs.length > 0 && <MSection title="Properties" count={attrs.length}>{attrs.map((a, ix) => <MRow key={a.dictionaryId} k={a.list} v={a.value} last={ix === attrs.length - 1} />)}</MSection>}
       {refNotes.length > 0 && <MSection title="Reference guide" count={refNotes.length}>
@@ -2651,11 +2680,11 @@ function MHistory({ s, user, go }) {
         <p className="label-sm mb-2" style={{ color: C.muted }}>Status</p>
         <div className="flex flex-wrap gap-1.5 mb-3">{[["", "all"], ["Completed", "completed"], ["Draft", "drafts"], ["PendingReview", "awaiting Head"]].map(([k, l]) => <Chip key={k} on={f.status === k} onClick={() => setF(x => ({ ...x, status: k }))}>{l}</Chip>)}</div>
         <p className="label-sm mb-2" style={{ color: C.muted }}>Supplier</p>
-        <select value={f.supplier} onChange={e => setF(x => ({ ...x, supplier: e.target.value }))} className="w-full text-sm rounded-lg px-2 py-2 outline-none mb-3" style={{ ...inp }}><option value="">all</option>{suppliers.map(n => <option key={n} value={n}>{n}</option>)}</select>
+        <div className="mb-3"><SearchSelect value={f.supplier} onChange={v => setF(x => ({ ...x, supplier: v }))} options={suppliers.map(n => ({ value: n, label: n }))} placeholder="Search suppliers…" /></div>
         <p className="label-sm mb-2" style={{ color: C.muted }}>Controller</p>
-        <select value={f.controller} onChange={e => setF(x => ({ ...x, controller: e.target.value }))} className="w-full text-sm rounded-lg px-2 py-2 outline-none mb-3" style={{ ...inp }}><option value="">all</option>{s.users.filter(u => u.role === "Controller").map(u => <option key={u.id} value={u.id}>{u.name}</option>)}</select>
+        <div className="mb-3"><SearchSelect value={f.controller} onChange={v => setF(x => ({ ...x, controller: v }))} options={s.users.filter(u => u.role === "Controller").map(u => ({ value: u.id, label: u.name }))} placeholder="Search controllers…" /></div>
         <p className="label-sm mb-2" style={{ color: C.muted }}>Product category</p>
-        <select value={f.category} onChange={e => setF(x => ({ ...x, category: e.target.value }))} className="w-full text-sm rounded-lg px-2 py-2 outline-none mb-4" style={{ ...inp }}><option value="">all</option>{s.categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select>
+        <div className="mb-4"><SearchSelect value={f.category} onChange={v => setF(x => ({ ...x, category: v }))} options={s.categories.map(c => ({ value: c.id, label: c.name }))} placeholder="Search categories…" /></div>
         <button onClick={() => setOpen(false)} className="w-full py-3 rounded-xl text-sm font-medium" style={{ background: C.ink, color: C.onDark }}>Show results ({list.length})</button>
       </Sheet>
     </div>
@@ -2730,13 +2759,7 @@ function MCategoryKnowledge({ s, catId }) {
   if (!guide.length && !notes.length) return null;
   return (
     <div className="mb-3">
-      {guide.length > 0 && <MSection title="Encyclopedia" count={guide.length}>
-        {guide.map((e, ix) => <div key={e.id} className="py-2" style={{ borderBottom: ix === guide.length - 1 ? "none" : `1px solid ${C.line}` }}>
-          <p className="text-[13px] font-semibold leading-snug flex items-center gap-1.5">{e.title || "Untitled"}{e.inherited && <span className="text-[10px] font-medium px-1.5 rounded-full leading-[16px]" style={{ background: C.accentSoft, color: C.accent }}>{e.source}</span>}</p>
-          {e.body && <p className="text-[13px] mt-0.5 leading-snug" style={{ color: C.muted, whiteSpace: "pre-wrap" }}>{e.body}</p>}
-          {asPhotoList(e.photos).length > 0 && <div className="mt-1.5"><MPhotoRow photos={e.photos} size={64} /></div>}
-        </div>)}
-      </MSection>}
+      {guide.length > 0 && <MSection title="Encyclopedia" count={guide.length}>{guide.map((e, ix) => <MEncyclopediaEntry key={e.id} e={e} last={ix === guide.length - 1} />)}</MSection>}
       {notes.length > 0 && <MSection title="Reference guide" count={notes.length}>
         {notes.map((n, ix) => { const [parent, leaf] = splitPath(n.problemId); return <MGuideNote key={n.id} note={n} parent={parent} leaf={leaf} last={ix === notes.length - 1} />; })}
       </MSection>}
@@ -2767,7 +2790,7 @@ function MCatalog({ s, user, go, onStart, setState, notify, onVisual, preset }) 
   const Chip = ({ on, onClick, children }) => <button onClick={onClick} className="text-xs px-3 py-1.5 rounded-full whitespace-nowrap" style={{ background: on ? C.ink : "transparent", color: on ? C.onDark : C.ink, border: `1px solid ${on ? C.ink : C.line}` }}>{children}</button>;
   const Tile = ({ p }) => { const li = lastInsp(p.id); const openFlag = s.flags.some(x => x.productId === p.id && x.status === "Open"); return (
     <button onClick={() => setSel(p.id)} className="rounded-2xl p-2.5 text-left relative" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
-      {asPhotoList(p.photos).length ? <img src={asPhotoList(p.photos)[0].dataUrl} alt="" className="w-full h-20 rounded-xl object-contain mb-2" style={{ background: PHOTO_BG }} /> : <div className="w-full h-20 rounded-xl flex items-center justify-center mb-2" style={{ background: C.surface, color: C.muted }}><Ic i={ImageIcon} s={22} mr={0} /></div>}
+      {asPhotoList(p.photos).length ? <img src={photoSrc(asPhotoList(p.photos)[0])} alt="" className="w-full h-20 rounded-xl object-contain mb-2" style={{ background: PHOTO_BG }} /> : <div className="w-full h-20 rounded-xl flex items-center justify-center mb-2" style={{ background: C.surface, color: C.muted }}><Ic i={ImageIcon} s={22} mr={0} /></div>}
       <p className="text-xs font-medium leading-tight" style={{ minHeight: 32 }}>{p.name}</p>
       <div className="flex items-center gap-1.5 mt-1.5"><span className="text-[10px]" style={{ color: C.muted }}>{p.articleId || "—"}</span>{p.isBio && <span className="text-[9px] px-1 rounded" style={{ background: C.okBg, color: C.ok }}>bio</span>}<div className="flex-1" />{openFlag && <Ic i={Flag} s={11} mr={0} style={{ color: C.warn }} />}{li && <span title={`last: ${li.result === "Accepted" ? "accepted" : "rejected"}, ${dayLabel(li.completedAt)}`} className="inline-block rounded-full" style={{ width: 8, height: 8, background: li.result === "Accepted" ? C.ok : C.bad }} />}</div>
     </button>
@@ -2805,7 +2828,7 @@ function MCatalog({ s, user, go, onStart, setState, notify, onVisual, preset }) 
         <div className="flex items-center justify-between mb-2"><span className="label-sm">Type</span><button onClick={() => setF({ bio: "", supplier: "", flagged: false, reference: false, sort: "name" })} className="text-xs" style={{ color: C.accent }}>Clear</button></div>
         <div className="flex gap-1.5 mb-3">{[["", "all"], ["bio", "bio only"], ["std", "standard only"]].map(([k, l]) => <Chip key={k} on={f.bio === k} onClick={() => setF(x => ({ ...x, bio: k }))}>{l}</Chip>)}</div>
         <p className="label-sm mb-2">Supplier</p>
-        <select value={f.supplier} onChange={e => setF(x => ({ ...x, supplier: e.target.value }))} className="w-full text-sm mb-3"><option value="">all</option>{(s.suppliers || []).map(x => <option key={x.id} value={x.id}>{x.name}</option>)}</select>
+        <div className="mb-3"><SearchSelect value={f.supplier} onChange={v => setF(x => ({ ...x, supplier: v }))} options={(s.suppliers || []).map(x => ({ value: x.id, label: x.name }))} placeholder="Search suppliers…" /></div>
         <p className="label-sm mb-2">Only</p>
         <div className="flex flex-wrap gap-1.5 mb-3"><Chip on={f.flagged} onClick={() => setF(x => ({ ...x, flagged: !x.flagged }))}>with open flag</Chip><Chip on={f.reference} onClick={() => setF(x => ({ ...x, reference: !x.reference }))}>with reference inspection</Chip></div>
         <p className="label-sm mb-2">Sort</p>

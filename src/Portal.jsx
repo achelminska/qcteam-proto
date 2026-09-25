@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, Fragment } from "react";
 import { createSyncer, guardUnload } from "./sync.js";
+import { hasV, specLabel, dayLabel, problemPath, typesOf, typeById, legacyTypeId, inspType, countsAs } from "./shared/format.js";
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceArea, ReferenceLine, Legend } from "recharts";
-import { Clock, MessageCircle, Link2, List as ListIcon, BarChart3, Printer, SlidersHorizontal, SkipForward, LayoutDashboard, ClipboardList, Flag, Bell, FolderTree, ListTree, Package, LayoutTemplate, Truck, Globe, Megaphone, MessageSquare, Users, Search, Sun, Moon, Database, Home, Menu as MenuIcon, ScanLine, Plus, ChevronLeft, ChevronDown, ChevronRight, User, Camera, Image as ImageIcon, Paperclip, Send, Star, Pencil, Sparkles, HelpCircle, Download, Lock as LockIcon, AlertTriangle, Inbox, FileText, ShieldAlert, Tag, Layers, BookOpen, Filter, Check, X, Ruler, Boxes, Warehouse, Snowflake, Thermometer, ThumbsDown, ClipboardPaste, Trash2 } from "lucide-react";
+import { Clock, MessageCircle, Link2, List as ListIcon, BarChart3, Printer, SlidersHorizontal, SkipForward, LayoutDashboard, ClipboardList, Flag, Bell, FolderTree, ListTree, Package, LayoutTemplate, Truck, Globe, Megaphone, MessageSquare, Users, Search, Sun, Moon, Database, Home, Menu as MenuIcon, ScanLine, Plus, ChevronLeft, ChevronDown, ChevronRight, User, Camera, Image as ImageIcon, Paperclip, Send, Star, Pencil, Sparkles, HelpCircle, Download, Lock as LockIcon, AlertTriangle, Inbox, FileText, ShieldAlert, Tag, Layers, BookOpen, Filter, Check, X, Ruler, Boxes, Warehouse, Snowflake, Thermometer, ThumbsDown, ClipboardPaste, Trash2, Eye } from "lucide-react";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // QCteam — portal Head of Quality (mini-aplikacja, stan startowy pusty)
@@ -103,7 +104,6 @@ const fieldLabel = f => { const l = (f.label || "").trim(); return (l && l.toLow
 const STATUS = { Draft: ["Draft", C.muted, C.line], PendingReview: ["Awaiting Head", C.warn, C.warnBg], Completed: ["Completed", C.ok, C.okBg], Cancelled: ["Cancelled", C.muted, C.line] };
 const nowISO = () => new Date().toISOString();
 const fmtTime = iso => { const d = new Date(iso); return isNaN(d) ? "" : d.toLocaleString("en-GB", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }); };
-const dayLabel = iso => { if (!iso) return "—"; const d = new Date(iso), t = new Date(); const day = x => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime(); const diff = Math.round((day(t) - day(d)) / 86400000); return diff === 0 ? "Today" : diff === 1 ? "Yesterday" : d.toLocaleDateString("en-GB", { day: "numeric", month: "short" }); };
 const truncate = (t, n = 90) => t && t.length > n ? t.slice(0, n).trimEnd() + "…" : t;
 
 // ── Pomocnicze na drzewach ──────────────────────────────────────────────────
@@ -143,9 +143,7 @@ const statusOf = (problems, overrides, remarks, id, totals) => {
 const tone = s => s === "exceeded" ? [C.bad, C.badBg] : s === "flagged" ? [C.warn, C.warnBg] : [C.ok, C.okBg];
 
 // ProductSpecification: MinValue / MaxValue (at least one). The "bad when" direction follows from what is set.
-const hasV = v => v !== null && v !== undefined && v !== "";
 const basisTag = q => q?.basis === "cu" ? " /CU" : "";
-const specLabel = q => { const mn = hasV(q.min), mx = hasV(q.max); const core = mn && mx ? `${q.min}–${q.max}` : mn ? `min ${q.min}` : mx ? `max ${q.max}` : "—"; return `${core} ${q.unit || ""}`.trim(); };
 // Specification cascade by name: product → category → parent category
 const effectiveSpecs = (s, product) => {
   if (!product) return [];
@@ -196,7 +194,6 @@ const problemSuggestions = (s, scope, visible) => {
   return [...map.values()].map(v => ({ name: v.name, sources: [...v.sources] })).sort((a, b) => a.name.localeCompare(b.name));
 };
 // Full "Parent › Child" label for a node id, and a tree-ordered flat list for a "pick a parent" dropdown.
-const problemPath = (problems, id) => { const node = problems.find(p => p.id === id); if (!node) return ""; const parent = node.parentId ? problemPath(problems, node.parentId) : ""; return parent ? `${parent} › ${node.name}` : node.name; };
 const problemParentOptions = problems => { const out = []; const walk = parentId => { problems.filter(p => (p.parentId || null) === parentId).forEach(p => { out.push({ id: p.id, label: problemPath(problems, p.id) }); walk(p.id); }); }; walk(null); return out; };
 // Reference guide (knowledge base): a Head-curated note (description + photos) per product×problem-type, so controllers
 // know what a given remark actually looks like. Only leaf problem types get notes — those are what's reported against.
@@ -222,11 +219,6 @@ const effectiveGuide = (s, product) => { if (!product) return []; const hidden =
 // No default inspection types: the Head defines them (Forms → + new type). Legacy ids below only keep old records readable.
 const SEED_TYPES = () => [];
 const SKIP_REASONS = ["no time", "stable product", "same delivery as earlier", "checked at the supplier"];
-const typesOf = s => [...(s.inspectionTypes || [])].sort((a, b) => a.sort - b.sort);
-const typeById = (s, id) => (s.inspectionTypes || []).find(t => t.id === id) || null;
-const legacyTypeId = t => t === "Visual" ? "type-visual" : t === "Skip" ? "type-skip" : "type-full";
-const inspType = (s, insp) => typeById(s, insp.typeId || legacyTypeId(insp.type)) || { id: "type-full", name: "Full", color: "#1F5C3E", autoAccept: false, countsAsInspection: true, reason: "none" };
-const countsAs = (s, insp) => inspType(s, insp).countsAsInspection !== false;
 const isVerdictType = (s, insp) => !inspType(s, insp).autoAccept;
 const settingsOf = s => ({ companyName: "Picnic Technologies", qcEmail: "qc@picnic.nl", rejectionWindowHours: 24, deadlineWarnHours: 6, deadlineWarnHoursRisky: 10, riskyLookbackDays: 14, resultIcons: {}, ...(s.settings || {}) });
 // Policy = the set of allowed inspection types. Product → category chain → types allowed by default. A product always has one.
@@ -381,6 +373,9 @@ const shrinkImage = file => new Promise(res => {
 let _pickerEl = null;
 const mountPicker = i => { if (_pickerEl) _pickerEl.remove(); i.style.cssText = "position:fixed;left:-9999px;width:1px;height:1px;opacity:0"; document.body.appendChild(i); _pickerEl = i; };
 const unmountPicker = i => { i.remove(); if (_pickerEl === i) _pickerEl = null; };
+// Photos are files on the state server, not base64 inside the shared state — a photo is { id, path, at, name }.
+// If the upload fails (offline, old server) the data URL stays in place, so nothing is ever lost.
+const uploadPhoto = async dataUrl => { try { const r = await fetch("/photos", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ dataUrl }) }); if (!r.ok) return null; const j = await r.json(); return j.path || null; } catch { return null; } };
 const pickPhotos = (opts = {}) => new Promise(res => {
   const i = document.createElement("input"); i.type = "file"; i.accept = "image/*,.heic,.heif"; i.multiple = !opts.capture; if (opts.capture) i.setAttribute("capture", "environment");
   mountPicker(i);
@@ -389,13 +384,15 @@ const pickPhotos = (opts = {}) => new Promise(res => {
     for (const f of Array.from(i.files || [])) {
       let d = await shrinkImage(f);
       if (!d && f.size <= 2.5 * 1024 * 1024) d = await readAsDataUrl(f);   // fallback: original (e.g. HEIC in Safari)
-      if (d) out.push({ id: uid(), dataUrl: d, at: nowISO(), name: f.name, size: f.size }); else failed.push(f.name);
+      if (d) { const path = await uploadPhoto(d); out.push(path ? { id: uid(), path, at: nowISO(), name: f.name } : { id: uid(), dataUrl: d, at: nowISO(), name: f.name, size: f.size }); } else failed.push(f.name);
     }
     unmountPicker(i); res({ out, failed });
   };
   i.click();
 });
 const asPhotoList = v => Array.isArray(v) ? v : [];
+const photoSrc = ph => (ph && (ph.path || ph.dataUrl)) || "";
+const photoData = async ph => { const src = photoSrc(ph); if (!src) return null; if (src.startsWith("data:")) return src; try { const b = await (await fetch(src)).blob(); return await new Promise(res => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = () => res(null); r.readAsDataURL(b); }); } catch { return null; } };
 function PhotoStrip({ photos, onAdd, onRemove, size = 64, addLabel = "Add photo" }) {
   const [view, setView] = useState(null); const [busy, setBusy] = useState(false);
   const list = asPhotoList(photos);
@@ -404,13 +401,13 @@ function PhotoStrip({ photos, onAdd, onRemove, size = 64, addLabel = "Add photo"
   const touch = typeof navigator !== "undefined" && navigator.maxTouchPoints > 0;
   return (
     <div className="flex flex-wrap gap-2 items-center">
-      {list.map(ph => <div key={ph.id} className="relative"><img src={ph.dataUrl} alt="" onClick={() => setView(ph)} className="object-cover rounded-lg cursor-pointer" style={{ width: size, height: size, border: `1px solid ${C.line}` }} />{onRemove && <button onClick={() => onRemove(ph.id)} className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full text-[10px] leading-none" style={{ background: C.bad, color: C.onDark }} title="delete">×</button>}</div>)}
+      {list.map(ph => <div key={ph.id} className="relative"><img src={ph.path || photoSrc(ph)} alt="" onClick={() => setView(ph)} className="object-cover rounded-lg cursor-pointer" style={{ width: size, height: size, border: `1px solid ${C.line}` }} />{onRemove && <button onClick={() => onRemove(ph.id)} className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full text-[10px] leading-none" style={{ background: C.bad, color: C.onDark }} title="delete">×</button>}</div>)}
       {busy && <div className="rounded-lg flex items-center justify-center text-[10px]" style={{ width: size, height: size, background: C.bg, color: C.muted, border: `1px solid ${C.line}` }}>uploading…</div>}
       {onAdd && touch && <button onClick={() => add(true)} disabled={busy} className="rounded-lg flex flex-col items-center justify-center text-xs" style={{ width: size, height: size, border: `1px solid ${C.accent}`, color: C.onDark, background: C.accent, gap: 2 }}><Ic i={Camera} s={size >= 56 ? 18 : 14} mr={0} />{size >= 56 && <span className="text-[10px] leading-tight">Take photo</span>}</button>}
       {onAdd && <button onClick={() => add(false)} disabled={busy} className="rounded-lg flex flex-col items-center justify-center text-xs" style={{ width: size, height: size, border: `1px dashed ${C.line}`, color: C.accent, background: C.accentSoft, gap: 2 }}><Ic i={ImageIcon} s={size >= 56 ? 18 : 14} mr={0} />{size >= 56 && <span className="text-[10px] leading-tight">{touch ? "From library" : addLabel}</span>}</button>}
       {!onAdd && list.length === 0 && <span className="text-xs" style={{ color: C.muted }}>no photos</span>}
       {err && <span className="text-xs w-full" style={{ color: C.bad }}>{err}</span>}
-      {view && <div className="fixed inset-0 flex items-center justify-center p-6" style={{ background: "rgba(0,0,0,.85)", zIndex: 60 }} onClick={() => setView(null)}><img src={view.dataUrl} alt="" className="max-w-full max-h-full rounded-xl" /><button className="absolute top-4 right-5 text-2xl" style={{ color: "#fff" }}>×</button></div>}
+      {view && <div className="fixed inset-0 flex items-center justify-center p-6" style={{ background: "rgba(0,0,0,.85)", zIndex: 60 }} onClick={() => setView(null)}><img src={view.path || view.dataUrl} alt="" className="max-w-full max-h-full rounded-xl" /><button className="absolute top-4 right-5 text-2xl" style={{ color: "#fff" }}>×</button></div>}
     </div>
   );
 }
@@ -475,7 +472,7 @@ async function buildReportPdf(insp, s) {
   h2("Comment"); doc.setFontSize(9.5); doc.setTextColor(...INK); const lines = doc.splitTextToSize(insp.comment || "—", 178); doc.text(lines, L, y + 3); y += lines.length * 5 + 4;
   // photos
   const groups = []; (t.fields || []).forEach(f => { const ph = asPhotoList((insp.photos || {})[f.id]); if (ph.length) groups.push({ label: f.type === "Photos" ? photoBlockLabel(f, t) : f.label, photos: ph }); }); (insp.remarks || []).forEach(r => { const ph = asPhotoList(r.photos); if (ph.length) groups.push({ label: `Problem: ${pathOf(problems, r.leafId)}`, photos: ph }); });
-  if (groups.length) { h2("Photos"); for (const g of groups) { if (y > 240) { doc.addPage(); y = 16; } doc.setFontSize(8); doc.setTextColor(...MUTED); doc.text(g.label, L, y + 3); y += 5; let x = L; for (const ph of g.photos) { if (x + 40 > R) { x = L; y += 32; } if (y > 250) { doc.addPage(); y = 16; x = L; } try { doc.addImage(ph.dataUrl, "JPEG", x, y, 40, 30); } catch (e) {} x += 43; } y += 34; } }
+  if (groups.length) { h2("Photos"); for (const g of groups) { if (y > 240) { doc.addPage(); y = 16; } doc.setFontSize(8); doc.setTextColor(...MUTED); doc.text(g.label, L, y + 3); y += 5; let x = L; for (const ph of g.photos) { if (x + 40 > R) { x = L; y += 32; } if (y > 250) { doc.addPage(); y = 16; x = L; } try { const d = await photoData(ph); if (d) doc.addImage(d, "JPEG", x, y, 40, 30); } catch (e) {} x += 43; } y += 34; } }
   if ((insp.audit || []).length) { h2("Report history"); doc.autoTable({ ...tableBase, startY: y, body: insp.audit.map(a => [a.action, `${fmtTime(a.at)} · ${users[a.userId]?.name || ""}${users[a.userId]?.email ? ` (${users[a.userId].email})` : ""}${a.details ? ` — ${a.details}` : ""}`]), columnStyles: { 0: { cellWidth: 38, textColor: MUTED, fontStyle: "bold", fontSize: 8 } } }); }
   pageFooter();
   return doc;
@@ -934,7 +931,7 @@ function AttachmentList({ attachments, dark }) {
   if (!attachments?.length) return null;
   return <div className="flex flex-wrap gap-1.5 mb-1">
     {attachments.map(a => a.kind === "image" ? <img key={a.id} src={a.dataUrl} alt={a.name} onClick={() => setView(a)} className="rounded-lg object-cover cursor-pointer" style={{ width: 96, height: 72 }} /> : <a key={a.id} href={a.tooBig ? undefined : a.dataUrl} download={a.name} className="text-[11px] px-2 py-1 rounded-lg inline-flex items-center" style={{ background: dark ? C.onDarkSoft : C.bg, color: dark ? C.onDark : C.ink, border: dark ? "none" : `1px solid ${C.line}` }}><Ic i={Paperclip} s={11} mr={4} />{a.name}{a.tooBig ? " (too large for the prototype)" : ` · ${Math.round(a.size / 1024)} KB`}</a>)}
-    {view && <div className="fixed inset-0 flex items-center justify-center p-6" style={{ background: "rgba(0,0,0,.85)", zIndex: 80 }} onClick={() => setView(null)}><img src={view.dataUrl} alt="" className="max-w-full max-h-full rounded-xl" /></div>}
+    {view && <div className="fixed inset-0 flex items-center justify-center p-6" style={{ background: "rgba(0,0,0,.85)", zIndex: 80 }} onClick={() => setView(null)}><img src={view.path || view.dataUrl} alt="" className="max-w-full max-h-full rounded-xl" /></div>}
   </div>;
 }
 // Composer add-ons: pending attachments + context picker (products, recent inspections, pallets on dock, open flags)
@@ -1066,6 +1063,28 @@ function Note({ tone: t = "info", children }) {
   return <div className="rounded-xl px-3.5 py-2.5 text-sm mb-3" style={{ background: C.surface, color: C.ink, border: `1px solid ${C.line}`, borderLeft: `3px solid ${fg}` }}>{children}</div>;
 }
 
+// A dropdown with a search box for lists that can grow without limit (categories, products, problem catalog).
+// `options`: [{ value, label }]; `empty` is the blank option's label; `onChange` gets the value ("" = cleared).
+function SearchSelect({ value, onChange, options, empty = "—", placeholder = "Search…", className = "", style = {}, size = "sm" }) {
+  const [open, setOpen] = useState(false); const [q, setQ] = useState(""); const ref = useRef(null);
+  useEffect(() => { if (!open) return; const h = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); }; document.addEventListener("mousedown", h); return () => document.removeEventListener("mousedown", h); }, [open]);
+  const chosen = options.find(o => o.value === value); const qq = q.trim().toLowerCase();
+  const shown = qq ? options.filter(o => o.label.toLowerCase().includes(qq)) : options;
+  const h = size === "xs" ? 26 : 32;
+  return (
+    <div ref={ref} className={`relative ${className}`} style={style}>
+      <button type="button" onClick={() => { setOpen(o => !o); setQ(""); }} className="w-full text-left flex items-center gap-1 rounded-md px-2 outline-none" style={{ ...inp, height: h, fontSize: size === "xs" ? 12 : 13 }}><span className="flex-1 truncate" style={{ color: chosen ? C.ink : C.muted }}>{chosen ? chosen.label : empty}</span><Ic i={ChevronDown} s={12} mr={0} style={{ color: C.muted }} /></button>
+      {open && <div className="absolute left-0 right-0 mt-1 rounded-xl p-1.5" style={{ background: C.surface, border: `1px solid ${C.line}`, boxShadow: "0 10px 24px rgba(0,0,0,.16)", zIndex: 40, minWidth: 220 }}>
+        <input autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder={placeholder} className="w-full text-xs rounded-lg px-2 py-1.5 outline-none mb-1" style={{ ...inp }} />
+        <div style={{ maxHeight: 240, overflowY: "auto" }}>
+          {!qq && <button type="button" onClick={() => { onChange(""); setOpen(false); }} className="w-full text-left text-xs px-2 py-1.5 rounded-md" style={{ color: C.muted }}>{empty}</button>}
+          {shown.map(o => <button type="button" key={o.value} onClick={() => { onChange(o.value); setOpen(false); }} className="w-full text-left text-xs px-2 py-1.5 rounded-md truncate" style={{ background: o.value === value ? C.accentSoft : "transparent", color: o.value === value ? C.accent : C.ink }}>{o.label}</button>)}
+          {shown.length === 0 && <p className="text-xs px-2 py-2" style={{ color: C.muted }}>Nothing matches.</p>}
+        </div>
+      </div>}
+    </div>
+  );
+}
 // ═══════════════════ SHELL: top bar + sidebar ═══════════════════
 const NAV_HEAD = [
   { group: null, items: [["dashboard", "🏠", "Dashboard"], ["docks", "🏭", "Dock map"], ["inspections", "📋", "Inspections"], ["complaints", "👎", "Complaints"], ["blocked", "🔒", "Blocked pallets"], ["lost", "🔍", "Lost pallets"], ["unreported", "🛡️", "Unreported pallets"], ["analytics", "📊", "Analytics"], ["flags", "🚩", "Flags"], ["notifications", "🔔", "Notifications"]] },
@@ -1962,7 +1981,7 @@ function PrintReport({ insp, s, onClose }) {
         <div style={{ whiteSpace: "pre-wrap", border: "1px solid #ddd", borderRadius: 6, padding: "8px 10px", minHeight: 40 }}>{insp.comment || <span className="k">—</span>}</div>
         {photoGroups.length > 0 && <>
           <h2>Photos</h2>
-          {photoGroups.map((g, gi) => <div key={gi} style={{ marginBottom: 8 }}><div className="k" style={{ marginBottom: 4 }}>{g.label}</div><div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>{g.photos.map(ph => <img key={ph.id} src={ph.dataUrl} alt="" style={{ width: 120, height: 90, objectFit: "cover", borderRadius: 4, border: "1px solid #ddd" }} />)}</div></div>)}
+          {photoGroups.map((g, gi) => <div key={gi} style={{ marginBottom: 8 }}><div className="k" style={{ marginBottom: 4 }}>{g.label}</div><div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>{g.photos.map(ph => <img key={ph.id} src={photoSrc(ph)} alt="" style={{ width: 120, height: 90, objectFit: "cover", borderRadius: 4, border: "1px solid #ddd" }} />)}</div></div>)}
         </>}
         <h2>Report history</h2>
         <table><tbody>{(insp.audit || []).map((a, i) => <tr key={i}><th style={{ width: "26%" }}>{a.action}</th><td>{fmtTime(a.at)} · {s.users.find(u => u.id === a.userId)?.name}{s.users.find(u => u.id === a.userId)?.email ? ` (${s.users.find(u => u.id === a.userId).email})` : ""}{a.details ? ` — ${a.details}` : ""}</td></tr>)}</tbody></table>
@@ -2005,6 +2024,8 @@ function ProblemsPage({ s, set }) {
   const [scope, setScope] = useState({ kind: "Global" });
   const [collapsed, setCollapsed] = useState(new Set());
   const toggleCollapse = id => setCollapsed(c => { const next = new Set(c); next.has(id) ? next.delete(id) : next.add(id); return next; });
+  // The tree starts folded — a long catalog is a list of names until someone opens a branch.
+  useEffect(() => { const vis = problemsFor(s, scope); setCollapsed(new Set(vis.filter(p => vis.some(k => k.parentId === p.id)).map(p => p.id))); }, [scope.kind, scope.id]);
   const visible = problemsFor(s, scope);
   const patch = (id, p) => set(x => ({ ...x, problems: x.problems.map(n => n.id === id ? { ...n, ...p } : n) }));
   const add = parentId => set(x => ({ ...x, problems: [...x.problems, { id: uid(), parentId, name: parentId ? "new problem" : "New problem type", tolerance: null, categoryId: scope.kind === "Category" ? scope.id : null, productId: scope.kind === "Product" ? scope.id : null }] }));
@@ -2028,14 +2049,15 @@ function ProblemsPage({ s, set }) {
       <p className="text-sm mb-3" style={{ color: C.muted }}>One catalog, but a node can have a scope. Choose who you're editing for: what you add is visible only in that scope (and below). Global nodes are visible everywhere.</p>
       <div className="flex gap-1.5 mb-3 flex-wrap items-center">
         <button onClick={() => setScope({ kind: "Global" })} className="text-xs px-2.5 py-1.5 rounded-lg" style={{ background: scope.kind === "Global" ? C.accent : C.accentSoft, color: scope.kind === "Global" ? C.onDark : C.accent }}><Ic i={Globe} s={13} />Global</button>
-        <select value={scope.kind === "Category" ? scope.id : ""} onChange={e => e.target.value && setScope({ kind: "Category", id: e.target.value })} className="text-xs rounded px-2 py-1.5 outline-none" style={{ ...inp, background: scope.kind === "Category" ? C.accent : C.accentSoft, color: scope.kind === "Category" ? C.onDark : C.accent, border: "none" }}><option value="">for category…</option>{s.categories.map(c => <option key={c.id} value={c.id}>{catPath(c)}</option>)}</select>
-        <select value={scope.kind === "Product" ? scope.id : ""} onChange={e => e.target.value && setScope({ kind: "Product", id: e.target.value })} className="text-xs rounded px-2 py-1.5 outline-none" style={{ ...inp, background: scope.kind === "Product" ? C.accent : C.accentSoft, color: scope.kind === "Product" ? C.onDark : C.accent, border: "none" }}><option value="">for product…</option>{s.products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select>
+        <span style={{ minWidth: 180 }}><SearchSelect value={scope.kind === "Category" ? scope.id : ""} onChange={v => v && setScope({ kind: "Category", id: v })} options={s.categories.map(c => ({ value: c.id, label: catPath(c) }))} empty="for category…" placeholder="Search categories…" size="xs" /></span>
+        <span style={{ minWidth: 180 }}><SearchSelect value={scope.kind === "Product" ? scope.id : ""} onChange={v => v && setScope({ kind: "Product", id: v })} options={s.products.map(p => ({ value: p.id, label: p.name }))} empty="for product…" placeholder="Search products…" size="xs" /></span>
         <span className="text-xs" style={{ color: C.muted }}>{scope.kind === "Global" ? "editing the global catalog" : "inherited nodes can only be hidden or extended; you delete and edit only what was added here"}</span>
       </div>
       <div className="grid gap-4" style={{ gridTemplateColumns: suggestions.length > 0 ? "1fr 280px" : "1fr" }}>
         <Card>
           {visible.length === 0 ? <Empty icon="🌳" title="The catalog is empty" hint="Typically: “Quality problems” with Major/Minor subcategories, and “General problems” with pallet issues. Set tolerance on the subcategory and override on a specific problem only when needed." action={<Primary onClick={() => add(null)}>Add the first type</Primary>} /> : (
             <>
+              {visible.some(p => p.parentId) && <div className="flex justify-end gap-3 mb-1"><button type="button" onClick={() => setCollapsed(new Set())} className="text-xs" style={{ color: C.accent }}>Expand all</button><button type="button" onClick={() => setCollapsed(new Set(visible.filter(p => visible.some(k => k.parentId === p.id)).map(p => p.id)))} className="text-xs" style={{ color: C.muted }}>Collapse all</button></div>}
               {visible.filter(p => !p.parentId).map(r => <CatalogNode key={r.id} node={r} problems={visible} onPatch={patch} onAdd={add} onRemove={remove} s={s} isOwned={isOwned} onHide={scope.kind === "Global" ? null : hide} collapsed={collapsed} onToggle={toggleCollapse} />)}
               {hiddenHere.length > 0 && <div className="text-xs mt-3 flex flex-wrap gap-1.5 items-center" style={{ color: C.muted }}>hidden in this scope: {hiddenHere.map(h => <button key={h.id} onClick={() => unhide(h.id)} className="px-1.5 py-0.5 rounded line-through" style={{ background: C.line }} title="restore">{h.name}</button>)}</div>}
               <div className="mt-3"><Ghost onClick={() => add(null)}>+ Add problem type{scope.kind !== "Global" && " (in this scope)"}</Ghost></div>
@@ -2439,7 +2461,7 @@ function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset, onMessag
   const removeVar = id => patchP({ varieties: (product.varieties || []).filter(v => v.id !== id) });
   const allSup = s.suppliers || [];
   const visibleSup = allSup.filter(x => x.name.toLowerCase().includes(supQ.toLowerCase()));
-  const thumb = pr => { const ph = asPhotoList(pr.photos)[0]; return ph ? <img src={ph.dataUrl} alt="" className="rounded-md object-cover flex-shrink-0" style={{ width: 30, height: 30 }} /> : <span className="rounded-md flex items-center justify-center flex-shrink-0" style={{ width: 30, height: 30, background: C.bg, color: C.muted }}><Ic i={Package} s={14} mr={0} /></span>; };
+  const thumb = pr => { const ph = asPhotoList(pr.photos)[0]; return ph ? <img src={photoSrc(ph)} alt="" className="rounded-md object-cover flex-shrink-0" style={{ width: 30, height: 30 }} /> : <span className="rounded-md flex items-center justify-center flex-shrink-0" style={{ width: 30, height: 30, background: C.bg, color: C.muted }}><Ic i={Package} s={14} mr={0} /></span>; };
   const refCount = product ? effectiveNotesFor(s, product).length : 0;
   const histAll = product ? s.inspections.filter(i => i.productId === product.id && i.status === "Completed" && countsAs(s, i)) : [];
   const histVerdict = histAll.filter(i => isVerdictType(s, i));
@@ -2459,7 +2481,7 @@ function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset, onMessag
         <div className="grid gap-3" style={{ gridTemplateColumns: "2fr 1fr 1fr" }}>
           <Field label="Name *"><Input autoFocus value={d.name} onChange={e => setD(x => ({ ...x, name: e.target.value }))} placeholder="Merkloos Elstar appels 4 stuks" /></Field>
           <Field label="Article ID"><Input value={d.articleId} onChange={e => setD(x => ({ ...x, articleId: e.target.value }))} placeholder="90006122" className="font-mono" /></Field>
-          <Field label="Category *"><select value={d.categoryId} onChange={e => setD(x => ({ ...x, categoryId: e.target.value }))} className="w-full text-[13px] rounded-md px-1.5 outline-none" style={{ ...inp, height: 32 }}><option value="">—</option>{s.categories.map(c => <option key={c.id} value={c.id}>{catPath(c.id)}</option>)}</select></Field>
+          <Field label="Category *"><SearchSelect value={d.categoryId} onChange={v => setD(x => ({ ...x, categoryId: v }))} options={s.categories.map(c => ({ value: c.id, label: catPath(c.id) }))} placeholder="Search categories…" /></Field>
         </div>
         <div className="grid gap-3 mt-3" style={{ gridTemplateColumns: "1fr 1fr 1fr 1fr" }}>
           <Field label="CU per TU"><Input type="number" value={d.cusPerTu} onChange={e => setD(x => ({ ...x, cusPerTu: e.target.value }))} /></Field>
@@ -2482,7 +2504,7 @@ function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset, onMessag
         {!product ? <Card><Empty icon="📦" title="Select a product" hint="Its profile, photos, specifications, suppliers and inspection types open here." /></Card> : (
             <Card style={{ padding: 0, overflow: "hidden" }}>
               <div className="flex items-center gap-3 px-4 pt-4 pb-3">
-                {asPhotoList(product.photos)[0] ? <img src={asPhotoList(product.photos)[0].dataUrl} alt="" className="rounded-lg object-contain flex-shrink-0" style={{ width: 52, height: 52, background: PHOTO_BG }} /> : <button onClick={() => setTab("photos")} className="rounded-lg flex items-center justify-center flex-shrink-0" style={{ width: 52, height: 52, background: C.bg, color: C.muted, border: `1px dashed ${C.line}` }}><Ic i={ImageIcon} s={18} mr={0} /></button>}
+                {asPhotoList(product.photos)[0] ? <img src={photoSrc(asPhotoList(product.photos)[0])} alt="" className="rounded-lg object-contain flex-shrink-0" style={{ width: 52, height: 52, background: PHOTO_BG }} /> : <button onClick={() => setTab("photos")} className="rounded-lg flex items-center justify-center flex-shrink-0" style={{ width: 52, height: 52, background: C.bg, color: C.muted, border: `1px dashed ${C.line}` }}><Ic i={ImageIcon} s={18} mr={0} /></button>}
                 <div className="flex-1 min-w-0">
                   <h2 className="truncate" style={{ fontSize: 16 }}>{product.name}</h2>
                   <div className="flex flex-wrap items-center gap-1.5 mt-1">
@@ -2515,7 +2537,7 @@ function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset, onMessag
                     <Field label="Name" className="col-span-4"><FastInput value={product.name} onCommit={v => patchP({ name: v })} /></Field>
                     <Field label="Article ID"><FastInput value={product.articleId || ""} onCommit={v => patchP({ articleId: v })} className="font-mono" style={{ borderColor: product.articleId ? C.line : C.warn }} /></Field>
                     <Field label="Bio"><button onClick={() => patchP({ isBio: !product.isBio })} className="w-full text-[13px] rounded-md" style={{ height: 32, border: `1px solid ${product.isBio ? C.ok : C.line}`, background: product.isBio ? C.okBg : C.surface, color: product.isBio ? C.ok : C.muted }}>{product.isBio ? "bio" : "no"}</button></Field>
-                    <Field label="Category" className="col-span-3"><select value={product.categoryId || ""} onChange={e => patchP({ categoryId: e.target.value || null })} className="w-full text-[13px] rounded-md px-1.5 outline-none" style={{ ...inp, height: 32, borderColor: product.categoryId ? C.line : C.warn }}><option value="">—</option>{s.categories.map(c => <option key={c.id} value={c.id}>{catPath(c.id)}</option>)}</select></Field>
+                    <Field label="Category" className="col-span-3"><SearchSelect value={product.categoryId || ""} onChange={v => patchP({ categoryId: v || null })} options={s.categories.map(c => ({ value: c.id, label: catPath(c.id) }))} placeholder="Search categories…" style={{ borderColor: product.categoryId ? C.line : C.warn }} /></Field>
                     <Field label="Consumer app link" className="col-span-3"><FastInput value={product.consumerAppUrl || ""} onCommit={v => patchP({ consumerAppUrl: v })} placeholder="https://…" /></Field>
                   </Group>
                   <Group title="Codes" cols={2}>
@@ -2639,7 +2661,7 @@ function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset, onMessag
           <div className="grid gap-2" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(170px, 1fr))" }}>
             {visible.map(p => (
               <button key={p.id} onClick={() => selectProduct(p.id)} className="rounded-2xl p-2.5 text-left" style={{ background: sel === p.id ? C.accentSoft : C.surface, border: `1px solid ${sel === p.id ? C.accent : C.line}`, opacity: p.isActive === false ? .55 : 1 }}>
-                {asPhotoList(p.photos).length ? <img src={asPhotoList(p.photos)[0].dataUrl} alt="" className="w-full rounded-xl object-contain mb-2" style={{ height: 72, background: PHOTO_BG }} /> : <div className="w-full rounded-xl flex items-center justify-center mb-2" style={{ height: 72, background: C.bg, color: C.muted }}><Ic i={Package} s={20} mr={0} /></div>}
+                {asPhotoList(p.photos).length ? <img src={photoSrc(asPhotoList(p.photos)[0])} alt="" className="w-full rounded-xl object-contain mb-2" style={{ height: 72, background: PHOTO_BG }} /> : <div className="w-full rounded-xl flex items-center justify-center mb-2" style={{ height: 72, background: C.bg, color: C.muted }}><Ic i={Package} s={20} mr={0} /></div>}
                 <p className="text-xs font-medium leading-tight truncate" style={{ color: sel === p.id ? C.accent : C.ink }}>{p.name}</p>
                 <p className="text-[10px] mt-0.5 truncate" style={{ color: C.muted }}>{p.articleId || "no ID"} · {p.categoryId ? catPath(p.categoryId) : <span style={{ color: C.warn }}>no category</span>}</p>
                 <div className="flex items-center gap-1 mt-1">
@@ -2677,6 +2699,8 @@ function FieldEditor({ f, onPatch, onRemove, onMove, problems, catalog, specs, s
   // Still the builder's placeholder text (and no specification name to fall back to) — this exact label is what
   // will show up in the "Parameters" section of the PDF report, so make it impossible to miss here.
   const unrenamed = fieldLabel(f) === "New field";
+  const [details, setDetails] = useState(unrenamed);
+  const hasDetails = ["List", "SingleChoice", "MultiChoice", "Scale", "Number"].includes(f.type);
   return (
     <div className="rounded-lg p-2.5 mb-1.5" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
       <div className="flex items-center flex-wrap gap-2 mb-1.5">
@@ -2689,8 +2713,10 @@ function FieldEditor({ f, onPatch, onRemove, onMove, problems, catalog, specs, s
         <label className="flex items-center gap-1 text-xs" style={{ color: C.muted }}><input type="checkbox" checked={!!f.required} onChange={e => onPatch({ required: e.target.checked })} />req.</label>
         <label className="flex items-center gap-1 text-xs" style={{ color: f.allowPhotos ? C.accent : C.muted }} title="the controller can attach photos to this answer (InspectionPhoto.AnswerId)"><input type="checkbox" checked={!!f.allowPhotos} onChange={e => onPatch({ allowPhotos: e.target.checked })} />📷</label>
         {arrows}
+        {hasDetails && <button type="button" onClick={() => setDetails(d => !d)} className="text-[11px] px-1.5 py-0.5 rounded" style={{ background: C.accentSoft, color: C.accent }}>{details ? "hide" : "options"}</button>}
         <button onClick={onRemove} className="text-xs px-1" style={{ color: C.muted }}>×</button>
       </div>
+      {details && hasDetails && <>
       {f.type === "List" && <div className="flex items-center gap-2 mb-1"><span className="text-xs" style={{ color: C.muted }}>list:</span><select value={f.dictionaryId || ""} onChange={e => onPatch({ dictionaryId: e.target.value || null })} className="text-xs" style={{ minHeight: 28 }}><option value="">— pick a list —</option>{(dictionaries || []).map(d => <option key={d.id} value={d.id}>{d.name} ({d.items.length})</option>)}</select>{!(dictionaries || []).length && <span className="text-xs" style={{ color: C.warn }}>no lists yet — Dictionaries → Lists</span>}</div>}
       {f.type === "SingleChoice" && <input value={f.optionsRaw ?? (f.options || []).join(", ")} onChange={e => onPatch({ optionsRaw: e.target.value, options: e.target.value.split(",").map(x => x.trim()).filter(Boolean) })} placeholder="options separated by commas, e.g. Spain, Morocco" className="w-full text-xs rounded px-2 py-1 outline-none" style={{ ...inp }} />}
       {f.type === "MultiChoice" && (
@@ -2705,14 +2731,13 @@ function FieldEditor({ f, onPatch, onRemove, onMove, problems, catalog, specs, s
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs" style={{ color: C.muted }}>
           <span className="flex items-center gap-1">measurements <input type="number" value={f.measurementCount ?? 1} onChange={e => onPatch({ measurementCount: Number(e.target.value) || 1 })} className="w-16 rounded px-1.5 py-0.5 outline-none" style={{ ...inp }} /></span>
           <span className="flex items-center gap-1">specification by name: <input list={"spec-names-" + f.id} value={f.specName ?? ""} onChange={e => { const v = e.target.value; const patch = { specName: v }; if (v.trim() && (!f.label || !f.label.trim() || f.label.trim().toLowerCase() === "new field")) patch.label = v; onPatch(patch); }} onBlur={e => { if (sctxForNames && e.target.value.trim() && !nearSpecName(sctxForNames, e.target.value)) onPatch({ specName: canonicalSpecName(sctxForNames, e.target.value) }); }} placeholder={f.label} className="w-24 rounded px-1 py-0.5 outline-none" style={{ ...inp, borderColor: (f.specName || "").trim() ? C.ok : C.line }} title="matches the product specification with this name; empty = field label. Also fills the label above, if it's still the default." /><datalist id={"spec-names-" + f.id}>{(sctxForNames ? specRegistry(sctxForNames) : []).map(e => <option key={e.name} value={e.name} />)}</datalist>{(() => { const n = sctxForNames ? nearSpecName(sctxForNames, f.specName || "") : null; return n ? <button onClick={() => onPatch({ specName: n.name })} className="text-[11px] underline ml-1" style={{ color: C.warn }}>did you mean {n.name}?</button> : null; })()}</span>
-          {specs && <span className="flex items-center gap-1">or explicitly: <select value={f.specId || ""} onChange={e => { const specId = e.target.value || null; const patch = { specId }; if (specId && (!f.label || !f.label.trim() || f.label.trim().toLowerCase() === "new field")) { const sp = specs.find(sq => sq.id === specId); if (sp) patch.label = sp.name; } onPatch(patch); }} className="rounded px-1 py-0.5 outline-none" style={{ ...inp, borderColor: f.specId ? C.ok : C.line }}>
-              <option value="">— by name —</option>{specs.map(q => <option key={q.id} value={q.id}>{q.name} ({specLabel(q)})</option>)}
-            </select></span>}
+          {specs && <span className="flex items-center gap-1">or explicitly: <span style={{ minWidth: 160, display: "inline-block" }}><SearchSelect size="xs" value={f.specId || ""} onChange={v => { const specId = v || null; const patch = { specId }; if (specId && (!f.label || !f.label.trim() || f.label.trim().toLowerCase() === "new field")) { const sp = specs.find(sq => sq.id === specId); if (sp) patch.label = sp.name; } onPatch(patch); }} options={specs.map(q => ({ value: q.id, label: `${q.name} (${specLabel(q)})` }))} empty="— by name —" placeholder="Search specs…" style={{ borderColor: f.specId ? C.ok : C.line }} /></span></span>}
           <span className="flex items-center gap-1">or min <input type="number" value={f.min ?? ""} onChange={e => onPatch({ min: e.target.value === "" ? null : e.target.value })} className="w-12 rounded px-1 py-0.5 outline-none" style={{ ...inp }} /> max <input type="number" value={f.max ?? ""} onChange={e => onPatch({ max: e.target.value === "" ? null : e.target.value })} className="w-12 rounded px-1 py-0.5 outline-none" style={{ ...inp }} /></span>
-          <span className="flex items-center gap-1">below raises: <select value={f.problemBelowId || ""} onChange={e => onPatch({ problemBelowId: e.target.value || null })} className="rounded px-1 py-0.5 outline-none" style={{ ...inp, borderColor: f.problemBelowId ? C.accent : C.line }}><option value="">— warning —</option>{leaves.map(l => <option key={l.id} value={l.id}>{pathOf(problems, l.id)}{inScope(l.id) ? "" : " · outside this scope"}</option>)}</select>{scopeNote(f.problemBelowId)}</span>
-          <span className="flex items-center gap-1">above raises: <select value={f.problemAboveId || ""} onChange={e => onPatch({ problemAboveId: e.target.value || null })} className="rounded px-1 py-0.5 outline-none" style={{ ...inp, borderColor: f.problemAboveId ? C.accent : C.line }}><option value="">— warning —</option>{leaves.map(l => <option key={l.id} value={l.id}>{pathOf(problems, l.id)}{inScope(l.id) ? "" : " · outside this scope"}</option>)}</select>{scopeNote(f.problemAboveId)}</span>
+          <span className="flex items-center gap-1">below raises: <span style={{ minWidth: 180, display: "inline-block" }}><SearchSelect size="xs" value={f.problemBelowId || ""} onChange={v => onPatch({ problemBelowId: v || null })} options={leaves.map(l => ({ value: l.id, label: pathOf(problems, l.id) + (inScope(l.id) ? "" : " · outside this scope") }))} empty="— warning —" placeholder="Search problems…" style={{ borderColor: f.problemBelowId ? C.accent : C.line }} /></span>{scopeNote(f.problemBelowId)}</span>
+          <span className="flex items-center gap-1">above raises: <span style={{ minWidth: 180, display: "inline-block" }}><SearchSelect size="xs" value={f.problemAboveId || ""} onChange={v => onPatch({ problemAboveId: v || null })} options={leaves.map(l => ({ value: l.id, label: pathOf(problems, l.id) + (inScope(l.id) ? "" : " · outside this scope") }))} empty="— warning —" placeholder="Search problems…" style={{ borderColor: f.problemAboveId ? C.accent : C.line }} /></span>{scopeNote(f.problemAboveId)}</span>
         </div>
       )}
+      </>}
     </div>
   );
 }
@@ -2757,15 +2782,16 @@ function Builder({ eff, own, setOwn, problems, specs, specsHint, readOnly, s, sc
   const isOwn = item => own && item.ownerId === own.id;
   const up = fn => setOwn(x => fn(x));
   const patchModule = (id, p) => up(x => ({ ...x, modules: x.modules.map(m => m.id === id ? { ...m, ...p } : m) }));
-  const addModule = () => up(x => ({ ...x, modules: [...x.modules, { id: uid(), name: "New module", sort: (Math.max(-1, ...eff.allModules.map(m => m.sort)) + 1) }] }));
+  const reveal = id => setOpenMods(c => { const n = new Set(c); n.add(id); return n; });
+  const addModule = () => { const id = uid(); reveal(id); up(x => ({ ...x, modules: [...x.modules, { id, name: "New module", sort: (Math.max(-1, ...eff.allModules.map(m => m.sort)) + 1) }] })); };
   const removeOwnModule = id => up(x => ({ ...x, modules: x.modules.filter(m => m.id !== id), fields: x.fields.filter(f => f.moduleId !== id), problemRefs: x.problemRefs.filter(r => r.moduleId !== id) }));
   const suppress = id => up(x => ({ ...x, suppressed: [...new Set([...(x.suppressed || []), id])] }));
   const unsuppress = id => up(x => ({ ...x, suppressed: (x.suppressed || []).filter(i => i !== id) }));
-  const addField = mid => up(x => ({ ...x, fields: [...x.fields, { id: uid(), moduleId: mid, sort: Math.max(-1, ...eff.allFields.filter(f => f.moduleId === mid).map(f => f.sort)) + 1, type: "Text", label: "New field", required: false, measurementCount: 1, problemBelowId: null, problemAboveId: null, specId: null, min: null, max: null }] }));
+  const addField = mid => { reveal(mid); up(x => ({ ...x, fields: [...x.fields, { id: uid(), moduleId: mid, sort: Math.max(-1, ...eff.allFields.filter(f => f.moduleId === mid).map(f => f.sort)) + 1, type: "Text", label: "New field", required: false, measurementCount: 1, problemBelowId: null, problemAboveId: null, specId: null, min: null, max: null }] })); };
   const patchField = (id, p) => up(x => ({ ...x, fields: x.fields.map(f => f.id === id ? { ...f, ...p } : f) }));
   const removeOwnField = id => up(x => ({ ...x, fields: x.fields.filter(f => f.id !== id) }));
-  const addSystem = (mid, type) => type && up(x => ({ ...x, fields: [...x.fields, { id: uid(), moduleId: mid, sort: Math.max(-1, ...eff.allFields.filter(f => f.moduleId === mid).map(f => f.sort)) + 1, type, label: SYSTEM_TYPES[type].label, required: !["Photos", "Escalate"].includes(type) }] }));
-  const addRef = (mid, pid) => pid && up(x => ({ ...x, problemRefs: [...x.problemRefs, { id: uid(), moduleId: mid, problemTypeId: pid, sort: Math.max(-1, ...eff.allRefs.map(r => r.sort)) + 1 }] }));
+  const addSystem = (mid, type) => { if (!type) return; reveal(mid); up(x => ({ ...x, fields: [...x.fields, { id: uid(), moduleId: mid, sort: Math.max(-1, ...eff.allFields.filter(f => f.moduleId === mid).map(f => f.sort)) + 1, type, label: SYSTEM_TYPES[type].label, required: !["Photos", "Escalate"].includes(type) }] })); };
+  const addRef = (mid, pid) => { if (!pid) return; reveal(mid); up(x => ({ ...x, problemRefs: [...x.problemRefs, { id: uid(), moduleId: mid, problemTypeId: pid, sort: Math.max(-1, ...eff.allRefs.map(r => r.sort)) + 1 }] })); };
   const removeOwnRef = id => up(x => ({ ...x, problemRefs: x.problemRefs.filter(r => r.id !== id) }));
   const setOverride = (pid, v) => up(x => ({ ...x, overrides: v === "" ? x.overrides.filter(o => o.problemTypeId !== pid) : [...x.overrides.filter(o => o.problemTypeId !== pid), { problemTypeId: pid, tolerance: v }] }));
   const setFieldOverride = (fid, patch) => up(x => ({ ...x, fieldOverrides: { ...(x.fieldOverrides || {}), [fid]: { ...((x.fieldOverrides || {})[fid] || {}), ...patch } } }));
@@ -2793,6 +2819,8 @@ function Builder({ eff, own, setOwn, problems, specs, specsHint, readOnly, s, sc
   const pm = byId(problems);
   const hiddenIn = mid => [...eff.allFields.filter(f => f.moduleId === mid && eff.suppressed.has(f.id)), ...eff.allRefs.filter(r => r.moduleId === mid && eff.suppressed.has(r.id)).map(r => ({ ...r, label: pm[r.problemTypeId]?.name, isRef: true }))];
   const hiddenModules = eff.allModules.filter(m => eff.suppressed.has(m.id));
+  const [openMods, setOpenMods] = useState(() => new Set());
+  const toggleMod = id => setOpenMods(c => { const n = new Set(c); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const Tag = ({ item }) => isOwn(item) ? <span className="text-[10px] px-1 rounded" style={{ background: C.accentSoft, color: C.accent }}>own</span> : <span className="text-[10px] px-1 rounded" style={{ background: C.line, color: C.muted }}>from: {item.ownerLabel}</span>;
   return (
     <div style={readOnly ? { opacity: 0.6, pointerEvents: "none" } : undefined}>
@@ -2800,16 +2828,20 @@ function Builder({ eff, own, setOwn, problems, specs, specsHint, readOnly, s, sc
       {modules.length > 0 && !hasProblems && <Note tone="warn">The form has <b>no problem branch</b> — the controller won't be able to report anything.</Note>}
       {hasProblems && !hasSample && <Note tone="warn">There are problem branches but no <b>Sample size</b> block — the percentage engine will have no divisor.</Note>}
       {orphanLinks.map(({ f, id }) => <Note key={f.id + id} tone="warn">Field “{f.label}“ raises problem <b>{pm[id]?.name}</b>, but no branch containing it is attached to a module.</Note>)}
+      {modules.length > 0 && <div className="flex justify-end gap-3 mb-2"><button type="button" onClick={() => setOpenMods(new Set(modules.map(m => m.id)))} className="text-xs" style={{ color: C.accent }}>Expand all</button><button type="button" onClick={() => setOpenMods(new Set())} className="text-xs" style={{ color: C.muted }}>Collapse all</button></div>}
       {modules.map((m, i) => (
         <div key={m.id} className="rounded-xl p-3 mb-3" style={{ background: C.surface, border: `1px solid ${isOwn(m) ? C.accent : C.line}` }}>
           <div className="flex items-center gap-2 mb-2">
+            <button type="button" onClick={() => toggleMod(m.id)} className="flex-shrink-0" style={{ color: C.muted }} title={openMods.has(m.id) ? "collapse" : "expand"}><Ic i={openMods.has(m.id) ? ChevronDown : ChevronRight} s={14} mr={0} /></button>
             <span className="text-xs w-5 h-5 rounded-full flex items-center justify-center" style={{ background: C.accentSoft, color: C.accent }}>{i + 1}</span>
             {isOwn(m) ? <input value={m.name} onChange={e => patchModule(m.id, { name: e.target.value })} className="flex-1 text-sm font-semibold rounded px-2 py-1 outline-none" style={{ ...inp }} /> : <span className="flex-1 text-sm font-semibold px-2">{m.name}</span>}
+            {!openMods.has(m.id) && <span className="text-[10px] px-1.5 py-0.5 rounded whitespace-nowrap" style={{ background: C.line, color: C.muted }}>{eff.fields.filter(f => f.moduleId === m.id).length} fields · {eff.problemRefs.filter(r => r.moduleId === m.id).length} problems</span>}
             <Tag item={m} />
             {own && <><button onClick={() => moveItem("modules", m.id, -1)} className="text-xs px-1" style={{ color: C.muted }}>↑</button><button onClick={() => moveItem("modules", m.id, 1)} className="text-xs px-1" style={{ color: C.muted }}>↓</button></>}
             {isOwn(m) ? <button onClick={() => removeOwnModule(m.id)} className="text-xs px-1" style={{ color: C.muted }}>×</button>
               : own && <button onClick={() => suppress(m.id)} className="text-xs px-1.5" style={{ color: C.muted }} title="hide the whole module at this level">hide</button>}
           </div>
+          {openMods.has(m.id) && <>
           {eff.fields.filter(f => f.moduleId === m.id).sort(bySort).map(f => isOwn(f)
             ? <FieldEditor key={f.id} f={f} onPatch={p => patchField(f.id, p)} onRemove={() => removeOwnField(f.id)} onMove={dir => moveItem("fields", f.id, dir)} problems={problems} catalog={catalog} specs={specs} specsHint={specsHint} dictionaries={s.dictionaries || []} sctxForNames={s} />
             : (
@@ -2846,12 +2878,10 @@ function Builder({ eff, own, setOwn, problems, specs, specsHint, readOnly, s, sc
                 <option value="">+ system block…</option>
                 {Object.entries(SYSTEM_TYPES).filter(([k]) => !usedSystem.has(k)).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
               </select>
-              <select value="" onChange={e => addRef(m.id, e.target.value)} className="text-xs rounded px-2 py-1.5 outline-none" style={{ ...inp, background: C.accentSoft, color: C.accent, border: "none" }} disabled={problems.length === 0}>
-                <option value="">{problems.length === 0 ? "problem catalog empty" : "+ problem branch from catalog…"}</option>
-                {catalog.filter(p => !usedIds.has(p.id)).map(p => <option key={p.id} value={p.id}>{pathOf(catalog, p.id)}</option>)}
-              </select>
+              {problems.length === 0 ? <span className="text-xs" style={{ color: C.muted }}>problem catalog empty</span> : <span style={{ minWidth: 220, display: "inline-block" }}><SearchSelect size="xs" value="" onChange={v => v && addRef(m.id, v)} options={catalog.filter(p => !usedIds.has(p.id)).map(p => ({ value: p.id, label: pathOf(catalog, p.id) }))} empty="+ problem branch from catalog…" placeholder="Search problems…" /></span>}
             </div>
           )}
+          </>}
         </div>
       ))}
       {own && hiddenModules.length > 0 && <div className="text-xs mb-3 flex flex-wrap gap-1.5 items-center" style={{ color: C.muted }}>hidden modules: {hiddenModules.map(h => <button key={h.id} onClick={() => unsuppress(h.id)} className="px-1.5 py-0.5 rounded line-through" style={{ background: C.line }} title="restore">{h.name}</button>)}</div>}
@@ -2886,6 +2916,10 @@ function ControllerPreview({ s, typeId, scope, setScope }) {
 function FormsPage({ s, set }) {
   const [scope, setScope] = useState({ kind: "Global" });
   const types = typesOf(s); const [typeId, setTypeId] = useState(types[0]?.id || null); const [tab, setTab] = useState("build");
+  // The controller preview sits next to the builder instead of on its own tab — a field shows up as the controller
+  // will see it the moment it's added. Collapsible so the builder can take the full width when wanted.
+  const [preview, setPreview] = useState(true);
+  const [layerQ, setLayerQ] = useState("");
   useEffect(() => { if (!typeId && types[0]) setTypeId(types[0].id); }, [types.length]);
   const type = typeById(s, typeId) || types[0];
   const patchType = ch => set(x => ({ ...x, inspectionTypes: x.inspectionTypes.map(t => t.id === typeId ? { ...t, ...ch } : t) }));
@@ -2919,7 +2953,7 @@ function FormsPage({ s, set }) {
       <p className="text-sm mb-4" style={{ color: C.muted, maxWidth: 680 }}>Every inspection type has its own form, built in layers: global → category → product. Which types a product may use is set on the category or product (inherited).</p>
       {!type && <Card style={{ maxWidth: 640 }}><Empty icon="🧩" title="No inspection types yet" hint="Every inspection belongs to a type you define — its name, its form, and how the result is treated (verdict or auto-accept, counted or trace only). Start with the one you do most often." action={<Primary onClick={addType}>Create the first inspection type</Primary>} /></Card>}
       {type && <><div className="flex items-center gap-1.5 flex-wrap mb-3">{types.map(t => <button key={t.id} onClick={() => { setTypeId(t.id); setTab("build"); }} className="text-sm px-3.5 py-2 rounded-xl inline-flex items-center gap-2" style={{ background: t.id === typeId ? C.surface : "transparent", border: `1px solid ${t.id === typeId ? C.ink : C.line}`, fontWeight: t.id === typeId ? 600 : 450 }}><span className="inline-block rounded-full" style={{ width: 8, height: 8, background: t.color }} />{t.name}{t.autoAccept && <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ background: C.bg, color: C.muted }}>auto</span>}</button>)}<button onClick={addType} className="text-sm px-3 py-2 rounded-xl" style={{ color: C.accent }}>+ new type</button></div>
-      <div className="flex items-center gap-1 mb-4" style={{ borderBottom: `1px solid ${C.line}` }}>{[["build", "Build form"], ["preview", "Controller preview"], ["type", "Type settings"]].map(([k, l]) => <button key={k} onClick={() => setTab(k)} className="text-sm px-3 py-2" style={{ borderBottom: `2px solid ${tab === k ? C.accent : "transparent"}`, color: tab === k ? C.ink : C.muted, fontWeight: tab === k ? 600 : 450, marginBottom: -1 }}>{l}</button>)}</div>
+      <div className="flex items-center gap-1 mb-4" style={{ borderBottom: `1px solid ${C.line}` }}>{[["build", "Build form"], ["type", "Type settings"]].map(([k, l]) => <button key={k} onClick={() => setTab(k)} className="text-sm px-3 py-2" style={{ borderBottom: `2px solid ${tab === k ? C.accent : "transparent"}`, color: tab === k ? C.ink : C.muted, fontWeight: tab === k ? 600 : 450, marginBottom: -1 }}>{l}</button>)}</div>
       {tab === "type" && (
         <Card style={{ maxWidth: 640 }}>
           <div className="flex items-center gap-2 mb-3"><input type="color" value={type.color} onChange={e => patchType({ color: e.target.value })} className="w-9 h-9 p-0.5 rounded-lg" style={{ minHeight: 0 }} /><input value={type.name} onChange={e => patchType({ name: e.target.value })} className="flex-1 text-base font-semibold" /></div>
@@ -2933,15 +2967,21 @@ function FormsPage({ s, set }) {
           <div className="mt-4 flex items-center gap-3"><button onClick={deleteType} disabled={s.inspections.some(i => (i.typeId || legacyTypeId(i.type)) === typeId) || types.length <= 1} className="text-xs px-3 py-1.5 rounded-lg" style={{ border: `1px solid ${C.line}`, color: C.bad }}>Delete type</button><span className="text-[11px]" style={{ color: C.muted }}>{s.inspections.some(i => (i.typeId || legacyTypeId(i.type)) === typeId) ? "Used by existing inspections — cannot be deleted." : "Deletes its form layers too."}</span></div>
         </Card>
       )}
-      {tab === "preview" && <ControllerPreview s={s} typeId={typeId} scope={scope} setScope={setScope} />}</>}
+}</>}
       {type && <div className="flex gap-4 items-start" style={{ display: tab === "build" ? "flex" : "none" }}>
         <aside className="w-52 flex-shrink-0">
           <p className="label-sm px-2 mb-1" style={{ color: C.muted }}>Layer</p>
-          <button onClick={() => setScope({ kind: "Global" })} className="w-full text-left text-sm px-2.5 py-2 rounded-lg mb-0.5" style={{ background: scope.kind === "Global" ? C.accentSoft : "transparent", color: scope.kind === "Global" ? C.accent : C.ink }}><Ic i={Globe} s={14} />Global<Dot on={!!globalT} /></button>
-          {s.categories.length > 0 && <p className="label-sm px-2 mb-1 mt-3" style={{ color: C.muted }}>Categories</p>}
-          {s.categories.map(c => { const has = s.templates.some(t => t.scope === "Category" && t.categoryId === c.id); return <button key={c.id} onClick={() => setScope({ kind: "Category", id: c.id })} className="w-full text-left text-sm px-2.5 py-1.5 rounded-lg mb-0.5" style={{ background: scope.id === c.id ? C.accentSoft : "transparent", color: scope.id === c.id ? C.accent : C.ink, paddingLeft: c.parentId ? 22 : 10 }}>{catPath(c)}<Dot on={has} /></button>; })}
-          {s.products.length > 0 && <p className="label-sm px-2 mb-1 mt-3" style={{ color: C.muted }}>Products</p>}
-          {s.products.map(p => { const has = s.templates.some(t => t.scope === "Product" && t.productId === p.id); return <button key={p.id} onClick={() => setScope({ kind: "Product", id: p.id })} className="w-full text-left text-sm px-2.5 py-1.5 rounded-lg mb-0.5 truncate" style={{ background: scope.id === p.id ? C.accentSoft : "transparent", color: scope.id === p.id ? C.accent : C.ink }}>{p.name}<Dot on={has} /></button>; })}
+          <button onClick={() => setScope({ kind: "Global" })} className="w-full text-left text-sm px-2.5 py-2 rounded-lg mb-2" style={{ background: scope.kind === "Global" ? C.accentSoft : "transparent", color: scope.kind === "Global" ? C.accent : C.ink }}><Ic i={Globe} s={14} />Global<Dot on={!!globalT} /></button>
+          <input value={layerQ} onChange={e => setLayerQ(e.target.value)} placeholder="Search categories and products…" className="w-full text-xs rounded-lg px-2 py-1.5 mb-2 outline-none" style={{ ...inp }} />
+          {(() => { const lq = layerQ.trim().toLowerCase(); const cats = s.categories.filter(c => !lq || catPath(c).toLowerCase().includes(lq)); const prods = s.products.filter(p => !lq || p.name.toLowerCase().includes(lq) || (p.articleId || "").toLowerCase().includes(lq)); return (
+            <div style={{ maxHeight: "calc(100vh - 240px)", overflowY: "auto" }}>
+              {cats.length > 0 && <p className="label-sm px-2 mb-1" style={{ color: C.muted }}>Categories</p>}
+              {cats.map(c => { const has = s.templates.some(t => t.scope === "Category" && t.categoryId === c.id); return <button key={c.id} onClick={() => setScope({ kind: "Category", id: c.id })} className="w-full text-left text-sm px-2.5 py-1.5 rounded-lg mb-0.5" style={{ background: scope.id === c.id ? C.accentSoft : "transparent", color: scope.id === c.id ? C.accent : C.ink, paddingLeft: c.parentId ? 22 : 10 }}>{catPath(c)}<Dot on={has} /></button>; })}
+              {prods.length > 0 && <p className="label-sm px-2 mb-1 mt-3" style={{ color: C.muted }}>Products</p>}
+              {prods.map(p => { const has = s.templates.some(t => t.scope === "Product" && t.productId === p.id); return <button key={p.id} onClick={() => setScope({ kind: "Product", id: p.id })} className="w-full text-left text-sm px-2.5 py-1.5 rounded-lg mb-0.5 truncate" style={{ background: scope.id === p.id ? C.accentSoft : "transparent", color: scope.id === p.id ? C.accent : C.ink }}>{p.name}<Dot on={has} /></button>; })}
+              {lq && !cats.length && !prods.length && <p className="text-xs px-2" style={{ color: C.muted }}>Nothing matches.</p>}
+            </div>
+          ); })()}
         </aside>
         <div className="flex-1 min-w-0">
           {scope.kind === "Global" && !globalT && <Empty icon="🧩" title="No global template" hint="The starting point for every product. Build it once — modules, fields, problem branches from the catalog." action={<Primary onClick={create}>Create global template</Primary>} />}
@@ -2949,7 +2989,7 @@ function FormsPage({ s, set }) {
           {globalT && scope.kind !== "Global" && !own && eff && (
             <>
               <div className="flex items-center gap-3 mb-3 flex-wrap"><Primary onClick={create}>Add own layer</Primary>
-                {copySources.length > 0 && <label className="text-xs inline-flex items-center gap-2" style={{ color: C.muted }}>or copy from<select value="" onChange={e => e.target.value && createFrom(e.target.value)} className="text-xs rounded-lg px-2 py-1.5 outline-none" style={{ ...inp }}><option value="">another category's form…</option>{copySources.map(x => { const c = s.categories.find(k => k.id === x.categoryId); const n = x.modules.length + x.fields.length + x.problemRefs.length; return <option key={x.id} value={x.id}>{c ? catPath(c) : "?"} · {n} own item{n === 1 ? "" : "s"}{(x.suppressed || []).length ? ` · ${x.suppressed.length} hidden` : ""}</option>; })}</select></label>}
+                {copySources.length > 0 && <span className="text-xs inline-flex items-center gap-2" style={{ color: C.muted }}>or copy from<span style={{ minWidth: 240, display: "inline-block" }}><SearchSelect size="xs" value="" onChange={v => v && createFrom(v)} options={copySources.map(x => { const c = s.categories.find(k => k.id === x.categoryId); const n = x.modules.length + x.fields.length + x.problemRefs.length; return { value: x.id, label: `${c ? catPath(c) : "?"} · ${n} own item${n === 1 ? "" : "s"}${(x.suppressed || []).length ? ` · ${x.suppressed.length} hidden` : ""}` }; })} empty="another category's form…" placeholder="Search categories…" /></span></span>}
                 <span className="text-xs" style={{ color: C.muted }}>The inherited form below is read-only until this level has a layer of its own.</span></div>
               <Note tone="warn">This level <b>has no layer of its own</b> — you see the composition: {chainLabel(chain, s)}. Everything works as is. Add a layer only if you want to add, hide or override something here{scope.kind === "Product" ? " (e.g. explicitly link a field to this product's specification)" : ""}.</Note>
               <Builder eff={eff} own={null} setOwn={() => {}} problems={s.problems} specs={null} specsHint="—" readOnly s={s} scope={scope} />
@@ -2967,7 +3007,12 @@ function FormsPage({ s, set }) {
             </>
           )}
         </div>
+        {preview && <aside className="flex-shrink-0" style={{ width: 400 }}>
+          <div className="flex items-center gap-2 mb-2"><p className="label-sm flex-1" style={{ color: C.muted }}>Controller preview</p><button onClick={() => setPreview(false)} className="text-xs" style={{ color: C.muted }}>hide</button></div>
+          <ControllerPreview s={s} typeId={typeId} scope={scope} setScope={setScope} />
+        </aside>}
       </div>}
+      {type && tab === "build" && !preview && <button onClick={() => setPreview(true)} className="fixed text-xs px-3 py-2 rounded-full inline-flex items-center gap-1.5" style={{ right: 24, bottom: 24, background: C.ink, color: C.onDark, boxShadow: "0 6px 16px rgba(0,0,0,.25)", zIndex: 30 }}><Ic i={Eye} s={13} mr={0} />Show preview</button>}
     </div>
   );
 }
@@ -3466,7 +3511,7 @@ function ProductPeek({ s, product, onClose }) {
   const tabs = [["overview", "Overview"], ["specs", `Specs${specs.length ? ` · ${specs.length}` : ""}`], ["attrs", `Properties${attrs.length ? ` · ${attrs.length}` : ""}`], ["guide", `Encyclopedia${guide.length ? ` · ${guide.length}` : ""}`], ["reference", `Reference guide${notes.length ? ` · ${notes.length}` : ""}`], ["history", `History${history.length ? ` · ${history.length}` : ""}`]];
   const Row = ({ k, v }) => v ? <div className="flex justify-between gap-3 py-1.5 text-sm" style={{ borderBottom: `1px solid ${C.line}` }}><span style={{ color: C.muted }}>{k}</span><span className="text-right font-medium">{v}</span></div> : null;
   const H = ({ children }) => <p className="text-[11px] font-semibold uppercase tracking-wide mt-4 mb-2" style={{ color: C.muted }}>{children}</p>;
-  const Photos = ({ list, size = 84 }) => list.length ? <div className="flex gap-2 flex-wrap">{list.map(ph => <button key={ph.id} onClick={() => setZoom(ph)} className="rounded-lg overflow-hidden" style={{ width: size, height: size, border: `1px solid ${C.line}`, background: C.bg }}><img src={ph.dataUrl || ph.url || ph.src} alt="" className="w-full h-full object-cover" /></button>)}</div> : null;
+  const Photos = ({ list, size = 84 }) => list.length ? <div className="flex gap-2 flex-wrap">{list.map(ph => <button key={ph.id} onClick={() => setZoom(ph)} className="rounded-lg overflow-hidden" style={{ width: size, height: size, border: `1px solid ${C.line}`, background: C.bg }}><img src={photoSrc(ph) || ph.url || ph.src} alt="" className="w-full h-full object-cover" /></button>)}</div> : null;
   return (
     <>
       <div onClick={onClose} className="fixed inset-0" style={{ background: "rgba(0,0,0,.28)", zIndex: 60 }} />
@@ -3505,8 +3550,8 @@ function ProductPeek({ s, product, onClose }) {
           </div>}
           {tab === "specs" && <div className="mt-3">{specs.length === 0 ? <Empty icon="📏" title="No specifications" hint="Nothing set on the product or its categories." /> : specs.map((q, i) => <div key={q.id || i} className="flex justify-between gap-3 py-2 text-sm" style={{ borderBottom: `1px solid ${C.line}` }}><div><span className="font-medium">{q.name}</span>{q.source !== "product" && <span className="text-[10px] ml-2" style={{ color: C.muted }}>{q.source}</span>}</div><span className="font-mono whitespace-nowrap">{specLabel(q)}</span></div>)}</div>}
           {tab === "attrs" && <div className="mt-3">{attrs.length === 0 ? <Empty icon="🏷️" title="No properties" hint="Nothing set on the product or its categories." /> : attrs.map(a => <div key={a.dictionaryId} className="flex justify-between gap-3 py-2 text-sm" style={{ borderBottom: `1px solid ${C.line}` }}><div><span style={{ color: C.muted }}>{a.list}</span>{a.source !== "product" && <span className="text-[10px] ml-2" style={{ color: C.muted }}>{a.source}</span>}</div><span className="font-medium text-right">{a.value}</span></div>)}</div>}
-          {tab === "guide" && <div className="mt-3">{guide.length === 0 ? <Empty icon="📖" title="Encyclopedia is empty" hint="Fill it in on the product page (Products → Encyclopedia)." /> : guide.map(g => <div key={g.id} className="rounded-xl p-3 mb-3" style={{ background: C.bg, border: `1px solid ${C.line}` }}><p className="font-semibold text-sm mb-1 flex items-center gap-2">{g.title || "Untitled entry"}{g.inherited && <InheritChip label={g.source} />}</p>{g.body && <p className="text-sm whitespace-pre-wrap mb-2" style={{ color: C.ink }}>{g.body}</p>}<Photos list={asPhotoList(g.photos)} /></div>)}</div>}
-          {tab === "reference" && <div className="mt-3">{notes.length === 0 ? <Empty icon="🧭" title="No reference notes" hint="Notes and photos per defect are filled in on the product page." /> : notes.map(n => <div key={n.id} className="rounded-xl p-3 mb-3" style={{ background: C.bg, border: `1px solid ${C.line}` }}><p className="font-semibold text-sm mb-1 flex items-center gap-2">{problemPath(s.problems, n.problemId) || "Defect"}{n.inherited && <InheritChip label={n.source} />}</p>{n.description && <p className="text-sm whitespace-pre-wrap mb-2">{n.description}</p>}<Photos list={asPhotoList(n.photos)} /></div>)}</div>}
+          {tab === "guide" && <div className="mt-3">{guide.length === 0 ? <Empty icon="📖" title="Encyclopedia is empty" hint="Fill it in on the product page (Products → Encyclopedia)." /> : guide.map(g => <FoldNote key={g.id} title={g.title || "Untitled entry"} chip={g.inherited ? <InheritChip label={g.source} /> : null}>{g.body && <p className="text-sm whitespace-pre-wrap mb-2" style={{ color: C.ink }}>{g.body}</p>}<Photos list={asPhotoList(g.photos)} /></FoldNote>)}</div>}
+          {tab === "reference" && <div className="mt-3">{notes.length === 0 ? <Empty icon="🧭" title="No reference notes" hint="Notes and photos per defect are filled in on the product page." /> : notes.map(n => <FoldNote key={n.id} title={problemPath(s.problems, n.problemId) || "Defect"} chip={n.inherited ? <InheritChip label={n.source} /> : null}>{n.description && <p className="text-sm whitespace-pre-wrap mb-2">{n.description}</p>}<Photos list={asPhotoList(n.photos)} /></FoldNote>)}</div>}
           {tab === "history" && <div className="mt-3">{history.length === 0 ? <Empty icon="📋" title="No completed inspections yet" /> : history.map(i => { const it = inspType(s, i); return <div key={i.id} className="flex items-center gap-3 py-2 text-sm" style={{ borderBottom: `1px solid ${C.line}` }}><span className="inline-block rounded-full" style={{ width: 8, height: 8, background: it.autoAccept ? it.color : i.result === "Accepted" ? C.ok : i.result === "Rejected" ? C.bad : C.muted }} /><span className="flex-1 min-w-0 truncate">{it.autoAccept ? it.name : (i.result || "—")}{i.supplier ? ` · ${i.supplier}` : ""}{i.isReference && <Ic i={Star} s={12} mr={0} />}</span><span className="text-xs whitespace-nowrap" style={{ color: C.muted }}>{i.dateISO && `DC ${dateCode(i.dateISO)} · `}{s.users.find(u => u.id === i.controllerId)?.name} · {fmtTime(i.completedAt)}</span></div>; })}</div>}
         </div>
       </aside>
@@ -3521,6 +3566,18 @@ function ProductPeek({ s, product, onClose }) {
 const productCodes = p => [["article", p.articleId], ["CU", p.barcodeCu], ["TU", p.barcodeTu]].filter(([, v]) => v && String(v).trim());
 const codeKind = (p, c) => (productCodes(p).find(([, v]) => String(v).trim() === String(c).trim()) || [null])[0];
 const matchesCode = (p, c) => !!codeKind(p, c);
+function FoldNote({ title, chip, children }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="rounded-xl mb-2" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
+      <button type="button" onClick={() => setOpen(o => !o)} className="w-full text-left px-3 py-2.5 flex items-center gap-2">
+        <span className="flex-1 font-semibold text-sm flex items-center gap-2 min-w-0"><span className="truncate">{title}</span>{chip}</span>
+        <Ic i={open ? ChevronDown : ChevronRight} s={14} mr={0} style={{ color: C.muted, flexShrink: 0 }} />
+      </button>
+      {open && <div className="px-3 pb-3">{children}</div>}
+    </div>
+  );
+}
 function CatalogPage({ s, set, user, notify, onStartInspection }) {
   const [q, setQ] = useState(""); const [sel, setSel] = useBackSel("catalogSel", null); const [flagText, setFlagText] = useState(""); const [flagOpen, setFlagOpen] = useState(false); const [showRef, setShowRef] = useState(null);
   const [cat, setCat] = useBackSel("catalogCat", null); const [f, setF] = useState({ bio: "", supplier: "", flagged: false, sort: "name" });
@@ -3558,7 +3615,7 @@ function CatalogPage({ s, set, user, notify, onStartInspection }) {
           </div>
           {visible.length === 0 ? <p className="text-xs" style={{ color: C.muted }}>Nothing matches.</p> : visible.slice(0, 60).map(p => { const li = lastInsp(p.id); const openFlag = s.flags.some(x => x.productId === p.id && x.status === "Open"); return (
             <button key={p.id} onClick={() => { setSel(p.id); setFlagOpen(false); setShowRef(null); }} className="w-full text-left flex items-center gap-2 px-2 py-2 rounded-lg row" style={{ background: sel === p.id ? C.accentSoft : "transparent", borderTop: `1px solid ${C.line}` }}>
-              {asPhotoList(p.photos).length ? <img src={asPhotoList(p.photos)[0].dataUrl} alt="" className="w-8 h-8 rounded-md object-contain" style={{ background: PHOTO_BG }} /> : <span className="w-8 h-8 rounded-md flex items-center justify-center" style={{ background: C.bg, color: C.muted }}><Ic i={ImageIcon} s={14} mr={0} /></span>}
+              {asPhotoList(p.photos).length ? <img src={photoSrc(asPhotoList(p.photos)[0])} alt="" className="w-8 h-8 rounded-md object-contain" style={{ background: PHOTO_BG }} /> : <span className="w-8 h-8 rounded-md flex items-center justify-center" style={{ background: C.bg, color: C.muted }}><Ic i={ImageIcon} s={14} mr={0} /></span>}
               <span className="flex-1 min-w-0"><span className="block text-sm truncate" style={{ color: sel === p.id ? C.accent : C.ink }}>{p.name}{p.isBio && <span className="text-xs ml-1" style={{ color: C.ok }}>bio</span>}</span><span className="block text-[11px]" style={{ color: C.muted }}>{p.articleId || "—"} · {catPath(p.categoryId)}</span></span>
               {openFlag && <Ic i={Flag} s={12} mr={0} style={{ color: C.warn }} />}
               {li && <span className="inline-block rounded-full" title={`last: ${li.result === "Accepted" ? "accepted" : "rejected"}, ${fmtTime(li.completedAt)}`} style={{ width: 8, height: 8, background: li.result === "Accepted" ? C.ok : C.bad }} />}
@@ -3570,7 +3627,7 @@ function CatalogPage({ s, set, user, notify, onStartInspection }) {
           {!product ? <Empty icon="📦" title="Select a product" hint="You'll see the profile, specs, suppliers, varieties and recent inspections." /> : (
             <>
               <div className="flex items-start gap-3 mb-3">
-                {asPhotoList(product.photos).length ? <img src={asPhotoList(product.photos)[0].dataUrl} alt="" className="w-16 h-16 rounded-lg object-contain" style={{ border: `1px solid ${C.line}`, background: PHOTO_BG }} /> : <div className="w-16 h-16 rounded-lg flex items-center justify-center" style={{ background: C.bg, border: `1px solid ${C.line}`, color: C.muted }} title="ProductPhotos — reference photos"><Ic i={ImageIcon} s={24} mr={0} /></div>}
+                {asPhotoList(product.photos).length ? <img src={photoSrc(asPhotoList(product.photos)[0])} alt="" className="w-16 h-16 rounded-lg object-contain" style={{ border: `1px solid ${C.line}`, background: PHOTO_BG }} /> : <div className="w-16 h-16 rounded-lg flex items-center justify-center" style={{ background: C.bg, border: `1px solid ${C.line}`, color: C.muted }} title="ProductPhotos — reference photos"><Ic i={ImageIcon} s={24} mr={0} /></div>}
                 <div className="flex-1 min-w-0">
                   <p className="font-semibold">{product.name}{product.isBio && <span className="text-xs ml-2 px-1.5 py-0.5 rounded" style={{ background: C.okBg, color: C.ok }}>bio</span>}</p>
                   <p className="text-xs" style={{ color: C.muted }}>ID {product.articleId || "—"}{product.barcodeCu && ` · CU ${product.barcodeCu}`}{product.barcodeTu && ` · TU ${product.barcodeTu}`} · {catPath(product.categoryId)}{product.isActive === false && <span className="ml-2 px-1.5 py-0.5 rounded" style={{ background: C.line, color: C.muted }}>inactive</span>}</p>
