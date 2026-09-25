@@ -176,7 +176,7 @@ const problemsFor = (s, scope, suppressed) => {
 // another category, or hidden for this product. The form's explicit link wins: pull that node (and its ancestors) in, so
 // the runner raises it and the verdict counts it, instead of silently downgrading to "warning only".
 const withLinkedProblems = (s, problems, t) => { if (!t) return problems; const have = new Set(problems.map(p => p.id)); const out = [...problems]; const addChain = id => { let n = s.problems.find(p => p.id === id); while (n && !have.has(n.id)) { have.add(n.id); out.push(n); n = n.parentId ? s.problems.find(p => p.id === n.parentId) : null; } }; (t.fields || t.allFields || []).forEach(f => { if (f.type === "Number") { if (f.problemBelowId) addChain(f.problemBelowId); if (f.problemAboveId) addChain(f.problemAboveId); } }); return out; };
-const scopeTag = (p, s) => p.productId ? `product: ${s.products.find(x => x.id === p.productId)?.name ?? "?"}` : p.categoryId ? `kat. ${s.categories.find(x => x.id === p.categoryId)?.name ?? "?"}` : null;
+const scopeTag = (p, s) => p.productId ? `product: ${s.products.find(x => x.id === p.productId)?.name ?? "?"}` : p.categoryId ? `category ${s.categories.find(x => x.id === p.categoryId)?.name ?? "?"}` : null;
 // Suggestions: problem names used in OTHER categories/products (not this scope, not global) that aren't already visible here.
 const problemSuggestions = (s, scope, visible) => {
   if (scope.kind === "Global") return [];
@@ -306,7 +306,7 @@ const layerChain = (s, scope, typeId = "type-full") => {
 const ownTemplate = (s, scope, typeId = "type-full") => { const T = s.templates.filter(t => (t.typeId || "type-full") === typeId); return scope.kind === "Global" ? T.find(t => t.scope === "Global")
   : scope.kind === "Category" ? T.find(t => t.scope === "Category" && t.categoryId === scope.id)
   : T.find(t => t.scope === "Product" && t.productId === scope.id); };
-const levelLabel = (t, s) => t.scope === "Global" ? "global" : t.scope === "Category" ? `kat. ${s.categories.find(c => c.id === t.categoryId)?.name ?? "?"}` : `product`;
+const levelLabel = (t, s) => t.scope === "Global" ? "global" : t.scope === "Category" ? `category ${s.categories.find(c => c.id === t.categoryId)?.name ?? "?"}` : `product`;
 
 // Composition: the result has the shape of a plain template + origin metadata.
 const compose = (s, chain) => {
@@ -331,7 +331,7 @@ const compose = (s, chain) => {
 const t_refsInModule = (eff, mid) => eff.problemRefs.filter(r => r.moduleId === mid);
 const bySort = (a, b) => (a.sort - b.sort) || ((a.level ?? 0) - (b.level ?? 0)) || String(a.id).localeCompare(String(b.id));
 const resolveTemplate = (s, product, typeId = "type-full") => { if (!product) return null; const chain = layerChain(s, { kind: "Product", id: product.id }, typeId); return chain.length ? compose(s, chain) : null; };
-const scopeLabel = (t, categories, products) => !t ? "—" : t.scope === "Global" ? "szablon global" : t.scope === "Category" ? `category „${categories.find(c => c.id === t.categoryId)?.name}"` : `product „${products.find(p => p.id === t.productId)?.name}"`;
+const scopeLabel = (t, categories, products) => !t ? "—" : t.scope === "Global" ? "global template" : t.scope === "Category" ? `category „${categories.find(c => c.id === t.categoryId)?.name}"` : `product „${products.find(p => p.id === t.productId)?.name}"`;
 const chainLabel = (chain, s) => chain.map(t => levelLabel(t, s)).join(" + ");
 const emptyTemplate = (scope, extra) => ({ id: uid(), scope, typeId: "type-full", ...extra, modules: [], fields: [], problemRefs: [], overrides: [], suppressed: [], fieldOverrides: {}, layered: true });
 
@@ -3346,7 +3346,7 @@ function InspectionsPage({ s, set, user, notify, openId, setOpenId, preset, clea
             {newProduct && !resolveTemplate(s, s.products.find(p => p.id === newProduct)) && <p className="text-xs mt-2" style={{ color: C.bad }}>This product has no form — no global template.</p>}
           </Card>
           <Card>
-            <div className="flex gap-2 mb-2"><SearchBox value={q} onChange={setQ} placeholder="search by product name or article ID…" className="flex-1" inputClass="rounded" /><button onClick={() => setAdvOpen(o => !o)} className="text-xs px-3 py-1.5 rounded-lg" style={{ background: advCount ? C.accent : C.accentSoft, color: advCount ? C.onDark : C.accent }}>Filtry{advCount ? ` · ${advCount}` : ""}</button></div>
+            <div className="flex gap-2 mb-2"><SearchBox value={q} onChange={setQ} placeholder="search by product name or article ID…" className="flex-1" inputClass="rounded" /><button onClick={() => setAdvOpen(o => !o)} className="text-xs px-3 py-1.5 rounded-lg" style={{ background: advCount ? C.accent : C.accentSoft, color: advCount ? C.onDark : C.accent }}>Filters{advCount ? ` · ${advCount}` : ""}</button></div>
             {advOpen && (
               <div className="rounded-lg p-3 mb-3 grid gap-2" style={{ background: C.bg, gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))" }}>
                 <label className="text-xs" style={{ color: C.muted }}>date range<select value={adv.range} onChange={e => setAdv(x => ({ ...x, range: e.target.value }))} className="w-full text-sm rounded px-2 py-1.5 outline-none mt-1" style={{ ...inp }}><option value="all">everything</option><option value="0">today</option><option value="7">7 days</option><option value="30">30 days</option><option value="custom">custom</option></select></label>
@@ -3511,7 +3511,7 @@ function CatalogPage({ s, set, user, notify, onStartInspection }) {
               {asPhotoList(p.photos).length ? <img src={asPhotoList(p.photos)[0].dataUrl} alt="" className="w-8 h-8 rounded-md object-contain" style={{ background: PHOTO_BG }} /> : <span className="w-8 h-8 rounded-md flex items-center justify-center" style={{ background: C.bg, color: C.muted }}><Ic i={ImageIcon} s={14} mr={0} /></span>}
               <span className="flex-1 min-w-0"><span className="block text-sm truncate" style={{ color: sel === p.id ? C.accent : C.ink }}>{p.name}{p.isBio && <span className="text-xs ml-1" style={{ color: C.ok }}>bio</span>}</span><span className="block text-[11px]" style={{ color: C.muted }}>{p.articleId || "—"} · {catPath(p.categoryId)}</span></span>
               {openFlag && <Ic i={Flag} s={12} mr={0} style={{ color: C.warn }} />}
-              {li && <span className="inline-block rounded-full" title={`ostatnia: ${li.result === "Accepted" ? "accepted" : "rejected"}, ${fmtTime(li.completedAt)}`} style={{ width: 8, height: 8, background: li.result === "Accepted" ? C.ok : C.bad }} />}
+              {li && <span className="inline-block rounded-full" title={`last: ${li.result === "Accepted" ? "accepted" : "rejected"}, ${fmtTime(li.completedAt)}`} style={{ width: 8, height: 8, background: li.result === "Accepted" ? C.ok : C.bad }} />}
             </button>
           ); })}
           {visible.length > 60 && <p className="text-xs mt-1" style={{ color: C.muted }}>…and {visible.length - 60} more — narrow the search.</p>}
