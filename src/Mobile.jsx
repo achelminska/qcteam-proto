@@ -1449,9 +1449,9 @@ function InspectionRunner({ insp, patch, t, problems, product, suppliers, dictio
                 const preset = sctx && product ? effectiveAttributes(sctx, product).find(a => a.dictionaryId === f.dictionaryId) : null;
                 if (!d) return <p className="text-xs" style={{ color: C.warn }}>No list attached to this field — the Head must pick one in the form builder.</p>;
                 if (!d.items.length) return <p className="text-xs" style={{ color: C.warn }}>The list "{d.name}" is empty — fill it in Dictionaries → Lists.</p>;
-                // Short lists stay one-tap pill buttons; longer ones (the Head can attach a 70-item list) become a real dropdown so it doesn't turn into a wall of buttons.
+                // Short lists stay one-tap pill buttons; longer ones (the Head can attach a 70-item list) become a searchable dropdown so it doesn't turn into a wall of buttons or a scroll through 74 countries.
                 const picker = d.items.length > 6
-                  ? <select value={values[f.id] || ""} onChange={e => setV(f.id, e.target.value)} className="w-full text-sm rounded px-2 py-1.5 outline-none" style={{ ...inp }}><option value="">— choose ({d.items.length} options) —</option>{d.items.map(o => <option key={o.id} value={o.value}>{o.value}</option>)}</select>
+                  ? <SearchSelect value={values[f.id] || ""} onChange={v => setV(f.id, v)} options={d.items.map(o => ({ value: o.value, label: o.value }))} empty={`— choose (${d.items.length} options) —`} placeholder={`Search ${d.name.toLowerCase()}…`} />
                   : <div className="flex flex-wrap gap-1.5">{d.items.map(o => <button key={o.id} onClick={() => setV(f.id, o.value)} className="text-xs px-3 py-1.5 rounded-full" style={{ background: values[f.id] === o.value ? C.accent : C.accentSoft, color: values[f.id] === o.value ? C.onDark : C.accent }}>{o.value}</button>)}</div>;
                 return <div>{picker}{preset && <p className="text-[11px] mt-1" style={{ color: C.muted }}>Pre-filled from the product profile ({preset.source}: {preset.value}){values[f.id] && values[f.id] !== preset.value ? " — changed on the dock" : ""}.</p>}</div>;
               })()}
