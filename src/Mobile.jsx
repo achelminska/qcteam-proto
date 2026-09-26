@@ -2481,24 +2481,45 @@ function MProductCard({ s, user, product, onBack, onStart, go, setState, notify,
 function LiveScanner({ onCode }) {
   const [state, setState] = useState("idle"); const [err, setErr] = useState(""); const [decoder, setDecoder] = useState(""); const videoRef = useRef(null); const streamRef = useRef(null); const timerRef = useRef(null); const zxingRef = useRef(null);
   const secure = typeof window !== "undefined" && (window.isSecureContext || location.hostname === "localhost");
-  const stop = () => { if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; } try { zxingRef.current?.stopContinuousDecode?.(); zxingRef.current?.reset?.(); } catch (e) {} zxingRef.current = null; try { streamRef.current?.getTracks().forEach(t => t.stop()); } catch (e) {} streamRef.current = null; if (videoRef.current) videoRef.current.srcObject = null; setState("idle"); };
-  const found = txt => { if (blockGhostClick || gestureLocked()) return; const code = String(txt || "").replace(/[^0-9A-Za-z]/g, ""); if (!code) return; stop(); onCode(code); };
+  // One scan session. stop() retires it immediately, so a detect() that was already running (often 1–2s on a phone)
+  // cannot apply the previous pallet after Scan another has cleared the screen.
+  const sessionRef = useRef(0);
+  const claimed = useRef(false);
+  const stop = () => {
+    sessionRef.current += 1; claimed.current = true;
+    if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
+    try { zxingRef.current?.stopContinuousDecode?.(); zxingRef.current?.reset?.(); } catch (e) {}
+    zxingRef.current = null;
+    try { streamRef.current?.getTracks().forEach(t => t.stop()); } catch (e) {}
+    streamRef.current = null;
+    if (videoRef.current) videoRef.current.srcObject = null;
+    setState("idle");
+  };
+  const found = txt => {
+    if (claimed.current) return;
+    const code = String(txt || "").replace(/[^0-9A-Za-z]/g, ""); if (!code) return;
+    claimed.current = true; stop(); onCode(code);
+  };
   const start = async () => {
-    if (blockGhostClick) return;
+    if (mouseClickBlocked()) return;
+    const my = ++sessionRef.current; claimed.current = false;
     setErr(""); if (!secure) { setErr("The camera only works over HTTPS (or localhost)."); return; }
     if (!navigator.mediaDevices?.getUserMedia) { setErr("This browser exposes no camera API. Type the code below."); return; }
     setState("starting");
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
-      streamRef.current = stream; const v = videoRef.current; v.srcObject = stream; v.setAttribute("playsinline", "true"); v.muted = true; await v.play(); setState("live");
+      if (sessionRef.current !== my) { stream.getTracks().forEach(t => t.stop()); return; }
+      streamRef.current = stream; const v = videoRef.current; v.srcObject = stream; v.setAttribute("playsinline", "true"); v.muted = true; await v.play();
+      if (sessionRef.current !== my) { try { stream.getTracks().forEach(t => t.stop()); } catch (e) {} return; }
+      setState("live");
       if (window.BarcodeDetector) {
         setDecoder("native"); const det = new window.BarcodeDetector({ formats: ["ean_13", "ean_8", "code_128", "code_39", "itf", "qr_code"] });
-        timerRef.current = setInterval(async () => { try { if (v.readyState < 2) return; const codes = await det.detect(v); if (codes.length) found(codes[0].rawValue); } catch (e) {} }, 250);
+        timerRef.current = setInterval(async () => { try { if (sessionRef.current !== my || v.readyState < 2) return; const codes = await det.detect(v); if (sessionRef.current !== my) return; if (codes.length) found(codes[0].rawValue); } catch (e) {} }, 250);
       } else if (window.ZXingBrowser?.BrowserMultiFormatReader) {
         setDecoder("zxing"); const reader = new window.ZXingBrowser.BrowserMultiFormatReader(); zxingRef.current = reader;
-        reader.decodeFromVideoElement(v, (result) => { if (result) found(result.getText()); });
+        reader.decodeFromVideoElement(v, (result) => { if (sessionRef.current !== my) return; if (result) found(result.getText()); });
       } else { setDecoder("none"); }
-    } catch (e) { setErr(e?.name === "NotAllowedError" ? "Camera permission denied — allow it in Settings → Safari → Camera." : e?.name === "NotFoundError" ? "No camera found." : String(e?.message || e)); stop(); }
+    } catch (e) { if (sessionRef.current !== my) return; setErr(e?.name === "NotAllowedError" ? "Camera permission denied — allow it in Settings → Safari → Camera." : e?.name === "NotFoundError" ? "No camera found." : String(e?.message || e)); stop(); }
   };
   useEffect(() => () => stop(), []);
   return (
@@ -2517,24 +2538,33 @@ const isPalletCode = code => /^\d{14,}$/.test(code.trim());
 // "00087205744101641093" → "087205744101641093". Sheets sometimes drop the leading zero, so matching is by suffix.
 const extractSSCC = raw => { const d = String(raw || "").replace(/\D/g, ""); const m = /(?:^|\D)00(\d{18})/.exec(String(raw || "")) || (d.length >= 20 && d.startsWith("00") ? [null, d.slice(2, 20)] : null); if (m) return m[1]; if (d.length >= 18) return d.slice(0, 18); return d; };
 const samePallet = (a, b) => { const x = String(a || "").replace(/\D/g, "").replace(/^0+/, ""), y = String(b || "").replace(/\D/g, "").replace(/^0+/, ""); return !!x && !!y && (x === y || x.endsWith(y) || y.endsWith(x)); };
-// A tap on a phone often delivers a second click a moment later, aimed at whatever is now under the finger.
-// Switching pallets (or clearing the scan) rewrites that spot, so the extra click would undo the first one.
-// The extra click has no new finger-down. A real next tap does, and must not be thrown away — that was making
-// "Scan another" look dead, because the camera button that replaced it ignored the finger for the whole lock.
+// A phone tap often grows a second click one or two seconds later, aimed at whatever replaced the control
+// (the camera, the back arrow, the pallet that used to be under the finger). That click is a mouse event.
+// A real next tap starts with a new finger, so it is allowed at once.
 let gestureLockUntil = 0;
 const gestureLocked = () => Date.now() < gestureLockUntil;
-const armGestureLock = () => { gestureLockUntil = Date.now() + 600; };
-let blockGhostClick = false;
-let ghostClickTimer = 0;
-const armClickGuard = () => {
-  blockGhostClick = true;
-  if (ghostClickTimer) clearTimeout(ghostClickTimer);
-  ghostClickTimer = setTimeout(() => { blockGhostClick = false; ghostClickTimer = 0; }, 700);
-};
+const armGestureLock = () => { gestureLockUntil = Date.now() + 2200; };
+let blockMouseUntil = 0;
+let lastPointerTouch = false;
+const mouseClickBlocked = () => Date.now() < blockMouseUntil;
+const touchUi = () => lastPointerTouch || (typeof navigator !== "undefined" && navigator.maxTouchPoints > 0);
+const armClickGuard = () => { if (touchUi()) blockMouseUntil = Date.now() + 2200; };
+let explicitBack = false;
+let suppressPopUntil = 0;
+let popShieldPuts = 0;
+const armPopShield = () => { if (!touchUi()) return; suppressPopUntil = Date.now() + 2200; popShieldPuts = 0; };
 if (typeof window !== "undefined" && !window.__qcClickGuard) {
   window.__qcClickGuard = true;
-  window.addEventListener("click", e => { if (!blockGhostClick) return; e.preventDefault(); e.stopPropagation(); }, true);
-  window.addEventListener("pointerdown", () => { blockGhostClick = false; }, true);
+  window.addEventListener("pointerdown", e => {
+    lastPointerTouch = e.pointerType === "touch" || e.pointerType === "pen";
+    if (lastPointerTouch) blockMouseUntil = 0;
+  }, true);
+  window.addEventListener("click", e => {
+    if (!mouseClickBlocked()) return;
+    if (e.pointerType === "touch" || e.pointerType === "pen") return;
+    e.preventDefault();
+    e.stopPropagation();
+  }, true);
 }
 // The WMS dock sheet can lag behind — a pallet already reported still shows up "on dock" until the next push. This is
 // what actually decides that, so it's surfaced everywhere a pallet is browsed, not only when its exact code is scanned.
@@ -2626,7 +2656,7 @@ function MScan({ s, user, go, onStart, onVisual, onSkip, setState, notify, prese
         ) : (<>
           <LiveScanner onCode={code => scan(code)} />
           <p className="text-xs mb-1" style={{ color: C.muted }}>Pallet number (SSCC) or product code (EAN / article ID) — the scanner tells them apart by length</p>
-          <div className="flex gap-2 mb-3"><input value={code} onChange={e => { setCode(e.target.value); setMode(null); }} onKeyDown={e => e.key === "Enter" && !blockGhostClick && scan()} placeholder="or type the code: 387175210024377766 / 11413643" className="flex-1 text-sm rounded-xl px-3 py-2.5 outline-none font-mono" style={{ ...inp }} /><button type="button" onClick={() => { if (!blockGhostClick) scan(); }} className="px-3 rounded-xl text-sm" style={{ background: C.accent, color: C.onDark }}>Scan</button></div>
+          <div className="flex gap-2 mb-3"><input value={code} onChange={e => { setCode(e.target.value); setMode(null); }} onKeyDown={e => e.key === "Enter" && scan()} placeholder="or type the code: 387175210024377766 / 11413643" className="flex-1 text-sm rounded-xl px-3 py-2.5 outline-none font-mono" style={{ ...inp }} /><button type="button" onClick={() => scan()} className="px-3 rounded-xl text-sm" style={{ background: C.accent, color: C.onDark }}>Scan</button></div>
         </>)}
 
         {mode === "unknown-product" && (
@@ -3432,11 +3462,22 @@ export default function App() {
   const depthRef = useRef(0); const curRef = useRef({ page, param }); curRef.current = { page, param };
   useEffect(() => {
     if (skipPushRef.current) { skipPushRef.current = false; return; }
-    try { history.pushState({ __qcNav: true, page, param }, ""); depthRef.current += 1; } catch {}
+    try { history.pushState({ __qcNav: true, page, param }, ""); depthRef.current += 1; armPopShield(); } catch {}
   }, [page, param]);
   useEffect(() => {
     try { history.replaceState({ __qcNav: true, page, param }, ""); } catch {}
-    const onPop = e => { const st = e.state; const np = st && st.__qcNav ? st.page : "home", nprm = st && st.__qcNav ? (st.param ?? null) : null; if (np === curRef.current.page && nprm === curRef.current.param) return; skipPushRef.current = true; depthRef.current = Math.max(0, depthRef.current - 1); setPage(np); setParam(nprm); };
+    const onPop = () => {
+      if (!explicitBack && Date.now() < suppressPopUntil && popShieldPuts < 3) {
+        popShieldPuts += 1;
+        try { history.pushState({ __qcNav: true, page: curRef.current.page, param: curRef.current.param }, ""); } catch {}
+        return;
+      }
+      explicitBack = false;
+      const st = history.state;
+      const np = st && st.__qcNav ? st.page : "home", nprm = st && st.__qcNav ? (st.param ?? null) : null;
+      if (np === curRef.current.page && nprm === curRef.current.param) return;
+      skipPushRef.current = true; depthRef.current = Math.max(0, depthRef.current - 1); setPage(np); setParam(nprm);
+    };
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
   }, []);
@@ -3467,7 +3508,7 @@ export default function App() {
   if (!loaded) return <div className="min-h-screen flex items-center justify-center text-sm" style={{ color: C.muted }}>Loading…</div>;
   const user = s.users.find(u => u.id === userId && u.active !== false) || null;
   if (!user) return <LoginScreen s={s} onLogin={id => setUserId(id)} />;
-  const go = (p, prm = null) => { if (p === "back") { if (depthRef.current > 0) { try { history.back(); return; } catch {} } setPage("home"); setParam(null); return; } setPage(p); setParam(prm); };
+  const go = (p, prm = null) => { if (p === "back") { if (depthRef.current > 0) { explicitBack = true; try { history.back(); return; } catch {} } setPage("home"); setParam(null); return; } armClickGuard(); armGestureLock(); setPage(p); setParam(prm); };
   const notify = (type, message, entityType, entityId, toUserId) => set(x => { const targets = toUserId ? [toUserId] : x.users.filter(u => u.role === "Head").map(u => u.id); return { ...x, notifications: [...x.notifications, ...targets.map(t => ({ id: uid(), userId: t, type, message, entityType, entityId, createdAt: nowISO(), readAt: null }))] }; });
   const startInspection = (pid, palletNo, force = false, typeId = "type-full") => {
     const p = s.products.find(x => x.id === pid); const t = resolveTemplate(s, p, typeId); if (!p || !t) { setToast(`No form for “${typeById(s, typeId)?.name || "this type"}” — the Head must build it in Forms.`); return; }
