@@ -134,7 +134,7 @@ const handler = async (req, res) => {
   const key = decodeURIComponent(req.url.replace(/^\/storage\//, "").split("?")[0]);
   if (!req.url.startsWith("/storage/")) return serveStatic(req, res);
   if (req.method === "GET") { const v = store[key]; if (v == null) { res.writeHead(404, cors); return res.end(""); } return sendJson(req, res, 200, { key, value: v, updatedAt: store.__meta?.[key] }); }
-  if (req.method === "PUT") { const chunks = []; req.on("data", c => chunks.push(c)); req.on("end", () => { const body = Buffer.concat(chunks).toString("utf8");
+  if (req.method === "PUT") { const chunks = []; req.on("data", c => chunks.push(c)); req.on("end", () => { let body = Buffer.concat(chunks).toString("utf8");
       const ifMatch = req.headers["if-match"]; const currentVersion = store.__meta?.[key] ? String(store.__meta[key]) : null;
       // Guard: an (almost) empty app state must not overwrite a populated one — a fresh device would otherwise wipe everyone's data.
       // A write that carries the CURRENT version comes from a client that has the latest copy, so shrinking it is a deliberate
