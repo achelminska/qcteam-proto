@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, Fragment } from "react";
 import { createSyncer, guardUnload } from "./sync.js";
 import { hasV, specLabel, dayLabel, typesOf, typeById, legacyTypeId, inspType, countsAs } from "./shared/format.js";
+import { readAsDataUrl, keepPhoto, drawResultMark, drawPhotoGroup } from "./shared/report-images.js";
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceArea, ReferenceLine, Legend } from "recharts";
 import { Clock, MessageCircle, Link2, List as ListIcon, BarChart3, Printer, SlidersHorizontal, SkipForward, LayoutDashboard, ClipboardList, Flag, Bell, FolderTree, ListTree, Package, LayoutTemplate, Truck, Globe, Megaphone, MessageSquare, Users, Search, Sun, Moon, Database, Home, Menu as MenuIcon, ScanLine, Plus, ChevronLeft, ChevronRight, ChevronDown, User, Camera, Image as ImageIcon, Paperclip, Send, Star, Pencil, Sparkles, HelpCircle, Download, Lock as LockIcon, AlertTriangle, Inbox, FileText, ShieldAlert, Tag, Layers, BookOpen, Filter, Check, X, Ruler, Boxes, Warehouse, Snowflake, Thermometer, ThumbsDown } from "lucide-react";
 
@@ -276,7 +277,7 @@ const scopeTag = (p, s) => p.productId ? `product: ${s.products.find(x => x.id =
 const SEED_TYPES = () => [];
 const SKIP_REASONS = ["no time", "stable product", "same delivery as earlier", "checked at the supplier"];
 const isVerdictType = (s, insp) => !inspType(s, insp).autoAccept;
-const settingsOf = s => ({ companyName: "Picnic Technologies", qcEmail: "qc@picnic.nl", rejectionWindowHours: 24, deadlineWarnHours: 6, deadlineWarnHoursRisky: 10, riskyLookbackDays: 14, ...(s.settings || {}) });
+const settingsOf = s => ({ companyName: "Picnic Technologies", qcEmail: "qc@picnic.nl", rejectionWindowHours: 24, deadlineWarnHours: 6, deadlineWarnHoursRisky: 10, riskyLookbackDays: 14, resultIcons: {}, ...(s.settings || {}) });
 // Policy = the set of allowed inspection types. Product → category chain → types allowed by default. A product always has one.
 const effectivePolicy = (s, product) => {
   const dflt = typesOf(s).filter(t => t.allowedByDefault).map(t => t.id);
@@ -414,16 +415,9 @@ const migrateLayered = s => {
   return { ...s, templates: out };
 };
 
-// ═══════════════════ PHOTOS: pick from disk, shrink, thumbnail strip ═══════════════════
+// ═══════════════════ PHOTOS: pick from disk, keep the original, thumbnail strip ═══════════════════
 // In the real system: file → upload to server → InspectionPhoto.FilePath; the UI shows a thumbnail once upload completes.
-// In the prototype: file → shrink in browser → data URL in state. HEIC (iPhone) can't be decoded by canvas → original if small.
-const readAsDataUrl = file => new Promise(res => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = () => res(null); r.readAsDataURL(file); });
-const shrinkImage = file => new Promise(res => {
-  const img = new Image(); const url = URL.createObjectURL(file);
-  img.onload = () => { try { const max = 720, k = Math.min(1, max / Math.max(img.width, img.height)); const c = document.createElement("canvas"); c.width = Math.round(img.width * k); c.height = Math.round(img.height * k); c.getContext("2d").drawImage(img, 0, 0, c.width, c.height); URL.revokeObjectURL(url); res(c.toDataURL("image/jpeg", 0.72)); } catch (e) { URL.revokeObjectURL(url); res(null); } };
-  img.onerror = () => { URL.revokeObjectURL(url); res(null); };
-  img.src = url;
-});
+// The file is stored at the camera's resolution. JPEG/PNG/WEBP/GIF stay byte for byte. HEIC is transcoded at full pixels.
 // iOS quirk: a detached <input type=file> can be garbage-collected while the picker converts several HEIC photos,
 // so its change event never fires. Keep the input in the document (hidden) until the selection is processed.
 let _pickerEl = null;
@@ -438,8 +432,8 @@ const pickPhotos = (opts = {}) => new Promise(res => {
   i.onchange = async () => {
     const out = [], failed = [];
     for (const f of Array.from(i.files || [])) {
-      let d = await shrinkImage(f);
-      if (!d && f.size <= 2.5 * 1024 * 1024) d = await readAsDataUrl(f);   // fallback: original (e.g. HEIC in Safari)
+      let d = await keepPhoto(f);
+      if (!d) d = await readAsDataUrl(f);
       if (d) { const path = await uploadPhoto(d); out.push(path ? { id: uid(), path, at: nowISO(), name: f.name } : { id: uid(), dataUrl: d, at: nowISO(), name: f.name, size: f.size }); } else failed.push(f.name);
     }
     unmountPicker(i); res({ out, failed });
@@ -484,12 +478,19 @@ async function buildReportPdf(insp, s) {
   const ok = insp.result === "Accepted"; const INK = [24, 34, 25], MUTED = [106, 119, 110], LINE = [221, 227, 222], OK = hexRgb("#1F6B45"), BAD = hexRgb("#A63D3D"), WARN = hexRgb("#9C6A1E");
   const doc = new jsPDF({ unit: "mm", format: "a4" }); const W = 210, L = 16, R = 194; let y = 16;
   const pageFooter = () => { const n = doc.getNumberOfPages(); for (let i = 1; i <= n; i++) { doc.setPage(i); doc.setFontSize(7.5); doc.setTextColor(...MUTED); doc.text(`${settings.companyName} · ${settings.qcEmail} · generated by QCteam ${new Date().toLocaleString("en-GB")}`, L, 287); doc.text(`Report ${insp.id.toUpperCase()} · page ${i}/${n}`, R, 287, { align: "right" }); } };
-  // header
-  doc.setFontSize(8.5); doc.setTextColor(...MUTED); doc.text(`${settings.companyName} · ${inspType(s, insp).name} inspection report · ${settings.qcEmail}`, L, y);
-  y += 7; doc.setFontSize(17); doc.setFont(undefined, "bold"); doc.setTextColor(...INK); doc.text(product.name || "—", L, y, { maxWidth: 120 });
-  y += 6; doc.setFontSize(8.5); doc.setFont(undefined, "normal"); doc.setTextColor(...MUTED); doc.text(`Article ${product.articleId || "—"} · ${category}${product.isBio ? " · bio" : ""}`, L, y);
-  doc.setFillColor(...(ok ? OK : BAD)); doc.roundedRect(148, 12, 46, 14, 2, 2, "F"); doc.setTextColor(255, 255, 255); doc.setFontSize(10); doc.setFont(undefined, "bold"); doc.text(ok ? "ACCEPTED" : "REJECTED", 191, 18, { align: "right" }); doc.setFontSize(7.5); doc.setFont(undefined, "normal"); doc.text(`Report no. ${insp.id.toUpperCase()}`, 191, 23, { align: "right" });
-  y += 4; doc.setDrawColor(...INK); doc.setLineWidth(0.5); doc.line(L, y, R, y); y += 3;
+  // header — the Head's result image, with the verdict and the report number beside it
+  const mark = await drawResultMark(doc, { settings, insp, ok, R, OK, BAD, MUTED, photoData });
+  const headMax = Math.max(70, mark.left - L - 4);
+  doc.setFontSize(8.5); doc.setFont(undefined, "normal"); doc.setTextColor(...MUTED);
+  const headLines = doc.splitTextToSize(`${settings.companyName} · ${inspType(s, insp).name} inspection report · ${settings.qcEmail}`, headMax);
+  doc.text(headLines, L, y); y += Math.max(7, headLines.length * 4);
+  doc.setFontSize(17); doc.setFont(undefined, "bold"); doc.setTextColor(...INK);
+  const nameLines = doc.splitTextToSize(product.name || "—", headMax);
+  doc.text(nameLines, L, y); y += 6 + (nameLines.length - 1) * 7;
+  doc.setFontSize(8.5); doc.setFont(undefined, "normal"); doc.setTextColor(...MUTED);
+  const artLines = doc.splitTextToSize(`Article ${product.articleId || "—"} · ${category}${product.isBio ? " · bio" : ""}`, headMax);
+  doc.text(artLines, L, y); y += (artLines.length - 1) * 4;
+  y = Math.max(y + 4, mark.bottom + 3); doc.setDrawColor(...INK); doc.setLineWidth(0.5); doc.line(L, y, R, y); y += 3;
   const tableBase = { margin: { left: L, right: 16 }, styles: { font: "helvetica", fontSize: 9, textColor: INK, cellPadding: 1.6, lineColor: LINE, lineWidth: { bottom: 0.2 } }, headStyles: { fillColor: [255, 255, 255], textColor: MUTED, fontStyle: "bold", fontSize: 8 }, theme: "plain" };
   // facts — only rows with a value
   const edited = insp.lastEditedBy ? ` (edited ${fmtTime(insp.lastEditedAt)} by ${users[insp.lastEditedBy]?.name || ""})` : "";
@@ -526,7 +527,7 @@ async function buildReportPdf(insp, s) {
   h2("Comment"); doc.setFontSize(9.5); doc.setTextColor(...INK); const lines = doc.splitTextToSize(insp.comment || "—", 178); doc.text(lines, L, y + 3); y += lines.length * 5 + 4;
   // photos
   const groups = []; (t.fields || []).forEach(f => { const ph = asPhotoList((insp.photos || {})[f.id]); if (ph.length) groups.push({ label: f.type === "Photos" ? photoBlockLabel(f, t) : f.label, photos: ph }); }); (insp.remarks || []).forEach(r => { const ph = asPhotoList(r.photos); if (ph.length) groups.push({ label: `Problem: ${pathOf(problems, r.leafId)}`, photos: ph }); });
-  if (groups.length) { h2("Photos"); for (const g of groups) { if (y > 240) { doc.addPage(); y = 16; } doc.setFontSize(8); doc.setTextColor(...MUTED); doc.text(g.label, L, y + 3); y += 5; let x = L; for (const ph of g.photos) { if (x + 40 > R) { x = L; y += 32; } if (y > 250) { doc.addPage(); y = 16; x = L; } try { const d = await photoData(ph); if (d) doc.addImage(d, "JPEG", x, y, 40, 30); } catch (e) {} x += 43; } y += 34; } }
+  if (groups.length) { h2("Photos"); for (const g of groups) { if (y > 200) { doc.addPage(); y = 16; } doc.setFontSize(8); doc.setTextColor(...MUTED); doc.text(g.label, L, y + 3); y += 6; y = await drawPhotoGroup(doc, { photos: g.photos, photoData, x0: L, y0: y, right: R, newPage: () => { doc.addPage(); } }); y += 6; } }
   if ((insp.audit || []).length) { h2("Report history"); doc.autoTable({ ...tableBase, startY: y, body: insp.audit.map(a => [a.action, `${fmtTime(a.at)} · ${users[a.userId]?.name || ""}${users[a.userId]?.email ? ` (${users[a.userId].email})` : ""}${a.details ? ` — ${a.details}` : ""}`]), columnStyles: { 0: { cellWidth: 38, textColor: MUTED, fontStyle: "bold", fontSize: 8 } } }); }
   pageFooter();
   return doc;
@@ -946,7 +947,7 @@ function CategorySuggestPanel({ s, set, products }) {
 
 // ═══════════════════ CHAT: attachments (MessageAttachment) + system context (MessageContext) ═══════════════════
 // A message can carry files/photos and references to system objects. Context chips are clickable and open the object.
-const pickFiles = () => new Promise(res => { const i = document.createElement("input"); i.type = "file"; i.multiple = true; i.accept = "image/*,.pdf,.csv,.xlsx,.txt,.json"; mountPicker(i); i.onchange = async () => { const out = []; for (const f of Array.from(i.files || [])) { if (f.type.startsWith("image/")) { const d = await shrinkImage(f); if (d) { out.push({ id: uid(), kind: "image", name: f.name, dataUrl: d, size: f.size }); continue; } } if (f.size > 2.5 * 1024 * 1024) { out.push({ id: uid(), kind: "file", name: f.name, size: f.size, tooBig: true }); continue; } const d = await readAsDataUrl(f); out.push({ id: uid(), kind: "file", name: f.name, size: f.size, dataUrl: d, mime: f.type }); } unmountPicker(i); res(out); }; i.click(); });
+const pickFiles = () => new Promise(res => { const i = document.createElement("input"); i.type = "file"; i.multiple = true; i.accept = "image/*,.pdf,.csv,.xlsx,.txt,.json"; mountPicker(i); i.onchange = async () => { const out = []; for (const f of Array.from(i.files || [])) { if (f.type.startsWith("image/")) { const d = await keepPhoto(f); if (d) { out.push({ id: uid(), kind: "image", name: f.name, dataUrl: d, size: f.size }); continue; } } if (f.size > 2.5 * 1024 * 1024) { out.push({ id: uid(), kind: "file", name: f.name, size: f.size, tooBig: true }); continue; } const d = await readAsDataUrl(f); out.push({ id: uid(), kind: "file", name: f.name, size: f.size, dataUrl: d, mime: f.type }); } unmountPicker(i); res(out); }; i.click(); });
 const contextLabel = (s, c) => { if (c.kind === "product") return { icon: Package, text: s.products.find(p => p.id === c.id)?.name || "product" }; if (c.kind === "inspection") { const i = s.inspections.find(x => x.id === c.id); const p = i && s.products.find(x => x.id === i.productId); return { icon: ClipboardList, text: i ? `${p?.name || "inspection"} · ${i.status === "Completed" ? (i.result || inspType(s, i).name) : STATUS[i.status]?.[0] || i.status} · ${fmtTime(i.completedAt || i.startedAt)}` : "inspection" }; } if (c.kind === "pallet") return { icon: Truck, text: `Pallet ${c.id}${c.label ? " · " + c.label : ""}` }; if (c.kind === "flag") { const f = s.flags.find(x => x.id === c.id); return { icon: Flag, text: f ? `Flag: ${(f.description || "").slice(0, 40)}` : "flag" }; } return { icon: Tag, text: c.label || c.kind }; };
 function ContextChips({ s, contexts, onOpen, dark }) {
   if (!contexts?.length) return null;
