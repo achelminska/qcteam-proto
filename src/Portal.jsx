@@ -1960,7 +1960,7 @@ function PrintReport({ insp, s, onClose }) {
       <div className="sheet">
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", borderBottom: "2px solid #111", paddingBottom: 10 }}>
           <div><div className="k">{settingsOf(s).companyName} · Quality inspection report · {settingsOf(s).qcEmail}</div><h1>{product?.name || "—"}</h1><div className="k">Article {product?.articleId || "—"} · {s.categories.find(c => c.id === product?.categoryId)?.name || "—"}{product?.isBio && " · bio"}</div></div>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>{photoSrc(resultIcon) && <img src={photoSrc(resultIcon)} alt="" style={{ height: 48, width: "auto", maxWidth: 72, objectFit: "contain" }} />}<div><div style={{ fontWeight: 700, fontSize: "12pt", color: resultColor, lineHeight: 1.15 }}>{insp.result === "Accepted" ? "ACCEPTED" : "REJECTED"}</div><div className="k">Report no. {insp.id.toUpperCase()}</div></div></div>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}><div style={{ textAlign: "right" }}><div style={{ fontWeight: 700, fontSize: "12pt", color: resultColor, lineHeight: 1.15 }}>{insp.result === "Accepted" ? "ACCEPTED" : "REJECTED"}</div><div className="k">Report no. {insp.id.toUpperCase()}</div></div>{photoSrc(resultIcon) && <img src={photoSrc(resultIcon)} alt="" style={{ height: 48, width: "auto", maxWidth: 72, objectFit: "contain" }} />}</div>
         </div>
         <table style={{ marginTop: 10 }}><tbody>
           <tr><th style={{ width: "22%" }}>Inspected</th><td>{fmtTime(insp.completedAt)} by {ctrl}{insp.lastEditedBy && ` (edited ${fmtTime(insp.lastEditedAt)} by ${s.users.find(u => u.id === insp.lastEditedBy)?.name})`}</td><th style={{ width: "22%" }}>Date code</th><td>{insp.dateISO ? `${dateCode(insp.dateISO)} (${insp.dateISO})` : "—"}</td></tr>
@@ -1988,7 +1988,7 @@ function PrintReport({ insp, s, onClose }) {
         <div style={{ whiteSpace: "pre-wrap", border: "1px solid #ddd", borderRadius: 6, padding: "8px 10px", minHeight: 40 }}>{insp.comment || <span className="k">—</span>}</div>
         {photoGroups.length > 0 && <>
           <h2>Photos</h2>
-          {photoGroups.map((g, gi) => <div key={gi} style={{ marginBottom: 8 }}><div className="k" style={{ marginBottom: 4 }}>{g.label}</div><div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "flex-start" }}>{g.photos.map(ph => <img key={ph.id} src={photoSrc(ph)} alt="" style={{ maxWidth: "calc(50% - 6px)", maxHeight: "90mm", width: "auto", height: "auto", objectFit: "contain", borderRadius: 4, border: "1px solid #ddd" }} />)}</div></div>)}
+          {photoGroups.map((g, gi) => <div key={gi} style={{ marginBottom: 8 }}><div className="k" style={{ marginBottom: 4 }}>{g.label}</div><div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "flex-start" }}>{g.photos.map(ph => <img key={ph.id} src={photoSrc(ph)} alt="" style={{ maxWidth: "52mm", maxHeight: "52mm", width: "auto", height: "auto", objectFit: "contain", borderRadius: 4, border: "1px solid #ddd" }} />)}</div></div>)}
         </>}
         <h2>Report history</h2>
         <table><tbody>{(insp.audit || []).map((a, i) => <tr key={i}><th style={{ width: "26%" }}>{a.action}</th><td>{fmtTime(a.at)} · {s.users.find(u => u.id === a.userId)?.name}{s.users.find(u => u.id === a.userId)?.email ? ` (${s.users.find(u => u.id === a.userId).email})` : ""}{a.details ? ` — ${a.details}` : ""}</td></tr>)}</tbody></table>
@@ -4178,7 +4178,7 @@ function SettingsPage({ s, set }) {
       </Card>
       <Card style={{ marginBottom: 16 }}>
         <h2 className="mb-1">Report result icon</h2>
-        <p className="text-xs mb-3" style={{ color: C.muted }}>This image is the mark at the top of the report. The report number and Accepted or Rejected sit beside it. Upload one image per result. Leave a result blank and the report shows the words only.</p>
+        <p className="text-xs mb-3" style={{ color: C.muted }}>This image is the mark on the right of the report header. The report number and Accepted or Rejected sit to its left. Upload one image per result. Leave a result blank and the report shows the words only.</p>
         <div className="grid gap-4" style={{ gridTemplateColumns: "1fr 1fr" }}>
           {["Accepted", "Rejected"].map(r => (
             <div key={r}>

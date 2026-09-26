@@ -102,8 +102,8 @@ export async function addImageNatural(doc, src, x, y, w, h) {
   }
 }
 
-// Head-uploaded result image, with the verdict and the report number beside it.
-// Returns the left and bottom edges (mm) so the title and the rule clear the mark.
+// Head-uploaded result image on the right. The verdict and the report number
+// sit to its left. Returns the left and bottom edges (mm) so the title and the rule clear the mark.
 export async function drawResultMark(doc, { settings, insp, ok, R, OK, BAD, MUTED, photoData }) {
   const label = ok ? "ACCEPTED" : "REJECTED";
   const reportNo = `Report no. ${String(insp.id || "").toUpperCase()}`;
@@ -126,27 +126,30 @@ export async function drawResultMark(doc, { settings, insp, ok, R, OK, BAD, MUTE
     } catch { src = null; iw = 0; ih = 0; }
   }
   const blockH = Math.max(ih, 12);
-  const textLeft = R - textW;
-  let iconX = iw ? textLeft - gap - iw : textLeft;
+  let placed = false;
+  const iconX = R - iw;
   if (src && iw) {
-    try { await addImageNatural(doc, src, iconX, top + (blockH - ih) / 2, iw, ih); }
-    catch { src = null; iw = 0; iconX = textLeft; }
+    try {
+      await addImageNatural(doc, src, iconX, top + (blockH - ih) / 2, iw, ih);
+      placed = true;
+    } catch { /* words only, still on the right */ }
   }
+  const textRight = placed ? iconX - gap : R;
   const linesTop = top + Math.max(0, (blockH - 10) / 2);
   doc.setFont(undefined, "bold");
   doc.setFontSize(11);
   doc.setTextColor(...(ok ? OK : BAD));
-  doc.text(label, textLeft, linesTop + 4.2);
+  doc.text(label, textRight, linesTop + 4.2, { align: "right" });
   doc.setFont(undefined, "normal");
   doc.setFontSize(8);
   doc.setTextColor(...MUTED);
-  doc.text(reportNo, textLeft, linesTop + 8.6);
-  return { left: iw && src ? iconX : textLeft, bottom: top + blockH };
+  doc.text(reportNo, textRight, linesTop + 8.6, { align: "right" });
+  return { left: textRight - textW, bottom: top + blockH };
 }
 
 // Place each photo at its own aspect ratio, wrapping the row and the page.
 // Returns the y just under the last row.
-export async function drawPhotoGroup(doc, { photos, photoData, x0, y0, right, maxW = 86, maxH = 86, gap = 4, pageBreak = 272, newPage }) {
+export async function drawPhotoGroup(doc, { photos, photoData, x0, y0, right, maxW = 52, maxH = 52, gap = 4, pageBreak = 272, newPage }) {
   const items = [];
   for (const ph of photos || []) {
     try {
