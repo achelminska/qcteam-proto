@@ -14,9 +14,39 @@
 // A pulled or conflicted copy is only accepted if its version is NEWER than ours: responses from a GET that was in
 // flight while our own save landed carry an older version and are dropped, so a confirmed edit can't flicker away.
 // Network errors keep the queue intact and the poll retries; nothing is ever dropped because a request failed.
+//
+// A reload is not a network error: it throws the in-memory queue away. The UI already showed the edit (a finished
+// skip, a remark) and the PUT may still be in flight or not started — warehouse Wi‑Fi, or the controller refreshing
+// to "check it stuck". Every unconfirmed local state is therefore written to a device-local snapshot, synchronously,
+// before the debounce. The next load puts it back: wholesale when the server is still the version we edited, or by
+// merging our records in when someone else saved in between. A confirmed save deletes the snapshot.
 
 const parseState = (txt, isValid) => { try { const p = JSON.parse(txt); return isValid(p) ? p : null; } catch { return null; } };
 const newer = (v, than) => !!v && (!than || Number(v) > Number(than));
+
+// Records a controller creates or finishes. When the server moved on while our save was still unconfirmed, keep
+// these from the device and keep everything else (catalog, dock rows, …) from the server.
+const RECORD_LISTS = ["inspections", "flags", "notifications", "announcements", "conversations"];
+const recordStamp = o => [o?.completedAt, o?.lastEditedAt, o?.answeredAt, o?.updatedAt, o?.startedAt, o?.createdAt].filter(Boolean).sort().at(-1) || "";
+const recordRank = o => ({ Completed: 3, PendingReview: 2, Draft: 1 }[o?.status] ?? 0);
+
+export function mergeForward(base, local) {
+  const mergeList = (serverList, localList) => {
+    const out = new Map();
+    for (const item of serverList || []) if (item && item.id != null) out.set(item.id, item);
+    for (const item of localList || []) {
+      if (!item || item.id == null) continue;
+      const prev = out.get(item.id);
+      if (!prev) { out.set(item.id, item); continue; }
+      const ls = recordStamp(item), ps = recordStamp(prev);
+      if (ls > ps || (ls === ps && ((item.audit || []).length > (prev.audit || []).length || recordRank(item) > recordRank(prev)))) out.set(item.id, item);
+    }
+    return [...out.values()];
+  };
+  const next = { ...base };
+  for (const k of RECORD_LISTS) next[k] = mergeList(base[k], local[k]);
+  return next;
+}
 
 /**
  * @param {object} o
@@ -27,16 +57,32 @@ const newer = (v, than) => !!v && (!than || Number(v) > Number(than));
  * @param {(state: object) => void} o.onState      push the new local state to React
  * @param {(msg: string) => void} [o.onToast]
  * @param {object} [o.storage]                     defaults to window.storage (injectable for tests)
+ * @param {object} [o.localStore]                  defaults to localStorage; holds the unconfirmed snapshot
  */
-export function createSyncer({ key, normalize, isValid, initial, onState, onToast, storage }) {
+export function createSyncer({ key, normalize, isValid, initial, onState, onToast, storage, localStore }) {
   const sy = { base: null, version: null, pending: [], local: initial, busy: false, loaded: false, flushTimer: null, disposed: false };
+  const pendingKey = key + ":pending";
   const S = () => storage || (typeof window !== "undefined" ? window.storage : null);
+  const disk = () => localStore || (typeof localStorage !== "undefined" ? localStorage : null);
   const toast = m => { try { onToast && onToast(m); } catch {} };
+  // Synchronous: a refresh can happen before the debounced PUT starts. Failures (private mode, quota) leave us no
+  // worse than before — the in-memory queue still tries the network.
+  const remember = () => {
+    const d = disk(); if (!d) return;
+    try {
+      if (!sy.pending.length) d.removeItem(pendingKey);
+      else d.setItem(pendingKey, JSON.stringify({ version: sy.version, value: JSON.stringify(sy.local) }));
+    } catch (e) { console.warn("QCteam: could not keep an unconfirmed edit on this device", e); }
+  };
+  const readPending = () => {
+    const d = disk(); if (!d) return null;
+    try { const raw = d.getItem(pendingKey); if (!raw) return null; const p = JSON.parse(raw); return p && typeof p.value === "string" ? p : null; } catch { return null; }
+  };
   const replay = (base, ops) => ops.reduce((acc, op) => { try { return op.fn(acc); } catch (e) { console.warn("QCteam: could not re-apply a change", e); return acc; } }, base);
   const emit = () => onState(sy.local);
   const adoptServerCopy = (value, version) => {
     const p = parseState(value, isValid); if (!p) return false;
-    sy.base = normalize(p); sy.version = version || null; sy.local = replay(sy.base, sy.pending); emit(); return true;
+    sy.base = normalize(p); sy.version = version || null; sy.local = replay(sy.base, sy.pending); emit(); remember(); return true;
   };
 
   const scheduleFlush = (delay = 150) => {
@@ -70,8 +116,12 @@ export function createSyncer({ key, normalize, isValid, initial, onState, onToas
         sy.pending.splice(0, ops.length); sy.base = candidate; if (res.version) sy.version = res.version;
         retryNow = sy.pending.length > 0; break;
       }
-    } finally { sy.busy = false; if (retryNow) scheduleFlush(0); }
+    } finally { sy.busy = false; remember(); if (retryNow) scheduleFlush(0); }
   };
+
+  // A refresh mid-save aborts the PUT. Flush as the page goes away; the snapshot covers a request the browser kills.
+  const onPageHide = () => { if (!sy.disposed && sy.pending.length) flush(); };
+  if (typeof window !== "undefined") window.addEventListener("pagehide", onPageHide);
 
   const pull = async () => {
     const st = S(); if (sy.disposed || !sy.loaded || sy.busy || !st) return false;
@@ -88,13 +138,26 @@ export function createSyncer({ key, normalize, isValid, initial, onState, onToas
     apply(fn, { force = false } = {}) {
       const op = { fn, force }; sy.pending.push(op);
       try { sy.local = fn(sy.local); } catch (e) { console.warn("QCteam: change failed", e); sy.pending.pop(); return; }
-      emit(); scheduleFlush();
+      emit(); remember(); scheduleFlush();
     },
-    /** First load: adopt the server's copy (or start from `initial`). Never queues anything to send back. */
+    /** First load: adopt the server's copy (or start from `initial`). An unconfirmed snapshot from a previous
+     *  page — a finished inspection the PUT never confirmed — is put back and saved. */
     async load() {
       try { const st = S(); if (st) { const r = await st.get(key); if (r?.value) { const p = parseState(r.value, isValid); if (p) { sy.base = normalize(p); sy.version = r.version || null; } } } } catch {}
       if (!sy.base) sy.base = normalize(initial);
-      sy.local = replay(sy.base, sy.pending); sy.loaded = true; emit();
+      const snap = readPending();
+      const parsed = snap ? parseState(snap.value, isValid) : null;
+      const snapNorm = parsed ? normalize(parsed) : null;
+      if (snapNorm) {
+        const sameBase = !sy.version || snap.version === sy.version;
+        sy.local = sameBase ? snapNorm : mergeForward(sy.base, snapNorm);
+        if (JSON.stringify(sy.local) !== JSON.stringify(sy.base)) {
+          const frozen = snapNorm;
+          sy.pending = [{ fn: base => mergeForward(base, frozen) }];
+        }
+      }
+      if (!sy.pending.length) sy.local = sy.base;
+      sy.loaded = true; emit(); remember();
       if (sy.pending.length) scheduleFlush(0);
     },
     flush, pull,
@@ -107,7 +170,7 @@ export function createSyncer({ key, normalize, isValid, initial, onState, onToas
       if (v && v !== sy.version) await pull();
     },
     hasUnsaved: () => sy.pending.length > 0 || sy.busy,
-    dispose() { sy.disposed = true; if (sy.flushTimer) clearTimeout(sy.flushTimer); },
+    dispose() { sy.disposed = true; if (sy.flushTimer) clearTimeout(sy.flushTimer); if (typeof window !== "undefined") window.removeEventListener("pagehide", onPageHide); },
   };
 }
 

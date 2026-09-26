@@ -46,7 +46,8 @@ window.storage = {
     local.set(key, value);
     if (!(await probe())) return { error: true };
     try {
-      const r = await fetch(`${SERVER}/storage/${encodeURIComponent(key)}`, { method: "PUT", headers: { "Content-Type": "text/plain; charset=utf-8", ...(version ? { "If-Match": version } : {}), ...(force ? { "X-Force": "1" } : {}) }, body: value });
+      const leaving = typeof document !== "undefined" && document.visibilityState === "hidden";
+      const r = await fetch(`${SERVER}/storage/${encodeURIComponent(key)}`, { method: "PUT", headers: { "Content-Type": "text/plain; charset=utf-8", ...(version ? { "If-Match": version } : {}), ...(force ? { "X-Force": "1" } : {}) }, body: value, keepalive: leaving && value.length < 60000 });
       if (r.status === 409) { const j = await r.json().catch(() => ({})); if (j.rejected) return { rejected: true }; return { conflict: true, value: j.value, version: j.updatedAt ? String(j.updatedAt) : null }; }
       const j = await r.json().catch(() => ({})); return { version: j.updatedAt ? String(j.updatedAt) : null };
     } catch (e) { return { error: true }; }
