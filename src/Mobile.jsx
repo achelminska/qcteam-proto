@@ -453,8 +453,12 @@ function PhotoStrip({ photos, onAdd, onRemove, size = 64, addLabel = "Add photo"
     <div className="flex flex-wrap gap-2 items-center">
       {list.map(ph => <div key={ph.id} className="relative"><img src={ph.path || photoSrc(ph)} alt="" onClick={() => setView(ph)} className="object-cover rounded-lg cursor-pointer" style={{ width: size, height: size, border: `1px solid ${C.line}` }} />{onRemove && <button onClick={() => onRemove(ph.id)} className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full text-[10px] leading-none" style={{ background: C.bad, color: C.onDark }} title="delete">×</button>}</div>)}
       {busy && <div className="rounded-lg flex items-center justify-center text-[10px]" style={{ width: size, height: size, background: C.bg, color: C.muted, border: `1px solid ${C.line}` }}>uploading…</div>}
-      {onAdd && touch && <button onClick={() => add(true)} disabled={busy} className="rounded-lg flex flex-col items-center justify-center text-xs" style={{ width: size, height: size, border: `1px solid ${C.accent}`, color: C.onDark, background: C.accent, gap: 2 }}><Ic i={Camera} s={size >= 56 ? 18 : 14} mr={0} />{size >= 56 && <span className="text-[10px] leading-tight">Take photo</span>}</button>}
-      {onAdd && <button onClick={() => add(false)} disabled={busy} className="rounded-lg flex flex-col items-center justify-center text-xs" style={{ width: size, height: size, border: `1px dashed ${C.line}`, color: C.accent, background: C.accentSoft, gap: 2 }}><Ic i={ImageIcon} s={size >= 56 ? 18 : 14} mr={0} />{size >= 56 && <span className="text-[10px] leading-tight">{touch ? "From library" : addLabel}</span>}</button>}
+      {onAdd && size < 56 && <>
+        {touch && <button onClick={() => add(true)} disabled={busy} className="rounded-full inline-flex items-center gap-1.5 text-xs font-semibold px-3" style={{ height: 32, color: C.onDark, background: C.accent }}><Ic i={Camera} s={14} mr={0} />Photo</button>}
+        <button onClick={() => add(false)} disabled={busy} className="rounded-full inline-flex items-center gap-1.5 text-xs font-semibold px-3" style={{ height: 32, color: C.accent, background: C.accentSoft }}><Ic i={ImageIcon} s={14} mr={0} />{touch ? "Library" : addLabel}</button>
+      </>}
+      {onAdd && size >= 56 && touch && <button onClick={() => add(true)} disabled={busy} className="rounded-lg flex flex-col items-center justify-center text-xs" style={{ width: size, height: size, border: `1px solid ${C.accent}`, color: C.onDark, background: C.accent, gap: 2 }}><Ic i={Camera} s={18} mr={0} /><span className="text-[10px] leading-tight">Take photo</span></button>}
+      {onAdd && size >= 56 && <button onClick={() => add(false)} disabled={busy} className="rounded-lg flex flex-col items-center justify-center text-xs" style={{ width: size, height: size, border: `1px dashed ${C.line}`, color: C.accent, background: C.accentSoft, gap: 2 }}><Ic i={ImageIcon} s={18} mr={0} /><span className="text-[10px] leading-tight">{touch ? "From library" : addLabel}</span></button>}
       {!onAdd && list.length === 0 && <span className="text-xs" style={{ color: C.muted }}>no photos</span>}
       {err && <span className="text-xs w-full" style={{ color: C.bad }}>{err}</span>}
       {view && <div className="fixed inset-0 flex items-center justify-center p-6" style={{ background: "rgba(0,0,0,.85)", zIndex: 60 }} onClick={() => setView(null)}><img src={view.path || view.dataUrl} alt="" className="max-w-full max-h-full rounded-xl" /><button className="absolute top-4 right-5 text-2xl" style={{ color: "#fff" }}>×</button></div>}
@@ -1201,7 +1205,7 @@ function NumberInput({ f, problems, overrides, specs, totals, value, onChange, o
   const unit = mode === "PieceCount" ? "pcs" : mode === "DirectWeight" ? "g" : "CU";
   return (
     <div>
-      <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${n}, minmax(0,1fr))` }}>{ms.map((m, i) => <input key={i} type="number" value={m} onChange={e => onChange({ measurements: ms.map((x, j) => j === i ? e.target.value : x) })} placeholder={`pomiar ${i + 1}`} className="text-sm rounded px-2 py-1.5 outline-none" style={{ ...inp }} />)}</div>
+      <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${n}, minmax(0,1fr))` }}>{ms.map((m, i) => <input key={i} type="number" inputMode="decimal" value={m} onChange={e => onChange({ measurements: ms.map((x, j) => j === i ? e.target.value : x) })} placeholder={`pomiar ${i + 1}`} className="text-base rounded-xl px-2 py-2.5 outline-none text-center" style={{ ...inp, fontVariantNumeric: "tabular-nums" }} />)}</div>
       {lim.note && <p className="text-[11px] mt-1" style={{ color: C.muted }}>{lim.note}</p>}
       {avg !== null && <p className="text-xs mt-1.5" style={{ color: C.muted }}>average <b style={{ color: C.ink }}>{fmt(avg)}</b>{ref ? ` · reference ${ref}${byName ? ` (by name “${spec.name}"${spec.source !== "product" ? ", " + spec.source : ""})` : ""}` : (f.problemBelowId || f.problemAboveId) ? <span style={{ color: C.warn }}> · no reference — the product has no specification “{(f.specName || "").trim() || f.label}“ and the field has no min/max</span> : ""}</p>}
       {bad && !lp && <div className="rounded-lg px-3 py-1.5 mt-1.5 text-xs" style={{ background: C.warnBg, color: C.warn }}>Out of spec — warning only.</div>}
@@ -1238,43 +1242,56 @@ function ProblemTreeView({ root, problems, overrides, remarks, onReport, onDelet
     const mine = leaf ? remarks.filter(r => r.leafId === node.id) : [];
     const isOpen = open === node.id, zero = t === 0;
     const note = leaf ? noteFor(notes, node.id) : null, hasNote = hasNoteContent(note), refIsOpen = refOpen === node.id;
-    return (
+    // Tolerance is shown where it is set — on the group — and on a child only when it differs from its parent, so a
+    // list of twelve leaves stops repeating "tol. 10%" twelve times.
+    const parentTol = dep > 0 && node.parentId ? effTol(problems, overrides, node.parentId) : null;
+    const showTol = t !== null && (dep === 0 || t !== parentTol);
+    const agg = aggregate(problems, remarks, node.id, totals), present = presenceIn(problems, remarks, node.id) && zero;
+    const indent = Math.max(0, dep - 1) * 12;
+    const pill = <span className="text-xs px-2 py-0.5 rounded-full min-w-[3.2rem] text-center flex-shrink-0" style={{ background: bg, color: fg, fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>{present ? "present" : `${fmt(agg)}%`}</span>;
+    const tolTag = showTol ? <span className="text-[11px] whitespace-nowrap" style={{ color: C.muted }}>{zero ? "⚡ 0%" : `tol. ${t}%`}</span> : null;
+    const bookBtn = hasNote ? <button onClick={e => { e.stopPropagation(); setRefOpen(refIsOpen ? null : node.id); }} className="inline-flex items-center justify-center rounded-full flex-shrink-0" style={{ width: 24, height: 24, background: refIsOpen ? C.accent : C.accentSoft, color: refIsOpen ? C.onDark : C.accent }} title="reference guide — what this looks like"><Ic i={BookOpen} s={12} mr={0} /></button> : null;
+    const body = (
       <div key={node.id}>
-        <div className="flex items-center gap-2 py-1 text-sm" style={{ paddingLeft: dep * 14, borderTop: `1px solid ${C.line}` }}>
-          {leaf && !disabled
-            ? <button onClick={() => { setOpen(isOpen ? null : node.id); setRaw(""); }} className="flex-1 text-left rounded px-1 -mx-1" style={{ color: isOpen ? C.accent : C.ink, fontWeight: isOpen ? 500 : 400, background: isOpen ? C.accentSoft : "transparent" }}>{node.name} <span className="text-xs" style={{ color: C.muted }}>{isOpen ? "▾" : "+"}</span></button>
-            : <span className="flex-1" style={{ fontWeight: dep === 0 ? 600 : dep === 1 ? 500 : 400 }}>{node.name}</span>}
-          {hasNote && <button onClick={() => setRefOpen(refIsOpen ? null : node.id)} className="inline-flex items-center rounded-full px-1.5 py-0.5" style={{ background: refIsOpen ? C.accent : C.accentSoft, color: refIsOpen ? C.onDark : C.accent }} title="reference guide — what this looks like"><Ic i={BookOpen} s={12} mr={0} /></button>}
-          {t !== null && <span className="text-xs" style={{ color: C.muted }}>tol. {t}%{zero && "⚡"}</span>}
-          <span className="text-xs px-2 py-0.5 rounded-full min-w-[3.2rem] text-center" style={{ background: bg, color: fg, fontWeight: 500 }}>{presenceIn(problems, remarks, node.id) && zero ? "present" : `${fmt(aggregate(problems, remarks, node.id, totals))}%`}</span>
-        </div>
+        {leaf ? (
+          <div role="button" onClick={disabled ? undefined : () => { setOpen(isOpen ? null : node.id); setRaw(""); }} className="flex items-center gap-2 py-2 text-sm" style={{ paddingLeft: indent, borderTop: `1px solid ${C.line}`, opacity: disabled ? .6 : 1 }}>
+            <span className="rounded-full inline-flex items-center justify-center flex-shrink-0" style={{ width: 20, height: 20, background: isOpen ? C.accent : mine.length ? bg : C.accentSoft, color: isOpen ? C.onDark : mine.length ? fg : C.accent }}><Ic i={isOpen ? ChevronDown : mine.length ? Check : Plus} s={12} mr={0} /></span>
+            <span className="flex-1 min-w-0 truncate" style={{ color: isOpen ? C.accent : C.ink, fontWeight: isOpen || mine.length ? 500 : 400 }}>{node.name}</span>
+            {tolTag}{bookBtn}{pill}
+          </div>
+        ) : (
+          <div className="pt-2.5 pb-1.5" style={{ paddingLeft: indent, borderTop: dep > 0 ? `1px solid ${C.line}` : "none" }}>
+            <div className="flex items-center gap-2"><span className="flex-1 min-w-0 truncate" style={{ fontWeight: dep === 0 ? 600 : 500, fontSize: dep === 0 ? 15 : 13 }}>{node.name}</span>{tolTag}{pill}</div>
+            {t !== null && t > 0 && <div className="rounded-full mt-2" style={{ height: 3, background: C.line }}><div className="rounded-full" style={{ height: 3, width: `${Math.min(100, agg / t * 100)}%`, background: fg, transition: "width .2s" }} /></div>}
+          </div>
+        )}
         {leaf && hasNote && refIsOpen && (
-          <div className="rounded-lg p-2 my-1" style={{ marginLeft: dep * 14 + 12, background: C.accentSoft }}>
+          <div className="rounded-xl p-2.5 mb-2" style={{ marginLeft: indent + 28, background: C.accentSoft }}>
             {note.description && <p className="text-xs mb-1.5" style={{ color: C.ink }}>{note.description}</p>}
             {asPhotoList(note.photos).length > 0 && <PhotoStrip photos={note.photos} size={48} />}
           </div>
         )}
         {leaf && mine.map(r => (
-          <div key={r.id} className="flex items-center gap-2 text-xs py-1" style={{ paddingLeft: dep * 14 + 12, color: C.muted }}>
-            <span>↳ {r.mode === "Presence" ? "present" : `${r.raw} ${unitOf(r.mode)}`}{r.auto && " · of pomiaru"}</span>
-            {r.mode !== "Presence" && <span className="font-medium" style={{ color: C.ink }}>{fmt(pct(r, totals))}%</span>}
+          <div key={r.id} className="flex items-center gap-2 text-xs py-1" style={{ paddingLeft: indent + 28, color: C.muted }}>
+            <span className="flex-1">{r.mode === "Presence" ? "present" : `${r.raw} ${unitOf(r.mode)}`}{r.auto && " · from measurement"}</span>
+            {r.mode !== "Presence" && <span className="font-semibold" style={{ color: C.ink, fontVariantNumeric: "tabular-nums" }}>{fmt(pct(r, totals))}%</span>}
             <button onClick={() => onPhoto && onPhoto(r.id)} className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full font-medium" style={{ background: asPhotoList(r.photos).length ? C.accentSoft : "transparent", color: C.accent, border: `1px solid ${asPhotoList(r.photos).length ? "transparent" : C.line}` }} title="photo of this problem (InspectionPhoto.RemarkId)"><Ic i={Camera} s={11} mr={0} />{asPhotoList(r.photos).length || "add"}</button>
-            <button onClick={() => onDelete(r.id)} className="px-1" style={{ color: C.bad }} title="delete report">×</button>
+            <button onClick={() => onDelete(r.id)} className="inline-flex items-center justify-center rounded-full" style={{ width: 22, height: 22, color: C.bad, background: C.badBg }} title="delete report"><Ic i={X} s={11} mr={0} /></button>
           </div>
         ))}
         {leaf && mine.filter(r => asPhotoList(r.photos).length).map(r => (
-          <div key={r.id + "-ph"} style={{ paddingLeft: dep * 14 + 12 }} className="mb-1"><PhotoStrip photos={r.photos} onRemove={onRemovePhoto ? pid => onRemovePhoto(r.id, pid) : null} size={44} /></div>
+          <div key={r.id + "-ph"} style={{ paddingLeft: indent + 28 }} className="mb-1"><PhotoStrip photos={r.photos} onRemove={onRemovePhoto ? pid => onRemovePhoto(r.id, pid) : null} size={44} /></div>
         ))}
         {leaf && isOpen && (
-          <div className="rounded-lg p-2 my-1 flex items-center gap-1.5 flex-wrap" style={{ marginLeft: dep * 14 + 12, background: zero ? C.warnBg : C.bg }}>
+          <div className="rounded-xl p-2.5 mb-2 flex items-center gap-1.5 flex-wrap" style={{ marginLeft: indent + 28, background: zero ? C.warnBg : C.surface, border: `1px solid ${zero ? "transparent" : C.line}` }}>
             {zero ? (
-              <><span className="text-xs" style={{ color: C.warn }}>⚡ tolerance 0% — presence alone is enough.</span><button onClick={() => { onReport({ leafId: node.id, mode: "Presence", raw: 1 }); setOpen(null); }} className="text-xs px-2 py-1 rounded font-medium" style={{ background: C.bad, color: C.onDark }}>Present</button></>
+              <><span className="text-xs flex-1" style={{ color: C.warn }}>⚡ tolerance 0% — presence alone is enough.</span><button onClick={() => { onReport({ leafId: node.id, mode: "Presence", raw: 1 }); setOpen(null); }} className="text-xs px-3 py-1.5 rounded-lg font-semibold" style={{ background: C.bad, color: C.onDark }}>Present</button></>
             ) : (
               <>
-                {[["PieceCount", "pieces", totals.pieces > 0], ["DirectWeight", "grams", totals.weight > 0], ["WholeUnitCount", "whole CU", totals.cu > 0]].map(([k, l, ok]) => <button key={k} disabled={!ok} onClick={() => setMode(k)} title={ok ? "" : "no divisor — fill in the conversion in the sample"} className="text-xs px-2 py-1 rounded" style={{ background: !ok ? C.line : mode === k ? C.accent : C.surface, color: !ok ? C.muted : mode === k ? C.onDark : C.accent, border: `1px solid ${ok ? C.accent : C.line}` }}>{l}</button>)}
-                <input type="number" autoFocus value={raw} onChange={e => setRaw(e.target.value)} onKeyDown={e => e.key === "Enter" && raw !== "" && submit(node.id)} placeholder="how many" className="w-16 text-xs rounded px-2 py-1 outline-none" style={{ ...inp }} />
-                <span className="text-xs" style={{ color: C.muted }}>{unitOf(mode)}</span>
-                <button onClick={() => raw !== "" && submit(node.id)} className="text-xs px-2 py-1 rounded font-medium" style={{ background: C.accent, color: C.onDark }}>Report</button>
+                <div className="flex gap-1 w-full">{[["PieceCount", "pieces", totals.pieces > 0], ["DirectWeight", "grams", totals.weight > 0], ["WholeUnitCount", "whole CU", totals.cu > 0]].map(([k, l, ok]) => <button key={k} disabled={!ok} onClick={() => setMode(k)} title={ok ? "" : "no divisor — fill in the conversion in the sample"} className="flex-1 text-xs px-2 py-1.5 rounded-lg font-medium" style={{ background: !ok ? C.line : mode === k ? C.accent : C.bg, color: !ok ? C.muted : mode === k ? C.onDark : C.accent, border: `1px solid ${!ok ? C.line : mode === k ? C.accent : C.line}` }}>{l}</button>)}</div>
+                <input type="number" inputMode="decimal" autoFocus value={raw} onChange={e => setRaw(e.target.value)} onKeyDown={e => e.key === "Enter" && raw !== "" && submit(node.id)} placeholder="how many" className="flex-1 text-sm rounded-lg px-3 py-2 outline-none" style={{ ...inp, backgroundColor: C.bg, minWidth: 90 }} />
+                <span className="text-xs w-8" style={{ color: C.muted }}>{unitOf(mode)}</span>
+                <button onClick={() => raw !== "" && submit(node.id)} className="text-xs px-3.5 py-2 rounded-lg font-semibold" style={{ background: C.accent, color: C.onDark }}>Report</button>
               </>
             )}
           </div>
@@ -1282,11 +1299,12 @@ function ProblemTreeView({ root, problems, overrides, remarks, onReport, onDelet
         {kidsOf(problems, node.id).map(render)}
       </div>
     );
+    return dep === 0 ? <div key={node.id} className="rounded-2xl px-3.5 pt-1 pb-0.5" style={{ background: C.bg, border: `1px solid ${C.line}` }}>{body}</div> : body;
   };
   return (
     <div className="mb-4">
       {render(root)}
-      {disabled ? <p className="text-xs mt-2" style={{ color: C.bad }}>Reporting blocked — no sample size.</p> : <p className="text-xs mt-1.5" style={{ color: C.muted }}>Tap a problem name to report.</p>}
+      {disabled ? <p className="text-xs mt-2" style={{ color: C.bad }}>Reporting blocked — no sample size.</p> : <p className="text-xs mt-1.5" style={{ color: C.muted }}>Tap a problem to report it.</p>}
     </div>
   );
 }
@@ -1294,17 +1312,20 @@ function ProblemTreeView({ root, problems, overrides, remarks, onReport, onDelet
 // Module-scoped (not defined inside SampleBlock): a component defined inside another component's render body gets a
 // fresh function identity every render, so React treats it as a *different* component type on every keystroke and
 // remounts it — tearing down the <input> (and its focus) instead of just updating it.
-const SampleField = ({ sample, setSample, k, label, unit }) => <label className="text-xs flex flex-col gap-1" style={{ color: C.muted }}>{label}<span className="flex items-center gap-1"><input type="number" value={sample[k]} onChange={e => setSample(x => ({ ...x, [k]: e.target.value }))} className="w-full text-sm rounded px-2 py-1 outline-none" style={{ ...inp }} /><span>{unit}</span></span></label>;
+const SampleField = ({ sample, setSample, k, label, unit }) => <label className="text-xs flex flex-col gap-1" style={{ color: C.muted }}>{label}<span className="relative flex items-center"><input type="number" inputMode="decimal" value={sample[k]} onChange={e => setSample(x => ({ ...x, [k]: e.target.value }))} className="w-full text-sm rounded-xl pl-3 pr-10 py-2 outline-none" style={{ ...inp, fontVariantNumeric: "tabular-nums" }} /><span className="absolute right-3 text-[11px]" style={{ color: C.muted }}>{unit}</span></span></label>;
 function SampleBlock({ sample, setSample, totals }) {
   // Fixed 2×2 grid, not 4-in-a-row: on a phone width, 4 columns forced "Pieces per CU" to wrap onto two lines while
   // the other labels stayed on one, so that column's row (all 4 stretch to the tallest cell) pushed its input down
   // and out of line with the rest. Two columns give every label enough room to stay on one line.
   return (
-    <div className="rounded-lg p-3" style={{ background: C.accentSoft }}>
-      <div className="grid grid-cols-2 gap-x-3 gap-y-2.5 mb-2">
+    <div>
+      <div className="grid grid-cols-2 gap-x-3 gap-y-2.5 mb-2.5">
         <SampleField sample={sample} setSample={setSample} k="tu" label="Checked TU" unit="TU" /><SampleField sample={sample} setSample={setSample} k="cusPerTu" label="CU / TU" unit="CU" /><SampleField sample={sample} setSample={setSample} k="piecesPerCu" label="pcs / CU" unit="pcs" /><SampleField sample={sample} setSample={setSample} k="weightPerCu" label="CU weight" unit="g" />
       </div>
-      <p className="text-xs" style={{ color: C.accent, fontVariantNumeric: "tabular-nums" }}>Sample: <b>{totals.cu} CU · {totals.pieces} pcs · {fmt(totals.weight)} g</b> — the divisor for all percentages. Defaults from the product profile, can be overridden.</p>
+      <div className="rounded-xl px-3 py-2 flex items-center gap-2" style={{ background: C.accentSoft }}>
+        <span className="text-xs font-semibold" style={{ color: C.accent, fontVariantNumeric: "tabular-nums" }}>{totals.cu} CU · {totals.pieces} pcs · {fmt(totals.weight)} g</span>
+        <span className="text-[11px] flex-1" style={{ color: C.muted }}>divisor for all percentages · from the product profile, editable</span>
+      </div>
     </div>
   );
 }
@@ -1404,44 +1425,65 @@ function InspectionRunner({ insp, patch, t, problems, product, suppliers, dictio
     <>
       {itype.reason && itype.reason !== "none" && <div className="mt-4"><p className="text-sm font-medium mb-1">Reason {itype.reason === "required" ? <span style={{ color: C.bad }}>*</span> : <span className="text-xs font-normal" style={{ color: C.muted }}>(optional)</span>}</p><div className="flex flex-wrap gap-1.5">{SKIP_REASONS.map(r => <button key={r} onClick={() => set({ skipReason: insp.skipReason === r ? null : r })} className="text-xs px-3 py-1.5 rounded-full" style={{ background: insp.skipReason === r ? C.ink : "transparent", color: insp.skipReason === r ? C.onDark : C.ink, border: `1px solid ${insp.skipReason === r ? C.ink : C.line}` }}>{r}</button>)}</div></div>}
       {itype.autoAccept && <Note tone="ok">{itype.name}: finishing records “Accepted” — no verdict needed. Problems you report still go to the Head.</Note>}
-      {!itype.autoAccept && <div className="flex gap-2 mt-4">{[["Accepted", "Accept", C.ok, C.okBg], ["Rejected", "Reject", C.bad, C.badBg]].map(([v, l, fg, bg]) => <button key={v} onClick={() => !escalated && set({ result: v })} disabled={escalated} className="flex-1 py-2 rounded-lg text-sm font-medium" style={{ background: escalated ? C.line : insp.result === v ? fg : bg, color: escalated ? C.muted : insp.result === v ? C.onDark : fg }}>{l}</button>)}</div>}
+      {!itype.autoAccept && <div className="flex gap-2 mt-4">{[["Accepted", "Accept", C.ok, C.okBg, Check], ["Rejected", "Reject", C.bad, C.badBg, X]].map(([v, l, fg, bg, I]) => { const on = insp.result === v; return <button key={v} onClick={() => !escalated && set({ result: v })} disabled={escalated} className="flex-1 py-3 rounded-xl text-sm font-semibold inline-flex items-center justify-center gap-1.5" style={{ background: escalated ? C.line : on ? fg : bg, color: escalated ? C.muted : on ? C.onDark : fg, border: `1px solid ${escalated ? C.line : on ? fg : "transparent"}` }}><Ic i={I} s={15} mr={0} />{l}</button>; })}</div>}
       {insp.result === "Accepted" && (anyExceeded || generalFlag) && <p className="text-xs mt-2" style={{ color: C.warn }}>Accepted despite the numbers — the Head will be notified. Status and decision are independent axes.</p>}
       {remind && missingRequired.length > 0 && <div className="rounded-xl px-3.5 py-3 mt-4" style={{ background: C.warnBg, border: `1px solid ${C.warn}` }}>
         <p className="text-sm font-semibold flex items-center" style={{ color: C.warn }}><Ic i={AlertTriangle} s={14} />{missingRequired.length} required field{missingRequired.length === 1 ? "" : "s"} still empty</p>
         <div className="flex flex-wrap gap-1.5 mt-2">{missingRequired.map(f => <button key={f.id} onClick={() => setTab(Math.max(0, f.moduleIx))} className="text-xs px-2.5 py-1 rounded-full inline-flex items-center gap-1" style={{ background: C.surface, color: C.ink, border: `1px solid ${C.line}` }}>{f.label}<Ic i={ChevronRight} s={11} mr={0} /></button>)}</div>
         <p className="text-xs mt-2" style={{ color: C.ink }}>Tap a field to fill it in, or press <b>Finish anyway</b> — the report will say which fields were left empty and the Head gets a notification.</p>
       </div>}
-      <div className="mt-4 flex items-center gap-3">
-        <Primary onClick={tryFinish} disabled={escalated || (!itype.autoAccept && !insp.result) || (itype.reason === "required" && !insp.skipReason)}>{remind && missingRequired.length ? "Finish anyway" : editingCompleted ? "Save changes (audited)" : itype.autoAccept ? `Finish — ${itype.name.toLowerCase()} done` : "Finish inspection"}</Primary>
-        {!itype.autoAccept && !insp.result && !escalated && <span className="text-xs" style={{ color: C.muted }}>choose a result to finish</span>}
-        {itype.reason === "required" && !insp.skipReason && <span className="text-xs" style={{ color: C.muted }}>pick a reason to finish</span>}
+      <div className="mt-3">
+        {(() => { const off = escalated || (!itype.autoAccept && !insp.result) || (itype.reason === "required" && !insp.skipReason); return <button onClick={tryFinish} disabled={off} className="w-full py-3 rounded-xl text-sm font-semibold" style={{ background: off ? C.line : C.accent, color: off ? C.muted : C.onDark }}>{remind && missingRequired.length ? "Finish anyway" : editingCompleted ? "Save changes (audited)" : itype.autoAccept ? `Finish — ${itype.name.toLowerCase()} done` : "Finish inspection"}</button>; })()}
+        {!itype.autoAccept && !insp.result && !escalated && <p className="text-xs text-center mt-1.5" style={{ color: C.muted }}>choose a result to finish</p>}
+        {itype.reason === "required" && !insp.skipReason && <p className="text-xs text-center mt-1.5" style={{ color: C.muted }}>pick a reason to finish</p>}
       </div>
     </>
   );
   return (
     <div>
-      <div className="flex items-center gap-2 mb-3 flex-wrap text-xs" style={{ color: C.muted }}>
-        <span className="px-2 py-0.5 rounded-full" style={{ background: STATUS[insp.status][2], color: STATUS[insp.status][1], fontWeight: 500 }}>{STATUS[insp.status][0]}</span>
-        <span>controller: <b style={{ color: C.ink }}>{sctx.users.find(u => u.id === insp.controllerId)?.name}</b></span>
-        <span>start {fmtTime(insp.startedAt)}</span>
-        {insp.lastEditedBy && <span>· edited by <b style={{ color: C.ink }}>{sctx.users.find(u => u.id === insp.lastEditedBy)?.name}</b> {fmtTime(insp.lastEditedAt)}</span>}
-        <div className="flex-1" />
-        <button onClick={() => setFlagOpen(o => !o)} className="px-2 py-1 rounded-lg" style={{ background: C.warnBg, color: C.warn }}><Ic i={Flag} />Report a profile issue</button>
-        {insp.status !== "Completed" && <button onClick={() => setAskCancel(o => !o)} className="px-2 py-1 rounded-lg" style={{ background: C.line, color: C.muted }}>Cancel inspection</button>}
+      <div className="mb-3 text-xs" style={{ color: C.muted }}>
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="px-2 py-0.5 rounded-full" style={{ background: STATUS[insp.status][2], color: STATUS[insp.status][1], fontWeight: 500 }}>{STATUS[insp.status][0]}</span>
+          <span className="inline-flex items-center gap-1.5"><Avatar user={sctx.users.find(u => u.id === insp.controllerId)} size={18} /><b style={{ color: C.ink }}>{sctx.users.find(u => u.id === insp.controllerId)?.name}</b></span>
+          <span>· {fmtTime(insp.startedAt)}</span>
+          {insp.lastEditedBy && <span>· edited by <b style={{ color: C.ink }}>{sctx.users.find(u => u.id === insp.lastEditedBy)?.name}</b> {fmtTime(insp.lastEditedAt)}</span>}
+        </div>
+        <div className="flex items-center gap-1.5 mt-2">
+          <button onClick={() => setFlagOpen(o => !o)} className="px-2.5 py-1.5 rounded-full inline-flex items-center font-medium" style={{ background: flagOpen ? C.warn : C.warnBg, color: flagOpen ? C.onDark : C.warn }}><Ic i={Flag} s={13} mr={5} />Profile issue</button>
+          {insp.status !== "Completed" && <button onClick={() => setAskCancel(o => !o)} className="px-2.5 py-1.5 rounded-full inline-flex items-center font-medium" style={{ background: "transparent", color: C.muted, border: `1px solid ${C.line}` }}><Ic i={X} s={13} mr={5} />Cancel inspection</button>}
+        </div>
       </div>
       {askCancel && <Note tone="bad"><div className="flex items-center gap-3 flex-wrap"><span>Cancel this inspection? It stays in history as cancelled.</span><button onClick={onCancel} className="text-xs px-3 py-1.5 rounded-lg font-semibold" style={{ background: C.bad, color: C.onDark }}>Yes, cancel</button><button onClick={() => setAskCancel(false)} className="text-xs px-3 py-1.5 rounded-lg" style={{ border: `1px solid ${C.line}` }}>Keep working</button></div></Note>}
       {flagOpen && <div className="rounded-lg p-2 mb-3 flex gap-2 items-center" style={{ background: C.warnBg }}><input value={flagText} onChange={e => setFlagText(e.target.value)} placeholder="what's wrong with this product profile? (wrong supplier, code, spec…)" className="flex-1 text-xs rounded px-2 py-1 outline-none" style={{ ...inp }} /><Primary small onClick={() => { if (flagText.trim()) { onRaiseFlag(flagText.trim()); setFlagText(""); setFlagOpen(false); } }}>Send to the Head</Primary></div>}
       {sctx.announcements.filter(a => annMatchesProduct(sctx, a, product)).map(a => <Note key={a.id} tone="warn">📣 <b>{a.title}</b> — {a.body}</Note>)}
       {escalated && <Note tone="warn">⏸ Paused — question for the Head: <i>„{insp.question}"</i>. You can keep filling in; the result is locked until answered.</Note>}
       {insp.answer && insp.status !== "PendingReview" && <Note tone="ok">💬 Head's answer: <i>„{insp.answer}"</i></Note>}
-      <div className="flex gap-1 mb-3 border-b flex-wrap" style={{ borderColor: C.line }}>{[...modules.map(x => x.name), ...(hasSummary ? ["Summary"] : [])].map((name, i) => <button key={i} onClick={() => setTab(i)} className="text-xs px-3 py-2" style={{ borderBottom: tab === i ? `2px solid ${C.accent}` : "2px solid transparent", color: tab === i ? C.ink : C.muted, fontWeight: tab === i ? 500 : 400, marginBottom: -1, fontStyle: i === modules.length ? "italic" : "normal" }}>{name}</button>)}</div>
+      {(() => { const names = [...modules.map(x => x.name), ...(hasSummary ? ["Summary"] : [])]; return (
+        <div className="mb-3 -mx-3">
+          <div className="flex gap-1.5 px-3 pb-1 overflow-x-auto" style={{ scrollbarWidth: "none" }}>
+            {names.map((name, i) => { const on = tab === i; const req = i < modules.length ? t.fields.filter(f => f.moduleId === modules[i].id && f.required && !isSystem(f.type)) : []; const done = req.length > 0 && req.every(f => !isEmptyValue(f)); return <button key={i} ref={el => { if (on && el) el.scrollIntoView({ block: "nearest", inline: "center" }); }} onClick={() => setTab(i)} className="text-xs px-3 py-1.5 rounded-full whitespace-nowrap inline-flex items-center gap-1.5 flex-shrink-0" style={{ background: on ? C.ink : C.bg, color: on ? C.onDark : done ? C.ink : C.muted, border: `1px solid ${on ? C.ink : C.line}`, fontWeight: on ? 600 : 500 }}>
+              <span className="rounded-full inline-flex items-center justify-center text-[10px]" style={{ width: 16, height: 16, background: on ? C.onDarkSoft : done ? C.okBg : C.line, color: on ? C.onDark : done ? C.ok : C.muted }}>{done ? <Ic i={Check} s={10} mr={0} /> : i + 1}</span>{name}
+            </button>; })}
+          </div>
+          <div className="mx-3 mt-1.5 rounded-full" style={{ height: 3, background: C.line }}><div className="rounded-full" style={{ height: 3, width: `${((tab + 1) / names.length) * 100}%`, background: C.accent, transition: "width .2s" }} /></div>
+        </div>
+      ); })()}
       {generalFlag && <Note tone="bad">🚩 General problem reported — inspection flagged.</Note>}
       {!isSummary && m && (
         <div>
-          {t.fields.filter(f => f.moduleId === m.id).sort(bySort).map(f => (
-            <div key={f.id} className="mb-4">
-              {f.type !== "ProductInfo" && <label className="block text-sm font-medium mb-1">{fieldLabel(f)}{f.required && !isSystem(f.type) && <span style={{ color: C.bad }}> *</span>}{f.helper && <span className="block text-xs font-normal" style={{ color: C.muted }}>{f.helper}</span>}</label>}
-              {f.type === "ProductInfo" && <div className="rounded-lg p-3" style={{ background: C.bg, border: `1px solid ${C.line}` }}><p className="font-semibold">{product.name}{product.isBio && <span className="text-xs ml-2 px-1.5 py-0.5 rounded" style={{ background: C.okBg, color: C.ok }}>bio</span>}</p><p className="text-xs mt-1" style={{ color: C.muted }}>{specs.length ? specs.map(q => `${q.name}: ${specLabel(q)}${q.source !== "product" ? " (" + q.source + ")" : ""}`).join(" · ") : "no specifications"}</p></div>}
+          {t.fields.filter(f => f.moduleId === m.id).sort(bySort).map(f => {
+            const filled = !isSystem(f.type) && f.type !== "ProductInfo" && (f.type === "Number" ? (values[f.id]?.measurements || []).some(x => x !== "") : !isEmptyValue(f));
+            return (
+            <div key={f.id} className={f.type === "ProductInfo" ? "mb-3" : "mb-2.5 rounded-2xl px-3.5 pt-3 pb-3.5"} style={f.type === "ProductInfo" ? undefined : { background: C.bg, border: `1px solid ${C.line}` }}>
+              {f.type !== "ProductInfo" && <label className="flex items-start gap-2 mb-2">
+                <span className="flex-1 min-w-0"><span className="block text-[13px] font-semibold leading-snug">{fieldLabel(f)}{f.required && !isSystem(f.type) && <span style={{ color: C.bad }}> *</span>}</span>{f.helper && <span className="block text-xs font-normal mt-0.5" style={{ color: C.muted }}>{f.helper}</span>}</span>
+                {filled && <span className="rounded-full flex items-center justify-center flex-shrink-0" style={{ width: 18, height: 18, background: C.okBg, color: C.ok, marginTop: 1 }}><Ic i={Check} s={11} mr={0} /></span>}
+              </label>}
+              {f.type === "ProductInfo" && <div className="rounded-2xl px-4 py-3.5" style={{ background: C.ink, color: C.onDark }}>
+                <p className="text-[11px] uppercase tracking-wide" style={{ color: C.onDarkMuted, letterSpacing: ".06em" }}>Inspecting</p>
+                <p className="text-base font-semibold leading-snug mt-0.5">{product.name}{product.isBio && <span className="text-[10px] ml-2 px-1.5 py-0.5 rounded-full align-middle font-medium" style={{ background: C.onDarkSoft, color: C.onDark }}>bio</span>}</p>
+                <div className="flex flex-wrap gap-1.5 mt-2.5">{specs.length ? specs.map(q => <span key={q.id || q.name} className="text-[11px] px-2 py-1 rounded-full" style={{ background: C.onDarkSoft, color: C.onDark }}>{q.name} <b>{specLabel(q)}</b>{q.source !== "product" ? <span style={{ color: C.onDarkMuted }}> · {q.source}</span> : null}</span>) : <span className="text-[11px]" style={{ color: C.onDarkMuted }}>no specifications</span>}</div>
+              </div>}
               {f.type === "Supplier" && (productSuppliers.length ? <div><div className="flex flex-wrap gap-1.5">{productSuppliers.map(x => <button key={x.id} onClick={() => set({ supplier: x.name })} className="text-xs px-3 py-1.5 rounded-full" style={{ background: insp.supplier === x.name ? C.accent : C.accentSoft, color: insp.supplier === x.name ? C.onDark : C.accent }}>{x.name}</button>)}</div>{suppliersUnrestricted && <p className="text-[10px] mt-1" style={{ color: C.muted }}>product has no assigned suppliers — showing all</p>}</div> : <p className="text-xs" style={{ color: C.warn }}>The supplier list is empty — fill it in Dictionaries → Suppliers.</p>)}
               {f.type === "Variety" && (effectiveVarieties(sctx, product).length ? <div className="flex flex-wrap gap-1.5">{effectiveVarieties(sctx, product).map(v => <button key={v.id} onClick={() => set({ variety: v.name })} className="text-xs px-3 py-1.5 rounded-full" style={{ background: insp.variety === v.name ? C.accent : C.accentSoft, color: insp.variety === v.name ? C.onDark : C.accent }}>{v.name}</button>)}</div> : <p className="text-xs" style={{ color: C.warn }}>No varieties — add them on the category or the product.</p>)}
               {f.type === "List" && (() => {
@@ -1464,19 +1506,19 @@ function InspectionRunner({ insp, patch, t, problems, product, suppliers, dictio
                   </Modal>
                 )}
               </div>}
-              {f.type === "DateCode" && <div><input type="date" value={insp.dateISO || ""} onChange={e => set({ dateISO: e.target.value })} className="w-full text-sm rounded px-2 py-1.5 outline-none" style={{ ...inp }} />{insp.dateISO && <p className="text-xs mt-1.5" style={{ color: C.muted }}>saved as date code: <b style={{ color: C.ink, fontVariantNumeric: "tabular-nums" }}>{dateCode(insp.dateISO)}</b> (week {dateCode(insp.dateISO).slice(0, -1)}, day {dateCode(insp.dateISO).slice(-1)})</p>}</div>}
+              {f.type === "DateCode" && <div><input type="date" value={insp.dateISO || ""} onChange={e => set({ dateISO: e.target.value })} className="w-full text-sm rounded-xl px-3 py-2.5 outline-none" style={{ ...inp }} />{insp.dateISO && <p className="text-xs mt-1.5" style={{ color: C.muted }}>saved as date code: <b style={{ color: C.ink, fontVariantNumeric: "tabular-nums" }}>{dateCode(insp.dateISO)}</b> (week {dateCode(insp.dateISO).slice(0, -1)}, day {dateCode(insp.dateISO).slice(-1)})</p>}</div>}
               {f.type === "SampleSize" && <SampleBlock sample={sample} setSample={setSample} totals={totals} />}
               {f.type === "Photos" && <PhotoStrip photos={photos[f.id]} onAdd={got => addPhotos(f.id, got)} onRemove={id => removePhoto(f.id, id)} />}
               {f.type === "Escalate" && (escalated ? <p className="text-xs" style={{ color: C.warn }}>⏸ Already paused.</p> : <div className="flex gap-1.5"><input value={question} onChange={e => setQuestion(e.target.value)} placeholder="what to you want to ask the Head?" className="flex-1 text-sm rounded px-2 py-1.5 outline-none" style={{ ...inp }} /><button onClick={() => { if (question.trim()) { onEscalate(question.trim()); setQuestion(""); } }} className="text-sm px-3 py-2 rounded-lg" style={{ background: C.warnBg, color: C.warn, border: `1px solid ${C.warn}` }}><Ic i={HelpCircle} />Ask the Head</button></div>)}
-              {f.type === "Text" && <input value={values[f.id] || ""} onChange={e => setV(f.id, e.target.value)} className="w-full text-sm rounded px-2 py-1.5 outline-none" style={{ ...inp }} />}
-              {f.type === "Date" && <input type="date" value={values[f.id] || ""} onChange={e => setV(f.id, e.target.value)} className="w-full text-sm rounded px-2 py-1.5 outline-none" style={{ ...inp }} />}
+              {f.type === "Text" && <input value={values[f.id] || ""} onChange={e => setV(f.id, e.target.value)} className="w-full text-sm rounded-xl px-3 py-2.5 outline-none" style={{ ...inp }} />}
+              {f.type === "Date" && <input type="date" value={values[f.id] || ""} onChange={e => setV(f.id, e.target.value)} className="w-full text-sm rounded-xl px-3 py-2.5 outline-none" style={{ ...inp }} />}
               {f.type === "SingleChoice" && <div className="flex flex-wrap gap-1.5">{(f.options || []).map(o => <button key={o} onClick={() => setV(f.id, o)} className="text-xs px-3 py-1.5 rounded-full" style={{ background: values[f.id] === o ? C.accent : C.accentSoft, color: values[f.id] === o ? C.onDark : C.accent }}>{o}</button>)}</div>}
               {f.type === "MultiChoice" && <div className="flex flex-col gap-1">{(f.options || []).map(o => { const on = (values[f.id] || []).includes(o.value); return <label key={o.value} className="flex items-center gap-2 text-sm cursor-pointer"><input type="checkbox" checked={on} onChange={e => setV(f.id, e.target.checked ? [...(values[f.id] || []), o.value] : (values[f.id] || []).filter(x => x !== o.value))} />{o.value}{o.trigger && " 🚩"}</label>; })}</div>}
               {f.type === "Scale" && <div className="flex gap-1">{Array.from({ length: f.scaleMax || 5 }, (_, i) => i + 1).map(k => <button key={k} onClick={() => setV(f.id, k)} className="w-8 h-8 rounded-lg text-sm" style={{ background: values[f.id] === k ? C.accent : C.accentSoft, color: values[f.id] === k ? C.onDark : C.accent }}>{k}</button>)}</div>}
               {f.type === "Number" && <NumberInput piecesPerCu={insp.sample?.piecesPerCu || product?.piecesPerCu} f={f} problems={problems} overrides={t.overrides} specs={specs} totals={totals} value={values[f.id]} onChange={v => setV(f.id, v)} onRaise={(leafId, mode, raw) => setRemarks(r => [...r, { id: uid(), leafId, mode, raw, auto: true, fieldId: f.id }])} raised={remarks.some(r => r.auto && r.fieldId === f.id)} />}
-              {f.allowPhotos && !isSystem(f.type) && <div className="mt-1.5"><PhotoStrip photos={photos[f.id]} onAdd={got => addPhotos(f.id, got)} onRemove={id => removePhoto(f.id, id)} size={48} /></div>}
+              {f.allowPhotos && !isSystem(f.type) && <div className="mt-2.5"><PhotoStrip photos={photos[f.id]} onAdd={got => addPhotos(f.id, got)} onRemove={id => removePhoto(f.id, id)} size={48} /></div>}
             </div>
-          ))}
+          ); })}
           {t.problemRefs.filter(r => r.moduleId === m.id).length > 0 && !sampleReady && <Note tone="bad">{hasSampleBlock ? "Sample size gives 0 CU — fill in the “Sample size” block to compute percentages." : "This template has no “Sample size” block — the Head must add it."}</Note>}
           {t.problemRefs.filter(r => r.moduleId === m.id).sort(bySort).map(r => pm[r.problemTypeId] && <ProblemTreeView key={r.id} root={pm[r.problemTypeId]} problems={problems} overrides={t.overrides} remarks={remarks} totals={totals} disabled={!sampleReady} notes={effectiveNotesFor(sctx, product)} onReport={rem => setRemarks(x => [...x, { id: uid(), ...rem }])} onDelete={id => setRemarks(x => x.filter(q => q.id !== id))} onPhoto={async id => { const got = await pickPhotos(); if (got.length) setRemarks(x => x.map(q => q.id === id ? { ...q, photos: [...asPhotoList(q.photos), ...got] } : q)); }} onRemovePhoto={(id, pid) => setRemarks(x => x.map(q => q.id === id ? { ...q, photos: asPhotoList(q.photos).filter(ph => ph.id !== pid) } : q))} />)}
           {t.fields.filter(f => f.moduleId === m.id).length + t.problemRefs.filter(r => r.moduleId === m.id).length === 0 && <p className="text-sm" style={{ color: C.muted }}>Empty module.</p>}
@@ -1492,9 +1534,13 @@ function InspectionRunner({ insp, patch, t, problems, product, suppliers, dictio
           <Note tone={escalated ? "warn" : anyExceeded || generalFlag ? "bad" : remarks.length ? "warn" : "ok"}>{escalated ? "Paused — awaiting the Head." : anyExceeded ? "Tolerance exceeded — the system suggests rejection." : generalFlag ? "General problem flagged — the system suggests rejection." : remarks.length ? "Problems within tolerance." : "No problems."}</Note>
           <ProblemOverview t={t} problems={problems} remarks={remarks} totals={totals} />
           <div className="text-xs mb-3 flex flex-wrap gap-x-4 gap-y-1" style={{ color: C.muted }}>{insp.supplier && <span>supplier: <b style={{ color: C.ink }}>{insp.supplier}</b></span>}{insp.variety && <span>variety: <b style={{ color: C.ink }}>{insp.variety}</b></span>}{insp.country && <span>country: <b style={{ color: C.ink }}>{insp.country}</b></span>}{pallets.filter(Boolean).length > 0 && <span>pallets: <b style={{ color: C.ink }}>{pallets.filter(Boolean).join(", ")}</b></span>}{insp.dateISO && <span>date code: <b style={{ color: C.ink }}>{dateCode(insp.dateISO)}</b></span>}<span>sample: <b style={{ color: C.ink }}>{totals.cu} CU</b></span></div>
-          {remarks.map(r => <div key={r.id} className="flex items-center gap-2 text-sm py-1" style={{ borderTop: `1px solid ${C.line}` }}><span className="flex-1">{pathOf(problems, r.leafId)}{r.auto && <span className="text-xs" style={{ color: C.muted }}> (from measurement)</span>}</span><span className="text-xs" style={{ color: C.muted }}>{r.mode === "Presence" ? "present" : `${r.raw} ${r.mode === "PieceCount" ? "pcs" : r.mode === "DirectWeight" ? "g" : "CU"}`}</span><span>{r.mode === "Presence" ? "⚡" : `${fmt(pct(r, totals))}%`}</span><button onClick={() => setRemarks(x => x.filter(q => q.id !== r.id))} className="text-xs px-1" style={{ color: C.bad }} title="delete">×</button></div>)}
-          <div className="flex items-center justify-between mt-4 mb-1"><label className="text-sm font-medium">Comment</label><Ghost onClick={() => set({ comment: generateComment(problems, t.overrides, remarks, totals, generalFlag) })}><Ic i={Sparkles} s={13} />Generate from remarks</Ghost></div>
-          <textarea value={insp.comment || ""} onChange={e => set({ comment: e.target.value })} rows={3} placeholder="optional — or generate and edit" className="w-full text-sm rounded px-2 py-1.5 outline-none" style={{ ...inp }} />
+          {remarks.length > 0 && <div className="rounded-2xl px-3.5 py-1 mb-3" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
+            {remarks.map((r, i) => <div key={r.id} className="flex items-center gap-2 text-sm py-2" style={{ borderTop: i ? `1px solid ${C.line}` : "none" }}><span className="flex-1 min-w-0 text-[13px] leading-snug">{pathOf(problems, r.leafId)}{r.auto && <span className="text-xs" style={{ color: C.muted }}> (from measurement)</span>}</span><span className="text-xs whitespace-nowrap" style={{ color: C.muted }}>{r.mode === "Presence" ? "present" : `${r.raw} ${r.mode === "PieceCount" ? "pcs" : r.mode === "DirectWeight" ? "g" : "CU"}`}</span><span className="font-semibold text-xs px-2 py-0.5 rounded-full" style={{ background: C.warnBg, color: C.warn, fontVariantNumeric: "tabular-nums" }}>{r.mode === "Presence" ? "⚡" : `${fmt(pct(r, totals))}%`}</span><button onClick={() => setRemarks(x => x.filter(q => q.id !== r.id))} className="inline-flex items-center justify-center rounded-full flex-shrink-0" style={{ width: 22, height: 22, color: C.bad, background: C.badBg }} title="delete"><Ic i={X} s={11} mr={0} /></button></div>)}
+          </div>}
+          <div className="rounded-2xl px-3.5 pt-3 pb-3.5" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
+            <div className="flex items-center justify-between mb-2"><label className="text-[13px] font-semibold">Comment</label><Ghost onClick={() => set({ comment: generateComment(problems, t.overrides, remarks, totals, generalFlag) })}><Ic i={Sparkles} s={13} />Generate from remarks</Ghost></div>
+            <textarea value={insp.comment || ""} onChange={e => set({ comment: e.target.value })} rows={3} placeholder="optional — or generate and edit" className="w-full text-sm rounded-xl px-3 py-2.5 outline-none" style={{ ...inp }} />
+          </div>
           {finishControls}
         </div>
       )}
