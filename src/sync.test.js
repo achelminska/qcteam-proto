@@ -155,6 +155,26 @@ describe("a bulky warehouse state", () => {
   });
 });
 
+describe("embedded photos stay out of the save", () => {
+  it("stores a finished skip as paths, not the catalog's data URLs", async () => {
+    const dataUrl = "data:image/jpeg;base64," + Buffer.from("x".repeat(180)).toString("base64");
+    const base = { categories: [], inspections: [], products: [{ id: "p", name: "Pumpkin", photos: [{ id: "ph", dataUrl }] }] };
+    const st = server(base);
+    const d = disk();
+    const a = syncer(st, d);
+    await a.load();
+    a.apply(s => ({ ...s, inspections: [...s.inspections, { ...skip, pallets: ["387154590006091086"] }] }));
+    await a.flush();
+    a.dispose();
+    const saved = st.state();
+    expect(saved.inspections.map(i => i.id)).toEqual(["skip1"]);
+    expect(saved.inspections[0].pallets).toEqual(["387154590006091086"]);
+    expect(JSON.stringify(saved)).not.toContain("data:image");
+    expect(saved.products[0].photos[0].dataUrl.startsWith("/photos/")).toBe(true);
+    expect(saved.products[0].name).toBe("Pumpkin");
+  });
+});
+
 describe("mergeForward", () => {
   it("prefers a completed local copy of a draft the server still has, and keeps server-only records", () => {
     const base = { categories: [], inspections: [

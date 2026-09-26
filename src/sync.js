@@ -24,6 +24,8 @@
 // is why a finished skip vanished on refresh. In that case we store only the records that actually changed
 // (the inspection, a flag, a message). The next load merges those back onto whatever the server has now.
 
+import { externalizeState } from "./externalize.js";
+
 const parseState = (txt, isValid) => { try { const p = JSON.parse(txt); return isValid(p) ? p : null; } catch { return null; } };
 const newer = (v, than) => !!v && (!than || Number(v) > Number(than));
 
@@ -204,7 +206,11 @@ export function createSyncer({ key, normalize, isValid, initial, onState, onToas
       if (!st.setVersioned) { try { await st.set(key, JSON.stringify(sy.local)); } catch {} sy.pending.length = 0; return; }
       for (let attempt = 0; attempt < 8 && sy.pending.length; attempt++) {
         const ops = sy.pending.slice(), candidate = sy.local;
-        const res = await st.setVersioned(key, JSON.stringify(candidate), sy.version, { force: ops.some(o => o.force), replace: ops.some(o => o.replace) });
+        // Catalog photos used to ride along inside this PUT (~16 MB). The phone killed the request, the
+        // inspection never arrived, and a refresh showed the pallet as never inspected. Send paths only.
+        let sent = candidate;
+        try { sent = await externalizeState(candidate, { upload: typeof window !== "undefined" }); } catch (e) { console.warn("QCteam: could not move photos out of the save", e); }
+        const res = await st.setVersioned(key, JSON.stringify(sent), sy.version, { force: ops.some(o => o.force), replace: ops.some(o => o.replace) });
         if (!res || res.error) break; // offline / dropped connection / non-2xx: keep the queue, the poll retries
         if (res.rejected) {
           // The server's size guard refused it (an almost-empty state over a populated one without an explicit force).
@@ -220,8 +226,11 @@ export function createSyncer({ key, normalize, isValid, initial, onState, onToas
         }
         // Saved only when the server names the version it stored. A 200 with an empty body is not a save.
         if (!res.version) break;
-        // Whatever was queued while the request was in flight is already applied on top of `candidate`.
-        sy.pending.splice(0, ops.length); sy.base = candidate; sy.version = res.version;
+        // Whatever was queued while the request was in flight is still in `pending` and is replayed below.
+        sy.pending.splice(0, ops.length);
+        if (!(typeof res.value === "string" && adoptServerCopy(res.value, res.version))) {
+          sy.base = sent; sy.version = res.version; sy.local = replay(sent, sy.pending); emit();
+        }
         retryNow = sy.pending.length > 0; break;
       }
     } finally { sy.busy = false; remember(); if (retryNow) scheduleFlush(0); }
