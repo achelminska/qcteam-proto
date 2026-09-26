@@ -10,7 +10,7 @@ import { slimStateJson } from "./blobs.mjs";
 const STATE_KEY = "qcteam-portal-state-v2-clean";
 // Static hosting of the built app (dist/) so one service = API + portal + phone app. Any unknown path falls back to index.html.
 const DIST = new URL("../dist/", import.meta.url).pathname;
-const MIME = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css", ".png": "image/png", ".svg": "image/svg+xml", ".webmanifest": "application/manifest+json", ".json": "application/json", ".ico": "image/x-icon", ".woff2": "font/woff2" };
+const MIME = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css", ".png": "image/png", ".svg": "image/svg+xml", ".webmanifest": "application/manifest+json", ".json": "application/json", ".ico": "image/x-icon", ".woff2": "font/woff2", ".ttf": "font/ttf" };
 const serveStatic = (req, res) => {
   if (!fs.existsSync(DIST)) return res.writeHead(404, cors).end("no dist/ — run npm run build");
   let p = decodeURIComponent(req.url.split("?")[0]); if (p === "/") p = "/index.html";
