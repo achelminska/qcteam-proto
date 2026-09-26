@@ -2109,13 +2109,26 @@ function MPriorityList({ s, user, go, priority }) {
               <p className="text-xs font-semibold flex-1" style={{ color: old && d ? C.bad : C.ink }}>{dayTitle(d)}</p>
               <span className="text-[10px] px-1.5 py-0.5 rounded-full" style={{ background: old && d ? C.badBg : C.bg, color: old && d ? C.bad : C.muted, border: old && d ? "none" : `1px solid ${C.line}` }}>{n} pallet{n === 1 ? "" : "s"}{old && d ? ` · ${ageDays(d)}d on dock` : ""}</span>
             </div>
-            {items.map(it => (
+            {items.map(it => {
+              const showPriority = ((isAll && subTab === "regular") || isNeeded) && it.priority;
+              const hasChips = showPriority || it.count > 1 || it.totalOnDock > it.count || it.mixedPO || it.checked > 0 || it.hist.count > 0 || (complaintsFor(s, it.key)?.count > 0);
+              const chip = "text-[10px] px-1.5 py-0.5 rounded-full whitespace-nowrap";
+              return (
               <button key={it.key} onClick={() => go("palletInfo", it.hu)} className="w-full text-left py-3 active:opacity-60" style={{ borderBottom: `1px solid ${C.line}` }}>
-                <div className="flex items-center gap-2">{((isAll && subTab === "regular") || isNeeded) && it.priority && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ background: PRIORITY[it.priority]?.[1] || C.line, color: PRIORITY[it.priority]?.[0] || C.muted }}>{it.priority}</span>}<p className="text-sm font-medium flex-1 truncate">{it.name}</p><ComplaintChip s={s} articleId={it.key} />{it.count > 1 && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ background: C.accentSoft, color: C.accent }}>×{it.count} on docks</span>}{it.totalOnDock > it.count && <span className="text-[10px] flex-shrink-0" style={{ color: C.muted }}>+{it.totalOnDock - it.count} elsewhere</span>}{it.mixedPO && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0 inline-flex items-center gap-1" style={{ background: C.warnBg, color: C.warn }}><Ic i={AlertTriangle} s={10} mr={0} />mixed PO</span>}{it.checked > 0 && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0 inline-flex items-center gap-1" style={{ background: C.okBg, color: C.ok }}><Ic i={Check} s={10} mr={0} />{it.checked === it.count ? "already inspected" : `${it.checked}/${it.count} inspected`}</span>}{it.hist.count > 0 && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ background: C.badBg, color: C.bad }}>{it.hist.count} rejected recently</span>}</div>
+                <p className="text-sm font-medium leading-snug">{it.name}</p>
+                {hasChips && <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 mt-1">
+                  {showPriority && <span className={chip} style={{ background: PRIORITY[it.priority]?.[1] || C.line, color: PRIORITY[it.priority]?.[0] || C.muted }}>{it.priority}</span>}
+                  <ComplaintChip s={s} articleId={it.key} />
+                  {it.count > 1 && <span className={chip} style={{ background: C.accentSoft, color: C.accent }}>×{it.count} on docks</span>}
+                  {it.totalOnDock > it.count && <span className="text-[10px] whitespace-nowrap" style={{ color: C.muted }}>+{it.totalOnDock - it.count} elsewhere</span>}
+                  {it.mixedPO && <span className={`${chip} inline-flex items-center gap-1`} style={{ background: C.warnBg, color: C.warn }}><Ic i={AlertTriangle} s={10} mr={0} />mixed PO</span>}
+                  {it.checked > 0 && <span className={`${chip} inline-flex items-center gap-1`} style={{ background: C.okBg, color: C.ok }}><Ic i={Check} s={10} mr={0} />{it.checked === it.count ? "already inspected" : `${it.checked}/${it.count} inspected`}</span>}
+                  {it.hist.count > 0 && <span className={chip} style={{ background: C.badBg, color: C.bad }}>{it.hist.count} rejected recently</span>}
+                </div>}
                 <p className="text-xs mt-0.5" style={{ color: C.muted }}>{it.location} · {it.transporter} · {it.arrivedTime}{it.blocking && !isNeeded ? " · needed today" : ""}</p>
                 {it.hist.count > 0 && <p className="text-xs mt-1" style={{ color: C.bad }}>Was rejected for: {it.hist.problems.slice(0, 3).map(p => `${p.name} ×${p.count}`).join(", ")}{it.hist.problems.length > 3 ? "…" : ""} · last {dayLabel(it.hist.lastAt)}</p>}
               </button>
-            ))}
+              ); })}
           </div>); })}
         {lostRows.length > 0 && <div className="mt-4" style={{ opacity: .55 }}>
           <div className="flex items-center gap-2 py-1.5"><p className="text-xs font-semibold flex-1 flex items-center" style={{ color: C.muted }}><Ic i={Search} s={12} />Lost — not findable right now</p><span className="text-[10px] px-1.5 py-0.5 rounded-full" style={{ background: C.bg, color: C.muted, border: `1px solid ${C.line}` }}>{lostRows.length}</span></div>
@@ -3155,7 +3168,13 @@ function MDocks({ s, user, go }) {
             {items.length === 0 && <p className="text-sm py-6 text-center" style={{ color: C.muted }}>Nothing standing here right now.</p>}
             {items.map(it => (
               <button key={it.key} onClick={() => go("palletInfo", it.hu)} className="w-full text-left py-3 active:opacity-60" style={{ borderBottom: `1px solid ${C.line}` }}>
-                <div className="flex items-center gap-2"><StatusPill k={it.status} /><p className="text-sm font-medium flex-1 truncate">{it.name}</p><ComplaintChip s={s} articleId={it.key} />{it.count > 1 && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ background: C.accentSoft, color: C.accent }}>×{it.count}</span>}{it.checked > 0 && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0 inline-flex items-center gap-1" style={{ background: C.okBg, color: C.ok }}><Ic i={Check} s={10} mr={0} />{it.checked === it.count ? "inspected" : `${it.checked}/${it.count}`}</span>}</div>
+                <p className="text-sm font-medium leading-snug">{it.name}</p>
+                <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 mt-1">
+                  <StatusPill k={it.status} />
+                  <ComplaintChip s={s} articleId={it.key} />
+                  {it.count > 1 && <span className="text-[10px] px-1.5 py-0.5 rounded-full whitespace-nowrap" style={{ background: C.accentSoft, color: C.accent }}>×{it.count}</span>}
+                  {it.checked > 0 && <span className="text-[10px] px-1.5 py-0.5 rounded-full whitespace-nowrap inline-flex items-center gap-1" style={{ background: C.okBg, color: C.ok }}><Ic i={Check} s={10} mr={0} />{it.checked === it.count ? "inspected" : `${it.checked}/${it.count}`}</span>}
+                </div>
                 <p className="text-xs mt-0.5" style={{ color: C.muted }}>{sel === "other" ? it.location : it.subs.length ? `spot ${it.subs.join("/")}` : `dock ${dockLabel(sel)}`}{it.blocking && it.priority && it.priority !== "Skippable" ? ` · ${it.priority}` : ""} · {it.transporter || "—"} · {it.arrived ? `${dayLabel(it.arrived + "T12:00:00")} ` : ""}{it.arrivedTime}</p>
               </button>
             ))}
