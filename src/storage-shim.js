@@ -12,11 +12,17 @@ let lastProbeAt = 0;
 async function probe() { if (remote === true) return true; if (remote === false && Date.now() - lastProbeAt < 5000) return false; lastProbeAt = Date.now(); try { const r = await fetch(`${SERVER}/storage/__probe`, { method: "GET", cache: "no-store" }); remote = r.status === 200 || r.status === 404; } catch { remote = false; } if (remote) console.log(`QCteam: using shared state at ${SERVER}`); else console.log("QCteam: server not reachable right now — will retry"); return remote; }
 // Every device keeps a local copy of what it saved. If the server comes back empty (free hosting restarts wipe its disk),
 // the first device to open the app re-seeds the server from its copy. The sheet re-pushes its own data within minutes anyway.
-const local = { get: k => { try { return localStorage.getItem(k); } catch { return null; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch {} } };
+// Caching the shared state here is only a fallback for a wiped server. A multi-megabyte copy does not fit
+// (and on some phones a failed write clears the rest of storage, including an unconfirmed inspection).
+const CACHE_MAX = 2000000;
+const local = {
+  get: k => { try { return localStorage.getItem(k); } catch { return null; } },
+  set: (k, v) => { try { if (typeof v === "string" && v.length > CACHE_MAX) { localStorage.removeItem(k); return; } localStorage.setItem(k, v); } catch {} },
+};
 window.storage = {
   async get(key) {
     if (await probe()) {
-      const r = await fetch(`${SERVER}/storage/${encodeURIComponent(key)}`);
+      const r = await fetch(`${SERVER}/storage/${encodeURIComponent(key)}`, { cache: "no-store" });
       if (r.status === 404) { const mine = local.get(key); if (mine != null) { console.log("QCteam: server had no state — restoring from this device"); await fetch(`${SERVER}/storage/${encodeURIComponent(key)}`, { method: "PUT", headers: { "Content-Type": "text/plain; charset=utf-8" }, body: mine }); return { key, value: mine }; } return null; }
       const j = await r.json(); j.version = j.updatedAt ? String(j.updatedAt) : null;
       // (Removed: "server state looks empty but this device has data → force-restore this device's copy". Whatever the
@@ -54,7 +60,8 @@ window.storage = {
       if (!r.ok) return { error: true };
       const j = await r.json().catch(() => null);
       if (!j || j.updatedAt == null) return { error: true };
-      return { version: String(j.updatedAt) };
+      // The server rewrites embedded photos to /photos/… paths. Adopt that copy so the next save stays small.
+      return { version: String(j.updatedAt), ...(typeof j.value === "string" ? { value: j.value } : {}) };
     } catch (e) { return { error: true }; }
   },
   async delete(key) { if (await probe()) { await fetch(`${SERVER}/storage/${encodeURIComponent(key)}`, { method: "DELETE" }); return { key, deleted: true }; } localStorage.removeItem(key); return { key, deleted: true }; },

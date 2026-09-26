@@ -6,6 +6,7 @@ import { targetsFor, suggestMappings, applyMapping, detectTable, extractSummary 
 import { applyDeadlineAlerts } from "./alertlogic.mjs";
 import { computeMissingPalletUpdate } from "./misslogic.mjs";
 import { retainInspections } from "./retain.mjs";
+import { slimStateJson } from "./blobs.mjs";
 const STATE_KEY = "qcteam-portal-state-v2-clean";
 // Static hosting of the built app (dist/) so one service = API + portal + phone app. Any unknown path falls back to index.html.
 const DIST = new URL("../dist/", import.meta.url).pathname;
@@ -23,10 +24,27 @@ const BOOT_ID = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 // STATE_DIR: mount a persistent disk there (e.g. Render Disk at /data) so state survives deploys. Default: next to this file.
 const STATE_DIR = process.env.STATE_DIR || null;
 const PORT = Number(process.env.PORT) || 3001, FILE = STATE_DIR ? path.join(STATE_DIR, "state.json") : new URL("./state.json", import.meta.url);
+const filePath = FILE instanceof URL ? fileURLToPath(FILE) : FILE;
 if (STATE_DIR && !fs.existsSync(STATE_DIR)) fs.mkdirSync(STATE_DIR, { recursive: true });
 const store = fs.existsSync(FILE) ? JSON.parse(fs.readFileSync(FILE, "utf8")) : {};
-console.log(`state file: ${FILE}`);
-const save = () => fs.writeFileSync(FILE, JSON.stringify(store));
+console.log(`state file: ${filePath}`);
+// Atomic replace: the one-time photo extract rewrites the whole file, and a crash mid-write must not leave a truncated state.
+const save = () => { const tmp = filePath + ".tmp"; fs.writeFileSync(tmp, JSON.stringify(store)); fs.renameSync(tmp, filePath); };
+const photosDir = () => STATE_DIR ? path.join(STATE_DIR, "photos") : path.join(path.dirname(fileURLToPath(import.meta.url)), "photos");
+// Move data: URLs out of the shared document before the first request, so a phone never has to download them.
+const slimStoredState = () => {
+  try {
+    const raw = store[STATE_KEY];
+    if (!raw || !raw.includes("data:image")) return;
+    const slim = slimStateJson(raw, photosDir());
+    if (slim === raw) return;
+    store[STATE_KEY] = slim;
+    (store.__meta = store.__meta || {})[STATE_KEY] = Math.max(Date.now(), (store.__meta?.[STATE_KEY] || 0) + 1);
+    save();
+    console.log(`[photos] moved embedded images out of the shared state (${raw.length} → ${slim.length} bytes)`);
+  } catch (e) { console.log("[photos] extract failed:", e.message); }
+};
+slimStoredState();
 const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET,PUT,POST,DELETE,OPTIONS", "Access-Control-Allow-Headers": "Content-Type,If-Match,X-Force,X-Sync-Key" };
 // Bandwidth: the state and the sheet dumps are text — gzip them when the client accepts it (Render's plan meters egress).
 const sendJson = (req, res, status, body) => { const txt = typeof body === "string" ? body : JSON.stringify(body); const h = { ...cors, "Content-Type": "application/json", "Cache-Control": "no-store" }; if (txt.length > 1024 && /\bgzip\b/.test(req.headers["accept-encoding"] || "")) { h["Content-Encoding"] = "gzip"; res.writeHead(status, h); res.end(zlib.gzipSync(txt)); } else { res.writeHead(status, h); res.end(txt); } };
@@ -106,9 +124,9 @@ const handler = async (req, res) => {
   // Photos live as files, not as base64 inside the shared state — the state stays small and sync stays fast.
   // POST { dataUrl } → { path }; GET returns the bytes. Only image data URLs are accepted.
   if (req.url.startsWith("/photos")) {
-    const PHOTOS = STATE_DIR ? path.join(STATE_DIR, "photos") : path.join(path.dirname(fileURLToPath(import.meta.url)), "photos");
-    if (req.method === "POST" && req.url.split("?")[0] === "/photos") { const chunks = []; req.on("data", c => chunks.push(c)); req.on("end", () => { try { const j = JSON.parse(Buffer.concat(chunks).toString("utf8")); const m = /^data:(image\/[a-z0-9.+-]+);base64,([A-Za-z0-9+/=\s]+)$/.exec(j.dataUrl || ""); if (!m) throw new Error("expected an image data URL"); const ext = m[1] === "image/png" ? "png" : m[1] === "image/webp" ? "webp" : "jpg"; const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 8); fs.mkdirSync(PHOTOS, { recursive: true }); fs.writeFileSync(path.join(PHOTOS, id + "." + ext), Buffer.from(m[2].replace(/\s/g, ""), "base64")); res.writeHead(200, { ...cors, "Content-Type": "application/json" }).end(JSON.stringify({ path: "/photos/" + id + "." + ext })); } catch (e) { res.writeHead(400, cors).end(String(e.message || e)); } }); return; }
-    if (req.method === "GET") { const name = path.basename(decodeURIComponent(req.url.split("?")[0].replace(/^\/photos\/?/, ""))); const file = path.join(PHOTOS, name); if (!name || !fs.existsSync(file)) { res.writeHead(404, cors); return res.end(""); } res.writeHead(200, { ...cors, "Content-Type": name.endsWith(".png") ? "image/png" : name.endsWith(".webp") ? "image/webp" : "image/jpeg", "Cache-Control": "public, max-age=31536000, immutable" }); return fs.createReadStream(file).pipe(res); }
+    const PHOTOS = photosDir();
+    if (req.method === "POST" && req.url.split("?")[0] === "/photos") { const chunks = []; req.on("data", c => chunks.push(c)); req.on("end", () => { try { const j = JSON.parse(Buffer.concat(chunks).toString("utf8")); const m = /^data:(image\/[a-z0-9.+-]+);base64,([A-Za-z0-9+/=\s]+)$/.exec(j.dataUrl || ""); if (!m) throw new Error("expected an image data URL"); const ext = m[1] === "image/png" ? "png" : m[1] === "image/webp" ? "webp" : m[1] === "image/gif" ? "gif" : "jpg"; const named = typeof j.name === "string" && /^[a-f0-9]{32}$/.test(j.name) ? j.name : null; const id = named || (Date.now().toString(36) + Math.random().toString(36).slice(2, 8)); fs.mkdirSync(PHOTOS, { recursive: true }); const file = path.join(PHOTOS, id + "." + ext); if (!(named && fs.existsSync(file))) fs.writeFileSync(file, Buffer.from(m[2].replace(/\s/g, ""), "base64")); res.writeHead(200, { ...cors, "Content-Type": "application/json" }).end(JSON.stringify({ path: "/photos/" + id + "." + ext })); } catch (e) { res.writeHead(400, cors).end(String(e.message || e)); } }); return; }
+    if (req.method === "GET" || req.method === "HEAD") { const name = path.basename(decodeURIComponent(req.url.split("?")[0].replace(/^\/photos\/?/, ""))); const file = path.join(PHOTOS, name); if (!name || name === "photos" || !fs.existsSync(file)) { res.writeHead(404, cors); return res.end(""); } const type = name.endsWith(".png") ? "image/png" : name.endsWith(".webp") ? "image/webp" : name.endsWith(".gif") ? "image/gif" : "image/jpeg"; res.writeHead(200, { ...cors, "Content-Type": type, "Cache-Control": "public, max-age=31536000, immutable" }); if (req.method === "HEAD") return res.end(); return fs.createReadStream(file).pipe(res); }
   }
   if (req.url.startsWith("/sheet/")) {
     const purpose = req.url.replace(/^\/sheet\//, "").split("?")[0].toLowerCase();
@@ -134,7 +152,7 @@ const handler = async (req, res) => {
   const key = decodeURIComponent(req.url.replace(/^\/storage\//, "").split("?")[0]);
   if (!req.url.startsWith("/storage/")) return serveStatic(req, res);
   if (req.method === "GET") { const v = store[key]; if (v == null) { res.writeHead(404, cors); return res.end(""); } return sendJson(req, res, 200, { key, value: v, updatedAt: store.__meta?.[key] }); }
-  if (req.method === "PUT") { const chunks = []; req.on("data", c => chunks.push(c)); req.on("end", () => { let body = Buffer.concat(chunks).toString("utf8");
+  if (req.method === "PUT") { const chunks = []; req.on("data", c => chunks.push(c)); req.on("end", () => { let body = Buffer.concat(chunks).toString("utf8"); const requested = body;
       const ifMatch = req.headers["if-match"]; const currentVersion = store.__meta?.[key] ? String(store.__meta[key]) : null;
       // Guard: an (almost) empty app state must not overwrite a populated one — a fresh device would otherwise wipe everyone's data.
       // A write that carries the CURRENT version comes from a client that has the latest copy, so shrinking it is a deliberate
@@ -160,8 +178,11 @@ const handler = async (req, res) => {
         const kept = retainInspections(store[key], body);
         if (kept !== body) { const n = JSON.parse(kept).inspections.length - JSON.parse(body).inspections.length; body = kept; console.log(`[state] kept ${n} inspection(s) a write would have dropped`); }
       }
+      // A phone that still holds the old document would upload every product photo on the next save and time out.
+      // Store the paths, and hand that copy back so the phone stops carrying the bytes.
+      if (key === STATE_KEY) { try { body = slimStateJson(body, photosDir()); } catch (e) { console.log("[photos] put extract failed:", e.message); } }
       if (store[key] === body) { res.writeHead(200, { ...cors, "Content-Type": "application/json" }).end(JSON.stringify({ key, updatedAt: store.__meta?.[key] || null, unchanged: true })); return; }
-      snapshot(key, body); store[key] = body; const now = Math.max(Date.now(), (store.__meta?.[key] || 0) + 1); (store.__meta = store.__meta || {})[key] = now; save(); res.writeHead(200, { ...cors, "Content-Type": "application/json" }).end(JSON.stringify({ key, updatedAt: now })); }); return; }
+      snapshot(key, body); store[key] = body; const now = Math.max(Date.now(), (store.__meta?.[key] || 0) + 1); (store.__meta = store.__meta || {})[key] = now; save(); const payload = { key, updatedAt: now }; if (body !== requested) payload.value = body; res.writeHead(200, { ...cors, "Content-Type": "application/json" }).end(JSON.stringify(payload)); }); return; }
   if (req.method === "DELETE") { delete store[key]; if (store.__meta) delete store.__meta[key]; save(); return res.writeHead(200, cors).end(); }
   res.writeHead(405, cors).end();
 };

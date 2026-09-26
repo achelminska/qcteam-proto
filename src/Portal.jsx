@@ -434,7 +434,7 @@ async function buildReportPdf(insp, s) {
   y += 6; doc.setFontSize(8.5); doc.setFont(undefined, "normal"); doc.setTextColor(...MUTED); doc.text(`Article ${product.articleId || "—"} · ${category}${product.isBio ? " · bio" : ""}`, L, y);
   doc.setFillColor(...(ok ? OK : BAD)); doc.roundedRect(148, 12, 46, 14, 2, 2, "F"); doc.setTextColor(255, 255, 255); doc.setFontSize(10); doc.setFont(undefined, "bold"); doc.text(ok ? "ACCEPTED" : "REJECTED", 191, 18, { align: "right" }); doc.setFontSize(7.5); doc.setFont(undefined, "normal"); doc.text(`Report no. ${insp.id.toUpperCase()}`, 191, 23, { align: "right" });
   // Head-configured stamp/icon for this result (Settings → Report result icon), pinned to the sheet's top-right corner.
-  const resultIcon = settings.resultIcons?.[insp.result]; if (resultIcon?.dataUrl) { try { doc.addImage(resultIcon.dataUrl, "JPEG", R - 11, 0, 11, 11); } catch (e) {} }
+  const resultIcon = settings.resultIcons?.[insp.result]; if (resultIcon?.dataUrl) { try { const src = resultIcon.dataUrl.startsWith("data:") ? resultIcon.dataUrl : await photoData({ dataUrl: resultIcon.dataUrl }); if (src) doc.addImage(src, "JPEG", R - 11, 0, 11, 11); } catch (e) {} }
   y += 4; doc.setDrawColor(...INK); doc.setLineWidth(0.5); doc.line(L, y, R, y); y += 3;
   const tableBase = { margin: { left: L, right: 16 }, styles: { font: "helvetica", fontSize: 9, textColor: INK, cellPadding: 1.6, lineColor: LINE, lineWidth: { bottom: 0.2 } }, headStyles: { fillColor: [255, 255, 255], textColor: MUTED, fontStyle: "bold", fontSize: 8 }, theme: "plain" };
   // facts — only rows with a value
