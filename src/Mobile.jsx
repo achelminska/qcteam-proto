@@ -2014,16 +2014,7 @@ function MPalletSheet({ s, set, user, go, row: r, onStart, onPickPallet, onAssig
       {anns.map(a => <button key={a.id} onClick={() => go("announcements")} className="w-full text-left rounded-xl px-3 py-2 mb-2 flex items-start gap-2" style={{ background: a.isBlocking ? C.badBg : C.accentSoft, color: C.ink }}><Ic i={Megaphone} s={14} mr={0} style={{ marginTop: 2, color: a.isBlocking ? C.bad : C.accent }} /><span className="min-w-0 text-[13px] leading-snug"><b>{a.title}</b>{a.body ? <span style={{ color: C.muted }}> — {a.body}</span> : null}{a.isBlocking && <span className="block text-[11px] mt-0.5" style={{ color: C.bad }}>Blocking — read it before you inspect</span>}</span></button>)}
       {draft && <div className="rounded-xl px-3 py-2 mb-2 flex items-start gap-2 text-[13px] leading-snug" style={{ background: C.warnBg, color: C.warn }}><Ic i={Clock} s={14} mr={0} style={{ marginTop: 2 }} /><span><b>{s.users.find(u => u.id === draft.controllerId)?.name.split(" ")[0]}</b> has this pallet in progress ({STATUS[draft.status][0]}){draft.controllerId === user.id && <button onClick={() => go("inspection", draft.id)} className="ml-2 underline">continue</button>}</span></div>}
 
-      {!lost && <div className="mb-3">
-        <p className="label-sm mb-1.5" style={{ color: C.muted }}>{done ? "Inspect again" : "Start inspection"}</p>
-        <div className="flex flex-col gap-2">
-          {types.map((t, idx) => <button key={t.id} onClick={() => setStarting(t.id)} className="w-full py-3 rounded-xl text-sm font-medium inline-flex items-center justify-center gap-2 active:opacity-80" style={idx === 0 ? { background: C.ink, color: C.onDark } : { background: C.surface, color: C.ink, border: `1px solid ${C.line}` }}><span className="inline-block rounded-full" style={{ width: 8, height: 8, background: t.color }} />{t.name} inspection</button>)}
-          {product && types.length === 0 && <p className="text-[11px] text-center" style={{ color: C.bad }}>{typesOf(s).length ? `No inspection type is allowed for this product (${pol.source}).` : "The Head hasn't defined any inspection types yet (portal → Forms)."}</p>}
-          {!product && <p className="text-[11px] text-center" style={{ color: C.muted }}>You'll pick the product in the next step — the allowed types depend on it.</p>}
-        </div>
-      </div>}
-
-      {others.length > 0 && <MSection title="Same article on the docks" count={others.length}>
+      {others.length > 0 && <MSection title="Same article on the docks" count={others.length} defaultOpen>
         {pos.length > 1 && <p className="mb-2 px-2.5 py-1.5 rounded-lg text-[11px] flex items-center" style={{ background: C.warnBg, color: C.warn }}><Ic i={AlertTriangle} s={11} mr={4} />Different PO numbers ({pos.join(", ")}) — likely separate deliveries, one inspection doesn't cover all.</p>}
         {others.map((x, ix) => { const st = dockStatus(x); return (
           <button key={x.hu} onClick={() => onPickPallet && onPickPallet(x.hu)} className="w-full text-left flex items-center gap-2.5 py-2 active:opacity-60" style={{ borderBottom: ix === others.length - 1 ? "none" : `1px solid ${C.line}` }}>
@@ -2033,6 +2024,15 @@ function MPalletSheet({ s, set, user, go, row: r, onStart, onPickPallet, onAssig
           </button>
         ); })}
       </MSection>}
+
+      {!lost && <div className="mb-3">
+        <p className="label-sm mb-1.5" style={{ color: C.muted }}>{done ? "Inspect again" : "Start inspection"}</p>
+        <div className="flex flex-col gap-2">
+          {types.map((t, idx) => <button key={t.id} onClick={() => setStarting(t.id)} className="w-full py-3 rounded-xl text-sm font-medium inline-flex items-center justify-center gap-2 active:opacity-80" style={idx === 0 ? { background: C.ink, color: C.onDark } : { background: C.surface, color: C.ink, border: `1px solid ${C.line}` }}><span className="inline-block rounded-full" style={{ width: 8, height: 8, background: t.color }} />{t.name} inspection</button>)}
+          {product && types.length === 0 && <p className="text-[11px] text-center" style={{ color: C.bad }}>{typesOf(s).length ? `No inspection type is allowed for this product (${pol.source}).` : "The Head hasn't defined any inspection types yet (portal → Forms)."}</p>}
+          {!product && <p className="text-[11px] text-center" style={{ color: C.muted }}>You'll pick the product in the next step — the allowed types depend on it.</p>}
+        </div>
+      </div>}
 
       <div className="mt-2">
         {user.role === "Head" && onAssign && !lost && <button onClick={() => onAssign(r)} className="w-full py-2 text-xs inline-flex items-center justify-center" style={{ color: C.accent }}><Ic i={MessageSquare} s={12} />Assign to someone in chat</button>}
@@ -2050,7 +2050,7 @@ function MPalletInfo({ s, set, user, go, hu, onAssign, onStart }) {
   return (
     <div className="pb-4">
       <TopBar title="Pallet on dock" onBack={() => go("back")} right={<LostTrigger on={lostOpen} lost={!!lostOf(s, r)} onClick={() => setLostOpen(o => !o)} />} />
-      <div className="px-4 pt-3"><MPalletSheet s={s} set={set} user={user} go={go} row={r} onStart={(pid, typeId) => onStart(pid, r.hu, typeId)} onPickPallet={h => go("palletInfo", h)} onAssign={onAssign} lostOpen={lostOpen} onLostClose={() => setLostOpen(false)} /></div>
+      <div className="px-4 pt-3"><MPalletSheet key={r.hu} s={s} set={set} user={user} go={go} row={r} onStart={(pid, typeId) => onStart(pid, r.hu, typeId)} onPickPallet={h => go("palletInfo", h)} onAssign={onAssign} lostOpen={lostOpen} onLostClose={() => setLostOpen(false)} /></div>
     </div>
   );
 }
@@ -2110,7 +2110,7 @@ function MPriorityList({ s, user, go, priority }) {
               <span className="text-[10px] px-1.5 py-0.5 rounded-full" style={{ background: old && d ? C.badBg : C.bg, color: old && d ? C.bad : C.muted, border: old && d ? "none" : `1px solid ${C.line}` }}>{n} pallet{n === 1 ? "" : "s"}{old && d ? ` · ${ageDays(d)}d on dock` : ""}</span>
             </div>
             {items.map(it => (
-              <button key={it.key} onClick={() => it.count > 1 && it.productId ? go("catalog", it.productId) : go("palletInfo", it.hu)} className="w-full text-left py-3 active:opacity-60" style={{ borderBottom: `1px solid ${C.line}` }}>
+              <button key={it.key} onClick={() => go("palletInfo", it.hu)} className="w-full text-left py-3 active:opacity-60" style={{ borderBottom: `1px solid ${C.line}` }}>
                 <div className="flex items-center gap-2">{((isAll && subTab === "regular") || isNeeded) && it.priority && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ background: PRIORITY[it.priority]?.[1] || C.line, color: PRIORITY[it.priority]?.[0] || C.muted }}>{it.priority}</span>}<p className="text-sm font-medium flex-1 truncate">{it.name}</p><ComplaintChip s={s} articleId={it.key} />{it.count > 1 && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ background: C.accentSoft, color: C.accent }}>×{it.count} on docks</span>}{it.totalOnDock > it.count && <span className="text-[10px] flex-shrink-0" style={{ color: C.muted }}>+{it.totalOnDock - it.count} elsewhere</span>}{it.mixedPO && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0 inline-flex items-center gap-1" style={{ background: C.warnBg, color: C.warn }}><Ic i={AlertTriangle} s={10} mr={0} />mixed PO</span>}{it.checked > 0 && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0 inline-flex items-center gap-1" style={{ background: C.okBg, color: C.ok }}><Ic i={Check} s={10} mr={0} />{it.checked === it.count ? "already inspected" : `${it.checked}/${it.count} inspected`}</span>}{it.hist.count > 0 && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ background: C.badBg, color: C.bad }}>{it.hist.count} rejected recently</span>}</div>
                 <p className="text-xs mt-0.5" style={{ color: C.muted }}>{it.location} · {it.transporter} · {it.arrivedTime}{it.blocking && !isNeeded ? " · needed today" : ""}</p>
                 {it.hist.count > 0 && <p className="text-xs mt-1" style={{ color: C.bad }}>Was rejected for: {it.hist.problems.slice(0, 3).map(p => `${p.name} ×${p.count}`).join(", ")}{it.hist.problems.length > 3 ? "…" : ""} · last {dayLabel(it.hist.lastAt)}</p>}
@@ -2613,7 +2613,7 @@ function MScan({ s, user, go, onStart, onVisual, onSkip, setState, notify, prese
           </div>
         )}
 
-        {mode === "pallet" && wms && <MPalletSheet s={s} set={setState} user={user} go={go} row={wms} onStart={(pid, typeId) => start(pid, typeId)} onPickPallet={pickPalletOfProduct} onCancel={() => { setMode(null); setPallet(""); setCode(""); setLostOpen(false); }} cancelLabel="Scan another code" lostOpen={lostOpen} onLostClose={() => setLostOpen(false)} />}
+        {mode === "pallet" && wms && <MPalletSheet key={wms.hu} s={s} set={setState} user={user} go={go} row={wms} onStart={(pid, typeId) => start(pid, typeId)} onPickPallet={pickPalletOfProduct} onCancel={() => { setMode(null); setPallet(""); setCode(""); setLostOpen(false); }} cancelLabel="Scan another code" lostOpen={lostOpen} onLostClose={() => setLostOpen(false)} />}
 
         {mode === "pallet" && !wms && blockedRow && (
           <div className="rounded-2xl p-4 mb-3" style={{ background: C.badBg }}>
@@ -3147,7 +3147,7 @@ function MDocks({ s, user, go }) {
             <p className="text-xs mb-1" style={{ color: C.muted }}>{selRows.length} pallet{selRows.length === 1 ? "" : "s"} · {items.length} SKU{items.length === 1 ? "" : "s"}{selRows.filter(r => r.blocking).length ? ` · ${selRows.filter(r => r.blocking).length} needed today` : ""}</p>
             {items.length === 0 && <p className="text-sm py-6 text-center" style={{ color: C.muted }}>Nothing standing here right now.</p>}
             {items.map(it => (
-              <button key={it.key} onClick={() => it.count > 1 && it.productId ? go("catalog", it.productId) : go("palletInfo", it.hu)} className="w-full text-left py-3 active:opacity-60" style={{ borderBottom: `1px solid ${C.line}` }}>
+              <button key={it.key} onClick={() => go("palletInfo", it.hu)} className="w-full text-left py-3 active:opacity-60" style={{ borderBottom: `1px solid ${C.line}` }}>
                 <div className="flex items-center gap-2"><StatusPill k={it.status} /><p className="text-sm font-medium flex-1 truncate">{it.name}</p><ComplaintChip s={s} articleId={it.key} />{it.count > 1 && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ background: C.accentSoft, color: C.accent }}>×{it.count}</span>}{it.checked > 0 && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0 inline-flex items-center gap-1" style={{ background: C.okBg, color: C.ok }}><Ic i={Check} s={10} mr={0} />{it.checked === it.count ? "inspected" : `${it.checked}/${it.count}`}</span>}</div>
                 <p className="text-xs mt-0.5" style={{ color: C.muted }}>{sel === "other" ? it.location : it.subs.length ? `spot ${it.subs.join("/")}` : `dock ${dockLabel(sel)}`}{it.blocking && it.priority && it.priority !== "Skippable" ? ` · ${it.priority}` : ""} · {it.transporter || "—"} · {it.arrived ? `${dayLabel(it.arrived + "T12:00:00")} ` : ""}{it.arrivedTime}</p>
               </button>
