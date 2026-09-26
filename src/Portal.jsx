@@ -1064,20 +1064,22 @@ function Note({ tone: t = "info", children }) {
 
 // A dropdown with a search box for lists that can grow without limit (categories, products, problem catalog).
 // `options`: [{ value, label }]; `empty` is the blank option's label; `onChange` gets the value ("" = cleared).
-function SearchSelect({ value, onChange, options, empty = "—", placeholder = "Search…", className = "", style = {}, size = "sm" }) {
+// searchFrom: the search box appears once the list has at least this many options (0 = always).
+function SearchSelect({ value, onChange, options, empty = "—", placeholder = "Search…", className = "", style = {}, size = "sm", searchFrom = 0 }) {
   const [open, setOpen] = useState(false); const [q, setQ] = useState(""); const ref = useRef(null);
   useEffect(() => { if (!open) return; const h = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); }; document.addEventListener("mousedown", h); return () => document.removeEventListener("mousedown", h); }, [open]);
   const chosen = options.find(o => o.value === value); const qq = q.trim().toLowerCase();
+  const searchable = options.length >= searchFrom;
   const shown = qq ? options.filter(o => o.label.toLowerCase().includes(qq)) : options;
   const h = size === "xs" ? 26 : 32;
   return (
     <div ref={ref} className={`relative ${className}`} style={style}>
       <button type="button" onClick={() => { setOpen(o => !o); setQ(""); }} className="w-full text-left flex items-center gap-1 rounded-md px-2 outline-none" style={{ ...inp, height: h, fontSize: size === "xs" ? 12 : 13 }}><span className="flex-1 truncate" style={{ color: chosen ? C.ink : C.muted }}>{chosen ? chosen.label : empty}</span><Ic i={ChevronDown} s={12} mr={0} style={{ color: C.muted }} /></button>
       {open && <div className="absolute left-0 right-0 mt-1 rounded-xl p-1.5" style={{ background: C.surface, border: `1px solid ${C.line}`, boxShadow: "0 10px 24px rgba(0,0,0,.16)", zIndex: 40, minWidth: 220 }}>
-        <input autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder={placeholder} className="w-full text-xs rounded-lg px-2 py-1.5 outline-none mb-1" style={{ ...inp }} />
-        <div style={{ maxHeight: 240, overflowY: "auto" }}>
+        {searchable && <input autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder={placeholder} className="w-full text-xs rounded-lg px-2 py-1.5 outline-none mb-1" style={{ ...inp }} />}
+        <div style={{ maxHeight: 280, overflowY: "auto" }}>
           {!qq && <button type="button" onClick={() => { onChange(""); setOpen(false); }} className="w-full text-left text-xs px-2 py-1.5 rounded-md" style={{ color: C.muted }}>{empty}</button>}
-          {shown.map(o => <button type="button" key={o.value} onClick={() => { onChange(o.value); setOpen(false); }} className="w-full text-left text-xs px-2 py-1.5 rounded-md truncate" style={{ background: o.value === value ? C.accentSoft : "transparent", color: o.value === value ? C.accent : C.ink }}>{o.label}</button>)}
+          {shown.map(o => <button type="button" key={o.value} onClick={() => { onChange(o.value); setOpen(false); }} className="w-full text-left text-xs px-2 py-1.5 rounded-md truncate" style={{ background: o.value === value ? C.accentSoft : "transparent", color: o.value === value ? C.accent : o.tone || C.ink }}>{o.label}</button>)}
           {shown.length === 0 && <p className="text-xs px-2 py-2" style={{ color: C.muted }}>Nothing matches.</p>}
         </div>
       </div>}
@@ -2737,6 +2739,7 @@ function FieldEditor({ f, onPatch, onRemove, onMove, problems, catalog, specs, s
       {f.type === "Number" && (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs" style={{ color: C.muted }}>
           <span className="flex items-center gap-1">measurements <input type="number" value={f.measurementCount ?? 1} onChange={e => onPatch({ measurementCount: Number(e.target.value) || 1 })} className="w-16 rounded px-1.5 py-0.5 outline-none" style={{ ...inp }} /></span>
+          <span className="flex items-center gap-1 w-full" title="Leave empty for a typed number. With values here the controller picks one from a dropdown (search from 11 values); the values outside the specification are labelled with the problem they raise.">answer from a list of values: <input value={f.choicesRaw ?? (f.choices || []).join(", ")} onChange={e => onPatch({ choicesRaw: e.target.value, choices: e.target.value.split(/[,;\s]+/).map(x => x.trim()).filter(x => x !== "" && !isNaN(Number(x))).map(Number).sort((a, b) => a - b).map(String) })} placeholder="empty = typed number · e.g. 1, 1.5, 2, 2.5, 3, 3.5, 4, 5, 6, 7" className="flex-1 rounded px-1.5 py-0.5 outline-none font-mono" style={{ ...inp, borderColor: (f.choices || []).length ? C.ok : C.line }} />{(f.choices || []).length > 0 && <span style={{ color: C.ok }}>{f.choices.length} values → dropdown</span>}</span>
           <span className="flex items-center gap-1">specification by name: <input list={"spec-names-" + f.id} value={f.specName ?? ""} onChange={e => { const v = e.target.value; const patch = { specName: v }; if (v.trim() && (!f.label || !f.label.trim() || f.label.trim().toLowerCase() === "new field")) patch.label = v; onPatch(patch); }} onBlur={e => { if (sctxForNames && e.target.value.trim() && !nearSpecName(sctxForNames, e.target.value)) onPatch({ specName: canonicalSpecName(sctxForNames, e.target.value) }); }} placeholder={f.label} className="w-24 rounded px-1 py-0.5 outline-none" style={{ ...inp, borderColor: (f.specName || "").trim() ? C.ok : C.line }} title="matches the product specification with this name; empty = field label. Also fills the label above, if it's still the default." /><datalist id={"spec-names-" + f.id}>{(sctxForNames ? specRegistry(sctxForNames) : []).map(e => <option key={e.name} value={e.name} />)}</datalist>{(() => { const n = sctxForNames ? nearSpecName(sctxForNames, f.specName || "") : null; return n ? <button onClick={() => onPatch({ specName: n.name })} className="text-[11px] underline ml-1" style={{ color: C.warn }}>did you mean {n.name}?</button> : null; })()}</span>
           {specs && <span className="flex items-center gap-1">or explicitly: <span style={{ minWidth: 160, display: "inline-block" }}><SearchSelect size="xs" value={f.specId || ""} onChange={v => { const specId = v || null; const patch = { specId }; if (specId && (!f.label || !f.label.trim() || f.label.trim().toLowerCase() === "new field")) { const sp = specs.find(sq => sq.id === specId); if (sp) patch.label = sp.name; } onPatch(patch); }} options={specs.map(q => ({ value: q.id, label: `${q.name} (${specLabel(q)})` }))} empty="— by name —" placeholder="Search specs…" style={{ borderColor: f.specId ? C.ok : C.line }} /></span></span>}
           <span className="flex items-center gap-1">or min <input type="number" value={f.min ?? ""} onChange={e => onPatch({ min: e.target.value === "" ? null : e.target.value })} className="w-12 rounded px-1 py-0.5 outline-none" style={{ ...inp }} /> max <input type="number" value={f.max ?? ""} onChange={e => onPatch({ max: e.target.value === "" ? null : e.target.value })} className="w-12 rounded px-1 py-0.5 outline-none" style={{ ...inp }} /></span>
@@ -3048,9 +3051,17 @@ function NumberInput({ f, problems, overrides, specs, totals, value, onChange, o
   const [mode, setMode] = useState(firstMode);
   const [raw, setRaw] = useState("");
   const unit = mode === "PieceCount" ? "pcs" : mode === "DirectWeight" ? "g" : "CU";
+  // "Answer from a list": fixed allowed values (see the form builder); values outside the specification are labelled
+  // with the problem they raise. Average / out-of-spec / raising work exactly as for a typed number.
+  const choices = Array.isArray(f.choices) ? f.choices.filter(v => v !== "" && v !== null && !isNaN(Number(v))) : [];
+  const below = problems.find(p => p.id === f.problemBelowId), above = problems.find(p => p.id === f.problemAboveId);
+  const choiceOptions = choices.map(v => { const x = Number(v); const isBelow = hasV(mn) && x < Number(mn), isAbove = hasV(mx) && x > Number(mx); const tag = isBelow ? ` · below → ${below?.name || "out of spec"}` : isAbove ? ` · above → ${above?.name || "out of spec"}` : ""; return { value: String(v), label: `${v}${tag}`, tone: isBelow || isAbove ? C.warn : undefined }; });
+  const setM = (i, v) => onChange({ measurements: ms.map((x, j) => j === i ? v : x) });
   return (
     <div>
-      <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${n}, minmax(0,1fr))` }}>{ms.map((m, i) => <input key={i} type="number" value={m} onChange={e => onChange({ measurements: ms.map((x, j) => j === i ? e.target.value : x) })} placeholder={`pomiar ${i + 1}`} className="text-sm rounded px-2 py-1.5 outline-none" style={{ ...inp }} />)}</div>
+      {choices.length
+        ? <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${Math.min(n, 3)}, minmax(0,1fr))` }}>{ms.map((m, i) => <SearchSelect key={i} value={m === "" ? "" : String(m)} onChange={v => setM(i, v)} options={choiceOptions} empty={n > 1 ? `pomiar ${i + 1}` : "— choose —"} placeholder="Search values…" searchFrom={11} />)}</div>
+        : <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${n}, minmax(0,1fr))` }}>{ms.map((m, i) => <input key={i} type="number" value={m} onChange={e => setM(i, e.target.value)} placeholder={`pomiar ${i + 1}`} className="text-sm rounded px-2 py-1.5 outline-none" style={{ ...inp }} />)}</div>}
       {lim.note && <p className="text-[11px] mt-1" style={{ color: C.muted }}>{lim.note}</p>}
       {avg !== null && <p className="text-xs mt-1.5" style={{ color: C.muted }}>average <b style={{ color: C.ink }}>{fmt(avg)}</b>{ref ? ` · reference ${ref}${byName ? ` (by name “${spec.name}"${spec.source !== "product" ? ", " + spec.source : ""})` : ""}` : (f.problemBelowId || f.problemAboveId) ? <span style={{ color: C.warn }}> · no reference — the product has no specification “{(f.specName || "").trim() || f.label}“ and the field has no min/max</span> : ""}</p>}
       {bad && !lp && <div className="rounded-lg px-3 py-1.5 mt-1.5 text-xs" style={{ background: C.warnBg, color: C.warn }}>Out of spec — warning only.</div>}
@@ -3294,10 +3305,8 @@ function InspectionRunner({ insp, patch, t, problems, product, suppliers, dictio
                 const preset = sctx && product ? effectiveAttributes(sctx, product).find(a => a.dictionaryId === f.dictionaryId) : null;
                 if (!d) return <p className="text-xs" style={{ color: C.warn }}>No list attached to this field — the Head must pick one in the form builder.</p>;
                 if (!d.items.length) return <p className="text-xs" style={{ color: C.warn }}>The list “{d.name}” is empty — fill it in Dictionaries → Lists.</p>;
-                // Short lists stay one-tap pill buttons; longer ones (the Head can attach a 70-item list) become a searchable dropdown so it doesn't turn into a wall of buttons or a scroll through 74 countries.
-                const picker = d.items.length > 6
-                  ? <SearchSelect value={values[f.id] || ""} onChange={v => setV(f.id, v)} options={d.items.map(o => ({ value: o.value, label: o.value }))} empty={`— choose (${d.items.length} options) —`} placeholder={`Search ${d.name.toLowerCase()}…`} />
-                  : <div className="flex flex-wrap gap-1.5">{d.items.map(o => <button key={o.id} onClick={() => setV(f.id, o.value)} className="text-xs px-3 py-1.5 rounded-full" style={{ background: values[f.id] === o.value ? C.accent : C.accentSoft, color: values[f.id] === o.value ? C.onDark : C.accent }}>{o.value}</button>)}</div>;
+                // Lists are always a dropdown; the search box appears from 11 options up (the Head can attach a 70-item country list).
+                const picker = <SearchSelect value={values[f.id] || ""} onChange={v => setV(f.id, v)} options={d.items.map(o => ({ value: o.value, label: o.value }))} empty={`— choose (${d.items.length} options) —`} placeholder={`Search ${d.name.toLowerCase()}…`} searchFrom={11} />;
                 return <div>{picker}{preset && <p className="text-[11px] mt-1" style={{ color: C.muted }}>Pre-filled from the product profile ({preset.source}: {preset.value}){values[f.id] && values[f.id] !== preset.value ? " — changed on the dock" : ""}.</p>}</div>;
               })()}
               {f.type === "Pallet" && <div>{pallets.map((p, i) => <div key={i} className="flex gap-1.5 mb-1.5"><input value={p} onChange={e => setPallets(ps => ps.map((x, j) => j === i ? e.target.value : x))} placeholder={`pallet ${i + 1}`} className="flex-1 text-sm rounded px-2 py-1.5 outline-none" style={{ ...inp }} /><button className="text-xs px-2 rounded" style={{ background: C.line, color: C.muted }} title="camera scanning is only available in the phone app" disabled><Ic i={ScanLine} s={13} mr={0} /></button>{pallets.length > 1 && <button onClick={() => setPallets(ps => ps.filter((_, j) => j !== i))} className="text-xs px-1" style={{ color: C.muted }}>×</button>}</div>)}<button onClick={() => setPallets(ps => [...ps, ""])} className="text-xs" style={{ color: C.accent }}>+ another pallet</button><DeliveryPallets product={product} insp={insp} onAdd={hus => setPallets(ps => [...ps.filter(Boolean), ...hus.filter(h => !ps.includes(h))])} /></div>}
