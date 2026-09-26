@@ -3241,7 +3241,7 @@ function InspectionRunner({ insp, patch, t, problems, product, suppliers, dictio
   const isEmptyValue = f => { const v = values[f.id]; if (f.type === "MultiChoice") return !(v || []).length; if (f.type === "Photos") return !asPhotoList(photos[f.id]).length; return v === undefined || v === null || String(v).trim() === ""; };
   const missingRequired = t.fields.filter(f => f.required && !isSystem(f.type) && isEmptyValue(f)).map(f => ({ id: f.id, label: fieldLabel(f), moduleIx: modules.findIndex(mm => mm.id === f.moduleId) }));
   const [remind, setRemind] = useState(false);
-  const tryFinish = () => { if (missingRequired.length && !remind) { setRemind(true); return; } if (itype.autoAccept && !insp.result) set({ result: "Accepted" }); onFinish({ anyExceeded, generalFlag, autoAccept: itype.autoAccept, missingRequired: missingRequired.map(f => f.label) }); };
+  const tryFinish = () => { if (missingRequired.length && !remind) { setRemind(true); return; } const result = itype.autoAccept && !insp.result ? "Accepted" : insp.result; if (result && result !== insp.result) set({ result }); onFinish({ anyExceeded, generalFlag, autoAccept: itype.autoAccept, missingRequired: missingRequired.map(f => f.label), result }); };
   const isSummary = hasSummary && tab === modules.length, m = modules[Math.min(tab, modules.length - 1)];
   const isLastModule = !hasSummary && tab >= modules.length - 1;
   const specs = effectiveSpecs(sctx, product);
@@ -3419,11 +3419,11 @@ function InspectionsPage({ s, set, user, notify, openId, setOpenId, preset, clea
     set(x => ({ ...x, inspections: [...x.inspections, { id, typeId, productId: p.id, controllerId: user.id, status: "Draft", result: null, startedAt: nowISO(), template: snapshot, values: {}, remarks: [], photos: {}, pallets: [""], sample: { tu: 1, cusPerTu: p.cusPerTu || "", piecesPerCu: p.piecesPerCu || "", weightPerCu: p.weightPerCu || "" }, audit: [{ at: nowISO(), userId: user.id, action: "Created" }] }] }));
     setOpenId(id); setNewProduct("");
   };
-  const finish = ({ anyExceeded, generalFlag, autoAccept, missingRequired = [] }) => {
+  const finish = ({ anyExceeded, generalFlag, autoAccept, missingRequired = [], result }) => {
     { const p = s.products.find(x => x.id === insp.productId); const hus = (insp.pallets || []).map(h => String(h).replace(/\D/g, "").replace(/^0+/, "")).filter(Boolean); set(x => { const pc = { ...(x.palletClaims || {}) }; Object.keys(pc).forEach(k => { const mine = pc[k].userId === user.id; if (!mine) return; if (p?.articleId && k.startsWith(p.articleId + "|")) delete pc[k]; if (k.startsWith("hu:") && hus.some(h => k.slice(3).replace(/^0+/, "") === h)) delete pc[k]; }); return { ...x, palletClaims: pc }; }); }
     const wasCompleted = insp.status === "Completed";
-    patchInsp(insp.id, i => ({ ...i, status: "Completed", completedAt: i.completedAt || nowISO(), lastEditedBy: wasCompleted ? user.id : i.lastEditedBy, lastEditedAt: wasCompleted ? nowISO() : i.lastEditedAt, missingRequired }));
-    log(insp.id, wasCompleted ? "Edited completed report" : "Completed", `result: ${insp.result}${missingRequired.length ? ` · required fields left empty: ${missingRequired.join(", ")}` : ""}`);
+    patchInsp(insp.id, i => ({ ...i, status: "Completed", result: result || i.result, completedAt: i.completedAt || nowISO(), lastEditedBy: wasCompleted ? user.id : i.lastEditedBy, lastEditedAt: wasCompleted ? nowISO() : i.lastEditedAt, missingRequired }));
+    log(insp.id, wasCompleted ? "Edited completed report" : "Completed", `result: ${result || insp.result}${missingRequired.length ? ` · required fields left empty: ${missingRequired.join(", ")}` : ""}`);
     if (missingRequired.length) notify("MissingRequired", `${user.name} finished ${product.name} with ${missingRequired.length} required field${missingRequired.length === 1 ? "" : "s"} empty: ${missingRequired.join(", ")}`, "Inspection", insp.id);
     if (wasCompleted && insp.controllerId !== user.id) notify("EditedByOther", `${user.name} edited report ${product.name} (author: ${s.users.find(u => u.id === insp.controllerId)?.name})`, "Inspection", insp.id, insp.controllerId);
     if (insp.result === "Accepted" && (anyExceeded || generalFlag)) notify("AcceptedDespite", `${product.name}: accepted despite exceeding tolerance (${user.name})`, "Inspection", insp.id);
