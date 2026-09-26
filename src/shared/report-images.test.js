@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fitWithin, imageFormat, jpegDataUrlFrameFirst, jpegFrameFirst, keepsOriginalFile } from "./report-images.js";
+import { fitWithin, imageFormat, jpegDataUrlFrameFirst, jpegFrameFirst, keepsOriginalFile, knockOutDarkBorder } from "./report-images.js";
 
 // What jsPDF 2.5.1 does with a JPEG header (its marker list includes C4).
 const jsPdfJpegInfo = bytes => {
@@ -91,5 +91,36 @@ describe("fitWithin", () => {
   it("returns null when the pixel size is unknown", () => {
     expect(fitWithin(null, 86, 86)).toBe(null);
     expect(fitWithin({ w: 0, h: 100 }, 86, 86)).toBe(null);
+  });
+});
+
+describe("knockOutDarkBorder", () => {
+  // 6×6: black background, a 4×4 logo in the middle with a white rim and a black letter inside it.
+  const W = 6, H = 6;
+  const paint = (rgba, x, y, [r, g, b]) => { const i = (y * W + x) * 4; rgba[i] = r; rgba[i + 1] = g; rgba[i + 2] = b; rgba[i + 3] = 255; };
+  const make = () => {
+    const rgba = new Uint8ClampedArray(W * H * 4);
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) paint(rgba, x, y, [0, 0, 0]);
+    for (let y = 1; y < 5; y++) for (let x = 1; x < 5; x++) paint(rgba, x, y, [255, 255, 255]);
+    paint(rgba, 2, 2, [0, 150, 60]); paint(rgba, 3, 3, [10, 10, 10]);
+    return rgba;
+  };
+  const alpha = (rgba, x, y) => rgba[(y * W + x) * 4 + 3];
+  it("clears the black that touches the edge and keeps the logo, including black inside it", () => {
+    const rgba = make();
+    expect(knockOutDarkBorder(rgba, W, H)).toBe(20);
+    expect(alpha(rgba, 0, 0)).toBe(0); expect(alpha(rgba, 5, 3)).toBe(0); expect(alpha(rgba, 2, 5)).toBe(0);
+    expect(alpha(rgba, 1, 1)).toBe(255); expect(alpha(rgba, 2, 2)).toBe(255);
+    expect(alpha(rgba, 3, 3)).toBe(255);
+  });
+  it("leaves a picture with a light background alone", () => {
+    const rgba = make();
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (x === 0 || y === 0 || x === 5 || y === 5) paint(rgba, x, y, [250, 250, 250]);
+    expect(knockOutDarkBorder(rgba, W, H)).toBe(0);
+    expect(alpha(rgba, 3, 3)).toBe(255);
+  });
+  it("copes with garbage input", () => {
+    expect(knockOutDarkBorder(null, 2, 2)).toBe(0);
+    expect(knockOutDarkBorder(new Uint8ClampedArray(4), 2, 2)).toBe(0);
   });
 });

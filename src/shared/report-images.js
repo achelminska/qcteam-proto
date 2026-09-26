@@ -150,6 +150,58 @@ export async function addImageNatural(doc, src, x, y, w, h) {
   }
 }
 
+// Result images uploaded before 26 Sep went through a canvas and out as JPEG. A JPEG has no alpha, so the
+// transparent background of a logo came out as solid black — the black frame around the mark on the report.
+// The pixels that used to be transparent are the near-black ones that touch the edge of the picture; flood-fill
+// from the border and clear them. Pure function over RGBA bytes so it can be tested without a canvas.
+export function knockOutDarkBorder(rgba, w, h, dark = 48) {
+  if (!rgba || !(w > 0) || !(h > 0) || rgba.length < w * h * 4) return 0;
+  const isDark = i => rgba[i * 4] < dark && rgba[i * 4 + 1] < dark && rgba[i * 4 + 2] < dark && rgba[i * 4 + 3] > 0;
+  const seen = new Uint8Array(w * h);
+  const stack = [];
+  const push = i => { if (!seen[i] && isDark(i)) { seen[i] = 1; stack.push(i); } };
+  for (let x = 0; x < w; x++) { push(x); push((h - 1) * w + x); }
+  for (let y = 0; y < h; y++) { push(y * w); push(y * w + w - 1); }
+  let n = 0;
+  while (stack.length) {
+    const i = stack.pop(); n++;
+    rgba[i * 4 + 3] = 0;
+    const x = i % w, y = (i - x) / w;
+    if (x > 0) push(i - 1);
+    if (x < w - 1) push(i + 1);
+    if (y > 0) push(i - w);
+    if (y < h - 1) push(i + w);
+  }
+  return n;
+}
+
+// The result mark as a PNG with a real alpha channel. A PNG/WEBP/GIF keeps its own
+// transparency; a JPEG gets the former-transparent black background knocked out.
+export function transparentIcon(src) {
+  return new Promise(resolve => {
+    if (!src) return resolve(null);
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const c = document.createElement("canvas");
+        c.width = img.naturalWidth || img.width;
+        c.height = img.naturalHeight || img.height;
+        if (!c.width || !c.height) return resolve(src);
+        const ctx = c.getContext("2d");
+        ctx.drawImage(img, 0, 0);
+        if (imageFormat(src) === "JPEG") {
+          const px = ctx.getImageData(0, 0, c.width, c.height);
+          if (knockOutDarkBorder(px.data, c.width, c.height)) ctx.putImageData(px, 0, 0);
+          else return resolve(src);
+        }
+        resolve(c.toDataURL("image/png"));
+      } catch { resolve(src); }
+    };
+    img.onerror = () => resolve(src);
+    img.src = src;
+  });
+}
+
 // Head-uploaded result image on the right. The verdict and the report number
 // sit to its left. Returns the left and bottom edges (mm) so the title and the rule clear the mark.
 export async function drawResultMark(doc, { settings, insp, ok, R, OK, BAD, MUTED, photoData }) {
@@ -168,7 +220,7 @@ export async function drawResultMark(doc, { settings, insp, ok, R, OK, BAD, MUTE
   const icon = settings?.resultIcons?.[insp.result];
   if (icon && photoData) {
     try {
-      src = await photoData(icon);
+      src = await transparentIcon(await photoData(icon));
       const box = src ? fitWithin(await imagePixels(src), 22, 16) : null;
       if (box) { iw = box.w; ih = box.h; } else src = null;
     } catch { src = null; iw = 0; ih = 0; }
