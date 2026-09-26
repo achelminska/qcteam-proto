@@ -271,7 +271,17 @@ const problemsFor = (s, scope, suppressed) => {
 // Number fields can link a problem ("below raises X") that the product's effective catalog doesn't contain — scoped to
 // another category, or hidden for this product. The form's explicit link wins: pull that node (and its ancestors) in, so
 // the runner raises it and the verdict counts it, instead of silently downgrading to "warning only".
-const withLinkedProblems = (s, problems, t) => { if (!t) return problems; const have = new Set(problems.map(p => p.id)); const out = [...problems]; const addChain = id => { let n = s.problems.find(p => p.id === id); while (n && !have.has(n.id)) { have.add(n.id); out.push(n); n = n.parentId ? s.problems.find(p => p.id === n.parentId) : null; } }; (t.fields || t.allFields || []).forEach(f => { if (f.type === "Number") { if (f.problemBelowId) addChain(f.problemBelowId); if (f.problemAboveId) addChain(f.problemAboveId); } }); return out; };
+// …unless the catalog already has that problem under its own name: every category carries its own "Unripe" under
+// "Major remarks", and a field on the Bananas form can easily end up pointing at the Avocado one. Pulling that in
+// would show "Unripe" twice on the phone. The twin in scope (same name, same parent name) is the one the Head meant.
+const linkedProblemId = (all, problems, id) => {
+  if (!id || problems.some(p => p.id === id)) return id;
+  const src = all.find(p => p.id === id); if (!src) return id;
+  const srcParent = src.parentId ? all.find(p => p.id === src.parentId) : null;
+  const twin = problems.find(p => p.name === src.name && !problems.some(k => k.parentId === p.id) && ((p.parentId ? problems.find(k => k.id === p.parentId)?.name : null) === (srcParent ? srcParent.name : null)));
+  return twin ? twin.id : id;
+};
+const withLinkedProblems = (s, problems, t) => { if (!t) return problems; const have = new Set(problems.map(p => p.id)); const out = [...problems]; const addChain = id => { let n = s.problems.find(p => p.id === id); while (n && !have.has(n.id)) { have.add(n.id); out.push(n); n = n.parentId ? s.problems.find(p => p.id === n.parentId) : null; } }; (t.fields || t.allFields || []).forEach(f => { if (f.type === "Number") { if (f.problemBelowId) addChain(linkedProblemId(s.problems, problems, f.problemBelowId)); if (f.problemAboveId) addChain(linkedProblemId(s.problems, problems, f.problemAboveId)); } }); return out; };
 const scopeTag = (p, s) => p.productId ? `product: ${s.products.find(x => x.id === p.productId)?.name ?? "?"}` : p.categoryId ? `category ${s.categories.find(x => x.id === p.categoryId)?.name ?? "?"}` : null;
 // Required inspection level: Full (raport) < Visual (visual is enough) < Skip (can be skipped). Product → category → system setting.
 // Inspection types are Head-defined (InspectionTypes). Behaviour comes from flags, not from the name.
@@ -1185,8 +1195,9 @@ function Note({ tone: t = "info", children }) {
   return <div className="rounded-xl px-3.5 py-2.5 text-sm mb-3" style={{ background: C.surface, color: C.ink, border: `1px solid ${C.line}`, borderLeft: `3px solid ${fg}` }}>{children}</div>;
 }
 
-function NumberInput({ f, problems, overrides, specs, totals, value, onChange, onRaise, raised, piecesPerCu }) {
+function NumberInput({ f, problems, allProblems, overrides, specs, totals, value, onChange, onRaise, raised, piecesPerCu }) {
   const n = f.measurementCount || 1, ms = value?.measurements || Array(n).fill("");
+  const belowId = linkedProblemId(allProblems || problems, problems, f.problemBelowId), aboveId = linkedProblemId(allProblems || problems, problems, f.problemAboveId);
   const nums = ms.filter(x => x !== "").map(Number), avg = nums.length ? nums.reduce((a, b) => a + b, 0) / nums.length : null;
   // Specification: explicit (specId) or by name (specName, defaults to field label)
   const wanted = ((f.specName || "").trim() || f.label || "").toLowerCase();
@@ -1197,7 +1208,7 @@ function NumberInput({ f, problems, overrides, specs, totals, value, onChange, o
   const lim = limitsFor(spec, f, piecesPerCu); const mn = lim.min, mx = lim.max;
   if (avg !== null && (hasV(mn) || hasV(mx))) { ref = specLabel({ min: mn, max: mx, unit: spec ? spec.unit : "" }) + (fieldBasis(f) === "cu" ? " per CU" : ""); side = hasV(mn) && avg < Number(mn) ? "below" : hasV(mx) && avg > Number(mx) ? "above" : null; }
   const bad = side !== null;
-  const linkedId = side === "below" ? f.problemBelowId : side === "above" ? f.problemAboveId : null;
+  const linkedId = side === "below" ? belowId : side === "above" ? aboveId : null;
   const lp = linkedId && problems.find(p => p.id === linkedId);
   const zero = lp && effTol(problems, overrides || [], lp.id) === 0;
   const available = { PieceCount: totals.pieces > 0, DirectWeight: totals.weight > 0, WholeUnitCount: totals.cu > 0 };
@@ -1210,7 +1221,7 @@ function NumberInput({ f, problems, overrides, specs, totals, value, onChange, o
   // so the controller sees the threshold before picking. Everything downstream (average, out-of-spec, raising the
   // linked problem) is the same as for a typed number.
   const choices = Array.isArray(f.choices) ? f.choices.filter(v => v !== "" && v !== null && !isNaN(Number(v))) : [];
-  const below = problems.find(p => p.id === f.problemBelowId), above = problems.find(p => p.id === f.problemAboveId);
+  const below = problems.find(p => p.id === belowId), above = problems.find(p => p.id === aboveId);
   const choiceOptions = choices.map(v => { const x = Number(v); const isBelow = hasV(mn) && x < Number(mn), isAbove = hasV(mx) && x > Number(mx); const tag = isBelow ? ` · below → ${below?.name || "out of spec"}` : isAbove ? ` · above → ${above?.name || "out of spec"}` : ""; return { value: String(v), label: `${v}${tag}`, tone: isBelow || isAbove ? C.warn : undefined }; });
   const setM = (i, v) => onChange({ measurements: ms.map((x, j) => j === i ? v : x) });
   return (
@@ -1525,7 +1536,7 @@ function InspectionRunner({ insp, patch, t, problems, product, suppliers, dictio
               {f.type === "SingleChoice" && <div className="flex flex-wrap gap-1.5">{(f.options || []).map(o => <button key={o} onClick={() => setV(f.id, o)} className="text-xs px-3 py-1.5 rounded-full" style={{ background: values[f.id] === o ? C.accent : C.accentSoft, color: values[f.id] === o ? C.onDark : C.accent }}>{o}</button>)}</div>}
               {f.type === "MultiChoice" && <div className="flex flex-col gap-1">{(f.options || []).map(o => { const on = (values[f.id] || []).includes(o.value); return <label key={o.value} className="flex items-center gap-2 text-sm cursor-pointer"><input type="checkbox" checked={on} onChange={e => setV(f.id, e.target.checked ? [...(values[f.id] || []), o.value] : (values[f.id] || []).filter(x => x !== o.value))} />{o.value}{o.trigger && " 🚩"}</label>; })}</div>}
               {f.type === "Scale" && <div className="flex gap-1">{Array.from({ length: f.scaleMax || 5 }, (_, i) => i + 1).map(k => <button key={k} onClick={() => setV(f.id, k)} className="w-8 h-8 rounded-lg text-sm" style={{ background: values[f.id] === k ? C.accent : C.accentSoft, color: values[f.id] === k ? C.onDark : C.accent }}>{k}</button>)}</div>}
-              {f.type === "Number" && <NumberInput piecesPerCu={insp.sample?.piecesPerCu || product?.piecesPerCu} f={f} problems={problems} overrides={t.overrides} specs={specs} totals={totals} value={values[f.id]} onChange={v => setV(f.id, v)} onRaise={(leafId, mode, raw) => setRemarks(r => [...r, { id: uid(), leafId, mode, raw, auto: true, fieldId: f.id }])} raised={remarks.some(r => r.auto && r.fieldId === f.id)} />}
+              {f.type === "Number" && <NumberInput piecesPerCu={insp.sample?.piecesPerCu || product?.piecesPerCu} f={f} problems={problems} allProblems={sctx?.problems} overrides={t.overrides} specs={specs} totals={totals} value={values[f.id]} onChange={v => setV(f.id, v)} onRaise={(leafId, mode, raw) => setRemarks(r => [...r, { id: uid(), leafId, mode, raw, auto: true, fieldId: f.id }])} raised={remarks.some(r => r.auto && r.fieldId === f.id)} />}
               {f.allowPhotos && !isSystem(f.type) && <div className="mt-2.5"><PhotoStrip photos={photos[f.id]} onAdd={got => addPhotos(f.id, got)} onRemove={id => removePhoto(f.id, id)} size={48} /></div>}
             </div>
           ); })}
@@ -2235,7 +2246,9 @@ function MDashboard({ s, set, user, go, dismissed, setDismissed, onAssign }) {
   // All of them at once — one gets its full preview text, several collapse to titles only so they don't take over the dashboard.
   const anns = s.announcements.filter(a => a.showOnDashboard && annActive(a) && !dismissed.includes(a.id)).sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
   const unread = s.notifications.filter(n => n.userId === user.id && !n.readAt).length;
-  const groups = []; mine.slice(0, 30).forEach(i => { const k = dayLabel(i.completedAt || i.startedAt); let g = groups.find(x => x.k === k); if (!g) { g = { k, items: [] }; groups.push(g); } g.items.push(i); });
+  // The dashboard shows the latest 15 inspections and no more — the full history has its own screen ("all ›").
+  const HISTORY_LIMIT = 15;
+  const groups = []; mine.slice(0, HISTORY_LIMIT).forEach(i => { const k = dayLabel(i.completedAt || i.startedAt); let g = groups.find(x => x.k === k); if (!g) { g = { k, items: [] }; groups.push(g); } g.items.push(i); });
   return (
     <div style={bottomPad}>
       <div className="flex items-center justify-between px-5 pt-2 pb-2">
@@ -2308,9 +2321,12 @@ function MDashboard({ s, set, user, go, dismissed, setDismissed, onAssign }) {
           {list.length === 0 && <p className="text-sm py-6 text-center" style={{ color: C.muted }}>{blockedView === "mine" ? "You haven't taken any pallet." : "Nothing blocked right now."}</p>}
           {list.map(b => <QueueRow key={b.key} s={s} set={set} user={user} b={b} onOpen={() => go("blockedInfo", b.key)} />)}
         </div>; })()}
-        {tab === "history" && (s.products.length === 0 ? <div className="text-center py-6"><p className="text-sm font-medium mb-1">Nothing to inspect yet</p><p className="text-xs mb-3" style={{ color: C.muted }}>The Head hasn't set up products and forms yet. If you configured them in the portal, import the state here (Menu → Data).</p><button onClick={() => go("menu")} className="text-sm px-4 py-2 rounded-xl" style={{ background: C.ink, color: C.onDark }}>Menu → Data</button></div> : groups.length === 0 ? <p className="text-sm py-6 text-center" style={{ color: C.muted }}>No inspections yet. Start with the plus button.</p> : groups.slice(0, 3).map(g => (
+        {tab === "history" && (s.products.length === 0 ? <div className="text-center py-6"><p className="text-sm font-medium mb-1">Nothing to inspect yet</p><p className="text-xs mb-3" style={{ color: C.muted }}>The Head hasn't set up products and forms yet. If you configured them in the portal, import the state here (Menu → Data).</p><button onClick={() => go("menu")} className="text-sm px-4 py-2 rounded-xl" style={{ background: C.ink, color: C.onDark }}>Menu → Data</button></div> : groups.length === 0 ? <p className="text-sm py-6 text-center" style={{ color: C.muted }}>No inspections yet. Start with the plus button.</p> : <>
+          {groups.map(g => (
           <div key={g.k}><p className="label-sm mt-3 mb-1" style={{ color: C.muted }}>{g.k}</p>{g.items.map(i => <button key={i.id} onClick={() => go("inspection", i.id)} className="w-full text-left flex items-center gap-2 py-2.5" style={{ borderBottom: `1px solid ${C.line}` }}><div className="flex-1 min-w-0"><p className="text-sm truncate">{s.products.find(p => p.id === i.productId)?.name || `Pallet ${(i.pallets || [])[0] || ""}`}</p><p className="text-xs" style={{ color: C.muted }}>{hhmm(i.completedAt || i.startedAt)}{i.supplier && ` · ${i.supplier}`}{i.controllerId !== user.id && ` · ${s.users.find(u => u.id === i.controllerId)?.name.split(" ")[0]}`}</p></div><ResultPill i={i} s={s} /></button>)}</div>
-        )))}
+          ))}
+          {mine.length > HISTORY_LIMIT && <button onClick={() => go("history")} className="w-full text-sm py-3 mt-1 rounded-xl font-medium" style={{ color: C.accent, background: C.accentSoft }}>Show all {mine.length} inspections ›</button>}
+        </>)}
       </div>
     </div>
   );
