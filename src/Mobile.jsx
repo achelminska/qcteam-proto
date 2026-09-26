@@ -1060,7 +1060,7 @@ function QueueRow({ s, set, user, b, onOpen }) {
         {stacked && !lost && <span className="text-[10px] px-1.5 py-0.5 rounded inline-flex items-center" style={{ background: C.line, color: C.muted }}><Ic i={Layers} s={10} mr={3} />in stack</span>}
         {lost && <span className="text-[10px] px-1.5 py-0.5 rounded inline-flex items-center" style={{ background: C.line, color: C.muted }}><Ic i={Search} s={10} mr={3} />lost · {lostBy ? lostBy.name.split(" ")[0] : "?"} · {ago(lost.at)}</span>}
       </div>
-      <p className="text-xs mt-0.5 ml-4" style={{ color: C.muted }}>{[b.location, b.zone && `zone ${b.zone}`, b.pickLocation, b.deadline && `by ${b.deadline}`, b.time && `${b.time}`, b.hu && `HU …${b.hu.slice(-6)}`, b.article, b.status].filter(Boolean).join(" · ")}</p>
+      <p className="text-xs mt-0.5 ml-4" style={{ color: C.muted }}>{[b.location && `Dock ${b.location}`, b.deadline && `departure ${b.deadline}`, b.hu && `HU …${b.hu.slice(-6)}`].filter(Boolean).join(" · ")}</p>
       {lost && !done && <div className="flex gap-1.5 mt-1.5 ml-4"><button onClick={() => markFound(set, b, user)} className="text-xs px-3 py-1.5 rounded-lg font-semibold" style={{ background: C.ink, color: C.onDark }}>Found — back in queue</button>{lost.note && <span className="text-[11px] self-center" style={{ color: C.muted }}>{lost.note}</span>}</div>}
       {!done && !lost && <div className="flex gap-1.5 mt-1.5 ml-4">
         {!c && <><button onClick={take} className="text-xs px-3 py-1.5 rounded-lg font-semibold" style={{ background: C.ink, color: C.onDark }}>Take</button><button onClick={stack} className="text-xs px-3 py-1.5 rounded-lg inline-flex items-center" style={{ border: `1px solid ${C.line}` }}><Ic i={Layers} s={12} />In stack</button></>}
