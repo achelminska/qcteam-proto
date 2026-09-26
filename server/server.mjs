@@ -5,6 +5,7 @@ import http from "node:http"; import https from "node:https"; import fs from "no
 import { targetsFor, suggestMappings, applyMapping, detectTable, extractSummary } from "./sheetlogic.mjs";
 import { applyDeadlineAlerts } from "./alertlogic.mjs";
 import { computeMissingPalletUpdate } from "./misslogic.mjs";
+import { retainInspections } from "./retain.mjs";
 const STATE_KEY = "qcteam-portal-state-v2-clean";
 // Static hosting of the built app (dist/) so one service = API + portal + phone app. Any unknown path falls back to index.html.
 const DIST = new URL("../dist/", import.meta.url).pathname;
@@ -154,6 +155,11 @@ const handler = async (req, res) => {
       // "only check when both sides sent a version" behavior and aren't affected.
       const versionConflict = key === STATE_KEY ? (currentVersion && ifMatch !== currentVersion) : (ifMatch && currentVersion && ifMatch !== currentVersion);
       if (versionConflict) { res.writeHead(409, { ...cors, "Content-Type": "application/json" }); res.end(JSON.stringify({ conflict: true, value: store[key], updatedAt: store.__meta[key] })); return; }
+      // Keep inspections a stale or partial write would drop. Clear-everything sends X-Force; import sends X-Replace.
+      if (key === STATE_KEY && store[key] && !req.headers["x-force"] && !req.headers["x-replace"]) {
+        const kept = retainInspections(store[key], body);
+        if (kept !== body) { const n = JSON.parse(kept).inspections.length - JSON.parse(body).inspections.length; body = kept; console.log(`[state] kept ${n} inspection(s) a write would have dropped`); }
+      }
       if (store[key] === body) { res.writeHead(200, { ...cors, "Content-Type": "application/json" }).end(JSON.stringify({ key, updatedAt: store.__meta?.[key] || null, unchanged: true })); return; }
       snapshot(key, body); store[key] = body; const now = Math.max(Date.now(), (store.__meta?.[key] || 0) + 1); (store.__meta = store.__meta || {})[key] = now; save(); res.writeHead(200, { ...cors, "Content-Type": "application/json" }).end(JSON.stringify({ key, updatedAt: now })); }); return; }
   if (req.method === "DELETE") { delete store[key]; if (store.__meta) delete store.__meta[key]; save(); return res.writeHead(200, cors).end(); }

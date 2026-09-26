@@ -42,14 +42,19 @@ window.storage = {
   // pending queue without it ever reaching the server. Report it as {error: true} so the caller knows to keep
   // retrying instead of quietly losing the edit.
   // `force`: an explicit, user-confirmed overwrite (e.g. Data → Clear everything) that the server's size guard must let through.
-  async setVersioned(key, value, version, { force = false } = {}) {
+  async setVersioned(key, value, version, { force = false, replace = false } = {}) {
     local.set(key, value);
     if (!(await probe())) return { error: true };
     try {
       const leaving = typeof document !== "undefined" && document.visibilityState === "hidden";
-      const r = await fetch(`${SERVER}/storage/${encodeURIComponent(key)}`, { method: "PUT", headers: { "Content-Type": "text/plain; charset=utf-8", ...(version ? { "If-Match": version } : {}), ...(force ? { "X-Force": "1" } : {}) }, body: value, keepalive: leaving && value.length < 60000 });
+      const r = await fetch(`${SERVER}/storage/${encodeURIComponent(key)}`, { method: "PUT", cache: "no-store", headers: { "Content-Type": "text/plain; charset=utf-8", ...(version ? { "If-Match": version } : {}), ...(force ? { "X-Force": "1" } : {}), ...(replace ? { "X-Replace": "1" } : {}) }, body: value, keepalive: leaving && value.length < 60000 });
       if (r.status === 409) { const j = await r.json().catch(() => ({})); if (j.rejected) return { rejected: true }; return { conflict: true, value: j.value, version: j.updatedAt ? String(j.updatedAt) : null }; }
-      const j = await r.json().catch(() => ({})); return { version: j.updatedAt ? String(j.updatedAt) : null };
+      // Anything else that is not a confirmed save — 500, 502, 413, an HTML error page — must not look like success.
+      // Treating it as saved cleared the outbox, and the next refresh showed the server copy without the inspection.
+      if (!r.ok) return { error: true };
+      const j = await r.json().catch(() => null);
+      if (!j || j.updatedAt == null) return { error: true };
+      return { version: String(j.updatedAt) };
     } catch (e) { return { error: true }; }
   },
   async delete(key) { if (await probe()) { await fetch(`${SERVER}/storage/${encodeURIComponent(key)}`, { method: "DELETE" }); return { key, deleted: true }; } localStorage.removeItem(key); return { key, deleted: true }; },
