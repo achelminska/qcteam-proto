@@ -4,9 +4,19 @@ import { createSyncer, mergeForward } from "./sync.js";
 const valid = p => p && Array.isArray(p.categories);
 const norm = p => p;
 
-function disk() {
+function disk({ quota = Infinity } = {}) {
   const m = new Map();
-  return { getItem: k => (m.has(k) ? m.get(k) : null), setItem: (k, v) => m.set(k, v), removeItem: k => m.delete(k) };
+  let used = 0;
+  return {
+    getItem: k => (m.has(k) ? m.get(k) : null),
+    setItem(k, v) {
+      const prev = m.has(k) ? m.get(k).length : 0;
+      if (used - prev + String(v).length > quota) throw new Error("QuotaExceededError");
+      used = used - prev + String(v).length;
+      m.set(k, String(v));
+    },
+    removeItem(k) { if (m.has(k)) { used -= m.get(k).length; m.delete(k); } },
+  };
 }
 
 function server(initial, version = "1") {
@@ -88,6 +98,60 @@ describe("unconfirmed edits survive a reload", () => {
     expect(ids).toEqual(["other", "skip1"]);
     expect(shown.products[0].name).toBe("Server product");
     expect(d.getItem("k:pending")).toBe(null);
+  });
+});
+
+describe("a bulky warehouse state", () => {
+  it("restores the finished inspection from a small outbox when the full state does not fit", async () => {
+    const rawRows = Array.from({ length: 40 }, (_, i) => ["row" + i]);
+    const base = { categories: [], inspections: [], products: [{ id: "p", name: "Server product" }], integrations: [{ id: "dock", rawRows, rows: [] }] };
+    const st = server(base);
+    const d = disk({ quota: 1200 });
+    d.setItem("k", "y".repeat(900));
+    const a = syncer(st, d);
+    await a.load();
+    st.fail(true);
+    a.apply(s => ({ ...s, inspections: [...s.inspections, skip] }));
+    await a.flush();
+    expect(st.state().inspections).toEqual([]);
+    const raw = d.getItem("k:pending");
+    expect(raw).toBeTruthy();
+    expect(JSON.parse(raw).v).toBe(2);
+    expect(raw.length).toBeLessThan(1200);
+    a.dispose();
+
+    st.fail(false);
+    let shown = null;
+    const b = syncer(st, d, s => { shown = s; });
+    await b.load();
+    expect(shown.inspections.map(i => i.id)).toEqual(["skip1"]);
+    expect(shown.products[0].name).toBe("Server product");
+    expect(shown.integrations[0].rawRows).toHaveLength(40);
+    await b.flush();
+    b.dispose();
+    expect(st.state().inspections.map(i => i.id)).toEqual(["skip1"]);
+    expect(d.getItem("k:pending")).toBe(null);
+  });
+
+  it("keeps the outbox when the server answers without a stored version", async () => {
+    const base = { categories: [], inspections: [] };
+    const st = server(base);
+    const real = st.setVersioned.bind(st);
+    st.setVersioned = async () => ({ version: null });
+    const d = disk();
+    const a = syncer(st, d);
+    await a.load();
+    a.apply(s => ({ ...s, inspections: [skip] }));
+    await a.flush();
+    expect(st.state().inspections).toEqual([]);
+    expect(d.getItem("k:pending")).toBeTruthy();
+    a.dispose();
+    st.setVersioned = real;
+    const b = syncer(st, d);
+    await b.load();
+    await b.flush();
+    b.dispose();
+    expect(st.state().inspections.map(i => i.id)).toEqual(["skip1"]);
   });
 });
 
