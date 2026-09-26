@@ -1950,7 +1950,7 @@ function MProductHeader({ s, product, article, name, go }) {
 // inspection starts right here (no hop to a twin screen). Hero = product identity + pallet status + where/when; then the
 // inspection-type buttons; details and sibling pallets fold away underneath.
 function MPalletSheet({ s, set, user, go, row: r, onStart, onPickPallet, onAssign, onCancel, cancelLabel, lostOpen, onLostClose }) {
-  const product = s.products.find(p => p.articleId === r.article);
+  const product = s.products.find(p => p.articleId === r.article) || productForArticle(s, r.article);
   const done = completedInspectionFor(s, r.hu); const lost = lostOf(s, r);
   const draft = s.inspections.find(i => (i.pallets || []).some(x => samePallet(x, r.hu)) && ["Draft", "PendingReview"].includes(i.status));
   const al = computeDeadlineAlerts(s).find(a => samePallet(a.hu, r.hu));
@@ -1963,6 +1963,9 @@ function MPalletSheet({ s, set, user, go, row: r, onStart, onPickPallet, onAssig
   const catPath = id => { const c = s.categories.find(x => x.id === id); if (!c) return "uncategorised"; const p = c.parentId && s.categories.find(x => x.id === c.parentId); return p ? `${p.name} › ${c.name}` : c.name; };
   const arrivedDay = r.arrived ? dayLabel(r.arrived + "T12:00:00") : ""; const hist = product ? recentProblemsFor(s, product.id) : { count: 0, problems: [] };
   const compl = complaintsLine(s, r.article);
+  // Same moment as the complaints line: the pallet is identified, so anything the Head published for this product
+  // (or its category) is on this screen, not one tap deeper in the profile.
+  const anns = product ? s.announcements.filter(a => annActive(a) && annMatchesProduct(s, a, product)) : [];
   const Pill = ({ children, bg, fg, dot }) => <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full inline-flex items-center gap-1.5 whitespace-nowrap" style={{ background: bg, color: fg }}>{dot && <span className="inline-block rounded-full" style={{ width: 6, height: 6, background: dot }} />}{children}</span>;
   const Fact = ({ k, v, strong }) => <div className="min-w-0"><p className="text-[10px] uppercase tracking-wide" style={{ color: C.muted }}>{k}</p><p className={`${strong ? "text-[17px]" : "text-[13px]"} font-semibold leading-tight truncate`} style={{ fontVariantNumeric: "tabular-nums" }}>{v || "—"}</p></div>;
   return (
@@ -2008,6 +2011,7 @@ function MPalletSheet({ s, set, user, go, row: r, onStart, onPickPallet, onAssig
       {al && !lost && <div className="rounded-xl px-3 py-2 mb-2 flex items-start gap-2" style={{ background: C.badBg, color: C.bad }}><Ic i={Clock} s={14} mr={0} style={{ marginTop: 2 }} /><div className="text-[13px] leading-snug"><b>{al.level === "breached" ? "Rejection window expired" : `Rejection window closes in ${Math.max(0, Math.round(al.hoursLeft))} h`}</b><span className="block text-[11px] mt-0.5" style={{ opacity: .85 }}>{al.level === "breached" ? "Rejecting is no longer possible — inspect anyway and note it." : al.risky ? "This product was rejected recently, so it's flagged early." : "Inspect it before the window closes."}</span></div></div>}
       {hist.count > 0 && <div className="rounded-xl px-3 py-2 mb-2 flex items-start gap-2" style={{ background: C.badBg, color: C.bad }}><Ic i={AlertTriangle} s={14} mr={0} style={{ marginTop: 2 }} /><div className="text-[13px] leading-snug"><b>{hist.count} rejected</b> in 14 days · {hist.problems.slice(0, 3).map(x => `${x.name} ×${x.count}`).join(", ")}{hist.problems.length > 3 ? "…" : ""}</div></div>}
       {compl && <div className="rounded-xl px-3 py-2 mb-2 flex items-start gap-2" style={{ background: C.badBg, color: C.bad }}><Ic i={ThumbsDown} s={14} mr={0} style={{ marginTop: 2 }} /><div className="text-[13px] leading-snug"><b>{compl.count} freshness complaint{compl.count === 1 ? "" : "s"}</b>{compl.sub ? <> · mostly <b>{compl.sub}</b></> : null}{compl.period ? <span style={{ opacity: .8 }}> · {compl.period}</span> : null}</div></div>}
+      {anns.map(a => <button key={a.id} onClick={() => go("announcements")} className="w-full text-left rounded-xl px-3 py-2 mb-2 flex items-start gap-2" style={{ background: a.isBlocking ? C.badBg : C.accentSoft, color: C.ink }}><Ic i={Megaphone} s={14} mr={0} style={{ marginTop: 2, color: a.isBlocking ? C.bad : C.accent }} /><span className="min-w-0 text-[13px] leading-snug"><b>{a.title}</b>{a.body ? <span style={{ color: C.muted }}> — {a.body}</span> : null}{a.isBlocking && <span className="block text-[11px] mt-0.5" style={{ color: C.bad }}>Blocking — read it before you inspect</span>}</span></button>)}
       {draft && <div className="rounded-xl px-3 py-2 mb-2 flex items-start gap-2 text-[13px] leading-snug" style={{ background: C.warnBg, color: C.warn }}><Ic i={Clock} s={14} mr={0} style={{ marginTop: 2 }} /><span><b>{s.users.find(u => u.id === draft.controllerId)?.name.split(" ")[0]}</b> has this pallet in progress ({STATUS[draft.status][0]}){draft.controllerId === user.id && <button onClick={() => go("inspection", draft.id)} className="ml-2 underline">continue</button>}</span></div>}
 
       {!lost && <div className="mb-3">
@@ -2543,7 +2547,7 @@ function MScan({ s, user, go, onStart, onVisual, onSkip, setState, notify, prese
   const product = mode === "product" ? productByCode(scanned) : null;
   const wms = pallet ? dockRowsLive(s).find(r => samePallet(r.hu, pallet)) || null : null;
   const blockedRow = pallet ? blockedQueue(s).find(b => b.hu && samePallet(b.hu, pallet)) || null : null;
-  const wmsProduct = wms ? s.products.find(p => p.articleId === wms.article) : null;
+  const wmsProduct = wms ? (s.products.find(p => p.articleId === wms.article) || productForArticle(s, wms.article)) : null;
   const scan = (given) => {
     const val = (given ?? scanned).trim(); if (given != null) setCode(val); if (!val) return; const scannedNow = val;
     if (isPalletCode(scannedNow)) { const sscc = extractSSCC(scannedNow); setPallet(sscc); setAskInspect(false); const lostRow = dockRowsLive(s).find(r => samePallet(r.hu, sscc)) || blockedRowsLive(s).find(r => samePallet(r.hu, sscc)); if (lostRow && lostOf(s, lostRow)) markFound(setState, lostRow, user); const done = s.inspections.find(i => (i.pallets || []).some(x => samePallet(x, sscc)) && i.status === "Completed"); setMode(done ? "done" : "pallet"); }
@@ -2600,6 +2604,7 @@ function MScan({ s, user, go, onStart, onVisual, onSkip, setState, notify, prese
         {mode === "done" && completed && (
           <div className="rounded-2xl p-4" style={{ background: C.bg }}>
             <p className="text-sm font-medium mb-1 flex items-center" style={{ color: C.ok }}><Ic i={Check} s={14} />Pallet already inspected</p>
+            {(() => { const p = s.products.find(x => x.id === completed.productId); const list = p ? s.announcements.filter(a => annActive(a) && annMatchesProduct(s, a, p)) : []; return list.map(a => <button key={a.id} onClick={() => go("announcements")} className="w-full text-left rounded-xl px-3 py-2 mb-2 flex items-start gap-2" style={{ background: a.isBlocking ? C.badBg : C.accentSoft, color: C.ink }}><Ic i={Megaphone} s={14} mr={0} style={{ marginTop: 2, color: a.isBlocking ? C.bad : C.accent }} /><span className="min-w-0 text-[13px] leading-snug"><b>{a.title}</b>{a.body ? <span style={{ color: C.muted }}> — {a.body}</span> : null}</span></button>); })()}
             <p className="text-sm mb-3">{completed.productId ? <button onClick={() => go("catalog", completed.productId)} className="font-semibold underline" style={{ color: C.accent }}>{s.products.find(p => p.id === completed.productId)?.name || "product"}</button> : "no product"} · {s.users.find(u => u.id === completed.controllerId)?.name} · {dayLabel(completed.completedAt)}, {hhmm(completed.completedAt)}{" · " + inspType(s, completed).name.toLowerCase()}</p>
             <div className="flex items-center gap-2 mb-3"><ResultPill i={completed} s={s} /><span className="text-xs" style={{ color: C.muted }}>{completed.comment}</span></div>
             <button onClick={() => go("inspection", completed.id)} className="w-full py-2.5 rounded-xl text-sm mb-1" style={{ border: `1px solid ${C.line}` }}>{completed.template ? "View report" : "View entry"}</button>
