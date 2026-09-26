@@ -88,17 +88,65 @@ function canvasPng(src) {
   });
 }
 
-// Embed the original bytes. jsPDF stores a JPEG as DCT; "NONE" skips a second
-// lossy pass. WEBP/GIF that the library cannot embed are redrawn at full pixels.
+const b64ToBytes = b64 => { const bin = atob(b64.replace(/\s/g, "")); const out = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i); return out; };
+const bytesToB64 = bytes => { let s = ""; for (let i = 0; i < bytes.length; i += 32768) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 32768)); return btoa(s); };
+
+// jsPDF reads the picture size from the first C0..C7 marker it meets, and C4 (a
+// Huffman table) is in that range. A JPEG whose tables come before the frame
+// header is then filed as 1-component at a wrong size. Moving the tables behind
+// the frame header changes no pixel: every table still precedes the scan.
+export function jpegFrameFirst(bytes) {
+  if (!(bytes instanceof Uint8Array) || bytes.length < 4 || bytes[0] !== 0xFF || bytes[1] !== 0xD8) return bytes;
+  const segs = [];
+  let i = 2, sos = -1;
+  while (i + 3 < bytes.length) {
+    if (bytes[i] !== 0xFF) return bytes;
+    const m = bytes[i + 1];
+    if (m === 0xFF) { i++; continue; }
+    if (m === 0xD8 || m === 0x01 || (m >= 0xD0 && m <= 0xD7)) { segs.push({ m, start: i, end: i + 2 }); i += 2; continue; }
+    const len = (bytes[i + 2] << 8) | bytes[i + 3];
+    if (m === 0xDA) { sos = i; break; }
+    segs.push({ m, start: i, end: i + 2 + len });
+    i += 2 + len;
+  }
+  if (sos < 0) return bytes;
+  const isFrame = m => m >= 0xC0 && m <= 0xCF && m !== 0xC4 && m !== 0xC8 && m !== 0xCC;
+  const frameAt = segs.findIndex(s => isFrame(s.m));
+  const firstTable = segs.findIndex(s => s.m === 0xC4);
+  if (frameAt < 0 || firstTable < 0 || firstTable > frameAt) return bytes;
+  const ordered = [...segs.filter(s => s.m !== 0xC4), ...segs.filter(s => s.m === 0xC4)];
+  const out = new Uint8Array(bytes.length);
+  out[0] = 0xFF; out[1] = 0xD8;
+  let p = 2;
+  for (const s of ordered) { out.set(bytes.subarray(s.start, s.end), p); p += s.end - s.start; }
+  out.set(bytes.subarray(sos), p);
+  return out;
+}
+
+export function jpegDataUrlFrameFirst(src) {
+  const m = /^data:image\/jpe?g;base64,([\s\S]+)$/i.exec(String(src || ""));
+  if (!m) return src;
+  try {
+    const bytes = b64ToBytes(m[1]);
+    const fixed = jpegFrameFirst(bytes);
+    return fixed === bytes ? src : "data:image/jpeg;base64," + bytesToB64(fixed);
+  } catch { return src; }
+}
+
+// Embed the original pixels. A JPEG goes in as its own DCT stream, so "NONE"
+// means no second lossy pass. PNG pixels are deflated ("FAST"), which is lossless
+// and keeps the file from storing raw RGB. WEBP/GIF are redrawn at full pixels.
 export async function addImageNatural(doc, src, x, y, w, h) {
   const fmt = imageFormat(src);
+  const mode = fmt === "JPEG" ? "NONE" : "FAST";
+  if (fmt === "JPEG") src = jpegDataUrlFrameFirst(src);
   try {
-    doc.addImage(src, fmt, x, y, w, h, undefined, "NONE");
+    doc.addImage(src, fmt, x, y, w, h, undefined, mode);
   } catch (e) {
     if (fmt === "JPEG" || fmt === "PNG") throw e;
     const png = await canvasPng(src);
     if (!png) throw e;
-    doc.addImage(png, "PNG", x, y, w, h, undefined, "NONE");
+    doc.addImage(png, "PNG", x, y, w, h, undefined, "FAST");
   }
 }
 

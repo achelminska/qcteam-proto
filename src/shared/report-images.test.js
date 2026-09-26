@@ -1,5 +1,23 @@
 import { describe, expect, it } from "vitest";
-import { fitWithin, imageFormat, keepsOriginalFile } from "./report-images.js";
+import { fitWithin, imageFormat, jpegDataUrlFrameFirst, jpegFrameFirst, keepsOriginalFile } from "./report-images.js";
+
+// What jsPDF 2.5.1 does with a JPEG header (its marker list includes C4).
+const jsPdfJpegInfo = bytes => {
+  const at = k => bytes[k];
+  const markers = [192, 193, 194, 195, 196, 197, 198, 199];
+  let blockLength = 256 * at(4) + at(5);
+  for (let i = 4; i < bytes.length; i += 2) {
+    i += blockLength;
+    if (markers.includes(at(i + 1))) return { width: 256 * at(i + 7) + at(i + 8), height: 256 * at(i + 5) + at(i + 6), numcomponents: at(i + 9) };
+    blockLength = 256 * at(i + 2) + at(i + 3);
+  }
+  return null;
+};
+const seg = (m, payload) => [0xFF, m, (payload.length + 2) >> 8, (payload.length + 2) & 255, ...payload];
+const sof0 = (w, h) => seg(0xC0, [8, h >> 8, h & 255, w >> 8, w & 255, 3, 1, 0x22, 0, 2, 0x11, 1, 3, 0x11, 1]);
+const dqt = seg(0xDB, [0, ...Array(64).fill(8)]);
+const dht = seg(0xC4, [0, 1, 0, 2, 3, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 3]);
+const sos = [0xFF, 0xDA, 0, 12, 3, 1, 0, 2, 0x11, 3, 0x11, 0, 63, 0, 0xAB, 0xCD, 0xFF, 0xD9];
 
 describe("keepsOriginalFile", () => {
   it("keeps jpeg, png, webp and gif bytes", () => {
@@ -23,6 +41,32 @@ describe("imageFormat", () => {
     expect(imageFormat("data:image/webp;base64,xx")).toBe("WEBP");
     expect(imageFormat("data:image/gif;base64,xx")).toBe("GIF");
     expect(imageFormat("")).toBe("JPEG");
+  });
+});
+
+describe("jpegFrameFirst", () => {
+  it("moves Huffman tables behind the frame header so jsPDF reads the real size", () => {
+    const tablesFirst = new Uint8Array([0xFF, 0xD8, ...dqt, ...dht, ...sof0(4032, 3024), ...sos]);
+    expect(jsPdfJpegInfo(tablesFirst)).toEqual({ width: 515, height: 256, numcomponents: 1 });
+    const fixed = jpegFrameFirst(tablesFirst);
+    expect(fixed).not.toBe(tablesFirst);
+    expect(fixed.length).toBe(tablesFirst.length);
+    expect(jsPdfJpegInfo(fixed)).toEqual({ width: 4032, height: 3024, numcomponents: 3 });
+    expect(Array.from(fixed.subarray(fixed.length - sos.length))).toEqual(sos);
+  });
+  it("leaves a camera JPEG (frame header before tables) untouched", () => {
+    const frameFirst = new Uint8Array([0xFF, 0xD8, ...dqt, ...sof0(4032, 3024), ...dht, ...sos]);
+    expect(jpegFrameFirst(frameFirst)).toBe(frameFirst);
+    expect(jsPdfJpegInfo(frameFirst)).toEqual({ width: 4032, height: 3024, numcomponents: 3 });
+  });
+  it("rewrites only jpeg data URLs", () => {
+    const tablesFirst = new Uint8Array([0xFF, 0xD8, ...dqt, ...dht, ...sof0(640, 480), ...sos]);
+    const url = "data:image/jpeg;base64," + Buffer.from(tablesFirst).toString("base64");
+    const out = jpegDataUrlFrameFirst(url);
+    expect(out).not.toBe(url);
+    const bytes = new Uint8Array(Buffer.from(out.split(",")[1], "base64"));
+    expect(jsPdfJpegInfo(bytes)).toEqual({ width: 640, height: 480, numcomponents: 3 });
+    expect(jpegDataUrlFrameFirst("data:image/png;base64,AAAA")).toBe("data:image/png;base64,AAAA");
   });
 });
 
