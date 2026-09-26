@@ -3,7 +3,7 @@ import { createSyncer, guardUnload } from "./sync.js";
 import { hasV, specLabel, dayLabel, typesOf, typeById, legacyTypeId, inspType, countsAs } from "./shared/format.js";
 import { readAsDataUrl, keepPhoto, drawResultMark, drawPhotoGroup } from "./shared/report-images.js";
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceArea, ReferenceLine, Legend } from "recharts";
-import { Clock, MessageCircle, Link2, List as ListIcon, BarChart3, Printer, SlidersHorizontal, SkipForward, LayoutDashboard, ClipboardList, Flag, Bell, FolderTree, ListTree, Package, LayoutTemplate, Truck, Globe, Megaphone, MessageSquare, Users, Search, Sun, Moon, Database, Home, Menu as MenuIcon, ScanLine, Plus, ChevronLeft, ChevronRight, ChevronDown, User, Camera, Image as ImageIcon, Paperclip, Send, Star, Pencil, Sparkles, HelpCircle, Download, Lock as LockIcon, AlertTriangle, Inbox, FileText, ShieldAlert, Tag, Layers, BookOpen, Filter, Check, X, Ruler, Boxes, Warehouse, Snowflake, Thermometer, ThumbsDown } from "lucide-react";
+import { Clock, MapPin, MessageCircle, Link2, List as ListIcon, BarChart3, Printer, SlidersHorizontal, SkipForward, LayoutDashboard, ClipboardList, Flag, Bell, FolderTree, ListTree, Package, LayoutTemplate, Truck, Globe, Megaphone, MessageSquare, Users, Search, Sun, Moon, Database, Home, Menu as MenuIcon, ScanLine, Plus, ChevronLeft, ChevronRight, ChevronDown, User, Camera, Image as ImageIcon, Paperclip, Send, Star, Pencil, Sparkles, HelpCircle, Download, Lock as LockIcon, AlertTriangle, Inbox, FileText, ShieldAlert, Tag, Layers, BookOpen, Filter, Check, X, Ruler, Boxes, Warehouse, Snowflake, Thermometer, ThumbsDown } from "lucide-react";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // QCteam — controller mobile app (prototype) — shares the state format with the Head portal
@@ -2114,10 +2114,16 @@ function MPriorityList({ s, user, go, priority }) {
               const showPriority = ((isAll && subTab === "regular") || isNeeded) && it.priority;
               const hasChips = showPriority || it.count > 1 || it.totalOnDock > it.count || it.mixedPO || it.checked > 0 || it.hist.count > 0 || (complaintsFor(s, it.key)?.count > 0);
               const chip = "text-[10px] px-1.5 py-0.5 rounded-full whitespace-nowrap";
+              // The card's left edge carries the urgency colour, same language as the dashboard tiles.
+              const edge = it.hist.count > 0 || it.blocking ? C.bad : (PRIORITY[it.priority]?.[2] ? C.bad : PRIORITY[it.priority]?.[0]) || C.line;
+              const fact = (I, v) => v ? <span className="inline-flex items-center gap-1 whitespace-nowrap"><Ic i={I} s={12} mr={0} style={{ opacity: .75 }} />{v}</span> : null;
               return (
-              <button key={it.key} onClick={() => go("palletInfo", it.hu)} className="w-full text-left py-3 active:opacity-60" style={{ borderBottom: `1px solid ${C.line}` }}>
-                <p className="text-sm font-medium leading-snug">{it.name}</p>
-                {hasChips && <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 mt-1">
+              <button key={it.key} onClick={() => go("palletInfo", it.hu)} className="w-full text-left rounded-2xl px-3.5 py-3 mb-2 active:opacity-60" style={{ background: C.bg, border: `1px solid ${C.line}`, borderLeft: `4px solid ${edge}` }}>
+                <div className="flex items-start gap-2">
+                  <p className="text-sm font-medium leading-snug flex-1">{it.name}</p>
+                  <Ic i={ChevronRight} s={16} mr={0} style={{ color: C.muted, marginTop: 1 }} />
+                </div>
+                {hasChips && <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 mt-1.5">
                   {showPriority && <span className={chip} style={{ background: PRIORITY[it.priority]?.[1] || C.line, color: PRIORITY[it.priority]?.[0] || C.muted }}>{it.priority}</span>}
                   <ComplaintChip s={s} articleId={it.key} />
                   {it.count > 1 && <span className={chip} style={{ background: C.accentSoft, color: C.accent }}>×{it.count} on docks</span>}
@@ -2126,17 +2132,20 @@ function MPriorityList({ s, user, go, priority }) {
                   {it.checked > 0 && <span className={`${chip} inline-flex items-center gap-1`} style={{ background: C.okBg, color: C.ok }}><Ic i={Check} s={10} mr={0} />{it.checked === it.count ? "already inspected" : `${it.checked}/${it.count} inspected`}</span>}
                   {it.hist.count > 0 && <span className={chip} style={{ background: C.badBg, color: C.bad }}>{it.hist.count} rejected recently</span>}
                 </div>}
-                <p className="text-xs mt-0.5" style={{ color: C.muted }}>{it.location} · {it.transporter} · {it.arrivedTime}{it.blocking && !isNeeded ? " · needed today" : ""}</p>
-                {it.hist.count > 0 && <p className="text-xs mt-1" style={{ color: C.bad }}>Was rejected for: {it.hist.problems.slice(0, 3).map(p => `${p.name} ×${p.count}`).join(", ")}{it.hist.problems.length > 3 ? "…" : ""} · last {dayLabel(it.hist.lastAt)}</p>}
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs mt-2" style={{ color: C.muted }}>
+                  {fact(MapPin, it.location)}{fact(Truck, it.transporter)}{fact(Clock, it.arrivedTime)}
+                  {it.blocking && !isNeeded && <span className="font-semibold" style={{ color: C.bad }}>needed today</span>}
+                </div>
+                {it.hist.count > 0 && <p className="text-xs mt-1.5" style={{ color: C.bad }}>Was rejected for: {it.hist.problems.slice(0, 3).map(p => `${p.name} ×${p.count}`).join(", ")}{it.hist.problems.length > 3 ? "…" : ""} · last {dayLabel(it.hist.lastAt)}</p>}
               </button>
               ); })}
           </div>); })}
         {lostRows.length > 0 && <div className="mt-4" style={{ opacity: .55 }}>
           <div className="flex items-center gap-2 py-1.5"><p className="text-xs font-semibold flex-1 flex items-center" style={{ color: C.muted }}><Ic i={Search} s={12} />Lost — not findable right now</p><span className="text-[10px] px-1.5 py-0.5 rounded-full" style={{ background: C.bg, color: C.muted, border: `1px solid ${C.line}` }}>{lostRows.length}</span></div>
           {lostRows.map(r => { const m = lostOf(s, r); const by = s.users.find(u => u.id === m.byUserId); return (
-            <button key={r.hu} onClick={() => go("palletInfo", r.hu)} className="w-full text-left py-3 active:opacity-60" style={{ borderBottom: `1px solid ${C.line}` }}>
+            <button key={r.hu} onClick={() => go("palletInfo", r.hu)} className="w-full text-left rounded-2xl px-3.5 py-3 mb-2 active:opacity-60" style={{ background: C.bg, border: `1px dashed ${C.line}` }}>
               <p className="text-sm font-medium truncate">{r.name || r.article}</p>
-              <p className="text-xs mt-0.5" style={{ color: C.muted }}>last seen {r.location} · {r.arrivedTime} · lost by {by ? by.name.split(" ")[0] : "?"} {dayLabel(m.at)}{m.note ? ` · ${m.note}` : ""}</p>
+              <p className="text-xs mt-1" style={{ color: C.muted }}>last seen {r.location} · {r.arrivedTime} · lost by {by ? by.name.split(" ")[0] : "?"} {dayLabel(m.at)}{m.note ? ` · ${m.note}` : ""}</p>
             </button>); })}
         </div>}
       </div>
