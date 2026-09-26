@@ -139,7 +139,7 @@ const GLOBAL_CSS = () => `
   .qc input[type=checkbox],.qc input[type=radio]{-webkit-appearance:auto;appearance:auto;min-height:0;width:16px;height:16px;padding:0;accent-color:${C.accent};border-radius:4px}
   .qc input:focus,.qc select:focus,.qc textarea:focus{border-color:${C.accent};box-shadow:0 0 0 3px ${C.accentSoft}}
   .qc input::placeholder,.qc textarea::placeholder{color:${C.muted};opacity:.9}
-  .qc button{font:inherit;cursor:pointer;transition:background-color .12s,color .12s,border-color .12s,transform .06s}
+  .qc button{font:inherit;cursor:pointer;touch-action:manipulation;transition:background-color .12s,color .12s,border-color .12s,transform .06s}
   .qc button:active{transform:translateY(1px)}
   .qc button:disabled{cursor:not-allowed;opacity:.6}
   .qc button:focus-visible,.qc a:focus-visible{outline:2px solid ${C.accent};outline-offset:2px}
@@ -2017,7 +2017,7 @@ function MPalletSheet({ s, set, user, go, row: r, onStart, onPickPallet, onAssig
       {others.length > 0 && <MSection title="Same article on the docks" count={others.length} defaultOpen>
         {pos.length > 1 && <p className="mb-2 px-2.5 py-1.5 rounded-lg text-[11px] flex items-center" style={{ background: C.warnBg, color: C.warn }}><Ic i={AlertTriangle} s={11} mr={4} />Different PO numbers ({pos.join(", ")}) — likely separate deliveries, one inspection doesn't cover all.</p>}
         {others.map((x, ix) => { const st = dockStatus(x); return (
-          <button key={x.hu} onClick={() => onPickPallet && onPickPallet(x.hu)} className="w-full text-left flex items-center gap-2.5 py-2 active:opacity-60" style={{ borderBottom: ix === others.length - 1 ? "none" : `1px solid ${C.line}` }}>
+          <button key={x.hu} type="button" onClick={e => { e.preventDefault(); e.stopPropagation(); if (!onPickPallet || gestureLocked()) return; armGestureLock(); onPickPallet(x.hu); }} className="w-full text-left flex items-center gap-2.5 py-2 active:opacity-60" style={{ borderBottom: ix === others.length - 1 ? "none" : `1px solid ${C.line}` }}>
             <span className="inline-block rounded-full flex-shrink-0" style={{ width: 8, height: 8, background: dockStatusColor(st) }} />
             <span className="flex-1 min-w-0"><span className="block text-sm font-medium">{x.location} <span className="font-normal text-xs" style={{ color: C.muted }}>· HU …{String(x.hu).slice(-8)}</span></span><span className="block text-[11px]" style={{ color: C.muted }}>{DOCK_STATUS.find(d => d[0] === st)?.[1]} · {x.transporter} {x.arrivedTime}{x.po ? ` · PO ${x.po}` : ""}{completedInspectionFor(s, x.hu) ? " · inspected" : ""}</span></span>
             {onPickPallet && <Ic i={ChevronRight} s={15} mr={0} style={{ color: C.muted }} />}
@@ -2036,7 +2036,7 @@ function MPalletSheet({ s, set, user, go, row: r, onStart, onPickPallet, onAssig
 
       <div className="mt-2">
         {user.role === "Head" && onAssign && !lost && <button onClick={() => onAssign(r)} className="w-full py-2 text-xs inline-flex items-center justify-center" style={{ color: C.accent }}><Ic i={MessageSquare} s={12} />Assign to someone in chat</button>}
-        {onCancel && <button onClick={onCancel} className="w-full py-2.5 text-sm" style={{ color: C.muted }}>{cancelLabel || "Cancel"}</button>}
+        {onCancel && <button type="button" onClick={onCancel} className="w-full py-2.5 text-sm" style={{ color: C.muted }}>{cancelLabel || "Cancel"}</button>}
       </div>
       <StartModal open={!!starting} kind={starting} s={s} pallet={r.hu} presetProductId={product?.id || null} onClose={() => setStarting(null)} onConfirm={({ productId }) => { const k = starting; setStarting(null); onStart(productId, k); }} />
     </div>
@@ -2469,8 +2469,9 @@ function LiveScanner({ onCode }) {
   const [state, setState] = useState("idle"); const [err, setErr] = useState(""); const [decoder, setDecoder] = useState(""); const videoRef = useRef(null); const streamRef = useRef(null); const timerRef = useRef(null); const zxingRef = useRef(null);
   const secure = typeof window !== "undefined" && (window.isSecureContext || location.hostname === "localhost");
   const stop = () => { if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; } try { zxingRef.current?.stopContinuousDecode?.(); zxingRef.current?.reset?.(); } catch (e) {} zxingRef.current = null; try { streamRef.current?.getTracks().forEach(t => t.stop()); } catch (e) {} streamRef.current = null; if (videoRef.current) videoRef.current.srcObject = null; setState("idle"); };
-  const found = txt => { const code = String(txt || "").replace(/[^0-9A-Za-z]/g, ""); if (!code) return; stop(); onCode(code); };
+  const found = txt => { if (gestureLocked()) return; const code = String(txt || "").replace(/[^0-9A-Za-z]/g, ""); if (!code) return; stop(); onCode(code); };
   const start = async () => {
+    if (gestureLocked()) return;
     setErr(""); if (!secure) { setErr("The camera only works over HTTPS (or localhost)."); return; }
     if (!navigator.mediaDevices?.getUserMedia) { setErr("This browser exposes no camera API. Type the code below."); return; }
     setState("starting");
@@ -2503,6 +2504,11 @@ const isPalletCode = code => /^\d{14,}$/.test(code.trim());
 // "00087205744101641093" → "087205744101641093". Sheets sometimes drop the leading zero, so matching is by suffix.
 const extractSSCC = raw => { const d = String(raw || "").replace(/\D/g, ""); const m = /(?:^|\D)00(\d{18})/.exec(String(raw || "")) || (d.length >= 20 && d.startsWith("00") ? [null, d.slice(2, 20)] : null); if (m) return m[1]; if (d.length >= 18) return d.slice(0, 18); return d; };
 const samePallet = (a, b) => { const x = String(a || "").replace(/\D/g, "").replace(/^0+/, ""), y = String(b || "").replace(/\D/g, "").replace(/^0+/, ""); return !!x && !!y && (x === y || x.endsWith(y) || y.endsWith(x)); };
+// A tap on a phone often delivers a second click a moment later, aimed at whatever is now under the finger.
+// Switching pallets (or clearing the scan) rewrites that spot, so the extra click would undo the first one.
+let gestureLockUntil = 0;
+const gestureLocked = () => Date.now() < gestureLockUntil;
+const armGestureLock = () => { gestureLockUntil = Date.now() + 600; };
 // The WMS dock sheet can lag behind — a pallet already reported still shows up "on dock" until the next push. This is
 // what actually decides that, so it's surfaced everywhere a pallet is browsed, not only when its exact code is scanned.
 const completedInspectionFor = (s, hu) => (s.inspections || []).filter(i => i.status === "Completed" && (i.pallets || []).some(h => samePallet(h, hu))).sort((a, b) => (b.completedAt || "").localeCompare(a.completedAt || ""))[0] || null;
@@ -2556,6 +2562,7 @@ function MScan({ s, user, go, onStart, onVisual, onSkip, setState, notify, prese
   };
   const start = (pid, typeId = "type-full") => { if (draft && draft.controllerId !== user.id) { setConfirmCollision({ draft, pid, typeId }); return; } onStart(pid, pallet || null, typeId); };
   const pickPalletOfProduct = hu => { setCode(hu); setPallet(hu); const done = s.inspections.find(i => (i.pallets || []).some(x => samePallet(x, hu)) && i.status === "Completed"); setMode(done ? "done" : "pallet"); };
+  const clearScan = () => { if (gestureLocked()) return; armGestureLock(); setMode(null); setPallet(""); setCode(""); setLostOpen(false); };
   // Opened with a code already in hand (e.g. from a pallet list): resolve it immediately instead of asking for a tap on "Scan".
   useEffect(() => { if (preset) scan(preset); }, []);
   const Actions = () => { const known = wmsProduct || (completed && s.products.find(p => p.id === completed.productId)); const types = known ? allowedTypes(s, known) : typesOf(s); const pol = known ? effectivePolicy(s, known) : null; return (
@@ -2575,13 +2582,13 @@ function MScan({ s, user, go, onStart, onVisual, onSkip, setState, notify, prese
           <div className="flex items-center gap-2 rounded-xl px-3 py-2 mb-3" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
             <Ic i={ScanLine} s={15} mr={0} style={{ color: C.accent }} />
             <span className="flex-1 min-w-0 text-[12px] font-mono truncate">{pallet || scanned}</span>
-            <button onClick={() => { setMode(null); setPallet(""); setCode(""); setLostOpen(false); }} className="text-xs font-medium flex-shrink-0" style={{ color: C.accent }}>Scan another</button>
+            <button type="button" onClick={clearScan} className="text-xs font-medium flex-shrink-0" style={{ color: C.accent }}>Scan another</button>
             {mode === "pallet" && wms && <LostTrigger on={lostOpen} lost={!!lostOf(s, wms)} onClick={() => setLostOpen(o => !o)} />}
           </div>
         ) : (<>
           <LiveScanner onCode={code => scan(code)} />
           <p className="text-xs mb-1" style={{ color: C.muted }}>Pallet number (SSCC) or product code (EAN / article ID) — the scanner tells them apart by length</p>
-          <div className="flex gap-2 mb-3"><input value={code} onChange={e => { setCode(e.target.value); setMode(null); }} onKeyDown={e => e.key === "Enter" && scan()} placeholder="or type the code: 387175210024377766 / 11413643" className="flex-1 text-sm rounded-xl px-3 py-2.5 outline-none font-mono" style={{ ...inp }} /><button onClick={() => scan()} className="px-3 rounded-xl text-sm" style={{ background: C.accent, color: C.onDark }}>Scan</button></div>
+          <div className="flex gap-2 mb-3"><input value={code} onChange={e => { setCode(e.target.value); setMode(null); }} onKeyDown={e => e.key === "Enter" && !gestureLocked() && scan()} placeholder="or type the code: 387175210024377766 / 11413643" className="flex-1 text-sm rounded-xl px-3 py-2.5 outline-none font-mono" style={{ ...inp }} /><button type="button" onClick={() => { if (!gestureLocked()) scan(); }} className="px-3 rounded-xl text-sm" style={{ background: C.accent, color: C.onDark }}>Scan</button></div>
         </>)}
 
         {mode === "unknown-product" && (
@@ -2613,7 +2620,7 @@ function MScan({ s, user, go, onStart, onVisual, onSkip, setState, notify, prese
           </div>
         )}
 
-        {mode === "pallet" && wms && <MPalletSheet key={wms.hu} s={s} set={setState} user={user} go={go} row={wms} onStart={(pid, typeId) => start(pid, typeId)} onPickPallet={pickPalletOfProduct} onCancel={() => { setMode(null); setPallet(""); setCode(""); setLostOpen(false); }} cancelLabel="Scan another code" lostOpen={lostOpen} onLostClose={() => setLostOpen(false)} />}
+        {mode === "pallet" && wms && <MPalletSheet key={wms.hu} s={s} set={setState} user={user} go={go} row={wms} onStart={(pid, typeId) => start(pid, typeId)} onPickPallet={pickPalletOfProduct} onCancel={clearScan} cancelLabel="Scan another code" lostOpen={lostOpen} onLostClose={() => setLostOpen(false)} />}
 
         {mode === "pallet" && !wms && blockedRow && (
           <div className="rounded-2xl p-4 mb-3" style={{ background: C.badBg }}>
