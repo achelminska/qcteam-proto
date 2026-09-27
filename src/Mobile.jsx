@@ -2888,7 +2888,6 @@ function MProductHistory({ s, user, go, productId }) {
   const resultFiltered = result === "all" ? histVerdict : histVerdict.filter(i => i.result === result);
   const problemTally = Object.values(resultFiltered.flatMap(i => i.remarks || []).reduce((m, r) => { const name = pm[r.leafId]?.name || "?"; m[name] = m[name] || { name, count: 0 }; m[name].count++; return m; }, {})).sort((a, b) => b.count - a.count);
   const rows = (problem ? resultFiltered.filter(i => (i.remarks || []).some(r => (pm[r.leafId]?.name || "?") === problem)) : resultFiltered).sort((a, b) => (b.completedAt || "").localeCompare(a.completedAt || ""));
-  const Chip = ({ on, onClick, children }) => <button onClick={onClick} className="text-xs px-3 py-1.5 rounded-full whitespace-nowrap" style={{ background: on ? C.ink : "transparent", color: on ? C.onDark : C.ink, border: `1px solid ${on ? C.ink : C.line}` }}>{children}</button>;
   return (
     <div className="pb-4">
       <TopBar title={product ? product.name : "Inspection history"} onBack={() => go("catalog", productId)} />
@@ -2898,13 +2897,12 @@ function MProductHistory({ s, user, go, productId }) {
         ) : (
           <>
             <p className="text-sm mb-3" style={{ color: C.muted }}>{histVerdict.length} completed inspection{histVerdict.length === 1 ? "" : "s"} with a verdict — {acceptedCount} accepted, {rejectedCount} rejected{histInfo.length ? ` · ${histInfo.length} more without a verdict` : ""}.</p>
-            <div className="flex flex-wrap gap-1.5 mb-3">
-              {[["all", `all · ${histVerdict.length}`], ["Accepted", `accepted · ${acceptedCount}`], ["Rejected", `rejected · ${rejectedCount}`]].map(([k, l]) => <Chip key={k} on={result === k} onClick={() => { setResult(k); setProblem(""); }}>{l}</Chip>)}
+            <div className="mb-2.5">
+              <SearchSelect value={result === "all" ? "" : result} onChange={v => { setResult(v || "all"); setProblem(""); }} options={[{ value: "Accepted", label: `accepted · ${acceptedCount}` }, { value: "Rejected", label: `rejected · ${rejectedCount}` }]} empty={`all · ${histVerdict.length}`} />
             </div>
             {problemTally.length > 0 && (
-              <div className="flex flex-wrap gap-1.5 mb-3">
-                <Chip on={!problem} onClick={() => setProblem("")}>all remark types</Chip>
-                {problemTally.map(pr => <Chip key={pr.name} on={problem === pr.name} onClick={() => setProblem(pr.name)}>{pr.name} · {pr.count}</Chip>)}
+              <div className="mb-3">
+                <SearchSelect value={problem} onChange={setProblem} options={problemTally.map(pr => ({ value: pr.name, label: `${pr.name} · ${pr.count}` }))} empty="all remark types" placeholder="Search remark types…" searchFrom={11} />
               </div>
             )}
             {rows.length === 0 ? <p className="text-sm py-8 text-center" style={{ color: C.muted }}>Nothing matches.</p> : rows.map((i, ix) => {
