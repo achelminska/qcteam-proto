@@ -191,8 +191,8 @@ export async function drawReportPdf(doc, model, photoData) {
     if (!judged) table({ body: model.parameters.map(r => [r[0], r[1]]), columnStyles: { 0: { cellWidth: 56, textColor: MUTED, fontStyle: "bold", fontSize: 8 } } });
     else table({
       head: [["Parameter", "Answer", "Specification"]],
-      body: model.parameters.map(r => [r[0], r[1], r.length > 2 && r[2] ? `     ${r[2]}` : ""]),
-      columnStyles: { 0: { cellWidth: 56, textColor: MUTED, fontStyle: "bold", fontSize: 8 }, 2: { cellWidth: 60 } },
+      body: model.parameters.map(r => [r[0], r[1], r.length > 2 && r[2] ? String(r[2]) : ""]),
+      columnStyles: { 0: { cellWidth: 56, textColor: MUTED, fontStyle: "bold", fontSize: 8 }, 2: { cellWidth: 60, cellPadding: { top: 2.3, bottom: 2.3, left: 9, right: 2.5 } } },
       didParseCell: d => { if (d.section !== "body") return; const r = model.parameters[d.row.index]; if (r && r.length > 2 && r[2] && d.column.index === 1) { d.cell.styles.textColor = r[3] ? OK : BAD; d.cell.styles.fontStyle = "bold"; } },
       didDrawCell: d => {
         if (d.section !== "body" || d.column.index !== 2) return; const r = model.parameters[d.row.index]; if (!r || r.length < 3 || !r[2]) return;
