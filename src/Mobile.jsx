@@ -3229,7 +3229,7 @@ function MFloorPeople({ people, s, user, sel, onPick }) {
         <button key={p.userId} onClick={() => p.dock != null && onPick(p.dock)} className="w-full text-left flex items-center gap-2.5 py-2 active:opacity-60" style={{ borderTop: i ? `1px solid ${C.line}` : "none", background: active ? C.accentSoft : "transparent", margin: active ? "0 -8px" : 0, paddingLeft: active ? 8 : 0, paddingRight: active ? 8 : 0, borderRadius: 10 }}>
           <Avatar user={u} size={30} />
           <span className="flex-1 min-w-0">
-            <span className="text-sm font-medium">{(u?.name || "?").split(" ")[0]}{u?.id === user?.id ? <span className="ml-1 text-[11px] font-normal" style={{ color: C.accent }}>you</span> : null}</span>
+            <span className="text-sm font-medium">{(u?.name || "?").split(" ")[0]}{u?.id === user?.id ? <span className="ml-1.5 text-[11px] font-normal" style={{ color: C.accent }}>you</span> : null}</span>
             <span className="block text-[11px] truncate" style={{ color: C.muted }}>{floorWhere(p)} · {floorVerb(p)} {p.productName || p.hu || "a pallet"}</span>
           </span>
         </button>

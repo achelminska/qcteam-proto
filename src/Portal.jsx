@@ -1288,7 +1288,7 @@ function FloorPeopleList({ people, s, user, sel, onPick, compact }) {
           <button key={p.userId} onClick={() => p.dock != null && onPick(p.dock)} className={`w-full text-left flex items-center gap-2.5 ${compact ? "py-2" : "px-3 py-2.5"}`} style={{ borderTop: i && !compact ? `1px solid ${C.line}` : compact ? `1px solid ${C.line}` : "none", background: active ? C.accentSoft : "transparent" }}>
             <Avatar user={u} size={compact ? 28 : 26} />
             <span className="flex-1 min-w-0">
-              <span className="text-sm font-medium">{(u?.name || "?").split(" ")[0]}{u?.id === user?.id ? <span className="ml-1 text-[11px] font-normal" style={{ color: C.accent }}>you</span> : null}</span>
+              <span className="text-sm font-medium">{(u?.name || "?").split(" ")[0]}{u?.id === user?.id ? <span className="ml-1.5 text-[11px] font-normal" style={{ color: C.accent }}>you</span> : null}</span>
               <span className="block text-[11px] truncate" style={{ color: C.muted }}>{floorWhere(p)} · {floorVerb(p)} {p.productName || p.hu || "a pallet"}</span>
             </span>
           </button>
