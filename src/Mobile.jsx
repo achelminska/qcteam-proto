@@ -1199,8 +1199,8 @@ function NumberInput({ f, problems, allProblems, overrides, specs, totals, value
   return (
     <div>
       {choices.length
-        ? <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${Math.min(n, 2)}, minmax(0,1fr))` }}>{ms.map((m, i) => <SearchSelect key={i} value={m === "" ? "" : String(m)} onChange={v => setM(i, v)} options={choiceOptions} empty={n > 1 ? `pomiar ${i + 1}` : "— choose —"} placeholder="Search values…" searchFrom={11} />)}</div>
-        : <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${n}, minmax(0,1fr))` }}>{ms.map((m, i) => <input key={i} type="number" inputMode="decimal" value={m} onChange={e => setM(i, e.target.value)} placeholder={`pomiar ${i + 1}`} className="text-base rounded-xl px-2 py-2.5 outline-none text-center" style={{ ...inp, fontVariantNumeric: "tabular-nums" }} />)}</div>}
+        ? <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${Math.min(n, 2)}, minmax(0,1fr))` }}>{ms.map((m, i) => <SearchSelect key={i} value={m === "" ? "" : String(m)} onChange={v => setM(i, v)} options={choiceOptions} empty={n > 1 ? `reading ${i + 1}` : "— choose —"} placeholder="Search values…" searchFrom={11} />)}</div>
+        : <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${n}, minmax(0,1fr))` }}>{ms.map((m, i) => <input key={i} type="number" inputMode="decimal" value={m} onChange={e => setM(i, e.target.value)} placeholder={`reading ${i + 1}`} className="text-base rounded-xl px-2 py-2.5 outline-none text-center" style={{ ...inp, fontVariantNumeric: "tabular-nums" }} />)}</div>}
       {lim.note && <p className="text-[11px] mt-1" style={{ color: C.muted }}>{lim.note}</p>}
       {avg !== null && <p className="text-xs mt-1.5" style={{ color: C.muted }}>average <b style={{ color: C.ink }}>{fmt(avg)}</b>{ref ? ` · reference ${ref}${byName ? ` (by name “${spec.name}"${spec.source !== "product" ? ", " + spec.source : ""})` : ""}` : (f.problemBelowId || f.problemAboveId) ? <span style={{ color: C.warn }}> · no reference — the product has no specification “{(f.specName || "").trim() || f.label}“ and the field has no min/max</span> : ""}</p>}
       {bad && !lp && <div className="rounded-lg px-3 py-1.5 mt-1.5 text-xs" style={{ background: C.warnBg, color: C.warn }}>Out of spec — warning only.</div>}
@@ -1364,7 +1364,7 @@ function ProblemOverview({ t, problems, remarks, totals }) {
     );
   };
   return (
-    <div className="rounded-lg p-3 mb-4" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
+    <div className="rounded-2xl p-3.5 mb-4" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
       <p className="label-sm mb-2">Problem overview — bars show tolerance usage</p>
       {rows.map(n => <Bar key={n.id} node={n} />)}
       {extra.length > 0 && <p className="text-[10px] mt-1" style={{ color: C.muted }}>The last {extra.length} are problems raised from measurement fields, not attached to any module.</p>}
@@ -1454,13 +1454,15 @@ function InspectionRunner({ insp, patch, t, problems, product, suppliers, dictio
       {escalated && <Note tone="warn">⏸ Paused — question for the Head: <i>„{insp.question}"</i>. You can keep filling in; the result is locked until answered.</Note>}
       {insp.answer && insp.status !== "PendingReview" && <Note tone="ok">💬 Head's answer: <i>„{insp.answer}"</i></Note>}
       {(() => { const names = [...modules.map(x => x.name), ...(hasSummary ? ["Summary"] : [])]; return (
-        <div className="mb-3 -mx-3">
-          <div className="flex gap-1.5 px-3 pb-1 overflow-x-auto" style={{ scrollbarWidth: "none" }}>
-            {names.map((name, i) => { const on = tab === i; const req = i < modules.length ? t.fields.filter(f => f.moduleId === modules[i].id && f.required && !isSystem(f.type)) : []; const done = req.length > 0 && req.every(f => !isEmptyValue(f)); return <button key={i} ref={el => { if (on && el) el.scrollIntoView({ block: "nearest", inline: "center" }); }} onClick={() => setTab(i)} className="text-xs px-3 py-1.5 rounded-full whitespace-nowrap inline-flex items-center gap-1.5 flex-shrink-0" style={{ background: on ? C.ink : C.bg, color: on ? C.onDark : done ? C.ink : C.muted, border: `1px solid ${on ? C.ink : C.line}`, fontWeight: on ? 600 : 500 }}>
-              <span className="rounded-full inline-flex items-center justify-center text-[10px]" style={{ width: 16, height: 16, background: on ? C.onDarkSoft : done ? C.okBg : C.line, color: on ? C.onDark : done ? C.ok : C.muted }}>{done ? <Ic i={Check} s={10} mr={0} /> : i + 1}</span>{name}
+        <div className="mb-3">
+          {/* One row, no sideways scrolling: every step keeps its number, the current one gets the most room for its name.
+              Highlight is a soft accent tint, so it reads as "current" without a glaring block in the dark theme. */}
+          <div className="flex items-stretch gap-1.5">
+            {names.map((name, i) => { const on = tab === i; const compact = names.length > 3 && !on; const req = i < modules.length ? t.fields.filter(f => f.moduleId === modules[i].id && f.required && !isSystem(f.type)) : []; const done = req.length > 0 && req.every(f => !isEmptyValue(f)); return <button key={i} onClick={() => setTab(i)} title={name} className={`min-w-0 text-[11px] py-1.5 rounded-full inline-flex items-center justify-center gap-1.5 ${compact ? "px-1.5" : "px-2.5"}`} style={{ flex: compact ? "0 0 auto" : "1 1 0", background: on ? C.accentSoft : C.bg, color: on ? C.ink : done ? C.ink : C.muted, border: `1px solid ${on ? C.accent : C.line}`, fontWeight: on ? 600 : 500 }}>
+              <span className="rounded-full inline-flex items-center justify-center text-[10px] flex-shrink-0" style={{ width: 16, height: 16, background: on ? C.accent : done ? C.okBg : C.line, color: on ? C.onDark : done ? C.ok : C.muted }}>{done && !on ? <Ic i={Check} s={10} mr={0} /> : i + 1}</span>{!compact && <span className="truncate">{name}</span>}
             </button>; })}
           </div>
-          <div className="mx-3 mt-1.5 rounded-full" style={{ height: 3, background: C.line }}><div className="rounded-full" style={{ height: 3, width: `${((tab + 1) / names.length) * 100}%`, background: C.accent, transition: "width .2s" }} /></div>
+          <div className="mt-2 rounded-full" style={{ height: 3, background: C.line }}><div className="rounded-full" style={{ height: 3, width: `${((tab + 1) / names.length) * 100}%`, background: C.accent, transition: "width .2s" }} /></div>
         </div>
       ); })()}
       {generalFlag && <Note tone="bad">🚩 General problem reported — inspection flagged.</Note>}
@@ -1474,10 +1476,10 @@ function InspectionRunner({ insp, patch, t, problems, product, suppliers, dictio
                 <span className="flex-1 min-w-0"><span className="block text-[13px] font-semibold leading-snug">{fieldLabel(f)}{f.required && !isSystem(f.type) && <span style={{ color: C.bad }}> *</span>}</span>{f.helper && <span className="block text-xs font-normal mt-0.5" style={{ color: C.muted }}>{f.helper}</span>}</span>
                 {filled && <span className="rounded-full flex items-center justify-center flex-shrink-0" style={{ width: 18, height: 18, background: C.okBg, color: C.ok, marginTop: 1 }}><Ic i={Check} s={11} mr={0} /></span>}
               </label>}
-              {f.type === "ProductInfo" && <div className="rounded-2xl px-4 py-3.5" style={{ background: C.ink, color: C.onDark }}>
-                <p className="text-[11px] uppercase tracking-wide" style={{ color: C.onDarkMuted, letterSpacing: ".06em" }}>Inspecting</p>
-                <p className="text-base font-semibold leading-snug mt-0.5">{product.name}{product.isBio && <span className="text-[10px] ml-2 px-1.5 py-0.5 rounded-full align-middle font-medium" style={{ background: C.onDarkSoft, color: C.onDark }}>bio</span>}</p>
-                <div className="flex flex-wrap gap-1.5 mt-2.5">{specs.length ? specs.map(q => <span key={q.id || q.name} className="text-[11px] px-2 py-1 rounded-full" style={{ background: C.onDarkSoft, color: C.onDark }}>{q.name} <b>{specLabel(q)}</b>{q.source !== "product" ? <span style={{ color: C.onDarkMuted }}> · {q.source}</span> : null}</span>) : <span className="text-[11px]" style={{ color: C.onDarkMuted }}>no specifications</span>}</div>
+              {f.type === "ProductInfo" && <div className="rounded-2xl px-4 py-3.5" style={{ background: C.accentSoft, color: C.ink, border: `1px solid ${C.line}`, borderLeft: `3px solid ${C.accent}` }}>
+                <p className="text-[11px] uppercase tracking-wide font-medium" style={{ color: C.accent, letterSpacing: ".06em" }}>Inspecting</p>
+                <p className="text-base font-semibold leading-snug mt-0.5">{product.name}{product.isBio && <span className="text-[10px] ml-2 px-1.5 py-0.5 rounded-full align-middle font-medium" style={{ background: C.okBg, color: C.ok }}>bio</span>}</p>
+                <div className="flex flex-wrap gap-1.5 mt-2.5">{specs.length ? specs.map(q => <span key={q.id || q.name} className="text-[11px] px-2 py-1 rounded-full" style={{ background: C.bg, color: C.ink, border: `1px solid ${C.line}` }}>{q.name} <b>{specLabel(q)}</b>{q.source !== "product" ? <span style={{ color: C.muted }}> · {q.source}</span> : null}</span>) : <span className="text-[11px]" style={{ color: C.muted }}>no specifications</span>}</div>
               </div>}
               {f.type === "Supplier" && (productSuppliers.length ? <div><div className="flex flex-wrap gap-1.5">{productSuppliers.map(x => <button key={x.id} onClick={() => set({ supplier: x.name })} className="text-xs px-3 py-1.5 rounded-full" style={{ background: insp.supplier === x.name ? C.accent : C.accentSoft, color: insp.supplier === x.name ? C.onDark : C.accent }}>{x.name}</button>)}</div>{suppliersUnrestricted && <p className="text-[10px] mt-1" style={{ color: C.muted }}>product has no assigned suppliers — showing all</p>}</div> : <p className="text-xs" style={{ color: C.warn }}>The supplier list is empty — fill it in Dictionaries → Suppliers.</p>)}
               {f.type === "Variety" && (effectiveVarieties(sctx, product).length ? <div className="flex flex-wrap gap-1.5">{effectiveVarieties(sctx, product).map(v => <button key={v.id} onClick={() => set({ variety: v.name })} className="text-xs px-3 py-1.5 rounded-full" style={{ background: insp.variety === v.name ? C.accent : C.accentSoft, color: insp.variety === v.name ? C.onDark : C.accent }}>{v.name}</button>)}</div> : <p className="text-xs" style={{ color: C.warn }}>No varieties — add them on the category or the product.</p>)}
