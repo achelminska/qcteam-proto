@@ -1966,11 +1966,18 @@ function MLostControls({ s, set, user, row, compact, open, onClose }) {
   if (!ask) return compact
     ? <div className="flex justify-end"><button onClick={() => setAsk(true)} className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: C.bg, color: C.muted, border: `1px solid ${C.line}` }} title="Not on the docks? Mark it lost" aria-label="Not on the docks? Mark it lost"><Ic i={HelpCircle} s={13} mr={0} /></button></div>
     : <button onClick={() => setAsk(true)} className="w-full py-2 text-xs mt-1" style={{ color: C.muted }}>Not on the docks? Mark it lost</button>;
+  // The question sits on top of the screen as a dialog — the pallet page dims behind it; a tap outside cancels.
+  const huTail = row.hu ? `HU …${String(row.hu).slice(-8)}` : "";
   return (
-    <div className="rounded-2xl px-3.5 py-3 mt-2" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
-      <p className="text-sm font-medium mb-1">Mark as lost</p>
-      <input value={note} onChange={e => setNote(e.target.value)} placeholder="note (optional)" className="w-full text-sm rounded-xl px-3 py-2 mb-2 outline-none" style={{ background: C.surface, border: `1px solid ${C.line}` }} />
-      <div className="flex gap-2"><button onClick={() => { markLost(set, row, user, note); setAsk(false); }} className="flex-1 py-2 rounded-xl text-sm font-semibold" style={{ background: C.ink, color: C.onDark }}>Mark lost</button><button onClick={() => setAsk(false)} className="flex-1 py-2 rounded-xl text-sm" style={{ border: `1px solid ${C.line}` }}>Cancel</button></div>
+    <div className="qc-sheet absolute inset-0 flex items-center justify-center p-6" style={{ background: "rgba(31,42,36,.55)", zIndex: 45 }} onClick={() => setAsk(false)}>
+      <div className="w-full rounded-2xl p-5" style={{ background: C.surface }} onClick={e => e.stopPropagation()} role="dialog" aria-label="Mark as lost">
+        <p className="text-xs font-medium mb-2 flex items-center" style={{ color: C.muted }}><Ic i={Search} s={13} />Mark as lost</p>
+        <p className="text-base font-semibold leading-snug">{row.name || row.article}</p>
+        <p className="text-xs mt-0.5 mb-3" style={{ color: C.muted }}>{[row.location && `last seen ${row.location}`, huTail].filter(Boolean).join(" · ")}</p>
+        <p className="text-sm mb-3" style={{ color: C.muted }}>It leaves the queue until someone finds it and marks it found. The Head gets a notification.</p>
+        <input value={note} onChange={e => setNote(e.target.value)} placeholder="note (optional) — where did you look?" className="w-full text-sm rounded-xl px-3 py-2.5 mb-3 outline-none" style={{ background: C.bg, border: `1px solid ${C.line}` }} />
+        <div className="flex gap-2"><button onClick={() => { markLost(set, row, user, note); setAsk(false); }} className="flex-1 py-2.5 rounded-xl text-sm font-semibold" style={{ background: C.ink, color: C.onDark }}>Mark lost</button><button onClick={() => setAsk(false)} className="flex-1 py-2.5 rounded-xl text-sm" style={{ border: `1px solid ${C.line}` }}>Cancel</button></div>
+      </div>
     </div>
   );
 }
