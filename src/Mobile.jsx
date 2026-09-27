@@ -2898,11 +2898,18 @@ function MProductHistory({ s, user, go, productId }) {
           <>
             <p className="text-sm mb-3" style={{ color: C.muted }}>{histVerdict.length} completed inspection{histVerdict.length === 1 ? "" : "s"} with a verdict — {acceptedCount} accepted, {rejectedCount} rejected{histInfo.length ? ` · ${histInfo.length} more without a verdict` : ""}.</p>
             <div className="mb-2.5">
-              <SearchSelect value={result === "all" ? "" : result} onChange={v => { setResult(v || "all"); setProblem(""); }} options={[{ value: "Accepted", label: `accepted · ${acceptedCount}` }, { value: "Rejected", label: `rejected · ${rejectedCount}` }]} empty={`all · ${histVerdict.length}`} searchFrom={11} />
+              <select value={result} onChange={e => { setResult(e.target.value); setProblem(""); }} className="w-full text-sm rounded-xl px-3 py-2.5 outline-none" style={{ ...inp }}>
+                <option value="all">all · {histVerdict.length}</option>
+                <option value="Accepted">accepted · {acceptedCount}</option>
+                <option value="Rejected">rejected · {rejectedCount}</option>
+              </select>
             </div>
             {problemTally.length > 0 && (
               <div className="mb-3">
-                <SearchSelect value={problem} onChange={setProblem} options={problemTally.map(pr => ({ value: pr.name, label: `${pr.name} · ${pr.count}` }))} empty="all remark types" placeholder="Search remark types…" searchFrom={11} />
+                <select value={problem} onChange={e => setProblem(e.target.value)} className="w-full text-sm rounded-xl px-3 py-2.5 outline-none" style={{ ...inp }}>
+                  <option value="">all remark types</option>
+                  {problemTally.map(pr => <option key={pr.name} value={pr.name}>{pr.name} · {pr.count}</option>)}
+                </select>
               </div>
             )}
             {rows.length === 0 ? <p className="text-sm py-8 text-center" style={{ color: C.muted }}>Nothing matches.</p> : rows.map((i, ix) => {

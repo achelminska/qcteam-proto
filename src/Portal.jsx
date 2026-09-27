@@ -2641,8 +2641,17 @@ function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset, onMessag
                       ) : (
                         <>
                           <div className="grid gap-2 mb-3" style={{ gridTemplateColumns: problemTally.length ? "1fr 1fr" : "1fr", maxWidth: 520 }}>
-                            <SearchSelect size="sm" value={histResult === "all" ? "" : histResult} onChange={v => { setHistResult(v || "all"); setHistProblem(""); }} options={[{ value: "Accepted", label: `accepted · ${acceptedCount}` }, { value: "Rejected", label: `rejected · ${rejectedCount}` }]} empty={`all · ${histVerdict.length}`} searchFrom={11} />
-                            {problemTally.length > 0 && <SearchSelect size="sm" value={histProblem} onChange={setHistProblem} options={problemTally.map(pr => ({ value: pr.name, label: `${pr.name} · ${pr.count}` }))} empty="all remark types" placeholder="Search remark types…" searchFrom={11} />}
+                            <select value={histResult} onChange={e => { setHistResult(e.target.value); setHistProblem(""); }} className="text-sm rounded-md px-2 py-1.5 outline-none" style={{ ...inp }}>
+                              <option value="all">all · {histVerdict.length}</option>
+                              <option value="Accepted">accepted · {acceptedCount}</option>
+                              <option value="Rejected">rejected · {rejectedCount}</option>
+                            </select>
+                            {problemTally.length > 0 && (
+                              <select value={histProblem} onChange={e => setHistProblem(e.target.value)} className="text-sm rounded-md px-2 py-1.5 outline-none" style={{ ...inp }}>
+                                <option value="">all remark types</option>
+                                {problemTally.map(pr => <option key={pr.name} value={pr.name}>{pr.name} · {pr.count}</option>)}
+                              </select>
+                            )}
                           </div>
                           {rows.length === 0 ? <p className="text-xs py-4" style={{ color: C.muted }}>Nothing matches.</p> : rows.map(i => {
                             const [fg, bg] = i.result === "Accepted" ? [C.ok, C.okBg] : [C.bad, C.badBg];
