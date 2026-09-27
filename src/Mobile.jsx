@@ -3,6 +3,7 @@ import { createSyncer, guardUnload } from "./sync.js";
 import { hasV, specLabel, dayLabel, typesOf, typeById, legacyTypeId, inspType, countsAs } from "./shared/format.js";
 import { readAsDataUrl, keepPhoto } from "./shared/report-images.js";
 import { drawReportPdf } from "./shared/report-pdf.js";
+import { isListSpec, specKey, resolveListSpec, numericSpecs, listSpecs, listSpecFor, listCheck, attributesToSpecs } from "./shared/specs.js";
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceArea, ReferenceLine, Legend } from "recharts";
 import { Clock, MapPin, MessageCircle, Link2, List as ListIcon, BarChart3, Printer, SlidersHorizontal, SkipForward, LayoutDashboard, ClipboardList, Flag, Bell, FolderTree, ListTree, Package, LayoutTemplate, Truck, Globe, Megaphone, MessageSquare, Users, Search, Sun, Moon, Database, Home, Menu as MenuIcon, ScanLine, Plus, ChevronLeft, ChevronRight, ChevronDown, User, Camera, Image as ImageIcon, Paperclip, Send, Star, Pencil, Sparkles, HelpCircle, Download, Lock as LockIcon, AlertTriangle, Inbox, FileText, ShieldAlert, Tag, Layers, BookOpen, Filter, Check, X, Ruler, Boxes, Warehouse, Snowflake, Thermometer, ThumbsDown } from "lucide-react";
 
@@ -245,13 +246,14 @@ const basisTag = q => q?.basis === "cu" ? " /CU" : "";
 // Specification cascade by name: product → category → parent category
 const effectiveSpecs = (s, product) => {
   if (!product) return [];
-  const out = (product.specs || []).map(q => ({ ...q, source: "product" }));
-  const key = q => `${(q.name || "").trim().toLowerCase()}|${specBasis(q)}`;
-  const seen = new Set(out.map(key));
+  // List specs are resolved here (list name + expected value), so everything downstream reads q.name / q.value.
+  const deco = (q, source) => ({ ...(isListSpec(q) ? resolveListSpec(s.dictionaries, q) : q), source });
+  const out = (product.specs || []).map(q => deco(q, "product"));
+  const seen = new Set(out.map(specKey));
   const excluded = new Set((product.excludedSpecNames || []).map(x => x.trim().toLowerCase()));
   let cat = s.categories.find(c => c.id === product.categoryId);
   while (cat) {
-    (cat.specs || []).forEach(q => { const k = key(q); if (!seen.has(k)) { seen.add(k); if (!excluded.has((q.name || "").trim().toLowerCase())) out.push({ ...q, source: `category ${cat.name}` }); } });
+    (cat.specs || []).forEach(q => { const k = specKey(q); if (!seen.has(k)) { seen.add(k); const d = deco(q, `category ${cat.name}`); if (!excluded.has((d.name || "").trim().toLowerCase())) out.push(d); } });
     cat = cat.parentId ? s.categories.find(c => c.id === cat.parentId) : null;
   }
   return out;
@@ -302,16 +304,6 @@ const effectivePolicy = (s, product) => {
 };
 const policyAllows = (pol, typeId) => (pol.typeIds || []).includes(typeId);
 const allowedTypes = (s, product) => { const pol = effectivePolicy(s, product); return typesOf(s).filter(t => pol.typeIds.includes(t.id)); };
-// Product attributes from lists (ProductAttribute: DictionaryId + DictionaryItemId, on category or product). Product overrides category; category chain upward.
-const effectiveAttributes = (s, product) => {
-  if (!product) return [];
-  const dicts = byId(s.dictionaries || []); const out = []; const seen = new Set();
-  const push = (a, source) => { if (seen.has(a.dictionaryId)) return; const d = dicts[a.dictionaryId]; const it = d?.items.find(x => x.id === a.itemId); if (!d) return; seen.add(a.dictionaryId); out.push({ dictionaryId: a.dictionaryId, itemId: a.itemId, list: d.name, value: it?.value || "—", source }); };
-  (product.attributes || []).forEach(a => push(a, "product"));
-  let cat = s.categories.find(c => c.id === product.categoryId);
-  while (cat) { (cat.attributes || []).forEach(a => push(a, `category ${cat.name}`)); cat = cat.parentId ? s.categories.find(c => c.id === cat.parentId) : null; }
-  return out;
-};
 // Specification name registry (SpecificationDefinitions): every name used on a category, product or measurement field,
 // with its most common unit. Used to suggest, canonicalise spelling and catch near-duplicates ("Brixx" vs "Brix").
 const specRegistry = s => {
@@ -417,7 +409,7 @@ const migrateLayered = s => {
     const usedParentFields = new Set(), usedParentRefs = new Set();
     (t.fields || []).forEach(f => {
       const mid = modMap[f.moduleId]; const pf = parent.fields.find(x => x.moduleId === mid && x.type === f.type && norm(x.label) === norm(f.label) && !usedParentFields.has(x.id));
-      if (pf) { usedParentFields.add(pf.id); const patch = {}; ["specId", "specName", "problemBelowId", "problemAboveId", "required", "allowPhotos"].forEach(k => { if ((f[k] ?? null) !== (pf[k] ?? null) && f[k] !== undefined) patch[k] = f[k]; }); if (Object.keys(patch).length) nt.fieldOverrides[pf.id] = patch; }
+      if (pf) { usedParentFields.add(pf.id); const patch = {}; ["specId", "specName", "problemBelowId", "problemAboveId", "problemMismatchId", "required", "allowPhotos"].forEach(k => { if ((f[k] ?? null) !== (pf[k] ?? null) && f[k] !== undefined) patch[k] = f[k]; }); if (Object.keys(patch).length) nt.fieldOverrides[pf.id] = patch; }
       else nt.fields.push({ ...f, moduleId: mid });
     });
     parent.fields.forEach(pf => { if (!usedParentFields.has(pf.id) && !nt.suppressed.includes(pf.moduleId)) nt.suppressed.push(pf.id); });
@@ -484,6 +476,25 @@ const descendantIds = (problems, rootId) => { const kids = problems.filter(p => 
 // ═══════════════════ PDF in the browser (jsPDF from cdnjs) — same sections as the server-side generator ═══════════════════
 const loadScript = src => new Promise((res, rej) => { if (document.querySelector(`script[src="${src}"][data-loaded]`)) return res(); const el = document.createElement("script"); el.src = src; const timer = setTimeout(() => rej(new Error("Loading the PDF library timed out — this sandbox may block scripts from cdnjs.cloudflare.com.")), 10000); el.onload = () => { clearTimeout(timer); el.setAttribute("data-loaded", "1"); res(); }; el.onerror = () => { clearTimeout(timer); rej(new Error("The sandbox blocked loading " + src)); }; document.head.appendChild(el); });
 const ensureJsPdf = async () => { if (!window.jspdf) await loadScript("https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"); if (!window.jspdf?.jsPDF?.API?.autoTable) await loadScript("https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"); return window.jspdf.jsPDF; };
+// Every answer with a specification behind it, judged: List fields against the expected value, Number fields (their
+// average) against the limits. Feeds the report screen and the Parameters section of the PDF.
+const specChecks = (s, insp) => {
+  const product = s.products.find(p => p.id === insp.productId); const t = insp.template; if (!product || !t) return [];
+  const specs = effectiveSpecs(s, product); const values = insp.values || {}; const ppc = insp.sample?.piecesPerCu || product.piecesPerCu;
+  const out = [];
+  [...(t.fields || [])].sort(bySort).forEach(f => {
+    if (f.type === "List") { const c = listCheck(listSpecFor(specs, f.dictionaryId), values[f.id]); if (c) out.push({ fieldId: f.id, label: fieldLabel(f), value: String(values[f.id]), expected: c.expected, ok: c.ok }); return; }
+    if (f.type !== "Number") return;
+    const nums = (values[f.id]?.measurements || []).filter(x => x !== "").map(Number); if (!nums.length) return;
+    const avg = nums.reduce((a, b) => a + b, 0) / nums.length;
+    const wanted = ((f.specName || "").trim() || f.label || "").toLowerCase(); const same = numericSpecs(specs).filter(q => (q.name || "").trim().toLowerCase() === wanted);
+    const spec = (f.specId && specs.find(q => q.id === f.specId)) || same.find(q => specBasis(q) === fieldBasis(f)) || same[0] || null;
+    const lim = limitsFor(spec, f, ppc); if (!hasV(lim.min) && !hasV(lim.max)) return;
+    const ok = !(hasV(lim.min) && avg < Number(lim.min)) && !(hasV(lim.max) && avg > Number(lim.max));
+    out.push({ fieldId: f.id, label: fieldLabel(f), value: `${fmt(avg)}${spec?.unit ? " " + spec.unit : ""}`, expected: specLabel({ min: lim.min, max: lim.max, unit: spec ? spec.unit : "" }) + (fieldBasis(f) === "cu" ? " per CU" : ""), ok });
+  });
+  return out;
+};
 async function buildReportPdf(insp, s) {
   const jsPDF = await ensureJsPdf();
   const settings = settingsOf(s), product = s.products.find(p => p.id === insp.productId) || {}, t = insp.template || { fields: [], modules: [], problemRefs: [], suppressed: [] };
@@ -508,7 +519,8 @@ async function buildReportPdf(insp, s) {
   });
   const remarks = (insp.remarks || []).map(r => { const unit = { PieceCount: "pcs", DirectWeight: "g", WholeUnitCount: "CU" }[r.mode] || ""; const p = r.mode === "Presence" ? null : pct(r, totals); return { problem: pathOf(problems, r.leafId), quantity: r.mode === "Presence" ? "present" : `${r.raw} ${unit}`, pct: p === null ? "—" : `${fmt(p)}%`, source: r.auto ? "measurement" : "reported" }; });
   const answered = (t.fields || []).filter(f => !isSystem(f.type) && insp.values?.[f.id] !== undefined && insp.values?.[f.id] !== "").sort(bySort);
-  const parameters = answered.map(f => { const v = insp.values[f.id]; let txt; if (f.type === "Number") { const nums = (v?.measurements || []).filter(x => x !== "").map(Number); txt = nums.map(fmt).join(" / ") + (nums.length > 1 ? ` — avg ${fmt(nums.reduce((a, b) => a + b, 0) / nums.length)}` : ""); } else txt = Array.isArray(v) ? v.join(", ") : String(v ?? ""); return [fieldLabel(f), txt]; });
+  const checks = specChecks(s, insp);
+  const parameters = answered.map(f => { const v = insp.values[f.id]; let txt; if (f.type === "Number") { const nums = (v?.measurements || []).filter(x => x !== "").map(Number); txt = nums.map(fmt).join(" / ") + (nums.length > 1 ? ` — avg ${fmt(nums.reduce((a, b) => a + b, 0) / nums.length)}` : ""); } else txt = Array.isArray(v) ? v.join(", ") : String(v ?? ""); const c = checks.find(x => x.fieldId === f.id); return c ? [fieldLabel(f), txt, c.expected, c.ok] : [fieldLabel(f), txt]; });
   const photoGroups = []; (t.fields || []).forEach(f => { const ph = asPhotoList((insp.photos || {})[f.id]); if (ph.length) photoGroups.push({ label: f.type === "Photos" ? photoBlockLabel(f, t) : f.label, photos: ph }); }); (insp.remarks || []).forEach(r => { const ph = asPhotoList(r.photos); if (ph.length) photoGroups.push({ label: `Problem: ${pathOf(problems, r.leafId)}`, photos: ph }); });
   const audit = (insp.audit || []).map(a => [a.action, `${fmtTime(a.at)} · ${users[a.userId]?.name || ""}${users[a.userId]?.email ? ` (${users[a.userId].email})` : ""}${a.details ? ` — ${a.details}` : ""}`]);
   const model = {
@@ -1168,13 +1180,57 @@ function Note({ tone: t = "info", children }) {
   return <div className="rounded-xl px-3.5 py-2.5 text-sm mb-3" style={{ background: C.surface, color: C.ink, border: `1px solid ${C.line}`, borderLeft: `3px solid ${fg}` }}>{children}</div>;
 }
 
+// The "report it" mini form shared by out-of-spec measurements and list answers that miss their specification:
+// how many are affected and in which unit, or a single Present when the linked problem has tolerance 0.
+function RaiseForm({ problems, overrides, linkedId, totals, onRaise, intro }) {
+  const lp = problems.find(p => p.id === linkedId);
+  const zero = lp && effTol(problems, overrides || [], lp.id) === 0;
+  const available = { PieceCount: totals.pieces > 0, DirectWeight: totals.weight > 0, WholeUnitCount: totals.cu > 0 };
+  const firstMode = Object.keys(available).find(k => available[k]) || "WholeUnitCount";
+  const [mode, setMode] = useState(firstMode);
+  const [raw, setRaw] = useState("");
+  const unit = mode === "PieceCount" ? "pcs" : mode === "DirectWeight" ? "g" : "CU";
+  return (
+    <div className="rounded-lg p-2 mt-1.5" style={{ background: C.warnBg }}>
+      <p className="text-xs mb-1.5" style={{ color: C.warn }}>{intro} → problem <b>{lp?.name}</b>.{zero ? " Tolerance 0% — presence alone is enough." : " How many are affected and in which unit?"}</p>
+      {zero ? (
+        <button onClick={() => onRaise(linkedId, "Presence", 1)} className="text-xs px-2 py-1 rounded font-medium" style={{ background: C.bad, color: C.onDark }}>Present</button>
+      ) : (
+        <div className="flex gap-1.5 flex-wrap">
+          {[["PieceCount", "pieces"], ["DirectWeight", "grams"], ["WholeUnitCount", "whole CU"]].map(([k, l]) => <button key={k} disabled={!available[k]} onClick={() => setMode(k)} title={available[k] ? "" : "no divisor — fill in the conversion in the sample"} className="text-xs px-2 py-1 rounded" style={{ background: !available[k] ? C.line : mode === k ? C.accent : C.surface, color: !available[k] ? C.muted : mode === k ? C.onDark : C.accent, border: `1px solid ${available[k] ? C.accent : C.line}` }}>{l}</button>)}
+          <input type="number" value={raw} onChange={e => setRaw(e.target.value)} placeholder="how many" className="w-16 text-xs rounded px-2 py-1 outline-none" style={{ ...inp }} />
+          <span className="text-xs self-center" style={{ color: C.muted }}>{unit}</span>
+          <button onClick={() => { if (raw !== "") { onRaise(linkedId, mode, raw); setRaw(""); } }} className="text-xs px-2 py-1 rounded font-medium" style={{ background: C.accent, color: C.onDark }}>Report</button>
+        </div>
+      )}
+    </div>
+  );
+}
+// "Choice from list" with a specification behind it: the field starts empty on purpose (the controller decides, the
+// spec is only a hint), and an answer that differs from the expected value is flagged — with the linked problem's
+// report form when the Head attached one in the form builder, as a plain warning otherwise.
+function ListInput({ f, spec, value, problems, allProblems, overrides, totals, onRaise, raised, picker }) {
+  const check = listCheck(spec, value);
+  const linkedId = linkedProblemId(allProblems || problems, problems, f.problemMismatchId);
+  const lp = linkedId && problems.find(p => p.id === linkedId);
+  const bad = check && !check.ok;
+  return (
+    <div>
+      {picker}
+      {spec && !spec.missing && !bad && <p className="text-[11px] mt-1" style={{ color: check ? C.ok : C.muted }}>{check ? "✓ Matches the specification" : "Specification"}: <b>{spec.value}</b>{spec.source && spec.source !== "product" ? <span style={{ color: C.muted }}> · {spec.source}</span> : null}</p>}
+      {bad && !lp && <div className="rounded-lg px-3 py-1.5 mt-1.5 text-xs" style={{ background: C.warnBg, color: C.warn }}>Doesn't match the specification (expected <b>{check.expected}</b>) — warning only.</div>}
+      {bad && lp && !raised && <RaiseForm problems={problems} overrides={overrides} linkedId={linkedId} totals={totals} onRaise={onRaise} intro={<>Doesn't match the specification (expected <b>{check.expected}</b>)</>} />}
+      {bad && lp && raised && <p className="text-xs mt-1.5" style={{ color: C.ok }}>✓ {lp.name} reported from this field.</p>}
+    </div>
+  );
+}
 function NumberInput({ f, problems, allProblems, overrides, specs, totals, value, onChange, onRaise, raised, piecesPerCu }) {
   const n = f.measurementCount || 1, ms = value?.measurements || Array(n).fill("");
   const belowId = linkedProblemId(allProblems || problems, problems, f.problemBelowId), aboveId = linkedProblemId(allProblems || problems, problems, f.problemAboveId);
   const nums = ms.filter(x => x !== "").map(Number), avg = nums.length ? nums.reduce((a, b) => a + b, 0) / nums.length : null;
   // Specification: explicit (specId) or by name (specName, defaults to field label)
   const wanted = ((f.specName || "").trim() || f.label || "").toLowerCase();
-  const sameName = (specs || []).filter(q => (q.name || "").trim().toLowerCase() === wanted);
+  const sameName = numericSpecs(specs).filter(q => (q.name || "").trim().toLowerCase() === wanted);
   const spec = (f.specId && specs?.find(q => q.id === f.specId)) || sameName.find(q => specBasis(q) === fieldBasis(f)) || sameName[0] || null;
   const byName = spec && !(f.specId && spec.id === f.specId);
   let side = null, ref = null;
@@ -1183,12 +1239,6 @@ function NumberInput({ f, problems, allProblems, overrides, specs, totals, value
   const bad = side !== null;
   const linkedId = side === "below" ? belowId : side === "above" ? aboveId : null;
   const lp = linkedId && problems.find(p => p.id === linkedId);
-  const zero = lp && effTol(problems, overrides || [], lp.id) === 0;
-  const available = { PieceCount: totals.pieces > 0, DirectWeight: totals.weight > 0, WholeUnitCount: totals.cu > 0 };
-  const firstMode = Object.keys(available).find(k => available[k]) || "WholeUnitCount";
-  const [mode, setMode] = useState(firstMode);
-  const [raw, setRaw] = useState("");
-  const unit = mode === "PieceCount" ? "pcs" : mode === "DirectWeight" ? "g" : "CU";
   // "Answer from a list": the Head fixed the allowed values (a colour scale 1…7 in halves, say). Each measurement is a
   // dropdown of those values; the ones outside the specification are named for what they mean (→ Unripe / → Overripe),
   // so the controller sees the threshold before picking. Everything downstream (average, out-of-spec, raising the
@@ -1205,21 +1255,7 @@ function NumberInput({ f, problems, allProblems, overrides, specs, totals, value
       {lim.note && <p className="text-[11px] mt-1" style={{ color: C.muted }}>{lim.note}</p>}
       {avg !== null && <p className="text-xs mt-1.5" style={{ color: C.muted }}>average <b style={{ color: C.ink }}>{fmt(avg)}</b>{ref ? ` · reference ${ref}${byName ? ` (by name “${spec.name}"${spec.source !== "product" ? ", " + spec.source : ""})` : ""}` : (f.problemBelowId || f.problemAboveId) ? <span style={{ color: C.warn }}> · no reference — the product has no specification “{(f.specName || "").trim() || f.label}“ and the field has no min/max</span> : ""}</p>}
       {bad && !lp && <div className="rounded-lg px-3 py-1.5 mt-1.5 text-xs" style={{ background: C.warnBg, color: C.warn }}>Out of spec — warning only.</div>}
-      {bad && lp && !raised && (
-        <div className="rounded-lg p-2 mt-1.5" style={{ background: C.warnBg }}>
-          <p className="text-xs mb-1.5" style={{ color: C.warn }}>Out of spec → problem <b>{lp.name}</b>.{zero ? " Tolerance 0% — presence alone is enough." : " How many are affected and in which unit?"}</p>
-          {zero ? (
-            <button onClick={() => onRaise(linkedId, "Presence", 1)} className="text-xs px-2 py-1 rounded font-medium" style={{ background: C.bad, color: C.onDark }}>Present</button>
-          ) : (
-            <div className="flex gap-1.5 flex-wrap">
-              {[["PieceCount", "pieces"], ["DirectWeight", "grams"], ["WholeUnitCount", "whole CU"]].map(([k, l]) => <button key={k} disabled={!available[k]} onClick={() => setMode(k)} title={available[k] ? "" : "no divisor — fill in the conversion in the sample"} className="text-xs px-2 py-1 rounded" style={{ background: !available[k] ? C.line : mode === k ? C.accent : C.surface, color: !available[k] ? C.muted : mode === k ? C.onDark : C.accent, border: `1px solid ${available[k] ? C.accent : C.line}` }}>{l}</button>)}
-              <input type="number" value={raw} onChange={e => setRaw(e.target.value)} placeholder="how many" className="w-16 text-xs rounded px-2 py-1 outline-none" style={{ ...inp }} />
-              <span className="text-xs self-center" style={{ color: C.muted }}>{unit}</span>
-              <button onClick={() => { if (raw !== "") { onRaise(linkedId, mode, raw); setRaw(""); } }} className="text-xs px-2 py-1 rounded font-medium" style={{ background: C.accent, color: C.onDark }}>Report</button>
-            </div>
-          )}
-        </div>
-      )}
+      {bad && lp && !raised && <RaiseForm problems={problems} overrides={overrides} linkedId={linkedId} totals={totals} onRaise={onRaise} intro="Out of spec" />}
       {raised && <p className="text-xs mt-1.5" style={{ color: C.ok }}>✓ {lp?.name} reported from this field.</p>}
     </div>
   );
@@ -1382,9 +1418,6 @@ function InspectionRunner({ insp, patch, t, problems, product, suppliers, dictio
   const [tab, setTab] = useState(0);
   const [question, setQuestion] = useState(""); const [flagText, setFlagText] = useState(""); const [flagOpen, setFlagOpen] = useState(false); const [askCancel, setAskCancel] = useState(false);
   const [scanPalletIdx, setScanPalletIdx] = useState(null);
-  // Pre-fill "Choice from list" fields from the product's attributes (once, on open); the controller can still change them.
-  useEffect(() => { if (!sctx || !product || !t) return; const attrs = effectiveAttributes(sctx, product); if (!attrs.length) return;
-    patch(prev => { const v = { ...(prev.values || {}) }; let changed = false; (t.fields || []).forEach(f => { if (f.type !== "List" || v[f.id] !== undefined) return; const a = attrs.find(x => x.dictionaryId === f.dictionaryId); if (a && a.value !== "—") { v[f.id] = a.value; changed = true; } }); return changed ? { ...prev, values: v } : prev; }); }, [insp.id]);
   const values = insp.values || {}, remarks = insp.remarks || [], sample = insp.sample, photos = insp.photos || {}, pallets = insp.pallets || [""];
   const set = p => patch(prev => ({ ...prev, ...p }));
   const setV = (id, v) => patch(prev => ({ ...prev, values: { ...(prev.values || {}), [id]: v } }));
@@ -1490,12 +1523,12 @@ function InspectionRunner({ insp, patch, t, problems, product, suppliers, dictio
               {f.type === "Variety" && (effectiveVarieties(sctx, product).length ? <div className="flex flex-wrap gap-1.5">{effectiveVarieties(sctx, product).map(v => <button key={v.id} onClick={() => set({ variety: v.name })} className="text-xs px-3 py-1.5 rounded-full" style={{ background: insp.variety === v.name ? C.accent : C.accentSoft, color: insp.variety === v.name ? C.onDark : C.accent }}>{v.name}</button>)}</div> : <p className="text-xs" style={{ color: C.warn }}>No varieties — add them on the category or the product.</p>)}
               {f.type === "List" && (() => {
                 const d = (dictionaries || sctx?.dictionaries || []).find(x => x.id === f.dictionaryId);
-                const preset = sctx && product ? effectiveAttributes(sctx, product).find(a => a.dictionaryId === f.dictionaryId) : null;
+                const spec = listSpecFor(specs, f.dictionaryId);
                 if (!d) return <p className="text-xs" style={{ color: C.warn }}>No list attached to this field — the Head must pick one in the form builder.</p>;
                 if (!d.items.length) return <p className="text-xs" style={{ color: C.warn }}>The list "{d.name}" is empty — fill it in Dictionaries → Lists.</p>;
                 // Lists are always a dropdown; the search box appears from 11 options up (the Head can attach a 70-item country list).
                 const picker = <SearchSelect value={values[f.id] || ""} onChange={v => setV(f.id, v)} options={d.items.map(o => ({ value: o.value, label: o.value }))} empty={`— choose (${d.items.length} options) —`} placeholder={`Search ${d.name.toLowerCase()}…`} searchFrom={11} />;
-                return <div>{picker}{preset && <p className="text-[11px] mt-1" style={{ color: C.muted }}>Pre-filled from the product profile ({preset.source}: {preset.value}){values[f.id] && values[f.id] !== preset.value ? " — changed on the dock" : ""}.</p>}</div>;
+                return <ListInput f={f} spec={spec} value={values[f.id]} picker={picker} problems={problems} allProblems={sctx?.problems} overrides={t.overrides} totals={totals} onRaise={(leafId, mode, raw) => setRemarks(r => [...r, { id: uid(), leafId, mode, raw, auto: true, fieldId: f.id }])} raised={remarks.some(r => r.auto && r.fieldId === f.id)} />;
               })()}
               {f.type === "Pallet" && <div>{pallets.map((p, i) => <div key={i} className="flex gap-1.5 mb-1.5"><input value={p} onChange={e => setPallets(ps => ps.map((x, j) => j === i ? e.target.value : x))} placeholder={`pallet ${i + 1}`} className="flex-1 text-sm rounded px-2 py-1.5 outline-none font-mono" style={{ ...inp }} /><button onClick={() => setScanPalletIdx(i)} className="text-xs px-2 rounded" style={{ background: C.accentSoft, color: C.accent }} title="scan pallet barcode (SSCC)"><Ic i={ScanLine} s={13} mr={0} /></button>{pallets.length > 1 && <button onClick={() => setPallets(ps => ps.filter((_, j) => j !== i))} className="text-xs px-1" style={{ color: C.muted }}>×</button>}</div>)}<button onClick={() => setPallets(ps => [...ps, ""])} className="text-xs" style={{ color: C.accent }}>+ another pallet</button><DeliveryPallets product={product} insp={insp} onAdd={hus => setPallets(ps => [...ps.filter(Boolean), ...hus.filter(h => !ps.includes(h))])} />
                 {scanPalletIdx !== null && (
@@ -1590,6 +1623,12 @@ function ReportView({ insp, s, onEdit, onAnswer, user, onMarkReference }) {
       {insp.answer && <Note tone="ok">💬 Head's answer: <i>„{insp.answer}"</i></Note>}
       {(insp.missingRequired || []).length > 0 && <Note tone="warn"><Ic i={AlertTriangle} s={13} />Finished with <b>{insp.missingRequired.length} required field{insp.missingRequired.length === 1 ? "" : "s"} empty</b>: {insp.missingRequired.join(", ")}</Note>}
       {t && <ProblemOverview t={t} problems={problems} remarks={insp.remarks || []} totals={totals} />}
+      {(() => { const checks = specChecks(s, insp); if (!checks.length) return null; const miss = checks.filter(c => !c.ok).length; return (
+        <div className="rounded-xl px-3 py-2 mb-3" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
+          <div className="flex items-center justify-between mb-1"><p className="label-sm" style={{ color: C.muted }}>Specification checks</p><span className="text-[11px] px-2 py-0.5 rounded-full" style={{ background: miss ? C.badBg : C.okBg, color: miss ? C.bad : C.ok }}>{miss ? `${miss} of ${checks.length} off spec` : `all ${checks.length} within spec`}</span></div>
+          {checks.map(c => <div key={c.fieldId} className="flex items-center gap-2 text-sm py-1" style={{ borderTop: `1px solid ${C.line}` }}><span className="flex-1 truncate">{c.label}</span><span className="font-medium" style={{ color: c.ok ? C.ok : C.bad }}>{c.value}</span><span className="text-xs whitespace-nowrap" style={{ color: C.muted }}>spec {c.expected}</span><span className="text-xs w-4 text-center" style={{ color: c.ok ? C.ok : C.bad }}>{c.ok ? "✓" : "✗"}</span></div>)}
+        </div>
+      ); })()}
       {(insp.remarks || []).map(r => <div key={r.id} className="flex items-center gap-2 text-sm py-1" style={{ borderTop: `1px solid ${C.line}` }}><span className="flex-1">{pathOf(problems, r.leafId)}{r.auto && <span className="text-xs" style={{ color: C.muted }}> (from measurement)</span>}</span><span className="text-xs" style={{ color: C.muted }}>{r.mode === "Presence" ? "present" : `${r.raw} ${r.mode === "PieceCount" ? "pcs" : r.mode === "DirectWeight" ? "g" : "CU"}`}</span><span>{r.mode === "Presence" ? "⚡" : `${fmt(pct(r, totals))}%`}</span></div>)}
       {insp.comment && <div className="rounded-lg p-3 mt-3 text-sm" style={{ background: C.bg }}>{insp.comment}</div>}
       {(() => { const groups = []; (t?.fields || []).forEach(f => { const ph = asPhotoList((insp.photos || {})[f.id]); if (ph.length) groups.push({ key: f.id, label: f.type === "Photos" ? photoBlockLabel(f, t) : f.label, photos: ph }); }); (insp.remarks || []).forEach(r => { const ph = asPhotoList(r.photos); if (ph.length) groups.push({ key: r.id, label: `Problem: ${pathOf(problems, r.leafId)}`, photos: ph }); }); return <div className="mt-4"><p className="label-sm mb-2">Photos</p>{groups.length ? groups.map(g => <div key={g.key} className="mb-2"><p className="text-xs mb-1" style={{ color: C.muted }}>{g.label}</p><PhotoStrip photos={g.photos} size={72} /></div>) : <p className="text-xs" style={{ color: C.muted }}>No photos in this inspection.</p>}</div>; })()}
@@ -1657,7 +1696,7 @@ const normalize = raw => {
   s.categories = s.categories.map(c => c.inspectionPolicy && !Array.isArray(c.allowedTypeIds) ? { ...c, allowedTypeIds: fromEnum(c.inspectionPolicy), inspectionPolicy: undefined } : c);
   s.products = s.products.map(p => p.inspectionPolicy && !Array.isArray(p.allowedTypeIds) ? { ...p, allowedTypeIds: fromEnum(p.inspectionPolicy), inspectionPolicy: undefined } : p);
 
-  s.categories = (s.categories || []).map(c => ({ ...c, specs: c.specs || [], varieties: c.varieties || [] }));
+  s.categories = (s.categories || []).map(c => attributesToSpecs({ ...c, specs: c.specs || [], varieties: c.varieties || [] }, uid));
   s.problems = (s.problems || []).map(p => ({ ...p, categoryId: p.categoryId || null, productId: p.productId || null }));
   s.categories = s.categories.map(c => ({ ...c, hiddenProblemIds: c.hiddenProblemIds || [], guide: Array.isArray(c.guide) ? c.guide.map(e => ({ ...e, photos: asPhotoList(e.photos) })) : [], hiddenGuideIds: Array.isArray(c.hiddenGuideIds) ? c.hiddenGuideIds : [] }));
   // Reference guide: per-product notes (description + photos) on a problem type, written by the Head, shown to controllers.
@@ -1678,7 +1717,7 @@ const normalize = raw => {
     }
     // Old specifications with a single "target" → minimum (all previous ones were "below = bad")
     const specs = (q.specs || []).map(sp => sp.target !== undefined && sp.min === undefined && sp.max === undefined ? { id: sp.id, name: sp.name, unit: sp.unit, min: sp.target, max: null } : sp);
-    return { ...q, supplierIds: q.supplierIds || [], varieties: q.varieties || [], specs, articleId: q.articleId || "", hiddenProblemIds: q.hiddenProblemIds || [], photos: asPhotoList(q.photos), barcodeCu: q.barcodeCu || q.barcode || "", barcodeTu: q.barcodeTu || "", consumerAppUrl: q.consumerAppUrl || "", isActive: q.isActive !== false, excludedSpecNames: q.excludedSpecNames || [], attributes: q.attributes || [] };
+    return attributesToSpecs({ ...q, supplierIds: q.supplierIds || [], varieties: q.varieties || [], specs, articleId: q.articleId || "", hiddenProblemIds: q.hiddenProblemIds || [], photos: asPhotoList(q.photos), barcodeCu: q.barcodeCu || q.barcode || "", barcodeTu: q.barcodeTu || "", consumerAppUrl: q.consumerAppUrl || "", isActive: q.isActive !== false, excludedSpecNames: q.excludedSpecNames || [] }, uid);
   });
   s.templates = (s.templates || []).map(t => ({ ...t, fields: (t.fields || []).map(f => f.problemId !== undefined && f.problemBelowId === undefined ? (({ problemId, ...rest }) => ({ ...rest, problemBelowId: problemId || null, problemAboveId: null }))(f) : f) }));
   return sortState(migrateLayered(s));
@@ -1988,7 +2027,7 @@ function MLostControls({ s, set, user, row, compact, open, onClose }) {
 function MProductHeader({ s, product, article, name, go }) {
   if (!product) return <div className="rounded-2xl px-3.5 py-3 mb-3" style={{ background: C.warnBg }}><p className="text-sm font-semibold leading-tight">{name || article}</p><p className="text-xs mt-0.5" style={{ color: C.warn }}>Article {article} has no product profile yet.</p></div>;
   const catPath = id => { const c = s.categories.find(x => x.id === id); if (!c) return "uncategorised"; const p = c.parentId && s.categories.find(x => x.id === c.parentId); return p ? `${p.name} › ${c.name}` : c.name; };
-  const photos = asPhotoList(product.photos); const attrs = effectiveAttributes(s, product).slice(0, 4); const hist = recentProblemsFor(s, product.id);
+  const photos = asPhotoList(product.photos); const attrs = listSpecs(effectiveSpecs(s, product)).slice(0, 4); const hist = recentProblemsFor(s, product.id);
   return (
     <button onClick={() => go("catalog", product.id)} className="w-full text-left rounded-2xl p-3.5 mb-3 active:opacity-70" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
       <div className="flex gap-3 items-start">
@@ -2369,7 +2408,7 @@ function MSearch({ s, user, go, onStart, setState, notify, onVisual }) {
   );
 }
 // Everything a controller may want to know about a product, in one scrollable column: hero photo, facts, what's on
-// the docks, recent rejections, announcements, encyclopedia, specs, properties, reference guide, recent inspections.
+// the docks, recent rejections, announcements, encyclopedia, specs (incl. list specs), reference guide, recent inspections.
 // Used by the product profile screen and — via a sheet — from inside a running inspection, so nothing has to be left
 // to look something up.
 // Full-screen photo viewer with swipe / arrows / counter — shared by the product header and every photo row below.
@@ -2465,7 +2504,7 @@ function MProductInfo({ s, user, product, go, setState, embedded }) {
   const anns = s.announcements.filter(a => annMatchesProduct(s, a, product));
   const ref = s.inspections.find(i => i.productId === product.id && i.isReference);
   const photos = asPhotoList(product.photos); const [photoIx, setPhotoIx] = useState(0); const [zoom, setZoom] = useState(null);
-  const attrs = effectiveAttributes(s, product); const hist = recentProblemsFor(s, product.id);
+  const hist = recentProblemsFor(s, product.id);
   const suppliers = (product.supplierIds || []).map(id => (s.suppliers || []).find(x => x.id === id)?.name).filter(Boolean);
   const facts = [["CU / TU", product.cusPerTu], ["g / CU", product.weightPerCu], ["pcs / CU", product.piecesPerCu]].filter(([, v]) => v);
   const catPath = id => { const c = s.categories.find(x => x.id === id); if (!c) return "uncategorised"; const p = c.parentId && s.categories.find(x => x.id === c.parentId); return p ? `${p.name} › ${c.name}` : c.name; };
@@ -2512,8 +2551,7 @@ function MProductInfo({ s, user, product, go, setState, embedded }) {
       {ref && <button onClick={() => go("inspection", ref.id)} className="w-full rounded-xl px-3 py-2 mb-2 text-[13px] text-left flex items-center" style={{ background: C.okBg, color: C.ok }}><Ic i={Star} s={14} />Reference inspection<span className="ml-1" style={{ opacity: .75 }}>· what a good pallet looks like</span><Ic i={ChevronRight} s={14} mr={0} style={{ marginLeft: "auto" }} /></button>}
 
       {guide.length > 0 && <MSection title="Encyclopedia" count={guide.length}>{guide.map((e, ix) => <MEncyclopediaEntry key={e.id} e={e} last={ix === guide.length - 1} />)}</MSection>}
-      {specs.length > 0 && <MSection title="Specifications" count={specs.length}>{specs.map((q, ix) => <MRow key={q.id} k={q.name} v={specLabel(q)} last={ix === specs.length - 1} />)}</MSection>}
-      {attrs.length > 0 && <MSection title="Properties" count={attrs.length}>{attrs.map((a, ix) => <MRow key={a.dictionaryId} k={a.list} v={a.value} last={ix === attrs.length - 1} />)}</MSection>}
+      {specs.length > 0 && <MSection title="Specifications" count={specs.length}>{specs.map((q, ix) => <MRow key={q.id} k={isListSpec(q) ? `${q.name} · from list` : q.name} v={specLabel(q)} last={ix === specs.length - 1} />)}</MSection>}
       {refNotes.length > 0 && <MSection title="Reference guide" count={refNotes.length}>
         {refNotes.map((n, ix) => { const [parent, leaf] = splitPath(n.problemId); return <MGuideNote key={n.id} note={n} parent={parent} leaf={leaf} last={ix === refNotes.length - 1} />; })}
       </MSection>}

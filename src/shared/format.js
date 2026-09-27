@@ -4,6 +4,8 @@ export const hasV = v => v !== null && v !== undefined && v !== "";
 
 // ProductSpecification: MinValue / MaxValue (at least one). The "bad when" direction follows from what is set.
 export const specLabel = q => {
+  // A list spec (resolved via specs.js) reads as its expected value: "Yes".
+  if (q.kind === "list") return hasV(q.value) ? String(q.value) : "—";
   const mn = hasV(q.min), mx = hasV(q.max);
   const core = mn && mx ? `${q.min}–${q.max}` : mn ? `min ${q.min}` : mx ? `max ${q.max}` : "—";
   return `${core} ${q.unit || ""}`.trim();
