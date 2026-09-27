@@ -33,6 +33,15 @@ const DARK = {
 };
 const C = { ...LIGHT };
 const applyTheme = dark => { Object.assign(C, dark ? DARK : LIGHT); C.isDark = !!dark; };
+// Soft elevation: a hairline highlight on top + a drop shadow underneath. Enough to lift tiles off the page
+// without the cartoon "floating block" look.
+const lift = (n = 1) => C.isDark
+  ? n >= 2
+    ? "0 1px 0 rgba(255,255,255,.07) inset, 0 10px 22px rgba(0,0,0,.48), 0 2px 6px rgba(0,0,0,.32)"
+    : "0 1px 0 rgba(255,255,255,.055) inset, 0 6px 16px rgba(0,0,0,.36), 0 1px 3px rgba(0,0,0,.24)"
+  : n >= 2
+    ? "0 1px 0 rgba(255,255,255,.9) inset, 0 8px 18px rgba(24,34,25,.14), 0 2px 5px rgba(24,34,25,.08)"
+    : "0 1px 0 rgba(255,255,255,.75) inset, 0 5px 12px rgba(24,34,25,.10), 0 1px 2px rgba(24,34,25,.06)";
 const THEME_KEY = "qcteam-theme";
 const PHOTO_BG = "#E9EDDE";
 
@@ -144,8 +153,9 @@ const GLOBAL_CSS = () => `
   .qc input[type=checkbox],.qc input[type=radio]{-webkit-appearance:auto;appearance:auto;min-height:0;width:16px;height:16px;padding:0;accent-color:${C.accent};border-radius:4px}
   .qc input:focus,.qc select:focus,.qc textarea:focus{border-color:${C.accent};box-shadow:0 0 0 3px ${C.accentSoft}}
   .qc input::placeholder,.qc textarea::placeholder{color:${C.muted};opacity:.9}
-  .qc button{font:inherit;cursor:pointer;touch-action:manipulation;transition:background-color .12s,color .12s,border-color .12s,transform .06s}
+  .qc button{font:inherit;cursor:pointer;touch-action:manipulation;transition:background-color .12s,color .12s,border-color .12s,box-shadow .12s,transform .06s}
   .qc button:active{transform:translateY(1px)}
+  .qc button.qc-elev:active{box-shadow:0 1px 0 rgba(255,255,255,.03) inset,0 2px 6px rgba(0,0,0,.22)!important}
   .qc button:disabled{cursor:not-allowed;opacity:.6}
   .qc button:focus-visible,.qc a:focus-visible{outline:2px solid ${C.accent};outline-offset:2px}
   .qc .label-sm{font-size:11.5px;font-weight:600;color:${C.muted};letter-spacing:0;text-transform:none}
@@ -701,13 +711,13 @@ function DeadlineBanner({ s, alerts, onOpen, onMessage, now = Date.now() }) {
   return (
     <div className="mb-4">
       <div className="flex items-center gap-2 mb-1.5"><p className="text-xs font-semibold flex items-center" style={{ color: C.bad }}><Ic i={Clock} s={13} />Rejection window closing · {alerts.length}{breached ? ` · ${breached} expired` : ""}</p></div>
-      <div className="flex gap-2 overflow-x-auto pb-1" style={{ scrollbarWidth: "thin", WebkitOverflowScrolling: "touch" }}>
-        {alerts.map(a => { const left = a.deadlineAt - now; const urgent = left <= 3600000; return (
-          <button key={a.key} onClick={() => onOpen(a)} className="text-left rounded-2xl px-3 py-2.5 flex-shrink-0 active:opacity-70" style={{ width: 150, background: left <= 0 ? C.bad : urgent ? C.badBg : C.warnBg, color: left <= 0 ? C.onDark : C.ink, border: `1px solid ${left <= 0 ? C.bad : urgent ? C.bad : C.warn}` }}>
-            <p className="text-lg font-bold tracking-tight leading-none" style={{ color: left <= 0 ? C.onDark : urgent ? C.bad : C.warn, fontVariantNumeric: "tabular-nums" }}>{fmtLeft(left)}</p>
+      <div className="flex gap-2 overflow-x-auto pt-0.5 pb-2.5" style={{ scrollbarWidth: "thin", WebkitOverflowScrolling: "touch" }}>
+        {alerts.map(a => { const left = a.deadlineAt - now; const urgent = left <= 3600000; const expired = left <= 0; const tone = expired || urgent ? C.bad : C.warn; return (
+          <button key={a.key} onClick={() => onOpen(a)} className="qc-elev text-left rounded-2xl px-3 py-2.5 flex-shrink-0" style={{ width: 150, background: C.bg, color: C.ink, border: `1px solid ${C.line}`, borderLeft: `3px solid ${tone}`, boxShadow: lift() }}>
+            <p className="text-lg font-bold tracking-tight leading-none" style={{ color: tone, fontVariantNumeric: "tabular-nums" }}>{fmtLeft(left)}</p>
             <p className="text-xs font-medium mt-1.5 truncate">{a.name}</p>
-            <p className="text-[11px] truncate" style={{ opacity: .75 }}>{a.location}{a.risky ? " · rejected recently" : ""}</p>
-            {onMessage && <div className="flex items-center mt-1 text-[10px]" style={{ opacity: .85, minHeight: 14 }}><span onClick={e => { e.stopPropagation(); onMessage(a); }} className="ml-auto underline">assign</span></div>}
+            <p className="text-[11px] truncate" style={{ color: C.muted }}>{a.location}{a.risky ? " · rejected recently" : ""}</p>
+            {onMessage && <div className="flex items-center mt-1 text-[10px]" style={{ color: C.muted, minHeight: 14 }}><span onClick={e => { e.stopPropagation(); onMessage(a); }} className="ml-auto underline">assign</span></div>}
           </button>
         ); })}
       </div>
@@ -1147,7 +1157,7 @@ const sameDeliveryPallets = (product, insp) => {
   return Object.assign(list, { basis: anchorRow ? "sheet" : mine.length ? "today" : "none", anchorPO });
 };
 
-function Card({ children, style }) { return <section className="rounded-2xl p-5" style={{ background: C.surface, border: `1px solid ${C.line}`, ...style }}>{children}</section>; }
+function Card({ children, style }) { return <section className="rounded-2xl p-5" style={{ background: C.surface, border: `1px solid ${C.line}`, boxShadow: lift(), ...style }}>{children}</section>; }
 
 function Primary({ children, onClick, disabled, small }) { return <button onClick={onClick} disabled={disabled} className={`${small ? "text-xs px-3" : "text-sm px-4"} font-semibold rounded-xl inline-flex items-center justify-center`} style={{ height: small ? 30 : 38, background: disabled ? C.line : C.accent, color: disabled ? C.muted : C.onDark }}>{children}</button>; }
 
@@ -1820,8 +1830,8 @@ function Phone({ children, nav, onNav, page, badges, fab, dark, onTheme, overlay
         {overlay}
         {fab && (
           <div className="absolute flex flex-col items-end gap-3" style={{ right: 18, bottom: real ? `calc(${nav ? 78 : 22}px + env(safe-area-inset-bottom))` : (nav ? 78 : 22), zIndex: 30 }}>
-            <button onClick={fab.scan} className="w-11 h-11 rounded-full flex items-center justify-center text-lg" style={{ background: C.surface, border: `1px solid ${C.line}`, boxShadow: "0 6px 16px rgba(0,0,0,.15)" }} title="Scan code"><Ic i={ScanLine} s={20} mr={0} /></button>
-            <button onClick={fab.add} className="w-14 h-14 rounded-full flex items-center justify-center text-2xl" style={{ background: C.ink, color: C.onDark, boxShadow: "0 8px 20px rgba(0,0,0,.25)" }} title="New inspection"><Ic i={Plus} s={26} mr={0} /></button>
+            <button onClick={fab.scan} className="qc-elev w-11 h-11 rounded-full flex items-center justify-center text-lg" style={{ background: C.surface, border: `1px solid ${C.line}`, boxShadow: lift() }} title="Scan code"><Ic i={ScanLine} s={20} mr={0} /></button>
+            <button onClick={fab.add} className="qc-elev w-14 h-14 rounded-full flex items-center justify-center text-2xl" style={{ background: C.ink, color: C.onDark, boxShadow: lift(2) }} title="New inspection"><Ic i={Plus} s={26} mr={0} /></button>
           </div>
         )}
         {nav && (
@@ -2288,12 +2298,15 @@ function MDashboard({ s, set, user, go, dismissed, setDismissed, onAssign }) {
         const st = sheetStats(s);
         // `compact` blocks sit four-in-a-row on phones (< sm) with smaller type and no icons; from tablet width up they fall
         // back to the same 2-column tiles as everything else.
-        const Tile = ({ label, value, sub, color, icon, onClick, solid, compact }) => (
-          <button onClick={onClick} disabled={!onClick} className={`${compact ? "rounded-xl sm:rounded-2xl p-2 sm:p-3.5 min-h-[64px] sm:min-h-[88px]" : "rounded-2xl p-3.5 min-h-[88px]"} text-left flex flex-col justify-between transition-transform active:scale-95 overflow-hidden`} style={{ background: solid ? color : C.bg, border: `1px solid ${solid ? color : C.line}`, borderLeft: `3px solid ${solid ? color : (color && value > 0 ? color : C.line)}`, color: solid ? C.onDark : C.ink }}>
-            <p className={`${compact ? "text-[10px] sm:text-[11px]" : "text-[11px]"} font-medium leading-tight flex items-center gap-1`} style={{ color: solid ? "rgba(255,255,255,.85)" : C.muted }}>{icon && <span className={compact ? "hidden sm:inline-flex" : "inline-flex"}><Ic i={icon} s={12} mr={0} /></span>}{label}</p>
-            <div className={compact ? "mt-1 sm:mt-1.5" : "mt-1.5"}><p className={`${compact ? "text-[20px] sm:text-[26px]" : "text-[26px]"} leading-none font-semibold`} style={{ color: solid ? C.onDark : (color && value > 0 ? color : C.ink), fontVariantNumeric: "tabular-nums" }}>{value}</p>{sub && <p className={`${compact ? "text-[9px] sm:text-[10px] line-clamp-2 sm:line-clamp-1" : "text-[10px] truncate"} mt-1 leading-tight`} style={{ color: solid ? "rgba(255,255,255,.8)" : C.muted }}>{sub}</p>}</div>
+        const Tile = ({ label, value, sub, color, icon, onClick, compact }) => {
+          const hot = !!(color && (typeof value === "number" ? value > 0 : value));
+          return (
+          <button onClick={onClick} disabled={!onClick} className={`qc-elev ${compact ? "rounded-xl sm:rounded-2xl p-2 sm:p-3.5 min-h-[64px] sm:min-h-[88px]" : "rounded-2xl p-3.5 min-h-[88px]"} text-left flex flex-col justify-between`} style={{ background: C.bg, border: `1px solid ${C.line}`, borderLeft: `3px solid ${hot ? color : C.line}`, color: C.ink, boxShadow: lift() }}>
+            <p className={`${compact ? "text-[10px] sm:text-[11px]" : "text-[11px]"} font-medium leading-tight flex items-center gap-1`} style={{ color: C.muted }}>{icon && <span className={compact ? "hidden sm:inline-flex" : "inline-flex"}><Ic i={icon} s={12} mr={0} /></span>}{label}</p>
+            <div className={compact ? "mt-1 sm:mt-1.5" : "mt-1.5"}><p className={`${compact ? "text-[20px] sm:text-[26px]" : "text-[26px]"} leading-none font-semibold`} style={{ color: hot ? color : C.ink, fontVariantNumeric: "tabular-nums" }}>{value}</p>{sub && <p className={`${compact ? "text-[9px] sm:text-[10px] line-clamp-2 sm:line-clamp-1" : "text-[10px] truncate"} mt-1 leading-tight`} style={{ color: C.muted }}>{sub}</p>}</div>
           </button>
-        );
+          );
+        };
         const Block = ({ title, compact, children }) => <div className="px-5 mb-3"><p className="label-sm mb-1.5" style={{ color: C.muted }}>{title}</p><div className={compact ? "grid grid-cols-4 sm:grid-cols-2 gap-1.5 sm:gap-2" : "grid grid-cols-2 gap-2"}>{children}</div></div>;
         const neededRows = dockRowsLive(s).filter(r => r.blocking && !lostOf(s, r)); const neededSkus = new Set(neededRows.map(r => r.article || r.hu)).size;
         const nowNeeded = st.prio("Now needed");
@@ -2307,7 +2320,7 @@ function MDashboard({ s, set, user, go, dismissed, setDismissed, onAssign }) {
               <Tile label="Awaiting review" value={esc} sub={esc ? "inspections escalated to you" : "nothing escalated"} color={C.warn} icon={HelpCircle} onClick={() => go("head-escalations")} />
               <Tile label="Open flags" value={fl} sub={fl ? "profile issues reported" : "no open flags"} color={C.warn} icon={Flag} onClick={() => go("head-flags")} />
               <Tile label="Notifications" value={unread} sub={unread ? "unread" : "all read"} color={C.accent} icon={Bell} onClick={() => go("notifications")} />
-              <Tile label="Announce" value="+" sub="new announcement to the floor" color={C.accent} icon={Megaphone} onClick={() => go("head-announce")} solid />
+              <Tile label="Announce" value="+" sub="new announcement to the floor" color={C.accent} icon={Megaphone} onClick={() => go("head-announce")} />
             </Block>}
             <Block title="Floor now">
               <Tile label="Needed today" value={neededSkus} sub={neededSkus ? `${neededRows.length} pallet${neededRows.length === 1 ? "" : "s"} block picking` : "nothing blocks picking"} color={C.bad} icon={AlertTriangle} onClick={() => go("priority", "Needed today")} />
