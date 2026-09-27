@@ -1457,10 +1457,19 @@ function DockMapPage({ s, user, openPallet }) {
   );
 }
 
-// Pallet screen for the portal — same facts as the phone sheet (status, HU, location, PO, siblings), with the product
-// profile as a link rather than the first hop. Used when Head (or a Controller on the dock map) clicks a pallet.
+// Pallet screen for the portal — desk layout of the phone sheet: status, HU, location, PO, siblings.
+// Product profile is a link, not the first hop. Inspections start on the phone, not here.
 const palletTime = iso => { const d = new Date(iso); return isNaN(d) ? "" : d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }); };
-function PalletSheet({ s, set, user, row: r, onOpenProduct, onOpenInspection, onPickPallet, onAssign, onStartInspection, onOpenAnnouncements, onOpenComplaints }) {
+function PalletPage({ s, set, user, hu, onBack, onOpenProduct, onOpenInspection, onPickPallet, onAssign, onOpenAnnouncements, onOpenComplaints }) {
+  const r = findPalletRow(s, hu);
+  const [lostNote, setLostNote] = useState(""); const [lostAsk, setLostAsk] = useState(false);
+  useEffect(() => { setLostAsk(false); setLostNote(""); }, [hu]);
+  if (!r) return (
+    <div>
+      <button type="button" onClick={onBack} className="text-sm inline-flex items-center mb-4" style={{ color: C.accent }}><Ic i={ChevronLeft} s={16} />Back</button>
+      <Card><Empty icon={Package} title="Pallet not found" hint="It may already be inspected or off the sheet." /></Card>
+    </div>
+  );
   const product = s.products.find(p => p.articleId === r.article) || productForArticle(s, r.article);
   const done = r.hu ? completedInspectionFor(s, r.hu) : null;
   const lost = lostOf(s, r);
@@ -1470,118 +1479,108 @@ function PalletSheet({ s, set, user, row: r, onOpenProduct, onOpenInspection, on
   const sameArt = r.article ? dockRowsLive(s).filter(x => x.article === r.article && !lostOf(s, x)) : [];
   const others = sameArt.filter(x => !(r.hu && samePallet(x.hu, r.hu)));
   const pos = [...new Set(sameArt.map(x => (x.po || "").trim()).filter(Boolean))];
-  const types = product ? allowedTypes(s, product) : typesOf(s);
   const photos = product ? asPhotoList(product.photos) : [];
   const catPath = id => { const c = s.categories.find(x => x.id === id); if (!c) return "uncategorised"; const p = c.parentId && s.categories.find(x => x.id === c.parentId); return p ? `${p.name} › ${c.name}` : c.name; };
-  const arrivedDay = r.arrived ? dayLabel(r.arrived + "T12:00:00") : "";
+  const arrived = `${r.arrived ? dayLabel(r.arrived + "T12:00:00") : ""}${r.arrivedTime ? ` ${r.arrivedTime}` : ""}`.trim();
   const hist = product ? recentProblemsFor(s, product.id) : { count: 0, problems: [] };
   const compl = complaintsLine(s, r.article);
   const anns = product ? s.announcements.filter(a => annActive(a) && annMatchesProduct(s, a, product)) : [];
-  const [lostNote, setLostNote] = useState(""); const [lostAsk, setLostAsk] = useState(false);
-  const Pill = ({ children, bg, fg, dot }) => <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full inline-flex items-center gap-1.5 whitespace-nowrap" style={{ background: bg, color: fg }}>{dot && <span className="inline-block rounded-full" style={{ width: 6, height: 6, background: dot }} />}{children}</span>;
-  const Fact = ({ k, v, strong }) => <div className="min-w-0"><p className="text-[10px] uppercase tracking-wide" style={{ color: C.muted }}>{k}</p><p className={`${strong ? "text-[17px]" : "text-[13px]"} font-semibold leading-tight truncate`} style={{ fontVariantNumeric: "tabular-nums" }}>{v || "—"}</p></div>;
+  const Pill = ({ children, bg, fg }) => <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap" style={{ background: bg, color: fg }}>{children}</span>;
+  const Fact = ({ k, v }) => <div className="min-w-0"><p className="label-sm mb-0.5">{k}</p><p className="text-sm font-semibold truncate" style={{ fontVariantNumeric: "tabular-nums" }}>{v || "—"}</p></div>;
+  const NoteRow = ({ icon: I, tone, children, onClick }) => {
+    const fg = tone === "ok" ? C.ok : tone === "warn" ? C.warn : C.bad;
+    const bg = tone === "ok" ? C.okBg : tone === "warn" ? C.warnBg : C.badBg;
+    const Tag = onClick ? "button" : "div";
+    return <Tag type={onClick ? "button" : undefined} onClick={onClick} className="w-full text-left flex items-center gap-2 px-3 py-1.5 rounded-lg text-[13px] leading-snug" style={{ background: bg, color: fg }}><Ic i={I} s={13} mr={0} /><span className="min-w-0 flex-1">{children}</span>{onClick && <Ic i={ChevronRight} s={13} mr={0} />}</Tag>;
+  };
   return (
-    <div>
-      <div className="rounded-2xl overflow-hidden mb-3 flex" style={{ background: C.bg, border: `1px solid ${C.line}`, opacity: lost ? .7 : 1 }}>
-        <div className="flex-shrink-0" style={{ width: 5, background: col }} />
-        <div className="flex-1 min-w-0 p-3.5">
-          <div className="flex items-center gap-1.5 flex-wrap mb-2.5">
-            <Pill bg={col + "22"} fg={dockStatusText(status)} dot={col}>{statusLabel}</Pill>
-            {r.blocking && status !== "blocked" && <Pill bg={dockStatusColor("blocked") + "22"} fg={dockStatusColor("blocked")}>Needed today</Pill>}
-            {r.skippable && <Pill bg={C.line} fg={C.muted}>Skippable</Pill>}
-            {lost && <Pill bg={C.line} fg={C.muted}>Lost</Pill>}
-            {r.kind === "blocked" && <Pill bg={C.badBg} fg={C.bad}>Blocked queue</Pill>}
-            {r.kind === "unreported" && <Pill bg={C.badBg} fg={C.bad}>Unreported</Pill>}
-            <span className="ml-auto text-[11px] font-mono" style={{ color: C.muted }}>{r.hu ? `HU …${String(r.hu).slice(-8)}` : "no HU"}</span>
-          </div>
-          <button type="button" onClick={() => product && onOpenProduct && onOpenProduct(product.id)} className="w-full text-left flex items-center gap-3" disabled={!product} style={{ cursor: product ? "pointer" : "default" }}>
-            {photos.length ? <img src={photoSrc(photos[0])} alt="" className="rounded-xl object-cover flex-shrink-0" style={{ width: 60, height: 60, background: PHOTO_BG, border: `1px solid ${C.line}` }} /> : <div className="rounded-xl flex items-center justify-center flex-shrink-0" style={{ width: 60, height: 60, background: C.surface, color: C.muted, border: `1px solid ${C.line}` }}><Ic i={Package} s={24} mr={0} /></div>}
-            <div className="min-w-0 flex-1">
-              <p className="font-semibold leading-tight" style={{ fontSize: 16 }}>{product?.name || r.name || r.article}</p>
-              {product ? <p className="text-[12px] mt-0.5 truncate" style={{ color: C.muted }}>ID {product.articleId} · {catPath(product.categoryId)}{product.isBio ? " · bio" : ""}</p> : <p className="text-[12px] mt-0.5" style={{ color: C.warn }}>Article {r.article} · no product profile yet</p>}
-              {product && <p className="text-[12px] mt-0.5 inline-flex items-center" style={{ color: C.accent }}>Product profile <Ic i={ChevronRight} s={13} mr={0} /></p>}
-            </div>
-          </button>
-          <div className="grid grid-cols-3 gap-2 mt-3 pt-3" style={{ borderTop: `1px solid ${C.line}` }}>
-            <Fact k="Location" v={r.location} strong />
-            <Fact k="Arrived" v={`${arrivedDay}${r.arrivedTime ? ` ${r.arrivedTime}` : ""}`.trim()} />
-            <Fact k="Transporter" v={r.transporter} />
-          </div>
-          <div className="flex items-center gap-1.5 flex-wrap mt-2.5">
-            <span className="text-[11px] px-2 py-0.5 rounded-md inline-flex items-center gap-1" style={{ background: C.surface, border: `1px solid ${C.line}`, color: C.ink }}><span style={{ color: C.muted }}>PO</span><span className="font-mono font-medium">{r.po || "—"}</span></span>
-            {"sortable" in r && <span className="text-[11px] px-2 py-0.5 rounded-md inline-flex items-center gap-1" style={{ background: r.sortable ? C.okBg : C.surface, border: `1px solid ${r.sortable ? "transparent" : C.line}`, color: r.sortable ? C.ok : C.muted }}>{r.sortable ? <Ic i={Check} s={11} mr={0} /> : <Ic i={X} s={11} mr={0} />}{r.sortable ? "Sortable" : "Not sortable"}</span>}
-            {r.cusPerTu != null && r.cusPerTu !== "" && <span className="text-[11px] px-2 py-0.5 rounded-md" style={{ background: C.surface, border: `1px solid ${C.line}`, color: C.muted }}>{r.cusPerTu} CU/TU</span>}
-            {r.deadline && <span className="text-[11px] px-2 py-0.5 rounded-md" style={{ background: C.surface, border: `1px solid ${C.line}`, color: C.muted }}>departure {r.deadline}</span>}
-          </div>
-        </div>
-      </div>
-
-      {lost && <div className="rounded-2xl px-3.5 py-3 mb-3" style={{ background: C.bg, border: `1px dashed ${C.line}` }}>
-        <p className="text-sm font-semibold flex items-center" style={{ color: C.muted }}><Ic i={Search} s={14} />Marked lost · {s.users.find(u => u.id === lost.byUserId)?.name.split(" ")[0] || "?"} · {dayLabel(lost.at)}{lost.at ? `, ${palletTime(lost.at)}` : ""}</p>
-        {lost.note && <p className="text-xs mt-0.5" style={{ color: C.muted }}>{lost.note}</p>}
-        <button onClick={() => markFound(set, r, user)} className="mt-2 text-xs px-3 py-1.5 rounded-lg font-semibold" style={{ background: C.ink, color: C.onDark }}>Found — it's back</button>
-      </div>}
-      {!lost && lostAsk && <div className="rounded-2xl px-3.5 py-3 mb-3" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
-        <p className="text-sm font-semibold mb-1">Mark as lost</p>
-        <p className="text-xs mb-2" style={{ color: C.muted }}>It leaves the queue until someone finds it. Heads get a notification.</p>
-        <input value={lostNote} onChange={e => setLostNote(e.target.value)} placeholder="note (optional) — where did you look?" className="w-full text-sm rounded-xl px-3 py-2 mb-2 outline-none" style={{ ...inp }} />
-        <div className="flex gap-2"><button onClick={() => { markLost(set, r, user, lostNote); setLostAsk(false); setLostNote(""); }} className="text-xs px-3 py-1.5 rounded-lg font-semibold" style={{ background: C.ink, color: C.onDark }}>Mark lost</button><button onClick={() => setLostAsk(false)} className="text-xs px-3 py-1.5 rounded-lg" style={{ border: `1px solid ${C.line}` }}>Cancel</button></div>
-      </div>}
-
-      {done && <div className="rounded-2xl p-3.5 mb-3" style={{ background: C.okBg }}>
-        <p className="text-sm font-medium mb-1 flex items-center" style={{ color: C.ok }}><Ic i={Check} s={14} />Already inspected — the dock sheet hasn't caught up yet</p>
-        <div className="flex items-center gap-2 flex-wrap text-xs" style={{ color: C.ink }}><span className="text-xs font-medium px-2.5 py-1 rounded-full" style={{ background: C.surface, border: `1px solid ${C.line}` }}>{done.result || STATUS[done.status]?.[0]}</span><span>{s.users.find(u => u.id === done.controllerId)?.name.split(" ")[0]} · {dayLabel(done.completedAt)}, {palletTime(done.completedAt)} · {inspType(s, done).name.toLowerCase()}</span></div>
-        {done.comment && <p className="text-xs mt-1" style={{ color: C.muted }}>{done.comment}</p>}
-        {onOpenInspection && <button onClick={() => onOpenInspection(done.id)} className="w-full py-2 rounded-xl text-sm mt-2" style={{ border: `1px solid ${C.line}`, background: C.surface }}>{done.template ? "View report" : "View entry"}</button>}
-      </div>}
-      {al && !lost && <div className="rounded-xl px-3 py-2 mb-2 flex items-start gap-2" style={{ background: C.badBg, color: C.bad }}><Ic i={Clock} s={14} mr={0} style={{ marginTop: 2 }} /><div className="text-[13px] leading-snug"><b>{al.level === "breached" ? "Rejection window expired" : `Rejection window closes in ${Math.max(0, Math.round(al.hoursLeft))} h`}</b><span className="block text-[11px] mt-0.5" style={{ opacity: .85 }}>{al.level === "breached" ? "Rejecting is no longer possible — inspect anyway and note it." : al.risky ? "This product was rejected recently, so it's flagged early." : "Inspect it before the window closes."}</span></div></div>}
-      {hist.count > 0 && <div className="rounded-xl px-3 py-2 mb-2 flex items-start gap-2" style={{ background: C.badBg, color: C.bad }}><Ic i={AlertTriangle} s={14} mr={0} style={{ marginTop: 2 }} /><div className="text-[13px] leading-snug"><b>{hist.count} rejected</b> in 14 days · {hist.problems.slice(0, 3).map(x => `${x.name} ×${x.count}`).join(", ")}{hist.problems.length > 3 ? "…" : ""}</div></div>}
-      {compl && <button type="button" onClick={() => onOpenComplaints && onOpenComplaints()} className="w-full text-left rounded-xl px-3 py-2 mb-2 flex items-start gap-2" style={{ background: C.badBg, color: C.bad }}><Ic i={ThumbsDown} s={14} mr={0} style={{ marginTop: 2 }} /><div className="text-[13px] leading-snug"><b>{compl.count} freshness complaint{compl.count === 1 ? "" : "s"}</b>{compl.sub ? <> · mostly <b>{compl.sub}</b></> : null}{compl.period ? <span style={{ opacity: .8 }}> · {compl.period}</span> : null}</div></button>}
-      {anns.map(a => <button key={a.id} type="button" onClick={() => onOpenAnnouncements && onOpenAnnouncements()} className="w-full text-left rounded-xl px-3 py-2 mb-2 flex items-start gap-2" style={{ background: a.isBlocking ? C.badBg : C.accentSoft, color: C.ink }}><Ic i={Megaphone} s={14} mr={0} style={{ marginTop: 2, color: a.isBlocking ? C.bad : C.accent }} /><span className="min-w-0 text-[13px] leading-snug"><b>{a.title}</b>{a.body ? <span style={{ color: C.muted }}> — {a.body}</span> : null}{a.isBlocking && <span className="block text-[11px] mt-0.5" style={{ color: C.bad }}>Blocking — read it before you inspect</span>}</span></button>)}
-      {draft && <div className="rounded-xl px-3 py-2 mb-2 flex items-start gap-2 text-[13px] leading-snug" style={{ background: C.warnBg, color: C.warn }}><Ic i={Clock} s={14} mr={0} style={{ marginTop: 2 }} /><span><b>{s.users.find(u => u.id === draft.controllerId)?.name.split(" ")[0]}</b> has this pallet in progress ({STATUS[draft.status][0]}){onOpenInspection && <button onClick={() => onOpenInspection(draft.id)} className="ml-2 underline">continue</button>}</span></div>}
-
-      {others.length > 0 && <div className="rounded-2xl px-3.5 py-3 mb-3" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
-        <p className="text-xs font-semibold mb-2" style={{ color: C.muted }}>Same article on the docks · {others.length}</p>
-        {pos.length > 1 && <p className="mb-2 px-2.5 py-1.5 rounded-lg text-[11px] flex items-center" style={{ background: C.warnBg, color: C.warn }}><Ic i={AlertTriangle} s={11} mr={4} />Different PO numbers ({pos.join(", ")}) — likely separate deliveries, one inspection doesn't cover all.</p>}
-        {others.map((x, ix) => { const st = dockStatus(x); return (
-          <button key={x.hu || `${x.article}-${ix}`} type="button" onClick={() => onPickPallet && onPickPallet(x.hu)} className="w-full text-left flex items-center gap-2.5 py-2" style={{ borderBottom: ix === others.length - 1 ? "none" : `1px solid ${C.line}` }}>
-            <span className="inline-block rounded-full flex-shrink-0" style={{ width: 8, height: 8, background: dockStatusColor(st) }} />
-            <span className="flex-1 min-w-0"><span className="block text-sm font-medium">{x.location} <span className="font-normal text-xs" style={{ color: C.muted }}>· HU …{String(x.hu).slice(-8)}</span></span><span className="block text-[11px]" style={{ color: C.muted }}>{DOCK_STATUS.find(d => d[0] === st)?.[1]} · {x.transporter} {x.arrivedTime}{x.po ? ` · PO ${x.po}` : ""}{completedInspectionFor(s, x.hu) ? " · inspected" : ""}</span></span>
-            {onPickPallet && <Ic i={ChevronRight} s={15} mr={0} style={{ color: C.muted }} />}
-          </button>
-        ); })}
-      </div>}
-
-      {product && onStartInspection && !lost && <div className="mb-3">
-        <p className="label-sm mb-1.5" style={{ color: C.muted }}>{done ? "Inspect again" : "Start inspection"}</p>
-        <div className="flex flex-col gap-2">
-          {types.map((t, idx) => <button key={t.id} type="button" onClick={() => onStartInspection(product.id)} className="w-full py-3 rounded-xl text-sm font-medium inline-flex items-center justify-center gap-2" style={idx === 0 ? { background: C.ink, color: C.onDark } : { background: C.surface, color: C.ink, border: `1px solid ${C.line}` }}><span className="inline-block rounded-full" style={{ width: 8, height: 8, background: t.color }} />{t.name} inspection</button>)}
-          {types.length === 0 && <p className="text-[11px] text-center" style={{ color: C.bad }}>{typesOf(s).length ? "No inspection type is allowed for this product." : "No inspection types yet (Forms)."}</p>}
-        </div>
-      </div>}
-
-      <div className="mt-2 flex flex-col gap-1">
-        {user.role === "Head" && onAssign && !lost && <button type="button" onClick={() => onAssign(r)} className="w-full py-2 text-xs inline-flex items-center justify-center" style={{ color: C.accent }}><Ic i={MessageSquare} s={12} />Assign to someone in chat</button>}
-        {!lost && !lostAsk && r.kind !== "unreported" && r.kind !== "lost-only" && <button type="button" onClick={() => setLostAsk(true)} className="w-full py-2 text-xs" style={{ color: C.muted }}>Not on the docks? Mark it lost</button>}
-      </div>
-    </div>
-  );
-}
-function PalletPage({ s, set, user, hu, onBack, onOpenProduct, onOpenInspection, onPickPallet, onAssign, onStartInspection, onOpenAnnouncements, onOpenComplaints }) {
-  const r = findPalletRow(s, hu);
-  if (!r) return (
-    <div>
-      <button type="button" onClick={onBack} className="text-sm inline-flex items-center mb-4" style={{ color: C.accent }}><Ic i={ChevronLeft} s={16} />Back</button>
-      <Card><Empty icon={Package} title="Pallet not found" hint="It may already be inspected or off the sheet." /></Card>
-    </div>
-  );
-  return (
-    <div style={{ maxWidth: 560 }}>
-      <div className="flex items-center gap-2 mb-4">
+    <div style={{ maxWidth: 880 }}>
+      <div className="flex items-center gap-3 mb-4 flex-wrap">
         <button type="button" onClick={onBack} className="text-sm inline-flex items-center" style={{ color: C.accent }}><Ic i={ChevronLeft} s={16} />Back</button>
-        <h1 className="flex-1" style={{ fontSize: 20 }}>Pallet on dock</h1>
+        <h1 className="flex-1">Pallet</h1>
+        <span className="inline-flex items-center gap-1.5 flex-wrap">
+          <Pill bg={col + "22"} fg={dockStatusText(status)}>{statusLabel}</Pill>
+          {r.blocking && status !== "blocked" && <Pill bg={dockStatusColor("blocked") + "22"} fg={dockStatusColor("blocked")}>Needed today</Pill>}
+          {r.skippable && <Pill bg={C.line} fg={C.muted}>Skippable</Pill>}
+          {lost && <Pill bg={C.line} fg={C.muted}>Lost</Pill>}
+          {r.kind === "blocked" && <Pill bg={C.badBg} fg={C.bad}>Blocked queue</Pill>}
+          {r.kind === "unreported" && <Pill bg={C.badBg} fg={C.bad}>Unreported</Pill>}
+        </span>
+        <span className="text-xs font-mono" style={{ color: C.muted }}>{r.hu ? `HU …${String(r.hu).slice(-8)}` : "no HU"}</span>
       </div>
-      <PalletSheet key={r.hu || hu} s={s} set={set} user={user} row={r} onOpenProduct={onOpenProduct} onOpenInspection={onOpenInspection} onPickPallet={onPickPallet} onAssign={onAssign} onStartInspection={onStartInspection} onOpenAnnouncements={onOpenAnnouncements} onOpenComplaints={onOpenComplaints} />
+
+      <Card style={{ padding: 0, overflow: "hidden", opacity: lost ? .75 : 1 }}>
+        <div className="flex" style={{ borderLeft: `4px solid ${col}` }}>
+          <div className="flex-1 min-w-0 px-5 py-4">
+            <div className="flex items-start gap-4">
+              {photos.length ? <img src={photoSrc(photos[0])} alt="" className="rounded-lg object-contain flex-shrink-0" style={{ width: 56, height: 56, background: PHOTO_BG, border: `1px solid ${C.line}` }} /> : <div className="rounded-lg flex items-center justify-center flex-shrink-0" style={{ width: 56, height: 56, background: C.bg, color: C.muted, border: `1px solid ${C.line}` }}><Ic i={Package} s={22} mr={0} /></div>}
+              <div className="min-w-0 flex-1">
+                <div className="flex items-start gap-3">
+                  <div className="min-w-0 flex-1">
+                    <h2 className="truncate" style={{ fontSize: 17 }}>{product?.name || r.name || r.article}</h2>
+                    {product ? <p className="text-xs mt-0.5 truncate" style={{ color: C.muted }}>ID {product.articleId} · {catPath(product.categoryId)}{product.isBio ? " · bio" : ""}</p> : <p className="text-xs mt-0.5" style={{ color: C.warn }}>Article {r.article} · no product profile yet</p>}
+                  </div>
+                  {product && onOpenProduct && <button type="button" onClick={() => onOpenProduct(product.id)} className="text-xs px-2.5 py-1 rounded-lg inline-flex items-center flex-shrink-0" style={{ border: `1px solid ${C.line}`, color: C.accent }}>Product profile <Ic i={ChevronRight} s={12} mr={0} /></button>}
+                </div>
+                <div className="grid gap-3 mt-3" style={{ gridTemplateColumns: "repeat(5, minmax(0, 1fr))" }}>
+                  <Fact k="Location" v={r.location} />
+                  <Fact k="Arrived" v={arrived} />
+                  <Fact k="Transporter" v={r.transporter} />
+                  <Fact k="PO" v={r.po} />
+                  <Fact k="Sortable" v={"sortable" in r ? (r.sortable ? "Yes" : "No") : (r.deadline ? `dep. ${r.deadline}` : null)} />
+                </div>
+                {(r.cusPerTu != null && r.cusPerTu !== "" || r.deadline && "sortable" in r) && (
+                  <p className="text-[11px] mt-2" style={{ color: C.muted }}>{r.cusPerTu != null && r.cusPerTu !== "" ? `${r.cusPerTu} CU/TU` : ""}{r.deadline && "sortable" in r ? `${r.cusPerTu ? " · " : ""}departure ${r.deadline}` : ""}</p>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {(lost || al || hist.count || compl || anns.length || draft || done) && (
+          <div className="px-5 pb-3 flex flex-col gap-1.5" style={{ borderTop: `1px solid ${C.line}`, paddingTop: 12 }}>
+            {lost && <NoteRow icon={Search} tone="warn">Marked lost · {s.users.find(u => u.id === lost.byUserId)?.name.split(" ")[0] || "?"} · {dayLabel(lost.at)}{lost.at ? `, ${palletTime(lost.at)}` : ""}{lost.note ? ` · ${lost.note}` : ""}</NoteRow>}
+            {done && <NoteRow icon={Check} tone="ok" onClick={onOpenInspection ? () => onOpenInspection(done.id) : undefined}><b>Already inspected</b> · {done.result || STATUS[done.status]?.[0]} · {s.users.find(u => u.id === done.controllerId)?.name.split(" ")[0]} · {dayLabel(done.completedAt)}, {palletTime(done.completedAt)} · {inspType(s, done).name.toLowerCase()}{done.comment ? ` · ${done.comment}` : ""}</NoteRow>}
+            {al && !lost && <NoteRow icon={Clock} tone="bad"><b>{al.level === "breached" ? "Rejection window expired" : `Rejection window closes in ${Math.max(0, Math.round(al.hoursLeft))} h`}</b>{al.risky ? " · rejected recently" : ""}</NoteRow>}
+            {hist.count > 0 && <NoteRow icon={AlertTriangle} tone="bad"><b>{hist.count} rejected</b> in 14 days · {hist.problems.slice(0, 3).map(x => `${x.name} ×${x.count}`).join(", ")}{hist.problems.length > 3 ? "…" : ""}</NoteRow>}
+            {compl && <NoteRow icon={ThumbsDown} tone="bad" onClick={onOpenComplaints}><b>{compl.count} freshness complaint{compl.count === 1 ? "" : "s"}</b>{compl.sub ? <> · mostly <b>{compl.sub}</b></> : null}{compl.period ? ` · ${compl.period}` : ""}</NoteRow>}
+            {anns.map(a => <NoteRow key={a.id} icon={Megaphone} tone={a.isBlocking ? "bad" : "warn"} onClick={onOpenAnnouncements}><b>{a.title}</b>{a.body ? ` — ${a.body}` : ""}{a.isBlocking ? " · blocking" : ""}</NoteRow>)}
+            {draft && <NoteRow icon={Clock} tone="warn" onClick={onOpenInspection ? () => onOpenInspection(draft.id) : undefined}><b>{s.users.find(u => u.id === draft.controllerId)?.name.split(" ")[0]}</b> has this pallet in progress ({STATUS[draft.status][0]})</NoteRow>}
+          </div>
+        )}
+
+        {others.length > 0 && (
+          <div className="px-5 pb-4" style={{ borderTop: `1px solid ${C.line}`, paddingTop: 12 }}>
+            <p className="label-sm mb-2">Same article on the docks · {others.length}</p>
+            {pos.length > 1 && <p className="mb-2 text-[11px] flex items-center" style={{ color: C.warn }}><Ic i={AlertTriangle} s={11} mr={4} />Different PO numbers ({pos.join(", ")})</p>}
+            <table className="w-full text-sm">
+              <thead><tr className="text-xs text-left" style={{ color: C.muted }}>{["Location", "HU", "Status", "Arrived", "Transporter", "PO", "Report"].map(h => <th key={h} className="py-1 pr-3 font-medium">{h}</th>)}</tr></thead>
+              <tbody>{others.map(x => { const st = dockStatus(x); return (
+                <tr key={x.hu} onClick={() => onPickPallet && onPickPallet(x.hu)} style={{ borderTop: `1px solid ${C.line}`, cursor: onPickPallet ? "pointer" : "default" }}>
+                  <td className="py-1.5 pr-3 font-medium">{x.location || "—"}</td>
+                  <td className="py-1.5 pr-3 font-mono text-xs" style={{ color: C.muted }}>…{String(x.hu).slice(-8)}</td>
+                  <td className="py-1.5 pr-3 text-xs">{DOCK_STATUS.find(d => d[0] === st)?.[1] || st}</td>
+                  <td className="py-1.5 pr-3 text-xs">{x.arrivedTime || "—"}</td>
+                  <td className="py-1.5 pr-3 text-xs">{x.transporter || "—"}</td>
+                  <td className="py-1.5 pr-3 text-xs">{x.po || "—"}</td>
+                  <td className="py-1.5 text-xs">{completedInspectionFor(s, x.hu) ? <span style={{ color: C.ok }}>inspected</span> : <span style={{ color: C.muted }}>not yet</span>}</td>
+                </tr>
+              ); })}</tbody>
+            </table>
+          </div>
+        )}
+
+        <div className="px-5 py-3 flex items-center gap-2 flex-wrap" style={{ borderTop: `1px solid ${C.line}`, background: C.bg }}>
+          {user.role === "Head" && onAssign && !lost && <button type="button" onClick={() => onAssign(r)} className="text-xs px-2.5 py-1 rounded-lg inline-flex items-center" style={{ border: `1px solid ${C.line}` }}><Ic i={MessageSquare} s={12} />Assign in chat</button>}
+          {lost && <button type="button" onClick={() => markFound(set, r, user)} className="text-xs px-2.5 py-1 rounded-lg font-semibold" style={{ background: C.ink, color: C.onDark }}>Found — it's back</button>}
+          {!lost && !lostAsk && r.kind !== "unreported" && r.kind !== "lost-only" && <button type="button" onClick={() => setLostAsk(true)} className="text-xs px-2.5 py-1 rounded-lg" style={{ color: C.muted, border: `1px solid ${C.line}` }}>Mark lost</button>}
+          {!lost && lostAsk && <>
+            <input value={lostNote} onChange={e => setLostNote(e.target.value)} placeholder="note (optional)" className="text-xs rounded-lg px-2 py-1 outline-none" style={{ ...inp, minHeight: 28, width: 220 }} />
+            <button type="button" onClick={() => { markLost(set, r, user, lostNote); setLostAsk(false); setLostNote(""); }} className="text-xs px-2.5 py-1 rounded-lg font-semibold" style={{ background: C.ink, color: C.onDark }}>Mark lost</button>
+            <button type="button" onClick={() => setLostAsk(false)} className="text-xs px-2 py-1" style={{ color: C.muted }}>Cancel</button>
+          </>}
+        </div>
+      </Card>
     </div>
   );
 }
@@ -4770,7 +4769,7 @@ export default function App() {
       {dataOpen && <DataPanel s={s} set={set} onClose={() => setDataOpen(false)} />}
       {toastMsg && <div className="fixed left-1/2 -translate-x-1/2 text-sm px-4 py-2 rounded-xl" style={{ top: 12, zIndex: 90, background: C.ink, color: C.onDark, boxShadow: "0 8px 20px rgba(0,0,0,.25)" }}>{toastMsg}</div>}
       {newVersion && <div className="fixed left-1/2 -translate-x-1/2 flex items-center gap-3 text-sm px-4 py-2.5 rounded-xl" style={{ top: 12, zIndex: 91, background: C.accent, color: C.onDark, boxShadow: "0 8px 20px rgba(0,0,0,.3)" }}>A new version is live<button onClick={() => location.reload()} className="px-2.5 py-1 rounded-lg font-semibold" style={{ background: C.onDark, color: C.accent }}>Refresh</button></div>}
-      {selPallet && <PalletPage s={s} set={set} user={user} hu={selPallet} onBack={() => setSelPallet(null)} onPickPallet={h => setSelPallet(h)} onOpenProduct={id => { setSelPallet(null); setSelProduct(id); setPage(user.role === "Head" ? "products" : "catalog"); }} onOpenInspection={id => { setSelPallet(null); setOpenInspId(id); setPage("inspections"); }} onAssign={r => { setSelPallet(null); setPendingChatContext({ kind: "pallet", id: r.hu || claimKey(r), label: `${r.name || r.article} · ${r.location || ""}`.trim() }); setPage("messages"); }} onStartInspection={pid => { setSelPallet(null); setPresetProduct(pid); setOpenInspId(null); setPage("inspections"); }} onOpenAnnouncements={() => { setSelPallet(null); setPage("announcements"); }} onOpenComplaints={() => { setSelPallet(null); setPage("complaints"); }} />}
+      {selPallet && <PalletPage s={s} set={set} user={user} hu={selPallet} onBack={() => setSelPallet(null)} onPickPallet={h => setSelPallet(h)} onOpenProduct={id => { setSelPallet(null); setSelProduct(id); setPage(user.role === "Head" ? "products" : "catalog"); }} onOpenInspection={id => { setSelPallet(null); setOpenInspId(id); setPage("inspections"); }} onAssign={r => { setSelPallet(null); setPendingChatContext({ kind: "pallet", id: r.hu || claimKey(r), label: `${r.name || r.article} · ${r.location || ""}`.trim() }); setPage("messages"); }} onOpenAnnouncements={() => { setSelPallet(null); setPage("announcements"); }} onOpenComplaints={() => { setSelPallet(null); setPage("complaints"); }} />}
       {!selPallet && safePage === "dashboard" && (user.role === "Head" ? <Dashboard s={s} user={user} set={set} setPage={setPage} seed={() => set(olaState(), { replace: true })} openPallet={hu => setSelPallet(hu)} onAssign={a => { setPendingChatContext({ kind: "pallet", id: a.hu, label: `${a.name} · ${a.location}` }); setPage("messages"); }} openTodayInspections={() => { setOpenInspId(null); setInspDatePreset("0"); setPage("inspections"); }} /> : <ControllerDashboard s={s} user={user} setPage={setPage} setOpenId={setOpenInspId} openProduct={id => { setSelProduct(id); setPage("products"); }} />)}
       {!selPallet && safePage === "categories" && <CategoriesPage s={s} set={set} onMessage={ctx => { setPendingChatContext(ctx); setPage("messages"); }} onOpenProduct={id => { setSelProduct(id); setPage("products"); }} presetSel={presetCategory} clearPresetSel={() => setPresetCategory(null)} />}
       {!selPallet && safePage === "problems" && <ProblemsPage s={s} set={set} />}
