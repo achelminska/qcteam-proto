@@ -2113,10 +2113,13 @@ function MPalletInfo({ s, set, user, go, hu, onAssign, onStart }) {
   );
 }
 
-function MPriorityList({ s, user, go, priority }) {
+function MPriorityList({ s, user, go, priority, focus }) {
   // "All" is the tile for the whole dock (SKUs / pallets on docks) rather than one priority — it gets its own two tabs
   // instead of a priority filter: the pallets that actually need inspecting, and the ones flagged skippable.
   const isAll = priority === "All";
+  // focus="lost" (the dashboard's Lost tile) lands the reader on the Lost section at the very bottom instead of the top of the list.
+  const lostRef = useRef(null);
+  useEffect(() => { if (focus === "lost" && lostRef.current) { try { lostRef.current.scrollIntoView({ block: "start" }); } catch {} } }, [focus]);
   // "Needed today" is the dock sheet's blocking flag (picking waits for these pallets), not a priority label — it cuts across priorities.
   const isNeeded = priority === "Needed today";
   const [subTab, setSubTab] = useState("regular");
@@ -2197,7 +2200,7 @@ function MPriorityList({ s, user, go, priority }) {
               </button>
               ); })}
           </div>); })}
-        {lostRows.length > 0 && <div className="mt-4" style={{ opacity: .55 }}>
+        {lostRows.length > 0 && <div ref={lostRef} className="mt-4" style={{ opacity: .55, scrollMarginTop: 12 }}>
           <div className="flex items-center gap-2 py-1.5"><p className="text-xs font-semibold flex-1 flex items-center" style={{ color: C.muted }}><Ic i={Search} s={12} />Lost — not findable right now</p><span className="text-[10px] px-1.5 py-0.5 rounded-full" style={{ background: C.bg, color: C.muted, border: `1px solid ${C.line}` }}>{lostRows.length}</span></div>
           {lostRows.map(r => { const m = lostOf(s, r); const by = s.users.find(u => u.id === m.byUserId); return (
             <button key={r.hu} onClick={() => go("palletInfo", r.hu)} className="w-full text-left rounded-2xl px-3.5 py-3 mb-2 active:opacity-60" style={{ background: C.bg, border: `1px dashed ${C.line}` }}>
@@ -2291,7 +2294,9 @@ function MDashboard({ s, set, user, go, dismissed, setDismissed, onAssign }) {
               <Tile compact label="Blocked" value={blockedOpen} sub={blockedOpen ? "waiting for a check" : (bs.notStarted != null || bRows.length ? "queue is clear" : "no blocked sheet yet")} color={C.bad} icon={LockIcon} onClick={() => { setTab("blocked"); try { document.getElementById("qc-dash-tabs")?.scrollIntoView({ behavior: "smooth", block: "start" }); } catch {} }} />
               <Tile compact label="Done today" value={doneToday} sub="by the team" color={C.ok} icon={Check} onClick={() => { setTab("history"); try { document.getElementById("qc-dash-tabs")?.scrollIntoView({ behavior: "smooth", block: "start" }); } catch {} }} />
               <Tile compact label="Unreported" value={unrep} sub={unrep ? "left without a report" : "all reported"} color={C.warn} icon={ShieldAlert} onClick={() => go("unreported")} />
-              <Tile compact label="Lost" value={lostN} sub={lostN ? "not counted above" : "none marked lost"} color={C.muted} icon={Search} onClick={() => go("priority", "All")} />
+              {/* A door only when there is something behind it: dock-sheet losses live at the bottom of the full dock list,
+                  blocked-sheet losses at the bottom of the Blocked pallets tab. With 0 the tile is inert. */}
+              <Tile compact label="Lost" value={lostN} sub={lostN ? "not counted above" : "none marked lost"} color={C.muted} icon={Search} onClick={!lostN ? null : st.lost ? () => go("priority", { priority: "All", focus: "lost" }) : () => { setTab("blocked"); try { document.getElementById("qc-dash-tabs")?.scrollIntoView({ behavior: "smooth", block: "start" }); } catch {} }} />
             </Block>
             <Block title="Dock priorities" compact>
               {["High risk", "High issues", "Late inspection", "Inspection due"].map(l => <Tile compact key={l} label={l} value={st.prio(l)} sub={l === "High risk" ? "rejected before" : l === "High issues" ? "history of remarks" : l === "Late inspection" ? "overdue on dock" : "regular check"} color={PRIORITY[l][0]} onClick={() => go("priority", l)} />)}
@@ -3622,7 +3627,7 @@ export default function App() {
       {page === "search" && <MSearch s={s} user={user} go={go} onStart={(pid, palletNo, typeId) => startInspection(pid, palletNo, false, typeId)} setState={set} notify={notify} onVisual={visualInspection} />}
       {page === "scan" && <MScan key={param || "scan"} s={s} user={user} go={go} onStart={(pid, palletNo, typeId) => startInspection(pid, palletNo, false, typeId)} onVisual={visualInspection} onSkip={skipInspection} setState={set} notify={notify} preset={param} />}
       {page === "history" && <MHistory s={s} user={user} go={go} />}
-      {page === "priority" && <MPriorityList s={s} user={user} go={go} priority={param} />}
+      {page === "priority" && <MPriorityList s={s} user={user} go={go} priority={param && typeof param === "object" ? param.priority : param} focus={param && typeof param === "object" ? param.focus : null} />}
       {page === "blockedInfo" && <MBlockedInfo s={s} set={set} user={user} go={go} itemKey={param} />}
       {page === "palletInfo" && <MPalletInfo s={s} set={set} user={user} go={go} hu={param} onStart={(pid, palletNo, typeId) => startInspection(pid, palletNo, false, typeId)} onAssign={r => { setPendingChatContext({ kind: "pallet", id: r.hu, label: `${r.name || r.article} · ${r.location}` }); go("chat"); }} />}
       {page === "catalog" && <MCatalog key={param || "catalog"} s={s} user={user} go={go} onStart={(pid, palletNo, typeId) => startInspection(pid, palletNo, false, typeId)} setState={set} notify={notify} onVisual={visualInspection} preset={param} />}
