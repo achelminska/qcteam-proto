@@ -63,17 +63,13 @@ export async function drawReportPdf(doc, model, photoData) {
   const tone = model.ok ? OK : BAD, toneSoft = model.ok ? OK_SOFT : BAD_SOFT;
   let y = 0;
 
-  // ── Header: who, what, and the Head's result image on a white tile — the same quiet surface as the rest ──
+  // ── Header: who, what, and the Head's result image — the same quiet surface as the rest ──
   fill(SOFT); doc.rect(0, 0, PAGE_W, 38, "F");
   stroke(LINE); doc.line(0, 38, PAGE_W, 38);
-  let tileLeft = R;
+  // The result image sits straight on the header surface — its own transparency shows the light background through.
   const src = model.icon && photoData ? await transparentIcon(await photoData(model.icon).catch(() => null)) : null;
-  const box = src ? fitWithin(await imagePixels(src), 24, 15) : null;
-  if (box) {
-    const tw = Math.max(box.w + 6, 22), th = 21; tileLeft = R - tw;
-    fill(WHITE); stroke(LINE); doc.roundedRect(tileLeft, 8.5, tw, th, 2.2, 2.2, "FD");
-    try { await addImageNatural(doc, src, tileLeft + (tw - box.w) / 2, 8.5 + (th - box.h) / 2, box.w, box.h); } catch { /* tile stays, words carry the verdict */ }
-  }
+  const box = src ? fitWithin(await imagePixels(src), 30, 20) : null;
+  if (box) { try { await addImageNatural(doc, src, R - box.w, 9 + (20 - box.h) / 2, box.w, box.h); } catch { /* words carry the verdict */ } }
   label(model.company, L, 13, MUTED);
   font("bold", 17, INK); doc.text("Quality inspection report", L, 22.5);
   font("normal", 8.5, MUTED); doc.text(`${model.typeName} inspection · Report no. ${model.id.toUpperCase()} · ${model.inspectedAt}`, L, 29.5);
