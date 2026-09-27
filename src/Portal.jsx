@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, Fragment } from "react";
 import { createSyncer, guardUnload } from "./sync.js";
 import { hasV, specLabel, dayLabel, problemPath, typesOf, typeById, legacyTypeId, inspType, countsAs } from "./shared/format.js";
+import { peopleOnFloor, peopleAtDock, floorWhere, floorVerb, doneTodayCount, doneTodayByUser } from "./shared/floor.js";
 import { readAsDataUrl, keepPhoto } from "./shared/report-images.js";
 import { drawReportPdf } from "./shared/report-pdf.js";
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceArea, ReferenceLine, Legend } from "recharts";
@@ -1265,10 +1266,42 @@ const dockAgeHours = r => { if (!r.arrived) return null; const d = new Date(`${r
 const dockAge = r => { const h = dockAgeHours(r); return h == null ? "unknown" : h > 24 ? "old" : h >= 6 ? "day" : "fresh"; };
 const dockAgeColor = k => { const e = DOCK_AGE.find(x => x[0] === k); return e ? (C.isDark ? e[3] : e[2]) : (C.isDark ? "#4b5560" : "#c3cad3"); };
 const dockUrgent = r => dockStatusRank(dockStatus(r)) <= 2;
+function DockPins({ people, s, size = 22 }) {
+  if (!people.length) return null;
+  const show = people.slice(0, 3);
+  return (
+    <span className="absolute left-1/2 -translate-x-1/2 flex items-center pointer-events-none" style={{ bottom: -6, zIndex: 2 }}>
+      {show.map((p, i) => { const u = s.users.find(x => x.id === p.userId); return (
+        <span key={p.userId} title={`${u?.name || "?"} · ${floorVerb(p)} ${p.productName || "a pallet"}`} style={{ marginLeft: i ? -8 : 0, border: `2px solid ${C.surface}`, borderRadius: "50%", lineHeight: 0, background: C.surface }}><Avatar user={u} size={size} /></span>
+      ); })}
+      {people.length > 3 && <span className="text-[10px] font-semibold ml-0.5" style={{ color: C.ink }}>+{people.length - 3}</span>}
+    </span>
+  );
+}
+function FloorPeopleList({ people, s, user, sel, onPick, compact }) {
+  if (!people.length) return null;
+  return (
+    <div className={compact ? "mt-3" : ""} style={compact ? undefined : { marginBottom: 12 }}>
+      <p className="label-sm mb-1.5" style={{ color: C.muted }}>On the floor · {people.length}</p>
+      <div className={compact ? "" : "rounded-2xl overflow-hidden"} style={compact ? undefined : { background: C.surface, border: `1px solid ${C.line}` }}>
+        {people.map((p, i) => { const u = s.users.find(x => x.id === p.userId); const active = sel === p.dock; return (
+          <button key={p.userId} onClick={() => p.dock != null && onPick(p.dock)} className={`w-full text-left flex items-center gap-2.5 ${compact ? "py-2" : "px-3 py-2.5"}`} style={{ borderTop: i && !compact ? `1px solid ${C.line}` : compact ? `1px solid ${C.line}` : "none", background: active ? C.accentSoft : "transparent" }}>
+            <Avatar user={u} size={compact ? 28 : 26} />
+            <span className="flex-1 min-w-0">
+              <span className="text-sm font-medium">{(u?.name || "?").split(" ")[0]}{u?.id === user?.id ? <span className="ml-1 text-[11px] font-normal" style={{ color: C.accent }}>you</span> : null}</span>
+              <span className="block text-[11px] truncate" style={{ color: C.muted }}>{floorWhere(p)} · {floorVerb(p)} {p.productName || p.hu || "a pallet"}</span>
+            </span>
+          </button>
+        ); })}
+      </div>
+    </div>
+  );
+}
 function DockMapPage({ s, user, openProduct }) {
   const all = dockRowsLive(s); const rows = all.filter(r => !lostOf(s, r)); const lostN = all.length - rows.length;
   const byDock = {}; const other = [];
   rows.forEach(r => { const d = parseDock(r.location); if (d && dockZone(d.n)) (byDock[d.n] = byDock[d.n] || []).push({ ...r, sub: d.sub }); else other.push(r); });
+  const floorPeople = peopleOnFloor(s, [...all, ...blockedRowsLive(s)]);
   const [sel, setSel] = useState(null); const [quick, setQuick] = useState(false);
   // Lens (status / age) and an optional legend filter: bars, counts and the selected dock's list follow both.
   const [mode, setMode] = useState("status"); const [filter, setFilter] = useState(null);
@@ -1284,16 +1317,17 @@ function DockMapPage({ s, user, openProduct }) {
   const BAR_H = 150;
   const acrossArea = Math.min(BAR_H, Math.max(24, Math.round(Math.max((byDock[14] || []).length, (byDock[0] || []).length) / max * BAR_H)));
   // `flip` mirrors the column for the facing row: baseline on top, bar hanging outward (down), labels under it.
-  const DockCol = ({ n, area = BAR_H, flip = false }) => { const arr = vis(byDock[n] || []); const c = counts(arr); const h = arr.length ? Math.min(area, Math.max(8, Math.round(arr.length / max * BAR_H))) : 0; const active = sel === n; const skus = skusOf(arr);
+  const DockCol = ({ n, area = BAR_H, flip = false }) => { const arr = vis(byDock[n] || []); const c = counts(arr); const h = arr.length ? Math.min(area, Math.max(8, Math.round(arr.length / max * BAR_H))) : 0; const active = sel === n; const skus = skusOf(arr); const here = peopleAtDock(floorPeople, n);
     const segs = legend.map(([k]) => c[k] > 0 && <div key={k} style={{ flex: c[k], background: colorOf(k) }} />);
     const base = `2px solid ${C.ink}`;
     const inside = h >= 20;
     const skuTag = arr.length > 0 && <span className="qc-sku absolute left-0 right-0 text-center text-[11px] font-semibold pointer-events-none leading-none" style={inside ? { [flip ? "top" : "bottom"]: h / 2 - 6, color: "#fff", textShadow: "0 1px 2px rgba(0,0,0,.65)" } : { [flip ? "top" : "bottom"]: h + 3, color: C.ink }}>{skus} SKU{skus === 1 ? "" : "s"}</span>;
     return (
-      <button onClick={() => setSel(active ? null : n)} className="qc-dock flex flex-col items-center min-w-0 rounded-xl pt-1.5 pb-2 px-1 transition-colors" style={{ background: active ? C.accentSoft : "transparent", outline: active ? `1px solid ${C.accent}` : "none", cursor: "pointer" }}>
+      <button onClick={() => setSel(active ? null : n)} className="qc-dock flex flex-col items-center min-w-0 rounded-xl pt-1.5 pb-2 px-1 transition-colors relative" style={{ background: active ? C.accentSoft : "transparent", outline: active ? `1px solid ${C.accent}` : "none", cursor: "pointer" }}>
         <div className="w-full px-1.5 flex flex-col relative order-1" style={{ height: area, justifyContent: flip ? "flex-start" : "flex-end", borderTop: flip ? base : "none", borderBottom: flip ? "none" : base }}>
           {h > 0 ? <div className="w-full flex flex-col overflow-hidden" style={{ height: h, borderRadius: flip ? "0 0 4px 4px" : "4px 4px 0 0", flexDirection: flip ? "column-reverse" : "column" }}>{segs}</div> : <div className="w-full" style={{ height: 3, background: C.line, borderRadius: flip ? "0 0 2px 2px" : "2px 2px 0 0" }} />}
           {skuTag}
+          <DockPins people={here} s={s} />
         </div>
         <span className={`text-[13px] font-semibold leading-none ${flip ? "order-first mb-1.5" : "order-2 mt-1.5"}`} style={{ color: active ? C.accent : C.ink }}>{dockLabel(n)}</span>
         <span className={`text-[11px] leading-none ${flip ? "order-3 mt-1.5" : "order-first mb-1.5"}`} style={{ color: arr.length ? C.muted : C.line, fontVariantNumeric: "tabular-nums" }}>{arr.length ? `${arr.length} pallet${arr.length === 1 ? "" : "s"}` : "empty"}</span>
@@ -1322,6 +1356,7 @@ function DockMapPage({ s, user, openProduct }) {
         {all.length > 0 && <button onClick={() => setQuick(q => !q)} className="text-xs px-3 py-1.5 rounded-lg inline-flex items-center gap-1.5" style={{ border: `1px solid ${quick ? C.accent : C.line}`, background: quick ? C.accentSoft : C.surface, color: quick ? C.accent : C.ink }}><Ic i={ListIcon} s={13} mr={0} />Quick list</button>}
       </div>
       {all.length === 0 && <Empty icon={Warehouse} title="No dock data yet" hint="The map fills in as soon as the dock sheet syncs." />}
+      {all.length === 0 && <FloorPeopleList people={floorPeople} s={s} user={user} sel={sel} onPick={d => setSel(sel === d ? null : d)} />}
       {all.length > 0 && <>
         <Card style={{ marginBottom: 12 }}>
           <div className="grid mb-3" style={{ gridTemplateColumns: gridCols }}>
@@ -1347,6 +1382,7 @@ function DockMapPage({ s, user, openProduct }) {
             {other.length > 0 && <button onClick={() => setSel(sel === "other" ? null : "other")} className="ml-auto flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs" style={{ background: sel === "other" ? C.accentSoft : C.bg, border: `1px solid ${sel === "other" ? C.accent : C.line}`, color: sel === "other" ? C.accent : C.ink }}><Ic i={Warehouse} s={13} mr={0} />Other locations <span style={{ color: C.muted }}>· {[...new Set(other.map(r => r.location || "no location"))].slice(0, 4).join(", ")}{new Set(other.map(r => r.location)).size > 4 ? "…" : ""}</span><span className="font-semibold">{other.length}</span></button>}
           </div>
         </Card>
+        <FloorPeopleList people={floorPeople} s={s} user={user} sel={sel} onPick={d => setSel(sel === d ? null : d)} />
         {quick && <Card style={{ marginBottom: 12 }}>
           <div className="flex items-center gap-2 mb-2"><p className="font-medium text-sm flex-1">Quick list · every dock</p><button onClick={() => setQuick(false)} className="text-xs" style={{ color: C.muted }}>close</button></div>
           <table className="text-sm" style={{ minWidth: 360 }}>
@@ -1372,6 +1408,16 @@ function DockMapPage({ s, user, openProduct }) {
             <span className="text-xs flex-1" style={{ color: C.muted }}>· {selRows.length} pallet{selRows.length === 1 ? "" : "s"} · {items.length} SKU{items.length === 1 ? "" : "s"}{selRows.filter(r => r.blocking).length ? ` · ${selRows.filter(r => r.blocking).length} needed today` : ""} · most urgent first</span>
             <button onClick={() => setSel(null)} className="text-xs" style={{ color: C.muted }}>close</button>
           </div>
+          {(() => { const here = sel === "other" ? floorPeople.filter(p => p.dock === "other") : peopleAtDock(floorPeople, sel); if (!here.length) return null; return (
+            <div className="rounded-xl px-3 py-2 mb-3 flex flex-col gap-1.5" style={{ background: C.accentSoft }}>
+              {here.map(p => { const u = s.users.find(x => x.id === p.userId); return (
+                <div key={p.userId} className="flex items-center gap-2 text-sm">
+                  <Avatar user={u} size={22} />
+                  <span><b>{(u?.name || "?").split(" ")[0]}</b> is {floorVerb(p)} {p.productName || p.hu || "a pallet"} here</span>
+                </div>
+              ); })}
+            </div>
+          ); })()}
           {items.length === 0 ? <p className="text-xs py-3" style={{ color: C.muted }}>Nothing standing here right now.</p> : <table className="w-full text-sm">
             <thead><tr className="text-xs text-left" style={{ color: C.muted }}>{["Product", "Pallets", sel === "other" ? "Location" : "Spot", "Status", "Article", "Arrived", "Transporter", "PO", "Report"].map(h => <th key={h} className="py-1.5 pr-3 font-medium" style={{ borderBottom: `1px solid ${C.line}` }}>{h}</th>)}</tr></thead>
             <tbody>{items.map(it => <tr key={it.key} style={{ borderBottom: `1px solid ${C.line}` }}>
@@ -1396,7 +1442,7 @@ function DockMapPage({ s, user, openProduct }) {
 // What the floor looks like right now, for the Head in the office: docks by priority, the blocked queue by state, who has
 // what, lost pallets, and how fresh the sheets are. Same numbers the phones show — one source (the shared state).
 const PRIO_ORDER = ["Now needed", "High risk", "High issues", "Late inspection", "Inspection due"];
-const floorStats = (s, now = Date.now()) => { const today = new Date().toISOString().slice(0, 10);
+const floorStats = (s, now = Date.now()) => {
   const dockAll = dockRowsLive(s); const dock = dockAll.filter(r => !lostOf(s, r)); const dockLost = dockAll.length - dock.length;
   const prio = Object.fromEntries(PRIO_ORDER.map(k => [k, dock.filter(r => r.priority === k).length]));
   const skippable = dock.filter(r => r.skippable).length; const blocking = dock.filter(r => r.blocking).length;
@@ -1410,16 +1456,15 @@ const floorStats = (s, now = Date.now()) => { const today = new Date().toISOStri
     const claims = Object.entries(s.palletClaims || {}).filter(([, c]) => c.userId === u.id);
     const mine = claims.map(([k, c]) => { const row = [...dockAll, ...blockedRowsLive(s)].find(r => claimKey(r) === k); return row ? { ...row, claim: c } : null; }).filter(Boolean).filter(r => !lostOf(s, r));
     const inProgress = s.inspections.filter(i => i.controllerId === u.id && ["Draft", "PendingReview"].includes(i.status));
-    const doneToday = s.inspections.filter(i => i.controllerId === u.id && i.status === "Completed" && (i.completedAt || "").slice(0, 10) === today);
     const lastAt = [...claims.map(([, c]) => c.at), ...s.inspections.filter(i => i.controllerId === u.id).map(i => i.completedAt || i.startedAt)].filter(Boolean).sort().slice(-1)[0] || null;
-    return { user: u, taken: mine.filter(r => r.claim.status === "taken"), inProgress, doneToday: doneToday.length, lastAt };
+    return { user: u, taken: mine.filter(r => r.claim.status === "taken"), inProgress, doneToday: doneTodayByUser(s, u.id, now), lastAt };
   }).sort((a, b) => (b.lastAt || "").localeCompare(a.lastAt || ""));
   const alerts = computeDeadlineAlerts(s, now);
-  return { dock, dockLost, prio, skippable, blocking, skus: new Set(dock.map(r => r.article)).size, bl, stacked, stackedRows, lostOpen, people, alerts, fresh: sheetFreshness(s), doneToday: s.inspections.filter(i => i.status === "Completed" && (i.completedAt || "").slice(0, 10) === today).length, unreported: unreportedStats(s, now) };
+  return { dock, dockLost, prio, skippable, blocking, skus: new Set(dock.map(r => r.article)).size, bl, stacked, stackedRows, lostOpen, people, alerts, fresh: sheetFreshness(s), doneToday: doneTodayCount(s, now), unreported: unreportedStats(s, now) };
 };
 const agoShort = t => { if (!t) return "—"; const m = Math.round((Date.now() - new Date(t).getTime()) / 60000); return m < 1 ? "now" : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : fmtTime(t); };
 
-function Dashboard({ s, setPage, seed, user, openProduct, onAssign, set }) {
+function Dashboard({ s, setPage, seed, user, openProduct, onAssign, set, openTodayInspections }) {
   const [prioSel, setPrioSel] = useState(null); const [blSel, setBlSel] = useState(null);
   const [now, setNow] = useState(Date.now()); useEffect(() => { const id = setInterval(() => setNow(Date.now()), 30000); return () => clearInterval(id); }, []);
   const f = floorStats(s, now);
@@ -1510,7 +1555,8 @@ function Dashboard({ s, setPage, seed, user, openProduct, onAssign, set }) {
         </table>}
       </Card>
 
-      <div className="grid grid-cols-4 gap-3 mb-3">
+      <div className="grid gap-3 mb-3" style={{ gridTemplateColumns: "repeat(5, 1fr)" }}>
+        <button onClick={() => openTodayInspections ? openTodayInspections() : setPage("inspections")} className="rounded-2xl p-4 text-left" style={{ background: C.surface, border: `1px solid ${C.line}`, borderLeft: `3px solid ${f.doneToday ? C.ok : C.line}` }}><p className="text-xs" style={{ color: C.muted }}>Inspections today</p><p className="text-[26px] leading-tight font-semibold mt-0.5" style={{ color: f.doneToday ? C.ok : C.ink }}>{f.doneToday}</p><p className="text-[11px]" style={{ color: C.muted }}>by the team</p></button>
         {[["Awaiting Head", s.inspections.filter(i => i.status === "PendingReview").length, "inspections"], ["Open flags", s.flags.filter(f => f.status === "Open").length, "flags"], ["Unread", s.notifications.filter(n => n.userId === user.id && !n.readAt).length, "notifications"], ["Products", s.products.length, "products"]].map(([l, v, pg]) => (
           <button key={l} onClick={() => setPage(pg)} className="rounded-2xl p-4 text-left" style={{ background: C.surface, border: `1px solid ${C.line}`, borderLeft: `3px solid ${v > 0 && l !== "Products" ? C.warn : C.line}` }}><p className="text-xs" style={{ color: C.muted }}>{l}</p><p className="text-[26px] leading-tight font-semibold mt-0.5" style={{ color: v > 0 && l !== "Products" ? C.warn : C.ink }}>{v}</p></button>
         ))}
@@ -3385,10 +3431,11 @@ function ReportView({ insp, s, onEdit, onAnswer, user, onMarkReference }) {
 }
 
 // ═══════════════════ PAGE: Inspections (list + new + details) ═══════════════════
-function InspectionsPage({ s, set, user, notify, openId, setOpenId, preset, clearPreset }) {
+function InspectionsPage({ s, set, user, notify, openId, setOpenId, preset, clearPreset, datePreset, clearDatePreset }) {
   const [newProduct, setNewProduct] = useState(preset || "");
   useEffect(() => { if (preset) { setNewProduct(preset); clearPreset(); } }, [preset]); const [filter, setFilter] = useState("all"); const [editing, setEditing] = useState(false); const [peek, setPeek] = useState(false); useEffect(() => { setPeek(false); }, [openId]);
-  const [q, setQ] = useState(""); const [adv, setAdv] = useState({ range: "all", result: "", supplier: "", controller: "", category: "", from: "", to: "", code: "", packFrom: "", packTo: "" }); const [advOpen, setAdvOpen] = useState(false);
+  const [q, setQ] = useState(""); const [adv, setAdv] = useState({ range: datePreset || "all", result: "", supplier: "", controller: "", category: "", from: "", to: "", code: "", packFrom: "", packTo: "" }); const [advOpen, setAdvOpen] = useState(!!datePreset);
+  useEffect(() => { if (datePreset) { setAdv(x => ({ ...x, range: datePreset })); setAdvOpen(true); setOpenId(null); clearDatePreset && clearDatePreset(); } }, [datePreset]);
   const matchAdv = i => {
     const p = s.products.find(x => x.id === i.productId); const when = i.completedAt || i.startedAt || "";
     if (q.trim() && !((p?.name || "") + " " + (p?.articleId || "")).toLowerCase().includes(q.trim().toLowerCase())) return false;
@@ -4500,6 +4547,7 @@ export default function App() {
     return () => window.removeEventListener("popstate", onPop);
   }, []);
   const [presetProduct, setPresetProduct] = useState("");
+  const [inspDatePreset, setInspDatePreset] = useState("");
   const [productsQuery, setProductsQuery] = useState("");
   const [presetCategory, setPresetCategory] = useState(null);
   const [pendingChatContext, setPendingChatContext] = useState(null);
@@ -4536,7 +4584,7 @@ export default function App() {
       {dataOpen && <DataPanel s={s} set={set} onClose={() => setDataOpen(false)} />}
       {toastMsg && <div className="fixed left-1/2 -translate-x-1/2 text-sm px-4 py-2 rounded-xl" style={{ top: 12, zIndex: 90, background: C.ink, color: C.onDark, boxShadow: "0 8px 20px rgba(0,0,0,.25)" }}>{toastMsg}</div>}
       {newVersion && <div className="fixed left-1/2 -translate-x-1/2 flex items-center gap-3 text-sm px-4 py-2.5 rounded-xl" style={{ top: 12, zIndex: 91, background: C.accent, color: C.onDark, boxShadow: "0 8px 20px rgba(0,0,0,.3)" }}>A new version is live<button onClick={() => location.reload()} className="px-2.5 py-1 rounded-lg font-semibold" style={{ background: C.onDark, color: C.accent }}>Refresh</button></div>}
-      {safePage === "dashboard" && (user.role === "Head" ? <Dashboard s={s} user={user} set={set} setPage={setPage} seed={() => set(olaState(), { replace: true })} openProduct={id => { setSelProduct(id); setPage("products"); }} onAssign={a => { setPendingChatContext({ kind: "pallet", id: a.hu, label: `${a.name} · ${a.location}` }); setPage("messages"); }} /> : <ControllerDashboard s={s} user={user} setPage={setPage} setOpenId={setOpenInspId} openProduct={id => { setSelProduct(id); setPage("products"); }} />)}
+      {safePage === "dashboard" && (user.role === "Head" ? <Dashboard s={s} user={user} set={set} setPage={setPage} seed={() => set(olaState(), { replace: true })} openProduct={id => { setSelProduct(id); setPage("products"); }} onAssign={a => { setPendingChatContext({ kind: "pallet", id: a.hu, label: `${a.name} · ${a.location}` }); setPage("messages"); }} openTodayInspections={() => { setOpenInspId(null); setInspDatePreset("0"); setPage("inspections"); }} /> : <ControllerDashboard s={s} user={user} setPage={setPage} setOpenId={setOpenInspId} openProduct={id => { setSelProduct(id); setPage("products"); }} />)}
       {safePage === "categories" && <CategoriesPage s={s} set={set} onMessage={ctx => { setPendingChatContext(ctx); setPage("messages"); }} onOpenProduct={id => { setSelProduct(id); setPage("products"); }} presetSel={presetCategory} clearPresetSel={() => setPresetCategory(null)} />}
       {safePage === "problems" && <ProblemsPage s={s} set={set} />}
       {safePage === "products" && <ProductsPage s={s} set={set} sel={selProduct} setSel={setSelProduct} presetFilter={productsQuery} clearPreset={() => setProductsQuery("")} onMessage={ctx => { setPendingChatContext(ctx); setPage("messages"); }} onOpenInspection={id => { setOpenInspId(id); setPage("inspections"); }} onOpenCategory={id => { setPresetCategory(id); setPage("categories"); }} />}
@@ -4548,7 +4596,7 @@ export default function App() {
       {safePage === "complaints" && <ComplaintsPage s={s} set={set} user={user} openProduct={id => { setSelProduct(id); setPage(user.role === "Head" ? "products" : "catalog"); }} />}
       {safePage === "docks" && <DockMapPage s={s} user={user} openProduct={id => { setSelProduct(id); setPage(user.role === "Head" ? "products" : "catalog"); }} />}
       {safePage === "unreported" && <UnreportedPalletsPage s={s} set={set} user={user} setSel={setSelProduct} setPage={setPage} />}
-      {safePage === "inspections" && <InspectionsPage s={s} set={set} user={user} notify={notify} openId={openInspId} setOpenId={setOpenInspId} preset={presetProduct} clearPreset={() => setPresetProduct("")} />}
+      {safePage === "inspections" && <InspectionsPage s={s} set={set} user={user} notify={notify} openId={openInspId} setOpenId={setOpenInspId} preset={presetProduct} clearPreset={() => setPresetProduct("")} datePreset={inspDatePreset} clearDatePreset={() => setInspDatePreset("")} />}
       {safePage === "catalog" && <CatalogPage s={s} set={set} user={user} notify={notify} onStartInspection={pid => { setPresetProduct(pid); setOpenInspId(null); setPage("inspections"); }} />}
       {safePage === "flags" && <FlagsPage s={s} set={set} user={user} />}
       {safePage === "notifications" && <NotificationsPage s={s} set={set} user={user} setPage={setPage} setOpenId={setOpenInspId} setSelProduct={setSelProduct} />}
