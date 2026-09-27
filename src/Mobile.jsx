@@ -3340,7 +3340,7 @@ function MDocks({ s, user, go }) {
         {all.length === 0 && <Empty icon={Warehouse} title="No dock data yet" hint="The map fills in as soon as the dock sheet syncs." />}
         {all.length === 0 && <MFloorPeople people={floorPeople} s={s} user={user} sel={sel} onPick={d => setSel(sel === d ? null : d)} />}
         {all.length > 0 && <>
-          <div className="rounded-2xl px-2 pt-2 pb-2.5" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
+          <div className="qc-tile rounded-2xl px-2 pt-2 pb-2.5" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
             <div className="grid mb-1.5" style={{ gridTemplateColumns: gridCols }}>
               <div className="flex items-center gap-1 justify-center text-[10px] font-medium rounded-md py-0.5" style={{ gridColumn: `1 / span ${DOCK_CHILLED.length}`, background: C.surface, color: C.accent }}><Ic i={Snowflake} s={11} mr={0} />Chilled</div>
               <span />
