@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, Fragment } from "react";
 import { createSyncer, guardUnload } from "./sync.js";
-import { hasV, specLabel, dayLabel, problemPath, typesOf, typeById, legacyTypeId, inspType, countsAs } from "./shared/format.js";
+import { hasV, specLabel, dayLabel, problemPath, typesOf, typeById, legacyTypeId, inspType, countsAs, listCheck } from "./shared/format.js";
 import { peopleOnFloor, peopleAtDock, floorWhere, floorVerb, doneTodayCount, doneTodayByUser } from "./shared/floor.js";
 import { readAsDataUrl, keepPhoto } from "./shared/report-images.js";
 import { drawReportPdf } from "./shared/report-pdf.js";
@@ -186,7 +186,7 @@ const linkedProblemId = (all, problems, id) => {
   const twin = problems.find(p => p.name === src.name && !problems.some(k => k.parentId === p.id) && ((p.parentId ? problems.find(k => k.id === p.parentId)?.name : null) === (srcParent ? srcParent.name : null)));
   return twin ? twin.id : id;
 };
-const withLinkedProblems = (s, problems, t) => { if (!t) return problems; const have = new Set(problems.map(p => p.id)); const out = [...problems]; const addChain = id => { let n = s.problems.find(p => p.id === id); while (n && !have.has(n.id)) { have.add(n.id); out.push(n); n = n.parentId ? s.problems.find(p => p.id === n.parentId) : null; } }; (t.fields || t.allFields || []).forEach(f => { if (f.type === "Number") { if (f.problemBelowId) addChain(linkedProblemId(s.problems, problems, f.problemBelowId)); if (f.problemAboveId) addChain(linkedProblemId(s.problems, problems, f.problemAboveId)); } }); return out; };
+const withLinkedProblems = (s, problems, t) => { if (!t) return problems; const have = new Set(problems.map(p => p.id)); const out = [...problems]; const addChain = id => { let n = s.problems.find(p => p.id === id); while (n && !have.has(n.id)) { have.add(n.id); out.push(n); n = n.parentId ? s.problems.find(p => p.id === n.parentId) : null; } }; (t.fields || t.allFields || []).forEach(f => { if (f.type === "Number") { if (f.problemBelowId) addChain(linkedProblemId(s.problems, problems, f.problemBelowId)); if (f.problemAboveId) addChain(linkedProblemId(s.problems, problems, f.problemAboveId)); } if (f.type === "List" && f.problemMismatchId) addChain(linkedProblemId(s.problems, problems, f.problemMismatchId)); }); return out; };
 const scopeTag = (p, s) => p.productId ? `product: ${s.products.find(x => x.id === p.productId)?.name ?? "?"}` : p.categoryId ? `category ${s.categories.find(x => x.id === p.categoryId)?.name ?? "?"}` : null;
 // Suggestions: problem names used in OTHER categories/products (not this scope, not global) that aren't already visible here.
 const problemSuggestions = (s, scope, visible) => {
@@ -360,7 +360,7 @@ const migrateLayered = s => {
     const usedParentFields = new Set(), usedParentRefs = new Set();
     (t.fields || []).forEach(f => {
       const mid = modMap[f.moduleId]; const pf = parent.fields.find(x => x.moduleId === mid && x.type === f.type && norm(x.label) === norm(f.label) && !usedParentFields.has(x.id));
-      if (pf) { usedParentFields.add(pf.id); const patch = {}; ["specId", "specName", "problemBelowId", "problemAboveId", "required", "allowPhotos"].forEach(k => { if ((f[k] ?? null) !== (pf[k] ?? null) && f[k] !== undefined) patch[k] = f[k]; }); if (Object.keys(patch).length) nt.fieldOverrides[pf.id] = patch; }
+      if (pf) { usedParentFields.add(pf.id); const patch = {}; ["specId", "specName", "problemBelowId", "problemAboveId", "problemMismatchId", "required", "allowPhotos"].forEach(k => { if ((f[k] ?? null) !== (pf[k] ?? null) && f[k] !== undefined) patch[k] = f[k]; }); if (Object.keys(patch).length) nt.fieldOverrides[pf.id] = patch; }
       else nt.fields.push({ ...f, moduleId: mid });
     });
     parent.fields.forEach(pf => { if (!usedParentFields.has(pf.id) && !nt.suppressed.includes(pf.moduleId)) nt.suppressed.push(pf.id); });
@@ -446,7 +446,7 @@ async function buildReportPdf(insp, s) {
   });
   const remarks = (insp.remarks || []).map(r => { const unit = { PieceCount: "pcs", DirectWeight: "g", WholeUnitCount: "CU" }[r.mode] || ""; const p = r.mode === "Presence" ? null : pct(r, totals); return { problem: pathOf(problems, r.leafId), quantity: r.mode === "Presence" ? "present" : `${r.raw} ${unit}`, pct: p === null ? "—" : `${fmt(p)}%`, source: r.auto ? "measurement" : "reported" }; });
   const answered = (t.fields || []).filter(f => !isSystem(f.type) && insp.values?.[f.id] !== undefined && insp.values?.[f.id] !== "").sort(bySort);
-  const parameters = answered.map(f => { const v = insp.values[f.id]; let txt; if (f.type === "Number") { const nums = (v?.measurements || []).filter(x => x !== "").map(Number); txt = nums.map(fmt).join(" / ") + (nums.length > 1 ? ` — avg ${fmt(nums.reduce((a, b) => a + b, 0) / nums.length)}` : ""); } else txt = Array.isArray(v) ? v.join(", ") : String(v ?? ""); return [fieldLabel(f), txt]; });
+  const parameters = answered.map(f => { const v = insp.values[f.id]; let txt; if (f.type === "Number") { const nums = (v?.measurements || []).filter(x => x !== "").map(Number); txt = nums.map(fmt).join(" / ") + (nums.length > 1 ? ` — avg ${fmt(nums.reduce((a, b) => a + b, 0) / nums.length)}` : ""); } else txt = Array.isArray(v) ? v.join(", ") : String(v ?? ""); if (f.type === "List") { const c = listCheck(effectiveAttributes(s, product).find(a => a.dictionaryId === f.dictionaryId), v); if (c) return [fieldLabel(f), txt, c.expected, c.ok]; } return [fieldLabel(f), txt]; });
   const photoGroups = []; (t.fields || []).forEach(f => { const ph = asPhotoList((insp.photos || {})[f.id]); if (ph.length) photoGroups.push({ label: f.type === "Photos" ? photoBlockLabel(f, t) : f.label, photos: ph }); }); (insp.remarks || []).forEach(r => { const ph = asPhotoList(r.photos); if (ph.length) photoGroups.push({ label: `Problem: ${pathOf(problems, r.leafId)}`, photos: ph }); });
   const audit = (insp.audit || []).map(a => [a.action, `${fmtTime(a.at)} · ${users[a.userId]?.name || ""}${users[a.userId]?.email ? ` (${users[a.userId].email})` : ""}${a.details ? ` — ${a.details}` : ""}`]);
   const model = {
@@ -1746,7 +1746,7 @@ function CategoriesPage({ s, set, onMessage, onOpenProduct, presetSel, clearPres
       {cat && (
         <Card style={{ marginTop: 16 }}>
           <p className="font-medium text-sm mb-1">Attributes from lists: {cat.name}</p>
-          <AttributeForm s={s} own={cat.attributes || []} inherited={cat.parentId ? effectiveAttributes(s, { categoryId: cat.parentId, attributes: [] }) : []} onSet={a => patchCat({ attributes: [...(cat.attributes || []).filter(x => x.dictionaryId !== a.dictionaryId), a] })} onRemove={did => patchCat({ attributes: (cat.attributes || []).filter(x => x.dictionaryId !== did) })} hint="A value set here is inherited by every product in the category and pre-filled in any form field bound to the same list. A product can override it." />
+          <AttributeForm s={s} own={cat.attributes || []} inherited={cat.parentId ? effectiveAttributes(s, { categoryId: cat.parentId, attributes: [] }) : []} onSet={a => patchCat({ attributes: [...(cat.attributes || []).filter(x => x.dictionaryId !== a.dictionaryId), a] })} onRemove={did => patchCat({ attributes: (cat.attributes || []).filter(x => x.dictionaryId !== did) })} hint="A value set here is inherited by every product in the category and pre-filled in any form field bound to the same list. The form flags an answer that differs. A product can override it." />
         </Card>
       )}
       {cat && !(cat.varieties || []).length && !varOpen && <button onClick={() => setVarOpen(true)} className="text-xs mt-3" style={{ color: C.accent }}>+ add a variety list for this category (optional)</button>}
@@ -2019,7 +2019,7 @@ function PrintReport({ insp, s, onClose }) {
         </>}
         {fieldsAnswered.length > 0 && <>
           <h2>Parameters</h2>
-          <table><tbody>{fieldsAnswered.map(f => <tr key={f.id}><th style={{ width: "30%" }}>{fieldLabel(f)}</th><td>{valStr(f, insp.values[f.id])}{f.type === "Number" && f.measurementCount > 1 && (() => { const nums = (insp.values[f.id]?.measurements || []).filter(x => x !== "").map(Number); return nums.length ? ` — avg ${fmt(nums.reduce((a, b) => a + b, 0) / nums.length)}` : ""; })()}</td></tr>)}</tbody></table>
+          <table><tbody>{fieldsAnswered.map(f => { const c = f.type === "List" ? listCheck(effectiveAttributes(s, product).find(a => a.dictionaryId === f.dictionaryId), insp.values[f.id]) : null; return <tr key={f.id}><th style={{ width: "30%" }}>{fieldLabel(f)}</th><td>{valStr(f, insp.values[f.id])}{f.type === "Number" && f.measurementCount > 1 && (() => { const nums = (insp.values[f.id]?.measurements || []).filter(x => x !== "").map(Number); return nums.length ? ` — avg ${fmt(nums.reduce((a, b) => a + b, 0) / nums.length)}` : ""; })()}{c ? <span className="k">{c.ok ? ` — matches spec ${c.expected}` : ` — doesn't match spec (expected ${c.expected})`}</span> : null}</td></tr>; })}</tbody></table>
         </>}
         <h2>Comment</h2>
         <div style={{ whiteSpace: "pre-wrap", border: "1px solid #ddd", borderRadius: 6, padding: "8px 10px", minHeight: 40 }}>{insp.comment || <span className="k">—</span>}</div>
@@ -2086,7 +2086,7 @@ function ProblemsPage({ s, set }) {
   const hide = id => setHidden([...new Set([...(holder?.hiddenProblemIds || []), id])]);
   const unhide = id => setHidden((holder?.hiddenProblemIds || []).filter(x => x !== id));
   const hiddenHere = (holder?.hiddenProblemIds || []).map(id => s.problems.find(p => p.id === id)).filter(Boolean);
-  const remove = id => set(x => { const dead = subtree(x.problems, id); return { ...x, problems: x.problems.filter(n => !dead.has(n.id)), templates: x.templates.map(t => ({ ...t, problemRefs: t.problemRefs.filter(r => !dead.has(r.problemTypeId)), overrides: t.overrides.filter(o => !dead.has(o.problemTypeId)), fields: t.fields.map(f => ({ ...f, problemBelowId: dead.has(f.problemBelowId) ? null : f.problemBelowId, problemAboveId: dead.has(f.problemAboveId) ? null : f.problemAboveId })) })) }; });
+  const remove = id => set(x => { const dead = subtree(x.problems, id); return { ...x, problems: x.problems.filter(n => !dead.has(n.id)), templates: x.templates.map(t => ({ ...t, problemRefs: t.problemRefs.filter(r => !dead.has(r.problemTypeId)), overrides: t.overrides.filter(o => !dead.has(o.problemTypeId)), fields: t.fields.map(f => ({ ...f, problemBelowId: dead.has(f.problemBelowId) ? null : f.problemBelowId, problemAboveId: dead.has(f.problemAboveId) ? null : f.problemAboveId, problemMismatchId: dead.has(f.problemMismatchId) ? null : f.problemMismatchId })) })) }; });
   return (
     <div>
       <h1 className="mb-1">Problem types</h1>
@@ -2603,7 +2603,7 @@ function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset, onMessag
                   <SpecForm sctx={s} specs={product.specs} inherited={effectiveSpecs(s, product).filter(q => q.source !== "product")} onAdd={q => patchP({ specs: [...product.specs, q] })} onRemove={removeSpec} excluded={product.excludedSpecNames || []} onExclude={n => patchP({ excludedSpecNames: [...(product.excludedSpecNames || []), n] })} onRestore={n => patchP({ excludedSpecNames: (product.excludedSpecNames || []).filter(x => x !== n) })} hint="Own specifications override inherited ones of the same name. Most belong on the category — only exceptions here." />
                 </div>}
                 {tab === "attrs" && <div style={{ maxWidth: 720 }}>
-                  <AttributeForm s={s} own={product.attributes || []} inherited={effectiveAttributes(s, product).filter(a => a.source !== "product")} onSet={a => patchP({ attributes: [...(product.attributes || []).filter(x => x.dictionaryId !== a.dictionaryId), a] })} onRemove={did => patchP({ attributes: (product.attributes || []).filter(x => x.dictionaryId !== did) })} hint="Values from Lists. Own values override the category's; they pre-fill form fields bound to the same list." />
+                  <AttributeForm s={s} own={product.attributes || []} inherited={effectiveAttributes(s, product).filter(a => a.source !== "product")} onSet={a => patchP({ attributes: [...(product.attributes || []).filter(x => x.dictionaryId !== a.dictionaryId), a] })} onRemove={did => patchP({ attributes: (product.attributes || []).filter(x => x.dictionaryId !== did) })} hint="Values from Lists. Own values override the category's; they pre-fill form fields bound to the same list. An answer that differs is flagged on the form." />
                 </div>}
                 {tab === "supply" && <div className="grid gap-6" style={{ gridTemplateColumns: "1fr 1fr", maxWidth: 800 }}>
                   <div>
@@ -2761,7 +2761,10 @@ function FieldEditor({ f, onPatch, onRemove, onMove, problems, catalog, specs, s
         <button onClick={onRemove} className="text-xs px-1" style={{ color: C.muted }}>×</button>
       </div>
       {details && hasDetails && <>
-      {f.type === "List" && <div className="flex items-center gap-2 mb-1"><span className="text-xs" style={{ color: C.muted }}>list:</span><select value={f.dictionaryId || ""} onChange={e => onPatch({ dictionaryId: e.target.value || null })} className="text-xs" style={{ minHeight: 28 }}><option value="">— pick a list —</option>{(dictionaries || []).map(d => <option key={d.id} value={d.id}>{d.name} ({d.items.length})</option>)}</select>{!(dictionaries || []).length && <span className="text-xs" style={{ color: C.warn }}>no lists yet — Dictionaries → Lists</span>}</div>}
+      {f.type === "List" && <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 mb-1 text-xs" style={{ color: C.muted }}>
+        <span className="flex items-center gap-1">list: <select value={f.dictionaryId || ""} onChange={e => onPatch({ dictionaryId: e.target.value || null })} className="text-xs" style={{ minHeight: 28 }}><option value="">— pick a list —</option>{(dictionaries || []).map(d => <option key={d.id} value={d.id}>{d.name} ({d.items.length})</option>)}</select>{!(dictionaries || []).length && <span style={{ color: C.warn }}>no lists yet — Dictionaries → Lists</span>}</span>
+        <span className="flex items-center gap-1 flex-wrap w-full" title="When the product (or its category) has a property from this list, an answer that differs from it raises this problem. Leave empty for a warning only.">doesn't match the specification → raises: <span style={{ flex: "1 1 180px", minWidth: 0 }}><SearchSelect size="xs" value={f.problemMismatchId || ""} onChange={v => onPatch({ problemMismatchId: v || null })} options={leaves.map(l => ({ value: l.id, label: pathOf(problems, l.id) + (inScope(l.id) ? "" : " · outside this scope") }))} empty="— warning —" placeholder="Search problems…" style={{ borderColor: f.problemMismatchId ? C.accent : C.line }} /></span>{scopeNote(f.problemMismatchId)}</span>
+      </div>}
       {f.type === "SingleChoice" && <input value={f.optionsRaw ?? (f.options || []).join(", ")} onChange={e => onPatch({ optionsRaw: e.target.value, options: e.target.value.split(",").map(x => x.trim()).filter(Boolean) })} placeholder="options separated by commas, e.g. Spain, Morocco" className="w-full text-xs rounded px-2 py-1 outline-none" style={{ ...inp }} />}
       {f.type === "MultiChoice" && (
         <div>
@@ -2808,6 +2811,13 @@ function InheritedFieldOverride({ f, own, problems, specs, onOverride, onReset }
   const leaves = problems.filter(p => isLeaf(problems, p.id));
   const ov = own?.fieldOverrides?.[f.id] || {};
   const has = Object.keys(ov).length > 0;
+  if (f.type === "List") return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs mt-1" style={{ color: C.muted }}>
+      <span className="px-1 rounded" style={{ background: has ? C.accentSoft : "transparent", color: C.accent }}>{has ? "overridden here:" : "override here:"}</span>
+      <span className="flex items-center gap-1">doesn't match <select value={f.problemMismatchId || ""} onChange={e => onOverride({ problemMismatchId: e.target.value || null })} className="rounded px-1 py-0.5 outline-none" style={{ ...inp, borderColor: ov.problemMismatchId !== undefined ? C.accent : C.line }}><option value="">— warning —</option>{leaves.map(l => <option key={l.id} value={l.id}>{pathOf(problems, l.id)}</option>)}</select></span>
+      {has && <button onClick={onReset} className="underline" style={{ color: C.muted }}>undo overrides</button>}
+    </div>
+  );
   if (f.type !== "Number") return null;
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs mt-1" style={{ color: C.muted }}>
@@ -2860,7 +2870,7 @@ function Builder({ eff, own, setOwn, problems, specs, specsHint, readOnly, s, sc
   const usedSystem = new Set(eff.fields.filter(f => isSystem(f.type) && SYSTEM_TYPES[f.type].once).map(f => f.type));
   const hasProblems = eff.problemRefs.length > 0, hasSample = eff.fields.some(f => f.type === "SampleSize");
   const referenced = new Set(eff.problemRefs.flatMap(r => [...subtree(problems, r.problemTypeId)]));
-  const orphanLinks = eff.fields.flatMap(f => f.type === "Number" ? [f.problemBelowId, f.problemAboveId].filter(id => id && !referenced.has(id)).map(id => ({ f, id })) : []);
+  const orphanLinks = eff.fields.flatMap(f => f.type === "Number" ? [f.problemBelowId, f.problemAboveId].filter(id => id && !referenced.has(id)).map(id => ({ f, id })) : f.type === "List" ? [f.problemMismatchId].filter(id => id && !referenced.has(id)).map(id => ({ f, id })) : []);
   const pm = byId(problems);
   const hiddenIn = mid => [...eff.allFields.filter(f => f.moduleId === mid && eff.suppressed.has(f.id)), ...eff.allRefs.filter(r => r.moduleId === mid && eff.suppressed.has(r.id)).map(r => ({ ...r, label: pm[r.problemTypeId]?.name, isRef: true }))];
   const hiddenModules = eff.allModules.filter(m => eff.suppressed.has(m.id));
@@ -3066,6 +3076,46 @@ function FormsPage({ s, set }) {
 }
 
 // ═══════════════════ PAGE: Inspection ═══════════════════
+function RaiseForm({ problems, overrides, linkedId, totals, onRaise, intro }) {
+  const lp = problems.find(p => p.id === linkedId);
+  const zero = lp && effTol(problems, overrides || [], lp.id) === 0;
+  const available = { PieceCount: totals.pieces > 0, DirectWeight: totals.weight > 0, WholeUnitCount: totals.cu > 0 };
+  const firstMode = Object.keys(available).find(k => available[k]) || "WholeUnitCount";
+  const [mode, setMode] = useState(firstMode);
+  const [raw, setRaw] = useState("");
+  const unit = mode === "PieceCount" ? "pcs" : mode === "DirectWeight" ? "g" : "CU";
+  return (
+    <div className="rounded-lg p-2 mt-1.5" style={{ background: C.warnBg }}>
+      <p className="text-xs mb-1.5" style={{ color: C.warn }}>{intro} → problem <b>{lp?.name}</b>.{zero ? " Tolerance 0% — presence alone is enough." : " How many are affected and in which unit?"}</p>
+      {zero ? (
+        <button onClick={() => onRaise(linkedId, "Presence", 1)} className="text-xs px-2 py-1 rounded font-medium" style={{ background: C.bad, color: C.onDark }}>Present</button>
+      ) : (
+        <div className="flex gap-1.5 flex-wrap">
+          {[["PieceCount", "pieces"], ["DirectWeight", "grams"], ["WholeUnitCount", "whole CU"]].map(([k, l]) => <button key={k} disabled={!available[k]} onClick={() => setMode(k)} title={available[k] ? "" : "no divisor — fill in the conversion in the sample"} className="text-xs px-2 py-1 rounded" style={{ background: !available[k] ? C.line : mode === k ? C.accent : C.surface, color: !available[k] ? C.muted : mode === k ? C.onDark : C.accent, border: `1px solid ${available[k] ? C.accent : C.line}` }}>{l}</button>)}
+          <input type="number" value={raw} onChange={e => setRaw(e.target.value)} placeholder="how many" className="w-16 text-xs rounded px-2 py-1 outline-none" style={{ ...inp }} />
+          <span className="text-xs self-center" style={{ color: C.muted }}>{unit}</span>
+          <button onClick={() => { if (raw !== "") { onRaise(linkedId, mode, raw); setRaw(""); } }} className="text-xs px-2 py-1 rounded font-medium" style={{ background: C.accent, color: C.onDark }}>Report</button>
+        </div>
+      )}
+    </div>
+  );
+}
+function ListInput({ f, spec, value, problems, allProblems, overrides, totals, onRaise, raised, picker }) {
+  const check = listCheck(spec, value);
+  const linkedId = linkedProblemId(allProblems || problems, problems, f.problemMismatchId);
+  const lp = linkedId && problems.find(p => p.id === linkedId);
+  const bad = check && !check.ok;
+  const expected = spec && spec.value && spec.value !== "—" ? spec.value : check?.expected;
+  return (
+    <div>
+      {picker}
+      {expected && !bad && <p className="text-[11px] mt-1" style={{ color: check ? C.ok : C.muted }}>{check ? "✓ Matches the specification" : "Specification"}: <b>{expected}</b>{spec?.source && spec.source !== "product" ? <span style={{ color: C.muted }}> · {spec.source}</span> : null}</p>}
+      {bad && !lp && <div className="rounded-lg px-3 py-1.5 mt-1.5 text-xs" style={{ background: C.warnBg, color: C.warn }}>Doesn't match the specification (expected <b>{check.expected}</b>) — warning only.</div>}
+      {bad && lp && !raised && <RaiseForm problems={problems} overrides={overrides} linkedId={linkedId} totals={totals} onRaise={onRaise} intro={<>Doesn't match the specification (expected <b>{check.expected}</b>)</>} />}
+      {bad && lp && raised && <p className="text-xs mt-1.5" style={{ color: C.ok }}>✓ {lp.name} reported from this field.</p>}
+    </div>
+  );
+}
 function NumberInput({ f, problems, allProblems, overrides, specs, totals, value, onChange, onRaise, raised, piecesPerCu }) {
   const n = f.measurementCount || 1, ms = value?.measurements || Array(n).fill("");
   const belowId = linkedProblemId(allProblems || problems, problems, f.problemBelowId), aboveId = linkedProblemId(allProblems || problems, problems, f.problemAboveId);
@@ -3081,12 +3131,6 @@ function NumberInput({ f, problems, allProblems, overrides, specs, totals, value
   const bad = side !== null;
   const linkedId = side === "below" ? belowId : side === "above" ? aboveId : null;
   const lp = linkedId && problems.find(p => p.id === linkedId);
-  const zero = lp && effTol(problems, overrides || [], lp.id) === 0;
-  const available = { PieceCount: totals.pieces > 0, DirectWeight: totals.weight > 0, WholeUnitCount: totals.cu > 0 };
-  const firstMode = Object.keys(available).find(k => available[k]) || "WholeUnitCount";
-  const [mode, setMode] = useState(firstMode);
-  const [raw, setRaw] = useState("");
-  const unit = mode === "PieceCount" ? "pcs" : mode === "DirectWeight" ? "g" : "CU";
   // "Answer from a list": fixed allowed values (see the form builder); values outside the specification are labelled
   // with the problem they raise. Average / out-of-spec / raising work exactly as for a typed number.
   const choices = Array.isArray(f.choices) ? f.choices.filter(v => v !== "" && v !== null && !isNaN(Number(v))) : [];
@@ -3101,21 +3145,7 @@ function NumberInput({ f, problems, allProblems, overrides, specs, totals, value
       {lim.note && <p className="text-[11px] mt-1" style={{ color: C.muted }}>{lim.note}</p>}
       {avg !== null && <p className="text-xs mt-1.5" style={{ color: C.muted }}>average <b style={{ color: C.ink }}>{fmt(avg)}</b>{ref ? ` · reference ${ref}${byName ? ` (by name “${spec.name}"${spec.source !== "product" ? ", " + spec.source : ""})` : ""}` : (f.problemBelowId || f.problemAboveId) ? <span style={{ color: C.warn }}> · no reference — the product has no specification “{(f.specName || "").trim() || f.label}“ and the field has no min/max</span> : ""}</p>}
       {bad && !lp && <div className="rounded-lg px-3 py-1.5 mt-1.5 text-xs" style={{ background: C.warnBg, color: C.warn }}>Out of spec — warning only.</div>}
-      {bad && lp && !raised && (
-        <div className="rounded-lg p-2 mt-1.5" style={{ background: C.warnBg }}>
-          <p className="text-xs mb-1.5" style={{ color: C.warn }}>Out of spec → problem <b>{lp.name}</b>.{zero ? " Tolerance 0% — presence alone is enough." : " How many are affected and in which unit?"}</p>
-          {zero ? (
-            <button onClick={() => onRaise(linkedId, "Presence", 1)} className="text-xs px-2 py-1 rounded font-medium" style={{ background: C.bad, color: C.onDark }}>Present</button>
-          ) : (
-            <div className="flex gap-1.5 flex-wrap">
-              {[["PieceCount", "pieces"], ["DirectWeight", "grams"], ["WholeUnitCount", "whole CU"]].map(([k, l]) => <button key={k} disabled={!available[k]} onClick={() => setMode(k)} title={available[k] ? "" : "no divisor — fill in the conversion in the sample"} className="text-xs px-2 py-1 rounded" style={{ background: !available[k] ? C.line : mode === k ? C.accent : C.surface, color: !available[k] ? C.muted : mode === k ? C.onDark : C.accent, border: `1px solid ${available[k] ? C.accent : C.line}` }}>{l}</button>)}
-              <input type="number" value={raw} onChange={e => setRaw(e.target.value)} placeholder="how many" className="w-16 text-xs rounded px-2 py-1 outline-none" style={{ ...inp }} />
-              <span className="text-xs self-center" style={{ color: C.muted }}>{unit}</span>
-              <button onClick={() => { if (raw !== "") { onRaise(linkedId, mode, raw); setRaw(""); } }} className="text-xs px-2 py-1 rounded font-medium" style={{ background: C.accent, color: C.onDark }}>Report</button>
-            </div>
-          )}
-        </div>
-      )}
+      {bad && lp && !raised && <RaiseForm problems={problems} overrides={overrides} linkedId={linkedId} totals={totals} onRaise={onRaise} intro="Out of spec" />}
       {raised && <p className="text-xs mt-1.5" style={{ color: C.ok }}>✓ {lp?.name} reported from this field.</p>}
     </div>
   );
@@ -3342,8 +3372,8 @@ function InspectionRunner({ insp, patch, t, problems, product, suppliers, dictio
                 if (!d) return <p className="text-xs" style={{ color: C.warn }}>No list attached to this field — the Head must pick one in the form builder.</p>;
                 if (!d.items.length) return <p className="text-xs" style={{ color: C.warn }}>The list “{d.name}” is empty — fill it in Dictionaries → Lists.</p>;
                 // Lists are always a dropdown; the search box appears from 11 options up (the Head can attach a 70-item country list).
-                const picker = <SearchSelect value={values[f.id] || ""} onChange={v => setV(f.id, v)} options={d.items.map(o => ({ value: o.value, label: o.value }))} empty={`— choose (${d.items.length} options) —`} placeholder={`Search ${d.name.toLowerCase()}…`} searchFrom={11} />;
-                return <div>{picker}{preset && <p className="text-[11px] mt-1" style={{ color: C.muted }}>Pre-filled from the product profile ({preset.source}: {preset.value}){values[f.id] && values[f.id] !== preset.value ? " — changed on the dock" : ""}.</p>}</div>;
+                const picker = <SearchSelect value={values[f.id] || ""} onChange={v => setV(f.id, v)} options={d.items.map(o => { const c = listCheck(preset, o.value); return { value: o.value, label: c && !c.ok ? `${o.value} · expected ${c.expected}` : o.value, tone: c && !c.ok ? C.warn : undefined }; })} empty={`— choose (${d.items.length} options) —`} placeholder={`Search ${d.name.toLowerCase()}…`} searchFrom={11} />;
+                return <ListInput f={f} spec={preset} value={values[f.id]} problems={problems} allProblems={sctx?.problems} overrides={t.overrides} totals={totals} onRaise={(leafId, mode, raw) => setRemarks(r => [...r, { id: uid(), leafId, mode, raw, auto: true, fieldId: f.id }])} raised={remarks.some(r => r.auto && r.fieldId === f.id)} picker={picker} />;
               })()}
               {f.type === "Pallet" && <div>{pallets.map((p, i) => <div key={i} className="flex gap-1.5 mb-1.5"><input value={p} onChange={e => setPallets(ps => ps.map((x, j) => j === i ? e.target.value : x))} placeholder={`pallet ${i + 1}`} className="flex-1 text-sm rounded px-2 py-1.5 outline-none" style={{ ...inp }} /><button className="text-xs px-2 rounded" style={{ background: C.line, color: C.muted }} title="camera scanning is only available in the phone app" disabled><Ic i={ScanLine} s={13} mr={0} /></button>{pallets.length > 1 && <button onClick={() => setPallets(ps => ps.filter((_, j) => j !== i))} className="text-xs px-1" style={{ color: C.muted }}>×</button>}</div>)}<button onClick={() => setPallets(ps => [...ps, ""])} className="text-xs" style={{ color: C.accent }}>+ another pallet</button><DeliveryPallets product={product} insp={insp} onAdd={hus => setPallets(ps => [...ps.filter(Boolean), ...hus.filter(h => !ps.includes(h))])} /></div>}
               {f.type === "DateCode" && <div><input type="date" value={insp.dateISO || ""} onChange={e => set({ dateISO: e.target.value })} className="w-full text-sm rounded px-2 py-1.5 outline-none" style={{ ...inp }} />{insp.dateISO && <p className="text-xs mt-1.5" style={{ color: C.muted }}>saved as date code: <b style={{ color: C.ink, fontVariantNumeric: "tabular-nums" }}>{dateCode(insp.dateISO)}</b> (week {dateCode(insp.dateISO).slice(0, -1)}, day {dateCode(insp.dateISO).slice(-1)})</p>}</div>}

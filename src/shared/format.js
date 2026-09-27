@@ -26,6 +26,14 @@ export const problemPath = (problems, id) => {
   return parent ? `${parent} › ${node.name}` : node.name;
 };
 
+// List field vs the product/category property bound to the same list.
+// `expected` is an attribute `{ value }` or a raw string. null = nothing to compare.
+export const listCheck = (expected, value) => {
+  const exp = expected && typeof expected === "object" ? expected.value : expected;
+  if (!hasV(exp) || exp === "—" || !hasV(value)) return null;
+  return { expected: String(exp), ok: String(value) === String(exp) };
+};
+
 export const typesOf = s => [...(s.inspectionTypes || [])].sort((a, b) => a.sort - b.sort);
 export const typeById = (s, id) => (s.inspectionTypes || []).find(t => t.id === id) || null;
 export const legacyTypeId = t => t === "Visual" ? "type-visual" : t === "Skip" ? "type-skip" : "type-full";

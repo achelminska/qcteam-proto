@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { countsAs, dayLabel, hasV, legacyTypeId, problemPath, specLabel } from "./format.js";
+import { countsAs, dayLabel, hasV, legacyTypeId, listCheck, problemPath, specLabel } from "./format.js";
 
 describe("specLabel", () => {
   it("renders a range, a one-sided limit, or an em dash", () => {
@@ -35,6 +35,20 @@ describe("problemPath", () => {
     expect(problemPath(problems, "c")).toBe("Quality › Major › Rot");
     expect(problemPath(problems, "a")).toBe("Quality");
     expect(problemPath(problems, "missing")).toBe("");
+  });
+});
+
+describe("listCheck", () => {
+  it("flags a list answer that differs from the product property", () => {
+    expect(listCheck({ value: "I" }, "I")).toEqual({ expected: "I", ok: true });
+    expect(listCheck({ value: "I" }, "II")).toEqual({ expected: "I", ok: false });
+    expect(listCheck("Extra", "Extra")).toEqual({ expected: "Extra", ok: true });
+  });
+  it("does nothing when there is no spec or no answer", () => {
+    expect(listCheck({ value: "I" }, "")).toBe(null);
+    expect(listCheck({ value: "—" }, "II")).toBe(null);
+    expect(listCheck(null, "II")).toBe(null);
+    expect(listCheck(undefined, "II")).toBe(null);
   });
 });
 
