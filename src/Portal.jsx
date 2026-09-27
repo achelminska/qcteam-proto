@@ -706,6 +706,25 @@ const clearUnreported = (set, user) => set(x => ({ ...x, unreportedPallets: [], 
 // QC status: from the sheet when it has one; otherwise derived from the queue (claim) and finished inspections of that pallet/article.
 const blockedQueue = s => blockedRowsLive(s).map(b => { const claim = claimOf(s, b); let status = b.status; if (!status) { const done = s.inspections.some(i => i.status === "Completed" && ((b.hu && (i.pallets || []).some(h => String(h).replace(/\D/g, "").endsWith(b.hu.replace(/^0+/, "")))) || (!b.hu && (s.products.find(p => p.id === i.productId)?.articleId === b.article) && (i.completedAt || "") > (claim?.at || "1970")))); status = done ? "Completed" : claim?.status === "taken" ? "Started" : "Not started"; } return { ...b, claim, status, key: claimKey(b), lost: lostOf(s, b) }; });
 const dockRowsLive = s => { const it = (s.integrations || []).find(i => i.purpose === "Dock" && i.rows?.length); if (!it) return CLEAN_START ? [] : SHEET.dock; return dedupeByHu(it.rows.filter(r => !r._errors?.length)).map(r => ({ hu: String(r.hu || "").trim(), article: String(r.article || ""), name: r.name || "", location: r.location || "", priority: r.priority || (r.skippable ? "Skippable" : "Inspection due"), blocking: !!r.blocking, skippable: !!r.skippable, arrived: r.arrived || "", arrivedTime: r.arrivedTime || "", transporter: r.transporter || "", po: r.po || "", cusPerTu: r.cusPerTu ? Number(r.cusPerTu) : null, sortable: !!r.sortable, onDock: 0, inBuffer: 0 })); };
+// Resolve a pallet key (HU, claimKey, lostKey, or unreported id) to a row the portal pallet sheet can render.
+const findPalletRow = (s, key) => {
+  if (!key) return null;
+  const dock = dockRowsLive(s); const blocked = blockedRowsLive(s);
+  const byHu = dock.find(r => samePallet(r.hu, key)); if (byHu) return { ...byHu, kind: "dock" };
+  const byBlockedHu = blocked.find(r => r.hu && samePallet(r.hu, key)); if (byBlockedHu) return { ...byBlockedHu, kind: "blocked" };
+  const byClaim = blocked.find(r => claimKey(r) === key); if (byClaim) return { ...byClaim, kind: "blocked" };
+  const lostHit = Object.entries(s.lostPallets || {}).find(([k, m]) => k === key || samePallet(m.hu, key));
+  if (lostHit) {
+    const [lk, m] = lostHit;
+    const row = [...dock, ...blocked].find(r => lostKey(r) === lk);
+    if (row) return { ...row, kind: dock.some(r => lostKey(r) === lk) ? "dock" : "blocked" };
+    return { hu: m.hu || "", article: m.article || "", name: m.name || "", location: m.location || "", kind: "lost-only" };
+  }
+  const unrep = (s.unreportedPallets || []).find(x => x.id === key || (x.hu && samePallet(x.hu, key)));
+  if (unrep) return { hu: unrep.hu || "", article: unrep.article || "", name: unrep.name || "", location: unrep.location || "", arrived: "", arrivedTime: "", transporter: unrep.transporter || "", po: unrep.po || "", priority: unrep.priority || "", kind: "unreported" };
+  const byArt = dock.find(r => r.article && String(r.article) === String(key)); if (byArt) return { ...byArt, kind: "dock" };
+  return null;
+};
 // Shared: read what the sheet pushed to the server and refresh the matching integration inside the app state.
 // Used by the portal (every 60 s on any page) and by the phone (on open / Sync now), so no device depends on the other.
 const refreshPushedIntegrations = async (getState, set, force = false) => {
@@ -1297,7 +1316,7 @@ function FloorPeopleList({ people, s, user, sel, onPick, compact }) {
     </div>
   );
 }
-function DockMapPage({ s, user, openProduct }) {
+function DockMapPage({ s, user, openPallet }) {
   const all = dockRowsLive(s); const rows = all.filter(r => !lostOf(s, r)); const lostN = all.length - rows.length;
   const byDock = {}; const other = [];
   rows.forEach(r => { const d = parseDock(r.location); if (d && dockZone(d.n)) (byDock[d.n] = byDock[d.n] || []).push({ ...r, sub: d.sub }); else other.push(r); });
@@ -1338,7 +1357,7 @@ function DockMapPage({ s, user, openProduct }) {
   const selRows = vis(sel === "other" ? other : sel !== null ? (byDock[sel] || []) : []);
   const items = (() => { const groups = {}; selRows.forEach(r => { const k = r.article || r.hu; (groups[k] = groups[k] || []).push(r); });
     return Object.values(groups).map(g => { const first = g[0]; const product = s.products.find(p => p.articleId === first.article); const checked = g.filter(x => completedInspectionFor(s, x.hu)).length; const subs = [...new Set(g.map(r => r.sub).filter(Boolean))].sort(); const earliest = [...g].sort((x, y) => `${x.arrived || ""}${x.arrivedTime || "99"}`.localeCompare(`${y.arrived || ""}${y.arrivedTime || "99"}`))[0]; const pos = new Set(g.map(r => (r.po || "").trim()).filter(Boolean));
-      return { key: first.article || first.hu, name: first.name || product?.name || first.article, article: first.article, count: g.length, checked, subs, product, priority: first.priority, status: dockStatus(g.find(r => r.blocking) || first), blocking: g.some(r => r.blocking), transporter: earliest.transporter, arrived: earliest.arrived, arrivedTime: earliest.arrivedTime, po: [...pos].join(", "), mixedPO: pos.size > 1, locations: [...new Set(g.map(r => r.location).filter(Boolean))].join(", ") };
+      return { key: first.article || first.hu, hu: earliest.hu, name: first.name || product?.name || first.article, article: first.article, count: g.length, checked, subs, product, priority: first.priority, status: dockStatus(g.find(r => r.blocking) || first), blocking: g.some(r => r.blocking), transporter: earliest.transporter, arrived: earliest.arrived, arrivedTime: earliest.arrivedTime, po: [...pos].join(", "), mixedPO: pos.size > 1, locations: [...new Set(g.map(r => r.location).filter(Boolean))].join(", ") };
     }).sort((a, b) => (dockStatusRank(a.status) - dockStatusRank(b.status)) || `${a.arrived || ""}${a.arrivedTime || "99"}`.localeCompare(`${b.arrived || ""}${b.arrivedTime || "99"}`)); })();
   const selZone = typeof sel === "number" ? dockZone(sel) : null;
   const quickRows = [14, ...DOCK_CHILLED, ...DOCK_AMBIENT, 0].map(n => ({ key: n, label: n === 14 || n === 0 ? `${dockLabel(n)} · across` : dockLabel(n), zone: dockZone(n), arr: byDock[n] || [] })).filter(q => q.arr.length).concat(other.length ? [{ key: "other", label: "Other locations", zone: null, arr: other }] : []);
@@ -1421,7 +1440,7 @@ function DockMapPage({ s, user, openProduct }) {
           {items.length === 0 ? <p className="text-xs py-3" style={{ color: C.muted }}>Nothing standing here right now.</p> : <table className="w-full text-sm">
             <thead><tr className="text-xs text-left" style={{ color: C.muted }}>{["Product", "Pallets", sel === "other" ? "Location" : "Spot", "Status", "Article", "Arrived", "Transporter", "PO", "Report"].map(h => <th key={h} className="py-1.5 pr-3 font-medium" style={{ borderBottom: `1px solid ${C.line}` }}>{h}</th>)}</tr></thead>
             <tbody>{items.map(it => <tr key={it.key} style={{ borderBottom: `1px solid ${C.line}` }}>
-              <td className="py-1.5 pr-3"><span className="inline-flex items-center gap-2">{it.product && openProduct ? <button onClick={() => openProduct(it.product.id)} className="text-left font-medium" style={{ color: C.ink }}>{it.name}</button> : <span>{it.name}</span>}<ComplaintChip s={s} articleId={it.article} /></span></td>
+              <td className="py-1.5 pr-3"><span className="inline-flex items-center gap-2">{openPallet && (it.hu || it.article) ? <button onClick={() => openPallet(it.hu || it.article)} className="text-left font-medium" style={{ color: C.ink }}>{it.name}</button> : <span>{it.name}</span>}<ComplaintChip s={s} articleId={it.article} /></span></td>
               <td className="py-1.5 pr-3 text-xs">{it.count > 1 ? <span className="px-1.5 py-0.5 rounded-full" style={{ background: C.accentSoft, color: C.accent }}>×{it.count}</span> : "1"}</td>
               <td className="py-1.5 pr-3 text-xs">{sel === "other" ? it.locations : (it.subs.join("/") || "—")}</td>
               <td className="py-1.5 pr-3 text-xs"><StatusPill k={it.status} />{it.blocking && it.priority && it.priority !== "Skippable" && <span className="ml-1 text-[10px]" style={{ color: C.muted }}>{it.priority}</span>}</td>
@@ -1434,6 +1453,135 @@ function DockMapPage({ s, user, openProduct }) {
           </table>}
         </Card>}
       </>}
+    </div>
+  );
+}
+
+// Pallet screen for the portal — same facts as the phone sheet (status, HU, location, PO, siblings), with the product
+// profile as a link rather than the first hop. Used when Head (or a Controller on the dock map) clicks a pallet.
+const palletTime = iso => { const d = new Date(iso); return isNaN(d) ? "" : d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }); };
+function PalletSheet({ s, set, user, row: r, onOpenProduct, onOpenInspection, onPickPallet, onAssign, onStartInspection, onOpenAnnouncements, onOpenComplaints }) {
+  const product = s.products.find(p => p.articleId === r.article) || productForArticle(s, r.article);
+  const done = r.hu ? completedInspectionFor(s, r.hu) : null;
+  const lost = lostOf(s, r);
+  const draft = r.hu ? s.inspections.find(i => (i.pallets || []).some(x => samePallet(x, r.hu)) && ["Draft", "PendingReview"].includes(i.status)) : null;
+  const al = r.hu ? computeDeadlineAlerts(s).find(a => samePallet(a.hu, r.hu)) : null;
+  const status = dockStatus(r); const col = dockStatusColor(status); const statusLabel = DOCK_STATUS.find(x => x[0] === status)?.[1] || r.priority || (r.kind === "blocked" ? "Blocked" : r.kind === "unreported" ? "Unreported" : "Pallet");
+  const sameArt = r.article ? dockRowsLive(s).filter(x => x.article === r.article && !lostOf(s, x)) : [];
+  const others = sameArt.filter(x => !(r.hu && samePallet(x.hu, r.hu)));
+  const pos = [...new Set(sameArt.map(x => (x.po || "").trim()).filter(Boolean))];
+  const types = product ? allowedTypes(s, product) : typesOf(s);
+  const photos = product ? asPhotoList(product.photos) : [];
+  const catPath = id => { const c = s.categories.find(x => x.id === id); if (!c) return "uncategorised"; const p = c.parentId && s.categories.find(x => x.id === c.parentId); return p ? `${p.name} › ${c.name}` : c.name; };
+  const arrivedDay = r.arrived ? dayLabel(r.arrived + "T12:00:00") : "";
+  const hist = product ? recentProblemsFor(s, product.id) : { count: 0, problems: [] };
+  const compl = complaintsLine(s, r.article);
+  const anns = product ? s.announcements.filter(a => annActive(a) && annMatchesProduct(s, a, product)) : [];
+  const [lostNote, setLostNote] = useState(""); const [lostAsk, setLostAsk] = useState(false);
+  const Pill = ({ children, bg, fg, dot }) => <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full inline-flex items-center gap-1.5 whitespace-nowrap" style={{ background: bg, color: fg }}>{dot && <span className="inline-block rounded-full" style={{ width: 6, height: 6, background: dot }} />}{children}</span>;
+  const Fact = ({ k, v, strong }) => <div className="min-w-0"><p className="text-[10px] uppercase tracking-wide" style={{ color: C.muted }}>{k}</p><p className={`${strong ? "text-[17px]" : "text-[13px]"} font-semibold leading-tight truncate`} style={{ fontVariantNumeric: "tabular-nums" }}>{v || "—"}</p></div>;
+  return (
+    <div>
+      <div className="rounded-2xl overflow-hidden mb-3 flex" style={{ background: C.bg, border: `1px solid ${C.line}`, opacity: lost ? .7 : 1 }}>
+        <div className="flex-shrink-0" style={{ width: 5, background: col }} />
+        <div className="flex-1 min-w-0 p-3.5">
+          <div className="flex items-center gap-1.5 flex-wrap mb-2.5">
+            <Pill bg={col + "22"} fg={dockStatusText(status)} dot={col}>{statusLabel}</Pill>
+            {r.blocking && status !== "blocked" && <Pill bg={dockStatusColor("blocked") + "22"} fg={dockStatusColor("blocked")}>Needed today</Pill>}
+            {r.skippable && <Pill bg={C.line} fg={C.muted}>Skippable</Pill>}
+            {lost && <Pill bg={C.line} fg={C.muted}>Lost</Pill>}
+            {r.kind === "blocked" && <Pill bg={C.badBg} fg={C.bad}>Blocked queue</Pill>}
+            {r.kind === "unreported" && <Pill bg={C.badBg} fg={C.bad}>Unreported</Pill>}
+            <span className="ml-auto text-[11px] font-mono" style={{ color: C.muted }}>{r.hu ? `HU …${String(r.hu).slice(-8)}` : "no HU"}</span>
+          </div>
+          <button type="button" onClick={() => product && onOpenProduct && onOpenProduct(product.id)} className="w-full text-left flex items-center gap-3" disabled={!product} style={{ cursor: product ? "pointer" : "default" }}>
+            {photos.length ? <img src={photoSrc(photos[0])} alt="" className="rounded-xl object-cover flex-shrink-0" style={{ width: 60, height: 60, background: PHOTO_BG, border: `1px solid ${C.line}` }} /> : <div className="rounded-xl flex items-center justify-center flex-shrink-0" style={{ width: 60, height: 60, background: C.surface, color: C.muted, border: `1px solid ${C.line}` }}><Ic i={Package} s={24} mr={0} /></div>}
+            <div className="min-w-0 flex-1">
+              <p className="font-semibold leading-tight" style={{ fontSize: 16 }}>{product?.name || r.name || r.article}</p>
+              {product ? <p className="text-[12px] mt-0.5 truncate" style={{ color: C.muted }}>ID {product.articleId} · {catPath(product.categoryId)}{product.isBio ? " · bio" : ""}</p> : <p className="text-[12px] mt-0.5" style={{ color: C.warn }}>Article {r.article} · no product profile yet</p>}
+              {product && <p className="text-[12px] mt-0.5 inline-flex items-center" style={{ color: C.accent }}>Product profile <Ic i={ChevronRight} s={13} mr={0} /></p>}
+            </div>
+          </button>
+          <div className="grid grid-cols-3 gap-2 mt-3 pt-3" style={{ borderTop: `1px solid ${C.line}` }}>
+            <Fact k="Location" v={r.location} strong />
+            <Fact k="Arrived" v={`${arrivedDay}${r.arrivedTime ? ` ${r.arrivedTime}` : ""}`.trim()} />
+            <Fact k="Transporter" v={r.transporter} />
+          </div>
+          <div className="flex items-center gap-1.5 flex-wrap mt-2.5">
+            <span className="text-[11px] px-2 py-0.5 rounded-md inline-flex items-center gap-1" style={{ background: C.surface, border: `1px solid ${C.line}`, color: C.ink }}><span style={{ color: C.muted }}>PO</span><span className="font-mono font-medium">{r.po || "—"}</span></span>
+            {"sortable" in r && <span className="text-[11px] px-2 py-0.5 rounded-md inline-flex items-center gap-1" style={{ background: r.sortable ? C.okBg : C.surface, border: `1px solid ${r.sortable ? "transparent" : C.line}`, color: r.sortable ? C.ok : C.muted }}>{r.sortable ? <Ic i={Check} s={11} mr={0} /> : <Ic i={X} s={11} mr={0} />}{r.sortable ? "Sortable" : "Not sortable"}</span>}
+            {r.cusPerTu != null && r.cusPerTu !== "" && <span className="text-[11px] px-2 py-0.5 rounded-md" style={{ background: C.surface, border: `1px solid ${C.line}`, color: C.muted }}>{r.cusPerTu} CU/TU</span>}
+            {r.deadline && <span className="text-[11px] px-2 py-0.5 rounded-md" style={{ background: C.surface, border: `1px solid ${C.line}`, color: C.muted }}>departure {r.deadline}</span>}
+          </div>
+        </div>
+      </div>
+
+      {lost && <div className="rounded-2xl px-3.5 py-3 mb-3" style={{ background: C.bg, border: `1px dashed ${C.line}` }}>
+        <p className="text-sm font-semibold flex items-center" style={{ color: C.muted }}><Ic i={Search} s={14} />Marked lost · {s.users.find(u => u.id === lost.byUserId)?.name.split(" ")[0] || "?"} · {dayLabel(lost.at)}{lost.at ? `, ${palletTime(lost.at)}` : ""}</p>
+        {lost.note && <p className="text-xs mt-0.5" style={{ color: C.muted }}>{lost.note}</p>}
+        <button onClick={() => markFound(set, r, user)} className="mt-2 text-xs px-3 py-1.5 rounded-lg font-semibold" style={{ background: C.ink, color: C.onDark }}>Found — it's back</button>
+      </div>}
+      {!lost && lostAsk && <div className="rounded-2xl px-3.5 py-3 mb-3" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+        <p className="text-sm font-semibold mb-1">Mark as lost</p>
+        <p className="text-xs mb-2" style={{ color: C.muted }}>It leaves the queue until someone finds it. Heads get a notification.</p>
+        <input value={lostNote} onChange={e => setLostNote(e.target.value)} placeholder="note (optional) — where did you look?" className="w-full text-sm rounded-xl px-3 py-2 mb-2 outline-none" style={{ ...inp }} />
+        <div className="flex gap-2"><button onClick={() => { markLost(set, r, user, lostNote); setLostAsk(false); setLostNote(""); }} className="text-xs px-3 py-1.5 rounded-lg font-semibold" style={{ background: C.ink, color: C.onDark }}>Mark lost</button><button onClick={() => setLostAsk(false)} className="text-xs px-3 py-1.5 rounded-lg" style={{ border: `1px solid ${C.line}` }}>Cancel</button></div>
+      </div>}
+
+      {done && <div className="rounded-2xl p-3.5 mb-3" style={{ background: C.okBg }}>
+        <p className="text-sm font-medium mb-1 flex items-center" style={{ color: C.ok }}><Ic i={Check} s={14} />Already inspected — the dock sheet hasn't caught up yet</p>
+        <div className="flex items-center gap-2 flex-wrap text-xs" style={{ color: C.ink }}><span className="text-xs font-medium px-2.5 py-1 rounded-full" style={{ background: C.surface, border: `1px solid ${C.line}` }}>{done.result || STATUS[done.status]?.[0]}</span><span>{s.users.find(u => u.id === done.controllerId)?.name.split(" ")[0]} · {dayLabel(done.completedAt)}, {palletTime(done.completedAt)} · {inspType(s, done).name.toLowerCase()}</span></div>
+        {done.comment && <p className="text-xs mt-1" style={{ color: C.muted }}>{done.comment}</p>}
+        {onOpenInspection && <button onClick={() => onOpenInspection(done.id)} className="w-full py-2 rounded-xl text-sm mt-2" style={{ border: `1px solid ${C.line}`, background: C.surface }}>{done.template ? "View report" : "View entry"}</button>}
+      </div>}
+      {al && !lost && <div className="rounded-xl px-3 py-2 mb-2 flex items-start gap-2" style={{ background: C.badBg, color: C.bad }}><Ic i={Clock} s={14} mr={0} style={{ marginTop: 2 }} /><div className="text-[13px] leading-snug"><b>{al.level === "breached" ? "Rejection window expired" : `Rejection window closes in ${Math.max(0, Math.round(al.hoursLeft))} h`}</b><span className="block text-[11px] mt-0.5" style={{ opacity: .85 }}>{al.level === "breached" ? "Rejecting is no longer possible — inspect anyway and note it." : al.risky ? "This product was rejected recently, so it's flagged early." : "Inspect it before the window closes."}</span></div></div>}
+      {hist.count > 0 && <div className="rounded-xl px-3 py-2 mb-2 flex items-start gap-2" style={{ background: C.badBg, color: C.bad }}><Ic i={AlertTriangle} s={14} mr={0} style={{ marginTop: 2 }} /><div className="text-[13px] leading-snug"><b>{hist.count} rejected</b> in 14 days · {hist.problems.slice(0, 3).map(x => `${x.name} ×${x.count}`).join(", ")}{hist.problems.length > 3 ? "…" : ""}</div></div>}
+      {compl && <button type="button" onClick={() => onOpenComplaints && onOpenComplaints()} className="w-full text-left rounded-xl px-3 py-2 mb-2 flex items-start gap-2" style={{ background: C.badBg, color: C.bad }}><Ic i={ThumbsDown} s={14} mr={0} style={{ marginTop: 2 }} /><div className="text-[13px] leading-snug"><b>{compl.count} freshness complaint{compl.count === 1 ? "" : "s"}</b>{compl.sub ? <> · mostly <b>{compl.sub}</b></> : null}{compl.period ? <span style={{ opacity: .8 }}> · {compl.period}</span> : null}</div></button>}
+      {anns.map(a => <button key={a.id} type="button" onClick={() => onOpenAnnouncements && onOpenAnnouncements()} className="w-full text-left rounded-xl px-3 py-2 mb-2 flex items-start gap-2" style={{ background: a.isBlocking ? C.badBg : C.accentSoft, color: C.ink }}><Ic i={Megaphone} s={14} mr={0} style={{ marginTop: 2, color: a.isBlocking ? C.bad : C.accent }} /><span className="min-w-0 text-[13px] leading-snug"><b>{a.title}</b>{a.body ? <span style={{ color: C.muted }}> — {a.body}</span> : null}{a.isBlocking && <span className="block text-[11px] mt-0.5" style={{ color: C.bad }}>Blocking — read it before you inspect</span>}</span></button>)}
+      {draft && <div className="rounded-xl px-3 py-2 mb-2 flex items-start gap-2 text-[13px] leading-snug" style={{ background: C.warnBg, color: C.warn }}><Ic i={Clock} s={14} mr={0} style={{ marginTop: 2 }} /><span><b>{s.users.find(u => u.id === draft.controllerId)?.name.split(" ")[0]}</b> has this pallet in progress ({STATUS[draft.status][0]}){onOpenInspection && <button onClick={() => onOpenInspection(draft.id)} className="ml-2 underline">continue</button>}</span></div>}
+
+      {others.length > 0 && <div className="rounded-2xl px-3.5 py-3 mb-3" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+        <p className="text-xs font-semibold mb-2" style={{ color: C.muted }}>Same article on the docks · {others.length}</p>
+        {pos.length > 1 && <p className="mb-2 px-2.5 py-1.5 rounded-lg text-[11px] flex items-center" style={{ background: C.warnBg, color: C.warn }}><Ic i={AlertTriangle} s={11} mr={4} />Different PO numbers ({pos.join(", ")}) — likely separate deliveries, one inspection doesn't cover all.</p>}
+        {others.map((x, ix) => { const st = dockStatus(x); return (
+          <button key={x.hu || `${x.article}-${ix}`} type="button" onClick={() => onPickPallet && onPickPallet(x.hu)} className="w-full text-left flex items-center gap-2.5 py-2" style={{ borderBottom: ix === others.length - 1 ? "none" : `1px solid ${C.line}` }}>
+            <span className="inline-block rounded-full flex-shrink-0" style={{ width: 8, height: 8, background: dockStatusColor(st) }} />
+            <span className="flex-1 min-w-0"><span className="block text-sm font-medium">{x.location} <span className="font-normal text-xs" style={{ color: C.muted }}>· HU …{String(x.hu).slice(-8)}</span></span><span className="block text-[11px]" style={{ color: C.muted }}>{DOCK_STATUS.find(d => d[0] === st)?.[1]} · {x.transporter} {x.arrivedTime}{x.po ? ` · PO ${x.po}` : ""}{completedInspectionFor(s, x.hu) ? " · inspected" : ""}</span></span>
+            {onPickPallet && <Ic i={ChevronRight} s={15} mr={0} style={{ color: C.muted }} />}
+          </button>
+        ); })}
+      </div>}
+
+      {product && onStartInspection && !lost && <div className="mb-3">
+        <p className="label-sm mb-1.5" style={{ color: C.muted }}>{done ? "Inspect again" : "Start inspection"}</p>
+        <div className="flex flex-col gap-2">
+          {types.map((t, idx) => <button key={t.id} type="button" onClick={() => onStartInspection(product.id)} className="w-full py-3 rounded-xl text-sm font-medium inline-flex items-center justify-center gap-2" style={idx === 0 ? { background: C.ink, color: C.onDark } : { background: C.surface, color: C.ink, border: `1px solid ${C.line}` }}><span className="inline-block rounded-full" style={{ width: 8, height: 8, background: t.color }} />{t.name} inspection</button>)}
+          {types.length === 0 && <p className="text-[11px] text-center" style={{ color: C.bad }}>{typesOf(s).length ? "No inspection type is allowed for this product." : "No inspection types yet (Forms)."}</p>}
+        </div>
+      </div>}
+
+      <div className="mt-2 flex flex-col gap-1">
+        {user.role === "Head" && onAssign && !lost && <button type="button" onClick={() => onAssign(r)} className="w-full py-2 text-xs inline-flex items-center justify-center" style={{ color: C.accent }}><Ic i={MessageSquare} s={12} />Assign to someone in chat</button>}
+        {!lost && !lostAsk && r.kind !== "unreported" && r.kind !== "lost-only" && <button type="button" onClick={() => setLostAsk(true)} className="w-full py-2 text-xs" style={{ color: C.muted }}>Not on the docks? Mark it lost</button>}
+      </div>
+    </div>
+  );
+}
+function PalletPage({ s, set, user, hu, onBack, onOpenProduct, onOpenInspection, onPickPallet, onAssign, onStartInspection, onOpenAnnouncements, onOpenComplaints }) {
+  const r = findPalletRow(s, hu);
+  if (!r) return (
+    <div>
+      <button type="button" onClick={onBack} className="text-sm inline-flex items-center mb-4" style={{ color: C.accent }}><Ic i={ChevronLeft} s={16} />Back</button>
+      <Card><Empty icon={Package} title="Pallet not found" hint="It may already be inspected or off the sheet." /></Card>
+    </div>
+  );
+  return (
+    <div style={{ maxWidth: 560 }}>
+      <div className="flex items-center gap-2 mb-4">
+        <button type="button" onClick={onBack} className="text-sm inline-flex items-center" style={{ color: C.accent }}><Ic i={ChevronLeft} s={16} />Back</button>
+        <h1 className="flex-1" style={{ fontSize: 20 }}>Pallet on dock</h1>
+      </div>
+      <PalletSheet key={r.hu || hu} s={s} set={set} user={user} row={r} onOpenProduct={onOpenProduct} onOpenInspection={onOpenInspection} onPickPallet={onPickPallet} onAssign={onAssign} onStartInspection={onStartInspection} onOpenAnnouncements={onOpenAnnouncements} onOpenComplaints={onOpenComplaints} />
     </div>
   );
 }
@@ -1464,7 +1612,7 @@ const floorStats = (s, now = Date.now()) => {
 };
 const agoShort = t => { if (!t) return "—"; const m = Math.round((Date.now() - new Date(t).getTime()) / 60000); return m < 1 ? "now" : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : fmtTime(t); };
 
-function Dashboard({ s, setPage, seed, user, openProduct, onAssign, set, openTodayInspections }) {
+function Dashboard({ s, setPage, seed, user, openPallet, onAssign, set, openTodayInspections }) {
   const [prioSel, setPrioSel] = useState(null); const [blSel, setBlSel] = useState(null);
   const [now, setNow] = useState(Date.now()); useEffect(() => { const id = setInterval(() => setNow(Date.now()), 30000); return () => clearInterval(id); }, []);
   const f = floorStats(s, now);
@@ -1494,7 +1642,7 @@ function Dashboard({ s, setPage, seed, user, openProduct, onAssign, set, openTod
   return (
     <div>
       <div className="flex items-baseline gap-3 mb-1"><h1>Floor now</h1><span className="text-xs" style={{ color: C.muted }}>{f.fresh.length ? f.fresh.map(x => `${x.purpose === "Dock" ? "dock" : "blocked"} sheet ${agoShort(x.at)}`).join(" · ") : "no sheets connected"}</span></div>
-      <DeadlineBanner s={s} alerts={f.alerts} now={now} onOpen={a => a.productId && openProduct && openProduct(a.productId)} onMessage={onAssign} />
+      <DeadlineBanner s={s} alerts={f.alerts} now={now} onOpen={a => a.hu && openPallet && openPallet(a.hu)} onMessage={onAssign} />
 
       <div className="flex items-center mt-2 mb-1.5"><p className="label-sm flex-1" style={{ color: C.muted }}>Docks · {f.dock.length} pallets · {f.skus} SKUs{f.blocking ? ` · ${f.blocking} needed today` : ""}{f.skippable ? ` · ${f.skippable} skippable` : ""}{f.dockLost ? ` · ${f.dockLost} lost` : ""}</p>{hasDock && <button onClick={() => setPage("docks")} className="text-xs inline-flex items-center gap-1" style={{ color: C.accent }}><Ic i={Warehouse} s={13} mr={0} />Dock map →</button>}</div>
       <div className="grid gap-3 mb-3" style={{ gridTemplateColumns: "repeat(7, 1fr)" }}>
@@ -1508,7 +1656,7 @@ function Dashboard({ s, setPage, seed, user, openProduct, onAssign, set, openTod
           <thead><tr className="text-xs text-left" style={{ color: C.muted }}>{["Product", ...(prioSel === "Needed today" ? ["Priority"] : []), "Article", "Location", "Arrived", "Transporter", "History", ""].map(h => <th key={h || "act"} className="py-1.5 pr-3 font-medium" style={{ borderBottom: `1px solid ${C.line}` }}>{h}</th>)}</tr></thead>
           <tbody>{prioGroups.map(r => { const prod = s.products.find(p => p.articleId === r.article); const hist = recentProblemsFor(s, prod?.id); const stacked = claimOf(s, r)?.status === "stacked"; return (
             <tr key={r.article || r.hu} style={{ borderBottom: `1px solid ${C.line}` }}>
-              <td className="py-1.5 pr-3">{prod ? <button onClick={() => openProduct(prod.id)} className="text-left font-medium" style={{ color: C.ink }}>{r.name || prod.name}</button> : <span>{r.name || r.article}<span className="text-[11px] ml-1" style={{ color: C.warn }}>no profile</span></span>}<span className="ml-1.5 inline-flex align-middle"><ComplaintChip s={s} articleId={r.article} /></span>{r.count > 1 && <span className="text-[10px] ml-1.5 px-1.5 py-0.5 rounded-full" style={{ background: C.accentSoft, color: C.accent }}>×{r.count} on docks</span>}{r.totalOnDock > r.count && <span className="text-[10px] ml-1.5" style={{ color: C.muted }}>+{r.totalOnDock - r.count} elsewhere</span>}{r.mixedPO && <span className="text-[10px] ml-1.5 px-1.5 py-0.5 rounded-full" style={{ background: C.warnBg, color: C.warn }}>⚠ mixed PO</span>}{r.checked > 0 && <span className="text-[10px] ml-1.5 px-1.5 py-0.5 rounded-full" style={{ background: C.okBg, color: C.ok }}>✓ {r.checked === r.count ? "already inspected" : `${r.checked}/${r.count} inspected`}</span>}{r.blocking && <span className="text-[10px] ml-1.5 px-1.5 py-0.5 rounded" style={{ background: C.badBg, color: C.bad }}>needed today</span>}{stacked && <span className="text-[10px] ml-1.5 px-1.5 py-0.5 rounded inline-flex items-center" style={{ background: C.line, color: C.muted }}><Ic i={Layers} s={10} mr={3} />in stack</span>}</td>
+              <td className="py-1.5 pr-3">{(r.hu || r.article) && openPallet ? <button onClick={() => openPallet(r.hu || r.article)} className="text-left font-medium" style={{ color: C.ink }}>{r.name || prod?.name || r.article}</button> : <span>{r.name || r.article}{!prod && <span className="text-[11px] ml-1" style={{ color: C.warn }}>no profile</span>}</span>}<span className="ml-1.5 inline-flex align-middle"><ComplaintChip s={s} articleId={r.article} /></span>{r.count > 1 && <span className="text-[10px] ml-1.5 px-1.5 py-0.5 rounded-full" style={{ background: C.accentSoft, color: C.accent }}>×{r.count} on docks</span>}{r.totalOnDock > r.count && <span className="text-[10px] ml-1.5" style={{ color: C.muted }}>+{r.totalOnDock - r.count} elsewhere</span>}{r.mixedPO && <span className="text-[10px] ml-1.5 px-1.5 py-0.5 rounded-full" style={{ background: C.warnBg, color: C.warn }}>⚠ mixed PO</span>}{r.checked > 0 && <span className="text-[10px] ml-1.5 px-1.5 py-0.5 rounded-full" style={{ background: C.okBg, color: C.ok }}>✓ {r.checked === r.count ? "already inspected" : `${r.checked}/${r.count} inspected`}</span>}{r.blocking && <span className="text-[10px] ml-1.5 px-1.5 py-0.5 rounded" style={{ background: C.badBg, color: C.bad }}>needed today</span>}{stacked && <span className="text-[10px] ml-1.5 px-1.5 py-0.5 rounded inline-flex items-center" style={{ background: C.line, color: C.muted }}><Ic i={Layers} s={10} mr={3} />in stack</span>}</td>
               {prioSel === "Needed today" && <td className="py-1.5 pr-3 text-xs">{r.priority || "—"}</td>}<td className="py-1.5 pr-3 font-mono text-xs">{r.article}</td><td className="py-1.5 pr-3">{r.location}</td><td className="py-1.5 pr-3 text-xs">{r.arrived} {r.arrivedTime}</td><td className="py-1.5 pr-3 text-xs">{r.transporter}</td>
               <td className="py-1.5 text-xs" style={{ color: hist.count ? C.bad : C.muted }}>{hist.count ? `${hist.count} rejected · ${hist.problems.slice(0, 2).map(x => x.name).join(", ")}` : "clean"}</td>
               <td className="py-1.5 text-right whitespace-nowrap">{stacked ? <button onClick={() => setClaim(set, r, null)} className="text-xs px-2.5 py-1 rounded-lg" style={{ border: `1px solid ${C.line}` }}>Reachable</button> : <button onClick={() => setClaim(set, r, { userId: user.id, at: nowISO(), status: "stacked" })} className="text-xs px-2.5 py-1 rounded-lg inline-flex items-center" style={{ border: `1px solid ${C.line}` }}><Ic i={Layers} s={12} />In stack</button>}</td>
@@ -1525,15 +1673,15 @@ function Dashboard({ s, setPage, seed, user, openProduct, onAssign, set, openTod
       {blSel === "blocked" && (() => { const q = blockedQueue(s); const order = { "Not started": 0, "Started": 1, "Completed": 2 }; const list = q.filter(b => b.status !== "Completed" && !b.lost).sort((a, b) => (order[a.status] ?? 9) - (order[b.status] ?? 9) || (a.time || "").localeCompare(b.time || "")); return (
         <Card style={{ marginBottom: 12 }}>
           <div className="flex items-center gap-2 mb-1"><p className="font-medium text-sm flex-1">Blocked pallets · {list.length} open{f.bl.taken ? ` · ${f.bl.taken} taken` : ""}</p><button onClick={() => setPage("blocked")} className="text-xs underline" style={{ color: C.accent }}>full page</button><button onClick={() => setBlSel(null)} className="text-xs ml-2" style={{ color: C.muted }}>close</button></div>
-          {list.length === 0 ? <p className="text-xs py-3" style={{ color: C.muted }}>Nothing in the blocked queue.</p> : list.map(b => { const prod = s.products.find(p => p.articleId === b.article); return <QueueRow key={b.key} s={s} set={set} user={user} b={b} onOpen={() => prod && openProduct(prod.id)} />; })}
+          {list.length === 0 ? <p className="text-xs py-3" style={{ color: C.muted }}>Nothing in the blocked queue.</p> : list.map(b => <QueueRow key={b.key} s={s} set={set} user={user} b={b} onOpen={() => openPallet && openPallet(b.hu || claimKey(b))} />)}
         </Card>); })()}
       {blSel === "stacked" && (
         <Card style={{ marginBottom: 12 }}>
           <div className="flex items-center gap-2 mb-1"><p className="font-medium text-sm flex-1">In stack · {f.stacked} pallet{f.stacked === 1 ? "" : "s"} · not reachable yet</p><button onClick={() => setBlSel(null)} className="text-xs" style={{ color: C.muted }}>close</button></div>
-          {f.stacked === 0 ? <p className="text-xs py-3" style={{ color: C.muted }}>Nothing marked in stack.</p> : f.stackedRows.map(r => { const prod = s.products.find(p => p.articleId === r.article); const c = claimOf(s, r); const who = c && s.users.find(u => u.id === c.userId); return (
+          {f.stacked === 0 ? <p className="text-xs py-3" style={{ color: C.muted }}>Nothing marked in stack.</p> : f.stackedRows.map(r => { const c = claimOf(s, r); const who = c && s.users.find(u => u.id === c.userId); return (
             <div key={claimKey(r)} className="py-2.5 flex items-center gap-2" style={{ borderBottom: `1px solid ${C.line}` }}>
               <span className="inline-flex items-center" style={{ color: C.muted }}><Ic i={Layers} s={14} mr={0} /></span>
-              <button onClick={() => prod && openProduct(prod.id)} className="text-sm flex-1 truncate font-medium text-left">{r.name || r.article}</button>
+              <button onClick={() => openPallet && openPallet(r.hu || claimKey(r))} className="text-sm flex-1 truncate font-medium text-left">{r.name || r.article}</button>
               <span className="text-xs" style={{ color: C.muted }}>{r.location || "—"}{who ? ` · ${who.name.split(" ")[0]}` : ""}</span>
               <button onClick={() => setClaim(set, r, { userId: user.id, at: nowISO(), status: "taken" })} className="text-xs px-2.5 py-1 rounded-lg font-semibold" style={{ background: C.ink, color: C.onDark }}>Reachable now</button>
             </div>); })}
@@ -4087,7 +4235,7 @@ function NotificationsPage({ s, set, user, setPage, setOpenId, setSelProduct }) 
 // ═══════════════════ PAGE: Blocked pallets — the shared work queue ═══════════════════
 // Lost pallets: the hand-off list for whoever hunts them down (not QC). Everything marked lost, by whom and when, plus
 // whether the sheet still lists it. Found here or on the phone clears it; a completed inspection on the pallet clears it too.
-function LostPalletsPage({ s, set, user, setSel, setPage }) {
+function LostPalletsPage({ s, set, user, setSel, setPage, setSelPallet }) {
   const rows = [...dockRowsLive(s).map(r => ({ ...r, kind: "dock" })), ...blockedRowsLive(s).map(r => ({ ...r, kind: "blocked" }))];
   const marks = Object.entries(s.lostPallets || {}).map(([key, m]) => { const row = rows.find(r => lostKey(r) === key) || null; const live = row ? lostOf(s, row) : m; const by = s.users.find(u => u.id === m.byUserId); const product = s.products.find(p => p.articleId === (row?.article || m.article)); return { key, m, row, by, product, cleared: !live, name: row?.name || m.name || product?.name || m.article, article: row?.article || m.article, hu: row?.hu || m.hu, location: row?.location || m.location }; })
     .sort((a, b) => (a.cleared - b.cleared) || (b.m.at || "").localeCompare(a.m.at || ""));
@@ -4103,7 +4251,7 @@ function LostPalletsPage({ s, set, user, setSel, setPage }) {
           <tbody>
             {marks.map(x => (
               <tr key={x.key} style={{ opacity: x.cleared ? .5 : 1, borderBottom: `1px solid ${C.line}` }}>
-                <td className="py-2 pr-3">{x.product ? <button onClick={() => { setSel(x.product.id); setPage("products"); }} className="underline text-left" style={{ color: C.accent }}>{x.name}</button> : x.name}</td>
+                <td className="py-2 pr-3">{(x.hu || x.row || x.key) ? <button onClick={() => setSelPallet(x.hu || (x.row && (x.row.hu || claimKey(x.row))) || x.key)} className="underline text-left" style={{ color: C.accent }}>{x.name}</button> : x.name}</td>
                 <td className="py-2 pr-3 font-mono text-xs">{x.article}</td>
                 <td className="py-2 pr-3 font-mono text-xs">{x.hu ? `…${String(x.hu).slice(-8)}` : "—"}</td>
                 <td className="py-2 pr-3">{x.location || "—"}</td>
@@ -4126,7 +4274,7 @@ function LostPalletsPage({ s, set, user, setSel, setPage }) {
 // push cycle with no completed report covering it, so this page updates itself even with nobody's app open.
 // Both roles can see it (the Head from here and Controllers from their own nav item / phone); only the Head can
 // mark an incident reviewed — a permanent note, not a dismissal, since the point is a record, not a to-do list.
-function UnreportedPalletsPage({ s, set, user, setSel, setPage }) {
+function UnreportedPalletsPage({ s, set, user, setSel, setPage, setSelPallet }) {
   const [view, setView] = useState("open");
   const [notes, setNotes] = useState({});
   const isHead = user.role === "Head";
@@ -4159,7 +4307,7 @@ function UnreportedPalletsPage({ s, set, user, setSel, setPage }) {
               <tbody>
                 {g.items.map(x => { const product = s.products.find(p => p.articleId === x.article); const reviewer = s.users.find(u => u.id === x.reviewedByUserId); return (
                   <tr key={x.id} style={{ borderBottom: `1px solid ${C.line}`, opacity: x.reviewedAt ? .6 : 1 }}>
-                    <td className="py-2 pr-3">{product ? <button onClick={() => { setSel(product.id); setPage("products"); }} className="underline text-left" style={{ color: C.accent }}>{x.name || product.name}</button> : (x.name || x.article || "—")}</td>
+                    <td className="py-2 pr-3">{(x.hu || product) ? <button onClick={() => { if (x.hu && setSelPallet) setSelPallet(x.hu); else if (product) { setSel(product.id); setPage("products"); } }} className="underline text-left" style={{ color: C.accent }}>{x.name || product?.name || x.article}</button> : (x.name || x.article || "—")}</td>
                     <td className="py-2 pr-3 font-mono text-xs">{x.article || "—"}</td>
                     <td className="py-2 pr-3 font-mono text-xs">{x.hu ? `…${String(x.hu).slice(-8)}` : "—"}</td>
                     <td className="py-2 pr-3">{x.location || "—"}</td>
@@ -4183,7 +4331,7 @@ function UnreportedPalletsPage({ s, set, user, setSel, setPage }) {
     </div>
   );
 }
-function BlockedQueuePage({ s, set, user, setSel, setPage }) {
+function BlockedQueuePage({ s, set, user, setSel, setPage, setSelPallet }) {
   const [view, setView] = useState("open");
   const q = blockedQueue(s); const order = { "Not started": 0, "Started": 1, "Completed": 2 };
   const list = q.filter(b => view === "all" ? true : view === "mine" ? b.claim?.userId === user.id : b.status !== "Completed").sort((a, b) => (order[a.status] ?? 9) - (order[b.status] ?? 9) || (a.time || "").localeCompare(b.time || ""));
@@ -4198,7 +4346,7 @@ function BlockedQueuePage({ s, set, user, setSel, setPage }) {
           {[["Open", open.length, C.bad], ["Taken", taken.length, C.accent], ["In stack", stacked.length, C.muted], ["Unassigned", open.length - taken.length - stacked.length, C.warn]].map(([l, v, col]) => <div key={l} className="rounded-2xl p-4" style={{ background: C.surface, border: `1px solid ${C.line}`, borderLeft: `3px solid ${col}` }}><p className="text-xs" style={{ color: C.muted }}>{l}</p><p className="text-[26px] leading-tight font-semibold">{v}</p></div>)}
         </div>
         <div className="flex gap-1.5 mb-3">{[["open", "Open"], ["mine", "Mine"], ["all", "All incl. done"]].map(([k, l]) => <button key={k} onClick={() => setView(k)} className="text-xs px-3 py-1.5 rounded-full" style={{ background: view === k ? C.ink : "transparent", color: view === k ? C.onDark : C.ink, border: `1px solid ${view === k ? C.ink : C.line}` }}>{l}</button>)}</div>
-        <Card>{list.length === 0 ? <p className="text-xs py-4" style={{ color: C.muted }}>Nothing here.</p> : list.map(b => { const prod = s.products.find(p => p.articleId === b.article); return <QueueRow key={b.key} s={s} set={set} user={user} b={b} onOpen={() => { if (prod) { setSel(prod.id); setPage("products"); } }} />; })}</Card>
+        <Card>{list.length === 0 ? <p className="text-xs py-4" style={{ color: C.muted }}>Nothing here.</p> : list.map(b => <QueueRow key={b.key} s={s} set={set} user={user} b={b} onOpen={() => { if (setSelPallet) setSelPallet(b.hu || claimKey(b)); else { const prod = s.products.find(p => p.articleId === b.article); if (prod) { setSel(prod.id); setPage("products"); } } }} />)}</Card>
       </>}
     </div>
   );
@@ -4558,6 +4706,7 @@ export default function App() {
   if (syncerRef.current === null) syncerRef.current = createSyncer({ key: STORAGE_KEY, normalize: p => sortState(normalize(p)), isValid: p => p && Array.isArray(p.categories), initial: EMPTY, onState: v => { _S = v; setRaw(v); }, onToast: m => setToastMsg(m) });
   const set = (fn, opts) => syncerRef.current.apply(typeof fn === "function" ? (x => sortState(fn(x))) : (() => sortState(fn)), opts);
   const [selProduct, setSelProduct] = useState(null);
+  const [selPallet, setSelPallet] = useState(null);
   const [loaded, setLoaded] = useState(false);
   const [dataOpen, setDataOpen] = useState(false);
   const [userId, setUserId] = useState(() => readSession());
@@ -4569,15 +4718,16 @@ export default function App() {
   const skipPushRef = useRef(true);
   useEffect(() => {
     if (skipPushRef.current) { skipPushRef.current = false; return; }
-    try { history.pushState({ __qcNav: true, page, selProduct, openInspId }, ""); } catch {}
-  }, [page, selProduct, openInspId]);
+    try { history.pushState({ __qcNav: true, page, selProduct, openInspId, selPallet }, ""); } catch {}
+  }, [page, selProduct, openInspId, selPallet]);
   useEffect(() => {
-    try { history.replaceState({ __qcNav: true, page, selProduct, openInspId }, ""); } catch {}
+    try { history.replaceState({ __qcNav: true, page, selProduct, openInspId, selPallet }, ""); } catch {}
     const onPop = e => {
       skipPushRef.current = true; const st = e.state;
       setPage(st && st.__qcNav ? st.page : "dashboard");
       setSelProduct(st && st.__qcNav ? (st.selProduct ?? null) : null);
       setOpenInspId(st && st.__qcNav ? (st.openInspId ?? null) : null);
+      setSelPallet(st && st.__qcNav ? (st.selPallet ?? null) : null);
     };
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
@@ -4615,33 +4765,34 @@ export default function App() {
   const guard = key => user.role === "Head" || NAV_CONTROLLER.some(g => g.items.some(([k]) => k === key));
   const safePage = guard(page) ? page : "dashboard";
   return (
-    <Shell onSearch={q => { setProductsQuery(q); setPage("products"); }} onLogout={() => { writeSession(null); setUserId(null); }} page={safePage} setPage={setPage} badge={{ ...badge, complaints: complaintsNewCount(s, user.id), messages: unreadMsgs, notifications: unread, flags: user.role === "Head" ? s.flags.filter(f => f.status === "Open").length : 0, inspections: user.role === "Head" ? s.inspections.filter(i => i.status === "PendingReview").length : 0 }} topRight={dataButton} users={s.users} user={user} setUser={id => { setUserId(id); setPage("dashboard"); setOpenInspId(null); }} unread={unread} onBell={() => setPage("notifications")}>
+    <Shell onSearch={q => { setSelPallet(null); setProductsQuery(q); setPage("products"); }} onLogout={() => { writeSession(null); setUserId(null); }} page={safePage} setPage={p => { setSelPallet(null); setPage(p); }} badge={{ ...badge, complaints: complaintsNewCount(s, user.id), messages: unreadMsgs, notifications: unread, flags: user.role === "Head" ? s.flags.filter(f => f.status === "Open").length : 0, inspections: user.role === "Head" ? s.inspections.filter(i => i.status === "PendingReview").length : 0 }} topRight={dataButton} users={s.users} user={user} setUser={id => { setUserId(id); setSelPallet(null); setPage("dashboard"); setOpenInspId(null); }} unread={unread} onBell={() => { setSelPallet(null); setPage("notifications"); }}>
       <BlockingOverlay s={s} set={set} user={user} />
       {dataOpen && <DataPanel s={s} set={set} onClose={() => setDataOpen(false)} />}
       {toastMsg && <div className="fixed left-1/2 -translate-x-1/2 text-sm px-4 py-2 rounded-xl" style={{ top: 12, zIndex: 90, background: C.ink, color: C.onDark, boxShadow: "0 8px 20px rgba(0,0,0,.25)" }}>{toastMsg}</div>}
       {newVersion && <div className="fixed left-1/2 -translate-x-1/2 flex items-center gap-3 text-sm px-4 py-2.5 rounded-xl" style={{ top: 12, zIndex: 91, background: C.accent, color: C.onDark, boxShadow: "0 8px 20px rgba(0,0,0,.3)" }}>A new version is live<button onClick={() => location.reload()} className="px-2.5 py-1 rounded-lg font-semibold" style={{ background: C.onDark, color: C.accent }}>Refresh</button></div>}
-      {safePage === "dashboard" && (user.role === "Head" ? <Dashboard s={s} user={user} set={set} setPage={setPage} seed={() => set(olaState(), { replace: true })} openProduct={id => { setSelProduct(id); setPage("products"); }} onAssign={a => { setPendingChatContext({ kind: "pallet", id: a.hu, label: `${a.name} · ${a.location}` }); setPage("messages"); }} openTodayInspections={() => { setOpenInspId(null); setInspDatePreset("0"); setPage("inspections"); }} /> : <ControllerDashboard s={s} user={user} setPage={setPage} setOpenId={setOpenInspId} openProduct={id => { setSelProduct(id); setPage("products"); }} />)}
-      {safePage === "categories" && <CategoriesPage s={s} set={set} onMessage={ctx => { setPendingChatContext(ctx); setPage("messages"); }} onOpenProduct={id => { setSelProduct(id); setPage("products"); }} presetSel={presetCategory} clearPresetSel={() => setPresetCategory(null)} />}
-      {safePage === "problems" && <ProblemsPage s={s} set={set} />}
-      {safePage === "products" && <ProductsPage s={s} set={set} sel={selProduct} setSel={setSelProduct} presetFilter={productsQuery} clearPreset={() => setProductsQuery("")} onMessage={ctx => { setPendingChatContext(ctx); setPage("messages"); }} onOpenInspection={id => { setOpenInspId(id); setPage("inspections"); }} onOpenCategory={id => { setPresetCategory(id); setPage("categories"); }} />}
-      {safePage === "forms" && <FormsPage s={s} set={set} />}
-      {safePage === "suppliers" && <DictionaryPage s={s} set={set} listKey="suppliers" title="Suppliers" hint="One global list of all suppliers (Suppliers). Assign to products in Products." placeholder="e.g. El Ciruelo" usageOf={id => s.products.filter(p => (p.supplierIds || []).includes(id)).length} />}
-      {safePage === "lists" && <ListsPage s={s} set={set} />}
-      {safePage === "blocked" && <BlockedQueuePage s={s} set={set} user={user} setSel={setSelProduct} setPage={setPage} />}
-      {safePage === "lost" && <LostPalletsPage s={s} set={set} user={user} setSel={setSelProduct} setPage={setPage} />}
-      {safePage === "complaints" && <ComplaintsPage s={s} set={set} user={user} openProduct={id => { setSelProduct(id); setPage(user.role === "Head" ? "products" : "catalog"); }} />}
-      {safePage === "docks" && <DockMapPage s={s} user={user} openProduct={id => { setSelProduct(id); setPage(user.role === "Head" ? "products" : "catalog"); }} />}
-      {safePage === "unreported" && <UnreportedPalletsPage s={s} set={set} user={user} setSel={setSelProduct} setPage={setPage} />}
-      {safePage === "inspections" && <InspectionsPage s={s} set={set} user={user} notify={notify} openId={openInspId} setOpenId={setOpenInspId} preset={presetProduct} clearPreset={() => setPresetProduct("")} datePreset={inspDatePreset} clearDatePreset={() => setInspDatePreset("")} />}
-      {safePage === "catalog" && <CatalogPage s={s} set={set} user={user} notify={notify} onStartInspection={pid => { setPresetProduct(pid); setOpenInspId(null); setPage("inspections"); }} />}
-      {safePage === "flags" && <FlagsPage s={s} set={set} user={user} />}
-      {safePage === "notifications" && <NotificationsPage s={s} set={set} user={user} setPage={setPage} setOpenId={setOpenInspId} setSelProduct={setSelProduct} />}
-      {safePage === "analytics" && <AnalyticsPage s={s} setPage={setPage} openInspection={id => { setOpenInspId(id); setPage("inspections"); }} />}
-      {safePage === "integrations" && <IntegrationsPage s={s} set={set} />}
-      {safePage === "settings" && <SettingsPage s={s} set={set} />}
-      {safePage === "users" && <UsersPage s={s} set={set} />}
-      {safePage === "announcements" && <AnnouncementsPage s={s} set={set} user={user} notify={notify} />}
-      {safePage === "messages" && <MessagesPage s={s} set={set} user={user} setPage={setPage} onOpenProduct={id => setSelProduct(id)} onOpenInspection={id => { setOpenInspId(id); setPage("inspections"); }} onOpenCategory={id => setPresetCategory(id)} initialContext={pendingChatContext} clearInitialContext={() => setPendingChatContext(null)} />}
+      {selPallet && <PalletPage s={s} set={set} user={user} hu={selPallet} onBack={() => setSelPallet(null)} onPickPallet={h => setSelPallet(h)} onOpenProduct={id => { setSelPallet(null); setSelProduct(id); setPage(user.role === "Head" ? "products" : "catalog"); }} onOpenInspection={id => { setSelPallet(null); setOpenInspId(id); setPage("inspections"); }} onAssign={r => { setSelPallet(null); setPendingChatContext({ kind: "pallet", id: r.hu || claimKey(r), label: `${r.name || r.article} · ${r.location || ""}`.trim() }); setPage("messages"); }} onStartInspection={pid => { setSelPallet(null); setPresetProduct(pid); setOpenInspId(null); setPage("inspections"); }} onOpenAnnouncements={() => { setSelPallet(null); setPage("announcements"); }} onOpenComplaints={() => { setSelPallet(null); setPage("complaints"); }} />}
+      {!selPallet && safePage === "dashboard" && (user.role === "Head" ? <Dashboard s={s} user={user} set={set} setPage={setPage} seed={() => set(olaState(), { replace: true })} openPallet={hu => setSelPallet(hu)} onAssign={a => { setPendingChatContext({ kind: "pallet", id: a.hu, label: `${a.name} · ${a.location}` }); setPage("messages"); }} openTodayInspections={() => { setOpenInspId(null); setInspDatePreset("0"); setPage("inspections"); }} /> : <ControllerDashboard s={s} user={user} setPage={setPage} setOpenId={setOpenInspId} openProduct={id => { setSelProduct(id); setPage("products"); }} />)}
+      {!selPallet && safePage === "categories" && <CategoriesPage s={s} set={set} onMessage={ctx => { setPendingChatContext(ctx); setPage("messages"); }} onOpenProduct={id => { setSelProduct(id); setPage("products"); }} presetSel={presetCategory} clearPresetSel={() => setPresetCategory(null)} />}
+      {!selPallet && safePage === "problems" && <ProblemsPage s={s} set={set} />}
+      {!selPallet && safePage === "products" && <ProductsPage s={s} set={set} sel={selProduct} setSel={setSelProduct} presetFilter={productsQuery} clearPreset={() => setProductsQuery("")} onMessage={ctx => { setPendingChatContext(ctx); setPage("messages"); }} onOpenInspection={id => { setOpenInspId(id); setPage("inspections"); }} onOpenCategory={id => { setPresetCategory(id); setPage("categories"); }} />}
+      {!selPallet && safePage === "forms" && <FormsPage s={s} set={set} />}
+      {!selPallet && safePage === "suppliers" && <DictionaryPage s={s} set={set} listKey="suppliers" title="Suppliers" hint="One global list of all suppliers (Suppliers). Assign to products in Products." placeholder="e.g. El Ciruelo" usageOf={id => s.products.filter(p => (p.supplierIds || []).includes(id)).length} />}
+      {!selPallet && safePage === "lists" && <ListsPage s={s} set={set} />}
+      {!selPallet && safePage === "blocked" && <BlockedQueuePage s={s} set={set} user={user} setSel={setSelProduct} setPage={setPage} setSelPallet={setSelPallet} />}
+      {!selPallet && safePage === "lost" && <LostPalletsPage s={s} set={set} user={user} setSel={setSelProduct} setPage={setPage} setSelPallet={setSelPallet} />}
+      {!selPallet && safePage === "complaints" && <ComplaintsPage s={s} set={set} user={user} openProduct={id => { setSelProduct(id); setPage(user.role === "Head" ? "products" : "catalog"); }} />}
+      {!selPallet && safePage === "docks" && <DockMapPage s={s} user={user} openPallet={hu => setSelPallet(hu)} />}
+      {!selPallet && safePage === "unreported" && <UnreportedPalletsPage s={s} set={set} user={user} setSel={setSelProduct} setPage={setPage} setSelPallet={setSelPallet} />}
+      {!selPallet && safePage === "inspections" && <InspectionsPage s={s} set={set} user={user} notify={notify} openId={openInspId} setOpenId={setOpenInspId} preset={presetProduct} clearPreset={() => setPresetProduct("")} datePreset={inspDatePreset} clearDatePreset={() => setInspDatePreset("")} />}
+      {!selPallet && safePage === "catalog" && <CatalogPage s={s} set={set} user={user} notify={notify} onStartInspection={pid => { setPresetProduct(pid); setOpenInspId(null); setPage("inspections"); }} />}
+      {!selPallet && safePage === "flags" && <FlagsPage s={s} set={set} user={user} />}
+      {!selPallet && safePage === "notifications" && <NotificationsPage s={s} set={set} user={user} setPage={setPage} setOpenId={setOpenInspId} setSelProduct={setSelProduct} />}
+      {!selPallet && safePage === "analytics" && <AnalyticsPage s={s} setPage={setPage} openInspection={id => { setOpenInspId(id); setPage("inspections"); }} />}
+      {!selPallet && safePage === "integrations" && <IntegrationsPage s={s} set={set} />}
+      {!selPallet && safePage === "settings" && <SettingsPage s={s} set={set} />}
+      {!selPallet && safePage === "users" && <UsersPage s={s} set={set} />}
+      {!selPallet && safePage === "announcements" && <AnnouncementsPage s={s} set={set} user={user} notify={notify} />}
+      {!selPallet && safePage === "messages" && <MessagesPage s={s} set={set} user={user} setPage={setPage} onOpenProduct={id => setSelProduct(id)} onOpenInspection={id => { setOpenInspId(id); setPage("inspections"); }} onOpenCategory={id => setPresetCategory(id)} initialContext={pendingChatContext} clearInitialContext={() => setPendingChatContext(null)} />}
     </Shell>
   );
 }
