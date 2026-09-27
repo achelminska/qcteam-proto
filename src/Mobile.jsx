@@ -2999,7 +2999,17 @@ function MCatalog({ s, user, go, onStart, setState, notify, onVisual, preset }) 
         <div className="px-4 pt-3">
           <button onClick={() => setCat(catOf(cat)?.parentId || null)} className="text-xs mb-2 inline-flex items-center" style={{ color: C.accent }}><Ic i={ChevronLeft} s={14} mr={2} />{catOf(cat)?.parentId ? catOf(catOf(cat).parentId)?.name : "All categories"}</button>
           <h2 className="mb-1">{catOf(cat)?.name}</h2>
-          <p className="text-xs mb-3" style={{ color: C.muted }}>{products.length} products{(catOf(cat)?.specs || []).length ? ` · category specs: ${catOf(cat).specs.map(x => `${x.name} ${specLabel(x)}`).join(", ")}` : ""}</p>
+          <p className="text-xs mb-2" style={{ color: C.muted }}>{products.length} product{products.length === 1 ? "" : "s"}</p>
+          {(catOf(cat)?.specs || []).length > 0 && (
+            <div className="grid grid-cols-2 gap-1.5 mb-3">
+              {catOf(cat).specs.map(q => (
+                <div key={q.id} className="rounded-xl px-3 py-2" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+                  <p className="text-[10px] uppercase tracking-wide truncate" style={{ color: C.muted }}>{q.name}</p>
+                  <p className="text-[13px] font-semibold mt-0.5 leading-snug" style={{ fontVariantNumeric: "tabular-nums" }}>{specLabel(q)}</p>
+                </div>
+              ))}
+            </div>
+          )}
           {subCats.length > 0 && <div className="flex gap-1.5 overflow-x-auto pb-2 mb-2">{subCats.map(c => <Chip key={c.id} on={false} onClick={() => setCat(c.id)}>{c.name} · {countIn(c.id)}</Chip>)}</div>}
           <MCategoryKnowledge s={s} catId={cat} />
           <Grid items={products} />
