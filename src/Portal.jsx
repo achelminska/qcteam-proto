@@ -1078,7 +1078,7 @@ function SearchSelect({ value, onChange, options, empty = "—", placeholder = "
     <div ref={ref} className={`relative ${className}`} style={style}>
       <button type="button" onClick={() => { setOpen(o => !o); setQ(""); }} className="w-full text-left flex items-center gap-1 rounded-md px-2 outline-none" style={{ ...inp, height: h, fontSize: size === "xs" ? 12 : 13 }}><span className="flex-1 truncate" style={{ color: chosen ? C.ink : C.muted }}>{chosen ? chosen.label : empty}</span><Ic i={ChevronDown} s={12} mr={0} style={{ color: C.muted }} /></button>
       {open && <div className="absolute left-0 right-0 mt-1 rounded-xl p-1.5" style={{ background: C.surface, border: `1px solid ${C.line}`, boxShadow: "0 10px 28px rgba(0,0,0,.28)", zIndex: 80, minWidth: 220 }}>
-        {searchable && <input autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder={placeholder} className="w-full text-xs rounded-lg px-2 py-1.5 outline-none mb-1" style={{ ...inp }} />}
+        {searchable && <input value={q} onChange={e => setQ(e.target.value)} placeholder={placeholder} className="w-full text-xs rounded-lg px-2 py-1.5 outline-none mb-1" style={{ ...inp }} />}
         <div style={{ maxHeight: 280, overflowY: "auto" }}>
           {!qq && <button type="button" onClick={() => { onChange(""); setOpen(false); }} className="w-full text-left text-xs px-2 py-1.5 rounded-md" style={{ color: C.muted }}>{empty}</button>}
           {shown.map(o => <button type="button" key={o.value} onClick={() => { onChange(o.value); setOpen(false); }} className="w-full text-left text-xs px-2 py-1.5 rounded-md truncate" style={{ background: o.value === value ? C.accentSoft : "transparent", color: o.value === value ? C.accent : o.tone || C.ink }}>{o.label}</button>)}
@@ -3284,11 +3284,10 @@ function NumberInput({ f, problems, allProblems, overrides, specs, totals, value
   const bad = side !== null;
   const linkedId = side === "below" ? belowId : side === "above" ? aboveId : null;
   const lp = linkedId && problems.find(p => p.id === linkedId);
-  // "Answer from a list": fixed allowed values (see the form builder); values outside the specification are labelled
-  // with the problem they raise. Average / out-of-spec / raising work exactly as for a typed number.
+  // "Answer from a list": fixed allowed values (see the form builder). The dropdown is just the numbers;
+  // average / out-of-spec / raising work after a pick, same as a typed number.
   const choices = Array.isArray(f.choices) ? f.choices.filter(v => v !== "" && v !== null && !isNaN(Number(v))) : [];
-  const below = problems.find(p => p.id === belowId), above = problems.find(p => p.id === aboveId);
-  const choiceOptions = choices.map(v => { const x = Number(v); const isBelow = hasV(mn) && x < Number(mn), isAbove = hasV(mx) && x > Number(mx); const tag = isBelow ? ` · below → ${below?.name || "out of spec"}` : isAbove ? ` · above → ${above?.name || "out of spec"}` : ""; return { value: String(v), label: `${v}${tag}`, tone: isBelow || isAbove ? C.warn : undefined }; });
+  const choiceOptions = choices.map(v => ({ value: String(v), label: String(v) }));
   const setM = (i, v) => onChange({ measurements: ms.map((x, j) => j === i ? v : x) });
   return (
     <div>
@@ -3525,7 +3524,7 @@ function InspectionRunner({ insp, patch, t, problems, product, suppliers, dictio
                 if (!d) return <p className="text-xs" style={{ color: C.warn }}>No list attached to this field — the Head must pick one in the form builder.</p>;
                 if (!d.items.length) return <p className="text-xs" style={{ color: C.warn }}>The list “{d.name}” is empty — fill it in Dictionaries → Lists.</p>;
                 // Lists are always a dropdown; the search box appears from 11 options up (the Head can attach a 70-item country list).
-                const picker = <SearchSelect value={values[f.id] || ""} onChange={v => setV(f.id, v)} options={d.items.map(o => { const c = listCheck(preset, o.value); return { value: o.value, label: c && !c.ok ? `${o.value} · expected ${c.expected}` : o.value, tone: c && !c.ok ? C.warn : undefined }; })} empty={`— choose (${d.items.length} options) —`} placeholder={`Search ${d.name.toLowerCase()}…`} searchFrom={11} />;
+                const picker = <SearchSelect value={values[f.id] || ""} onChange={v => setV(f.id, v)} options={d.items.map(o => ({ value: o.value, label: o.value }))} empty={`— choose (${d.items.length} options) —`} placeholder={`Search ${d.name.toLowerCase()}…`} searchFrom={11} />;
                 return <ListInput f={f} spec={preset} value={values[f.id]} problems={problems} allProblems={sctx?.problems} overrides={t.overrides} totals={totals} onRaise={(leafId, mode, raw) => setRemarks(r => [...r, { id: uid(), leafId, mode, raw, auto: true, fieldId: f.id }])} raised={remarks.some(r => r.auto && r.fieldId === f.id)} picker={picker} />;
               })()}
               {f.type === "Pallet" && <div>{pallets.map((p, i) => <div key={i} className="flex gap-1.5 mb-1.5"><input value={p} onChange={e => setPallets(ps => ps.map((x, j) => j === i ? e.target.value : x))} placeholder={`pallet ${i + 1}`} className="flex-1 text-sm rounded px-2 py-1.5 outline-none" style={{ ...inp }} /><button className="text-xs px-2 rounded" style={{ background: C.line, color: C.muted }} title="camera scanning is only available in the phone app" disabled><Ic i={ScanLine} s={13} mr={0} /></button>{pallets.length > 1 && <button onClick={() => setPallets(ps => ps.filter((_, j) => j !== i))} className="text-xs px-1" style={{ color: C.muted }}>×</button>}</div>)}<button onClick={() => setPallets(ps => [...ps, ""])} className="text-xs" style={{ color: C.accent }}>+ another pallet</button><DeliveryPallets product={product} insp={insp} onAdd={hus => setPallets(ps => [...ps.filter(Boolean), ...hus.filter(h => !ps.includes(h))])} /></div>}
