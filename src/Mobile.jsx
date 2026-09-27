@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, Fragment } from "react";
 import { createSyncer, guardUnload } from "./sync.js";
 import { hasV, specLabel, dayLabel, typesOf, typeById, legacyTypeId, inspType, countsAs } from "./shared/format.js";
+import { peopleOnFloor, peopleAtDock, floorWhere, floorVerb, doneTodayCount } from "./shared/floor.js";
 import { readAsDataUrl, keepPhoto } from "./shared/report-images.js";
 import { drawReportPdf } from "./shared/report-pdf.js";
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceArea, ReferenceLine, Legend } from "recharts";
@@ -2242,8 +2243,7 @@ function MDashboard({ s, set, user, go, dismissed, setDismissed, onAssign }) {
   const [tab, setTab] = useState("history");
   const bottomPad = { paddingBottom: 96 };
   const mine = s.inspections.filter(i => i.status !== "Cancelled").sort((a, b) => (b.completedAt || b.startedAt || "").localeCompare(a.completedAt || a.startedAt || ""));
-  const today = new Date().toISOString().slice(0, 10);
-  const doneToday = s.inspections.filter(i => i.status === "Completed" && countsAs(s, i) && (i.completedAt || "").slice(0, 10) === today).length;
+  const doneToday = doneTodayCount(s);
   // All of them at once — one gets its full preview text, several collapse to titles only so they don't take over the dashboard.
   const anns = s.announcements.filter(a => a.showOnDashboard && annActive(a) && !dismissed.includes(a.id)).sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
   const unread = s.notifications.filter(n => n.userId === user.id && !n.readAt).length;
@@ -3208,10 +3208,40 @@ const dockAgeHours = r => { if (!r.arrived) return null; const d = new Date(`${r
 const dockAge = r => { const h = dockAgeHours(r); return h == null ? "unknown" : h > 24 ? "old" : h >= 6 ? "day" : "fresh"; };
 const dockAgeColor = k => { const e = DOCK_AGE.find(x => x[0] === k); return e ? (C.isDark ? e[3] : e[2]) : (C.isDark ? "#4b5560" : "#c3cad3"); };
 const dockUrgent = r => dockStatusRank(dockStatus(r)) <= 2;
+function MDockPins({ people, s }) {
+  if (!people.length) return null;
+  const show = people.slice(0, 2);
+  return (
+    <span className="absolute left-1/2 -translate-x-1/2 flex items-center pointer-events-none" style={{ bottom: -5, zIndex: 2 }}>
+      {show.map((p, i) => { const u = s.users.find(x => x.id === p.userId); return (
+        <span key={p.userId} style={{ marginLeft: i ? -6 : 0, border: `1.5px solid ${C.surface}`, borderRadius: "50%", lineHeight: 0, background: C.surface }}><Avatar user={u} size={16} /></span>
+      ); })}
+      {people.length > 2 && <span className="text-[8px] font-semibold ml-0.5" style={{ color: C.ink }}>+{people.length - 2}</span>}
+    </span>
+  );
+}
+function MFloorPeople({ people, s, user, sel, onPick }) {
+  if (!people.length) return null;
+  return (
+    <div className="mt-3">
+      <p className="label-sm mb-1" style={{ color: C.muted }}>On the floor · {people.length}</p>
+      {people.map((p, i) => { const u = s.users.find(x => x.id === p.userId); const active = sel === p.dock; return (
+        <button key={p.userId} onClick={() => p.dock != null && onPick(p.dock)} className="w-full text-left flex items-center gap-2.5 py-2 active:opacity-60" style={{ borderTop: i ? `1px solid ${C.line}` : "none", background: active ? C.accentSoft : "transparent", margin: active ? "0 -8px" : 0, paddingLeft: active ? 8 : 0, paddingRight: active ? 8 : 0, borderRadius: 10 }}>
+          <Avatar user={u} size={30} />
+          <span className="flex-1 min-w-0">
+            <span className="text-sm font-medium">{(u?.name || "?").split(" ")[0]}{u?.id === user?.id ? <span className="ml-1.5 text-[11px] font-normal" style={{ color: C.accent }}>you</span> : null}</span>
+            <span className="block text-[11px] truncate" style={{ color: C.muted }}>{floorWhere(p)} · {floorVerb(p)} {p.productName || p.hu || "a pallet"}</span>
+          </span>
+        </button>
+      ); })}
+    </div>
+  );
+}
 function MDocks({ s, user, go }) {
   const all = dockRowsLive(s); const rows = all.filter(r => !lostOf(s, r)); const lostN = all.length - rows.length;
   const byDock = {}; const other = [];
   rows.forEach(r => { const d = parseDock(r.location); if (d && dockZone(d.n)) (byDock[d.n] = byDock[d.n] || []).push({ ...r, sub: d.sub }); else other.push(r); });
+  const floorPeople = peopleOnFloor(s, [...all, ...blockedRowsLive(s)]);
   const [sel, setSel] = useState(null); const [quick, setQuick] = useState(false);
   // Lens (status / age) and an optional legend filter: bars, counts and the selected dock's list follow both.
   const [mode, setMode] = useState("status"); const [filter, setFilter] = useState(null);
@@ -3228,12 +3258,13 @@ function MDocks({ s, user, go }) {
   const acrossArea = Math.min(BAR_H, Math.max(14, Math.round(Math.max((byDock[14] || []).length, (byDock[0] || []).length) / max * BAR_H)));
   // `flip` mirrors the column for the facing row: baseline on top, bar hanging outward (down). No hover on a phone, so the
   // SKU count shows on the bar of the selected dock instead.
-  const DockCol = ({ n, area = BAR_H, flip = false }) => { const arr = vis(byDock[n] || []); const c = counts(arr); const h = arr.length ? Math.min(area, Math.max(6, Math.round(arr.length / max * BAR_H))) : 0; const active = sel === n; const skus = skusOf(arr);
+  const DockCol = ({ n, area = BAR_H, flip = false }) => { const arr = vis(byDock[n] || []); const c = counts(arr); const h = arr.length ? Math.min(area, Math.max(6, Math.round(arr.length / max * BAR_H))) : 0; const active = sel === n; const skus = skusOf(arr); const here = peopleAtDock(floorPeople, n);
     const base = `2px solid ${C.ink}`;
     return (
-      <button onClick={() => setSel(active ? null : n)} className="flex flex-col items-center min-w-0 rounded-lg pt-1 pb-1.5 transition-colors" style={{ background: active ? C.accentSoft : "transparent", outline: active ? `1px solid ${C.accent}` : "none" }}>
+      <button onClick={() => setSel(active ? null : n)} className="flex flex-col items-center min-w-0 rounded-lg pt-1 pb-1.5 transition-colors relative" style={{ background: active ? C.accentSoft : "transparent", outline: active ? `1px solid ${C.accent}` : "none" }}>
         <div className="w-full px-[3px] flex flex-col relative order-1" style={{ height: area, justifyContent: flip ? "flex-start" : "flex-end", borderTop: flip ? base : "none", borderBottom: flip ? "none" : base }}>
           {h > 0 ? <div className="w-full flex overflow-hidden" style={{ height: h, borderRadius: flip ? "0 0 3px 3px" : "3px 3px 0 0", flexDirection: flip ? "column-reverse" : "column" }}>{legend.map(([k]) => c[k] > 0 && <div key={k} style={{ flex: c[k], background: colorOf(k) }} />)}</div> : <div className="w-full" style={{ height: 3, background: C.line }} />}
+          <MDockPins people={here} s={s} />
         </div>
         <span className={`text-[9px] leading-none ${flip ? "order-3 mt-1" : "order-first mb-1"}`} style={{ color: arr.length ? C.muted : C.line, fontVariantNumeric: "tabular-nums" }}>{arr.length || "–"}</span>
         <span className={`text-[11px] font-semibold leading-none ${flip ? "order-first mb-1" : "order-2 mt-1"}`} style={{ color: active ? C.accent : C.ink }}>{n === 0 ? "00" : n}</span>
@@ -3261,6 +3292,7 @@ function MDocks({ s, user, go }) {
       <TopBar title="Dock map" onBack={() => go("back")} right={all.length > 0 && <button onClick={() => setQuick(q => !q)} className="text-xs px-2.5 py-1.5 rounded-full inline-flex items-center gap-1 font-medium" style={{ border: `1px solid ${quick ? C.accent : C.line}`, background: quick ? C.accentSoft : "transparent", color: quick ? C.accent : C.ink }}><Ic i={ListIcon} s={12} mr={0} />Quick list</button>} />
       <div className="px-4 pt-3">
         {all.length === 0 && <Empty icon={Warehouse} title="No dock data yet" hint="The map fills in as soon as the dock sheet syncs." />}
+        {all.length === 0 && <MFloorPeople people={floorPeople} s={s} user={user} sel={sel} onPick={d => setSel(sel === d ? null : d)} />}
         {all.length > 0 && <>
           <div className="rounded-2xl px-2 pt-2 pb-2.5" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
             <div className="grid mb-1.5" style={{ gridTemplateColumns: gridCols }}>
@@ -3287,6 +3319,7 @@ function MDocks({ s, user, go }) {
           <div className="flex flex-wrap gap-x-2 gap-y-1 mt-1.5 px-1">{legend.map(([k, l]) => <button key={k} onClick={() => setFilter(f => f === k ? null : k)} className="text-[10px] flex items-center gap-1 px-1.5 py-0.5 rounded-md" style={{ color: filter === k ? C.ink : C.muted, background: filter === k ? C.bg : "transparent", outline: filter === k ? `1px solid ${C.line}` : "none", opacity: filter && filter !== k ? .5 : 1 }}><span className="inline-block w-2.5 h-2.5 rounded-[2px]" style={{ background: colorOf(k) }} />{l}</button>)}</div>
           {other.length > 0 && <button onClick={() => setSel(sel === "other" ? null : "other")} className="mt-3 w-full flex items-center gap-2 rounded-xl px-3 py-2 text-left" style={{ background: sel === "other" ? C.accentSoft : C.bg, border: `1px solid ${sel === "other" ? C.accent : C.line}` }}><Ic i={Warehouse} s={14} mr={0} style={{ color: C.muted }} /><span className="text-xs flex-1">Other locations <span style={{ color: C.muted }}>· {[...new Set(other.map(r => r.location || "no location"))].slice(0, 4).join(", ")}{new Set(other.map(r => r.location)).size > 4 ? "…" : ""}</span></span><span className="text-xs font-semibold">{other.length}</span></button>}
           {lostN > 0 && <p className="text-[11px] mt-2 px-1" style={{ color: C.muted }}>{lostN} pallet{lostN === 1 ? "" : "s"} marked lost — not drawn on the map.</p>}
+          <MFloorPeople people={floorPeople} s={s} user={user} sel={sel} onPick={d => setSel(sel === d ? null : d)} />
           {quick && <div className="mt-3 rounded-2xl px-3 py-2" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
             <div className="grid text-[10px] font-medium py-1" style={{ gridTemplateColumns: "1fr 64px 64px", color: C.muted, borderBottom: `1px solid ${C.line}` }}><span>Dock</span><span className="text-right">Pallets</span><span className="text-right">SKUs</span></div>
             {quickRows.map(q => <button key={q.key} onClick={() => setSel(sel === q.key ? null : q.key)} className="grid w-full text-left py-1.5 text-[13px]" style={{ gridTemplateColumns: "1fr 64px 64px", borderBottom: `1px solid ${C.line}`, background: sel === q.key ? C.accentSoft : "transparent", opacity: q.arr.length ? 1 : .5 }}><span className="inline-flex items-center gap-1.5 font-medium">{q.zone && <Ic i={q.zone === "chilled" ? Snowflake : Thermometer} s={11} mr={0} style={{ color: q.zone === "chilled" ? C.accent : C.warn }} />}{q.label}</span><span className="text-right" style={{ fontVariantNumeric: "tabular-nums" }}>{q.arr.length || "—"}</span><span className="text-right" style={{ fontVariantNumeric: "tabular-nums" }}>{q.arr.length ? skusOf(q.arr) : "—"}</span></button>)}
@@ -3304,6 +3337,16 @@ function MDocks({ s, user, go }) {
               <button onClick={() => setSel(null)} className="text-xs" style={{ color: C.muted }}>Clear</button>
             </div>
             <p className="text-xs mb-1" style={{ color: C.muted }}>{selRows.length} pallet{selRows.length === 1 ? "" : "s"} · {items.length} SKU{items.length === 1 ? "" : "s"}{selRows.filter(r => r.blocking).length ? ` · ${selRows.filter(r => r.blocking).length} needed today` : ""}</p>
+            {(() => { const here = sel === "other" ? floorPeople.filter(p => p.dock === "other") : peopleAtDock(floorPeople, sel); if (!here.length) return null; return (
+              <div className="rounded-xl px-3 py-2 mb-2" style={{ background: C.accentSoft }}>
+                {here.map(p => { const u = s.users.find(x => x.id === p.userId); return (
+                  <div key={p.userId} className="flex items-center gap-2 py-0.5">
+                    <Avatar user={u} size={22} />
+                    <p className="text-xs"><b>{(u?.name || "?").split(" ")[0]}</b> is {floorVerb(p)} {p.productName || p.hu || "a pallet"} here</p>
+                  </div>
+                ); })}
+              </div>
+            ); })()}
             {items.length === 0 && <p className="text-sm py-6 text-center" style={{ color: C.muted }}>Nothing standing here right now.</p>}
             {items.map(it => (
               <button key={it.key} onClick={() => go("palletInfo", it.hu)} className="w-full text-left py-3 active:opacity-60" style={{ borderBottom: `1px solid ${C.line}` }}>
