@@ -155,7 +155,8 @@ const GLOBAL_CSS = () => `
   .qc input::placeholder,.qc textarea::placeholder{color:${C.muted};opacity:.9}
   .qc button{font:inherit;cursor:pointer;touch-action:manipulation;transition:background-color .12s,color .12s,border-color .12s,box-shadow .12s,transform .06s}
   .qc button:active{transform:translateY(1px)}
-  .qc button.qc-elev:active{box-shadow:0 1px 0 rgba(255,255,255,.03) inset,0 2px 6px rgba(0,0,0,.22)!important}
+  .qc-tile{box-shadow:${lift()}}
+  .qc button.qc-elev:active,.qc button.qc-tile:active{box-shadow:0 1px 0 rgba(255,255,255,.03) inset,0 2px 6px rgba(0,0,0,.22)!important}
   .qc button:disabled{cursor:not-allowed;opacity:.6}
   .qc button:focus-visible,.qc a:focus-visible{outline:2px solid ${C.accent};outline-offset:2px}
   .qc .label-sm{font-size:11.5px;font-weight:600;color:${C.muted};letter-spacing:0;text-transform:none}
@@ -1159,7 +1160,7 @@ const sameDeliveryPallets = (product, insp) => {
 
 function Card({ children, style }) { return <section className="rounded-2xl p-5" style={{ background: C.surface, border: `1px solid ${C.line}`, boxShadow: lift(), ...style }}>{children}</section>; }
 
-function Primary({ children, onClick, disabled, small }) { return <button onClick={onClick} disabled={disabled} className={`${small ? "text-xs px-3" : "text-sm px-4"} font-semibold rounded-xl inline-flex items-center justify-center`} style={{ height: small ? 30 : 38, background: disabled ? C.line : C.accent, color: disabled ? C.muted : C.onDark }}>{children}</button>; }
+function Primary({ children, onClick, disabled, small }) { return <button onClick={onClick} disabled={disabled} className={`qc-elev qc-tile ${small ? "text-xs px-3" : "text-sm px-4"} font-semibold rounded-xl inline-flex items-center justify-center`} style={{ height: small ? 30 : 38, background: disabled ? C.line : C.accent, color: disabled ? C.muted : C.onDark, boxShadow: disabled ? "none" : undefined }}>{children}</button>; }
 
 function Ghost({ children, onClick }) { return <button onClick={onClick} className="text-xs font-semibold px-3 rounded-xl inline-flex items-center" style={{ height: 30, background: C.accentSoft, color: C.accent }}>{children}</button>; }
 
@@ -1176,7 +1177,7 @@ function Empty({ icon, title, hint, action }) {
 
 function Note({ tone: t = "info", children }) {
   const [fg, bg] = t === "warn" ? [C.warn, C.warnBg] : t === "ok" ? [C.ok, C.okBg] : t === "bad" ? [C.bad, C.badBg] : [C.accent, C.accentSoft];
-  return <div className="rounded-xl px-3.5 py-2.5 text-sm mb-3" style={{ background: C.surface, color: C.ink, border: `1px solid ${C.line}`, borderLeft: `3px solid ${fg}` }}>{children}</div>;
+  return <div className="qc-tile rounded-xl px-3.5 py-2.5 text-sm mb-3" style={{ background: C.surface, color: C.ink, border: `1px solid ${C.line}`, borderLeft: `3px solid ${fg}` }}>{children}</div>;
 }
 
 function RaiseForm({ problems, overrides, linkedId, totals, onRaise, intro }) {
@@ -2018,7 +2019,7 @@ function MProductHeader({ s, product, article, name, go }) {
   const catPath = id => { const c = s.categories.find(x => x.id === id); if (!c) return "uncategorised"; const p = c.parentId && s.categories.find(x => x.id === c.parentId); return p ? `${p.name} › ${c.name}` : c.name; };
   const photos = asPhotoList(product.photos); const attrs = effectiveAttributes(s, product).slice(0, 4); const hist = recentProblemsFor(s, product.id);
   return (
-    <button onClick={() => go("catalog", product.id)} className="w-full text-left rounded-2xl p-3.5 mb-3 active:opacity-70" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
+    <button onClick={() => go("catalog", product.id)} className="qc-elev qc-tile w-full text-left rounded-2xl p-3.5 mb-3" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
       <div className="flex gap-3 items-start">
         {photos.length ? <img src={photoSrc(photos[0])} alt="" className="w-20 h-20 rounded-xl object-contain flex-shrink-0" style={{ background: PHOTO_BG }} /> : <div className="w-20 h-20 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: C.surface, color: C.muted }}><Ic i={ImageIcon} s={28} mr={0} /></div>}
         <div className="min-w-0 flex-1">
@@ -2214,7 +2215,7 @@ function MPriorityList({ s, user, go, priority, focus }) {
               const edge = it.hist.count > 0 || it.blocking ? C.bad : (PRIORITY[it.priority]?.[2] ? C.bad : PRIORITY[it.priority]?.[0]) || C.line;
               const fact = (I, v) => v ? <span className="inline-flex items-center gap-1 whitespace-nowrap"><Ic i={I} s={12} mr={0} style={{ opacity: .75 }} />{v}</span> : null;
               return (
-              <button key={it.key} onClick={() => go("palletInfo", it.hu)} className="w-full text-left rounded-2xl px-3.5 py-3 mb-2 active:opacity-60" style={{ background: C.bg, border: `1px solid ${C.line}`, borderLeft: `4px solid ${edge}` }}>
+              <button key={it.key} onClick={() => go("palletInfo", it.hu)} className="qc-elev qc-tile w-full text-left rounded-2xl px-3.5 py-3 mb-2" style={{ background: C.bg, border: `1px solid ${C.line}`, borderLeft: `4px solid ${edge}` }}>
                 <div className="flex items-start gap-2">
                   <p className="text-sm font-medium leading-snug flex-1">{it.name}</p>
                   <Ic i={ChevronRight} s={16} mr={0} style={{ color: C.muted, marginTop: 1 }} />
@@ -2239,7 +2240,7 @@ function MPriorityList({ s, user, go, priority, focus }) {
         {lostRows.length > 0 && <div ref={lostRef} className="mt-4" style={{ opacity: .55, scrollMarginTop: 12 }}>
           <div className="flex items-center gap-2 py-1.5"><p className="text-xs font-semibold flex-1 flex items-center" style={{ color: C.muted }}><Ic i={Search} s={12} />Lost — not findable right now</p><span className="text-[10px] px-1.5 py-0.5 rounded-full" style={{ background: C.bg, color: C.muted, border: `1px solid ${C.line}` }}>{lostRows.length}</span></div>
           {lostRows.map(r => { const m = lostOf(s, r); const by = s.users.find(u => u.id === m.byUserId); return (
-            <button key={r.hu} onClick={() => go("palletInfo", r.hu)} className="w-full text-left rounded-2xl px-3.5 py-3 mb-2 active:opacity-60" style={{ background: C.bg, border: `1px dashed ${C.line}` }}>
+            <button key={r.hu} onClick={() => go("palletInfo", r.hu)} className="qc-elev qc-tile w-full text-left rounded-2xl px-3.5 py-3 mb-2" style={{ background: C.bg, border: `1px dashed ${C.line}` }}>
               <p className="text-sm font-medium truncate">{r.name || r.article}</p>
               <p className="text-xs mt-1" style={{ color: C.muted }}>last seen {r.location} · {r.arrivedTime} · lost by {by ? by.name.split(" ")[0] : "?"} {dayLabel(m.at)}{m.note ? ` · ${m.note}` : ""}</p>
             </button>); })}
@@ -2289,7 +2290,7 @@ function MDashboard({ s, set, user, go, dismissed, setDismissed, onAssign }) {
         </div>
       ); })()}
       <div className="px-5"><DeadlineBanner s={s} alerts={computeDeadlineAlerts(s, now)} now={now} onOpen={al => go("palletInfo", al.hu)} /></div>
-      {anns.length === 1 && <button onClick={() => anns[0].productId ? go("catalog", anns[0].productId) : setAnnOpen(anns[0])} className="text-left mx-5 mb-3 rounded-xl px-3.5 py-2.5 flex items-start gap-2.5" style={{ background: C.surface, border: `1px solid ${C.line}`, borderLeft: `3px solid ${C.accent}` }}><span style={{ color: C.accent, marginTop: 2 }}><Ic i={Megaphone} s={14} mr={0} /></span><p className="text-sm flex-1"><b>{anns[0].title}</b><span style={{ color: C.muted }}> — {truncate(anns[0].body)}</span></p><span onClick={e => { e.stopPropagation(); setDismissed(d => [...d, anns[0].id]); }} className="text-sm" style={{ color: C.muted }}>×</span></button>}
+      {anns.length === 1 && <button onClick={() => anns[0].productId ? go("catalog", anns[0].productId) : setAnnOpen(anns[0])} className="qc-elev qc-tile text-left mx-5 mb-3 rounded-xl px-3.5 py-2.5 flex items-start gap-2.5" style={{ background: C.surface, border: `1px solid ${C.line}`, borderLeft: `3px solid ${C.accent}` }}><span style={{ color: C.accent, marginTop: 2 }}><Ic i={Megaphone} s={14} mr={0} /></span><p className="text-sm flex-1"><b>{anns[0].title}</b><span style={{ color: C.muted }}> — {truncate(anns[0].body)}</span></p><span onClick={e => { e.stopPropagation(); setDismissed(d => [...d, anns[0].id]); }} className="text-sm" style={{ color: C.muted }}>×</span></button>}
       {anns.length > 1 && <div className="mx-5 mb-3 rounded-xl overflow-hidden" style={{ background: C.surface, border: `1px solid ${C.line}` }}>{anns.map((a, i) => <button key={a.id} onClick={() => a.productId ? go("catalog", a.productId) : setAnnOpen(a)} className="w-full text-left px-3.5 py-2 flex items-center gap-2.5" style={{ borderTop: i ? `1px solid ${C.line}` : "none", borderLeft: `3px solid ${C.accent}` }}><span style={{ color: C.accent }}><Ic i={Megaphone} s={13} mr={0} /></span><p className="text-sm flex-1 truncate"><b>{a.title}</b></p><span onClick={e => { e.stopPropagation(); setDismissed(d => [...d, a.id]); }} className="text-sm" style={{ color: C.muted }}>×</span></button>)}</div>}
       {annOpen && <MAnnouncementModal a={annOpen} onClose={() => setAnnOpen(null)} />}
       {(() => {
@@ -2301,7 +2302,7 @@ function MDashboard({ s, set, user, go, dismissed, setDismissed, onAssign }) {
         const Tile = ({ label, value, sub, color, icon, onClick, compact }) => {
           const hot = !!(color && (typeof value === "number" ? value > 0 : value));
           return (
-          <button onClick={onClick} disabled={!onClick} className={`qc-elev ${compact ? "rounded-xl sm:rounded-2xl p-2 sm:p-3.5 min-h-[64px] sm:min-h-[88px]" : "rounded-2xl p-3.5 min-h-[88px]"} text-left flex flex-col justify-between`} style={{ background: C.bg, border: `1px solid ${C.line}`, borderLeft: `3px solid ${hot ? color : C.line}`, color: C.ink, boxShadow: lift() }}>
+          <button onClick={onClick} disabled={!onClick} className={`qc-elev qc-tile ${compact ? "rounded-xl sm:rounded-2xl p-2 sm:p-3.5 min-h-[64px] sm:min-h-[88px]" : "rounded-2xl p-3.5 min-h-[88px]"} text-left flex flex-col justify-between`} style={{ background: C.bg, border: `1px solid ${C.line}`, borderLeft: `3px solid ${hot ? color : C.line}`, color: C.ink }}>
             <p className={`${compact ? "text-[10px] sm:text-[11px]" : "text-[11px]"} font-medium leading-tight flex items-center gap-1`} style={{ color: C.muted }}>{icon && <span className={compact ? "hidden sm:inline-flex" : "inline-flex"}><Ic i={icon} s={12} mr={0} /></span>}{label}</p>
             <div className={compact ? "mt-1 sm:mt-1.5" : "mt-1.5"}><p className={`${compact ? "text-[20px] sm:text-[26px]" : "text-[26px]"} leading-none font-semibold`} style={{ color: hot ? color : C.ink, fontVariantNumeric: "tabular-nums" }}>{value}</p>{sub && <p className={`${compact ? "text-[9px] sm:text-[10px] line-clamp-2 sm:line-clamp-1" : "text-[10px] truncate"} mt-1 leading-tight`} style={{ color: C.muted }}>{sub}</p>}</div>
           </button>
@@ -2508,7 +2509,7 @@ function MProductInfo({ s, user, product, go, setState, embedded }) {
   return (
     <div className="px-4 pt-3">
       {/* Identity: photo + name + codes in one card. Tap the photo for a full-screen viewer (the controller compares the pallet to it). */}
-      <div className="rounded-2xl p-3 flex gap-3" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+      <div className="qc-tile rounded-2xl p-3 flex gap-3" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
         <button onClick={() => photos.length && setZoom(photoIx)} className="flex-shrink-0 rounded-xl overflow-hidden relative" style={{ width: 96, height: 96, background: PHOTO_BG, border: `1px solid ${C.line}` }} aria-label="product photo">
           {thumb ? <img src={photoSrc(thumb)} alt="" className="w-full h-full object-cover" /> : <div className="w-full h-full flex flex-col items-center justify-center" style={{ color: C.muted }}><Ic i={Package} s={28} mr={0} /><span className="text-[10px] mt-1">no photo</span></div>}
           {photos.length > 1 && <span className="absolute bottom-1 right-1 text-[10px] font-semibold px-1.5 rounded-full leading-[16px]" style={{ background: "rgba(0,0,0,.55)", color: "#fff" }}>{photos.length}</span>}
@@ -2988,7 +2989,7 @@ function MCatalog({ s, user, go, onStart, setState, notify, onVisual, preset }) 
   const fCount = (f.bio ? 1 : 0) + (f.supplier ? 1 : 0) + (f.flagged ? 1 : 0) + (f.reference ? 1 : 0) + (f.sort !== "name" ? 1 : 0);
   const Chip = ({ on, onClick, children }) => <button onClick={onClick} className="text-xs px-3 py-1.5 rounded-full whitespace-nowrap" style={{ background: on ? C.ink : "transparent", color: on ? C.onDark : C.ink, border: `1px solid ${on ? C.ink : C.line}` }}>{children}</button>;
   const Tile = ({ p }) => { const li = lastInsp(p.id); const openFlag = s.flags.some(x => x.productId === p.id && x.status === "Open"); return (
-    <button onClick={() => setSel(p.id)} className="rounded-2xl p-2.5 text-left relative" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
+    <button onClick={() => setSel(p.id)} className="qc-elev qc-tile rounded-2xl p-2.5 text-left relative" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
       {asPhotoList(p.photos).length ? <img src={photoSrc(asPhotoList(p.photos)[0])} alt="" className="w-full h-20 rounded-xl object-contain mb-2" style={{ background: PHOTO_BG }} /> : <div className="w-full h-20 rounded-xl flex items-center justify-center mb-2" style={{ background: C.surface, color: C.muted }}><Ic i={ImageIcon} s={22} mr={0} /></div>}
       <p className="text-xs font-medium leading-tight" style={{ minHeight: 32 }}>{p.name}</p>
       <div className="flex items-center gap-1.5 mt-1.5"><span className="text-[10px]" style={{ color: C.muted }}>{p.articleId || "—"}</span>{p.isBio && <span className="text-[9px] px-1 rounded" style={{ background: C.okBg, color: C.ok }}>bio</span>}<div className="flex-1" />{openFlag && <Ic i={Flag} s={11} mr={0} style={{ color: C.warn }} />}{li && <span title={`last: ${li.result === "Accepted" ? "accepted" : "rejected"}, ${dayLabel(li.completedAt)}`} className="inline-block rounded-full" style={{ width: 8, height: 8, background: li.result === "Accepted" ? C.ok : C.bad }} />}</div>
@@ -3013,7 +3014,7 @@ function MCatalog({ s, user, go, onStart, setState, notify, onVisual, preset }) 
           {(catOf(cat)?.specs || []).length > 0 && (
             <div className="grid grid-cols-2 gap-1.5 mb-3">
               {catOf(cat).specs.map(q => (
-                <div key={q.id} className="rounded-xl px-3 py-2" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+                <div key={q.id} className="qc-tile rounded-xl px-3 py-2" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
                   <p className="text-[10px] uppercase tracking-wide truncate" style={{ color: C.muted }}>{q.name}</p>
                   <p className="text-[13px] font-semibold mt-0.5 leading-snug" style={{ fontVariantNumeric: "tabular-nums" }}>{specLabel(q)}</p>
                 </div>
@@ -3026,9 +3027,9 @@ function MCatalog({ s, user, go, onStart, setState, notify, onVisual, preset }) 
         </div>
       ) : (
         <div className="px-4 pt-3">
-          {recent.length > 0 && <><p className="label-sm mb-1.5">Recently inspected by you</p><div className="flex gap-2 overflow-x-auto pb-2 mb-3" style={{ marginRight: -16 }}>{recent.map(p => { const li = lastInsp(p.id); return <button key={p.id} onClick={() => setSel(p.id)} className="flex-shrink-0 rounded-xl px-3 py-2 text-left" style={{ width: 150, background: C.bg, border: `1px solid ${C.line}` }}><p className="text-xs font-medium leading-tight line-clamp-2">{p.name}</p><p className="text-[10px] mt-1 flex items-center gap-1" style={{ color: C.muted }}>{li && <span className="inline-block rounded-full" style={{ width: 7, height: 7, background: li.result === "Accepted" ? C.ok : C.bad }} />}{li ? dayLabel(li.completedAt) : ""}</p></button>; })}</div></>}
+          {recent.length > 0 && <><p className="label-sm mb-1.5">Recently inspected by you</p><div className="flex gap-2 overflow-x-auto pb-2.5 mb-3" style={{ marginRight: -16 }}>{recent.map(p => { const li = lastInsp(p.id); return <button key={p.id} onClick={() => setSel(p.id)} className="qc-elev qc-tile flex-shrink-0 rounded-xl px-3 py-2 text-left" style={{ width: 150, background: C.bg, border: `1px solid ${C.line}` }}><p className="text-xs font-medium leading-tight line-clamp-2">{p.name}</p><p className="text-[10px] mt-1 flex items-center gap-1" style={{ color: C.muted }}>{li && <span className="inline-block rounded-full" style={{ width: 7, height: 7, background: li.result === "Accepted" ? C.ok : C.bad }} />}{li ? dayLabel(li.completedAt) : ""}</p></button>; })}</div></>}
           <p className="label-sm mb-1.5">Categories</p>
-          <div className="grid grid-cols-2 gap-2 mb-4">{topCats.map(c => <button key={c.id} onClick={() => setCat(c.id)} className="rounded-2xl p-3 text-left flex items-center gap-2.5" style={{ background: C.bg, border: `1px solid ${C.line}` }}><span className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: C.accentSoft, color: C.accent }}><Ic i={FolderTree} s={17} mr={0} /></span><span className="min-w-0"><p className="text-sm font-medium truncate">{c.name}</p><p className="text-[10px]" style={{ color: C.muted }}>{countIn(c.id)} products</p></span></button>)}{topCats.length === 0 && <p className="text-xs col-span-2" style={{ color: C.muted }}>No categories.</p>}</div>
+          <div className="grid grid-cols-2 gap-2 mb-4">{topCats.map(c => <button key={c.id} onClick={() => setCat(c.id)} className="qc-elev qc-tile rounded-2xl p-3 text-left flex items-center gap-2.5" style={{ background: C.bg, border: `1px solid ${C.line}` }}><span className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: C.accentSoft, color: C.accent }}><Ic i={FolderTree} s={17} mr={0} /></span><span className="min-w-0"><p className="text-sm font-medium truncate">{c.name}</p><p className="text-[10px]" style={{ color: C.muted }}>{countIn(c.id)} products</p></span></button>)}{topCats.length === 0 && <p className="text-xs col-span-2" style={{ color: C.muted }}>No categories.</p>}</div>
           {s.products.filter(p => !p.categoryId).length > 0 && <><p className="label-sm mb-1.5">Uncategorised</p><Grid items={sortP(s.products.filter(p => !p.categoryId && passF(p)))} /></>}
           {fCount > 0 && <><p className="label-sm mt-3 mb-1.5">All matching filters · {products.length}</p><Grid items={products} /></>}
         </div>
@@ -3205,7 +3206,7 @@ function MComplaints({ s, user, go }) {
       <TopBar title="Complaints" onBack={() => go("back")} />
       <div className="px-4 pt-3">
         {rows.length === 0 ? <Empty icon={ThumbsDown} title="No complaints entered yet" hint="The Head enters customer freshness complaints on the portal — they show up here and on each product profile." /> : <>
-          <div className="rounded-2xl p-3.5 flex items-center gap-3" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
+          <div className="qc-tile rounded-2xl p-3.5 flex items-center gap-3" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
             <span className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: C.badBg, color: C.bad }}><Ic i={ThumbsDown} s={18} mr={0} /></span>
             <div className="flex-1 min-w-0"><p className="text-[15px] font-semibold leading-tight">{total} freshness complaint{total === 1 ? "" : "s"} · {rows.length} article{rows.length === 1 ? "" : "s"}</p><p className="text-[11px] mt-0.5 truncate" style={{ color: C.muted }}>{meta.period ? `${meta.period} · ` : ""}{meta.updatedAt ? `updated ${dayLabel(meta.updatedAt)}${by ? ` by ${by.name.split(" ")[0]}` : ""}` : ""}</p></div>
           </div>
@@ -3457,7 +3458,7 @@ function MProfile({ s, set, user, go }) {
   const openPeriod = (key, title) => { const pick = key === "today" ? inToday : key === "week" ? inWeek : () => true; setDetail({ title, items: mine.filter(pick), traces: allMine.filter(i => !countsAs(s, i)).filter(pick) }); };
   const splitSub = list => { const n = list.length; if (!n) return null; const a = list.filter(i => i.result === "Accepted").length; return `${a} accepted · ${n - a} rejected`; };
   const Tile = ({ l, v, sub, onClick }) => { const T = onClick ? "button" : "div"; return (
-    <T onClick={onClick} className={`rounded-2xl p-3.5 text-left flex flex-col ${onClick ? "active:opacity-60" : ""}`} style={{ background: C.bg, border: `1px solid ${C.line}` }}>
+    <T onClick={onClick} className={`${onClick ? "qc-elev " : ""}qc-tile rounded-2xl p-3.5 text-left flex flex-col`} style={{ background: C.bg, border: `1px solid ${C.line}` }}>
       <div className="flex items-center justify-between gap-1"><p className="text-xs" style={{ color: C.muted }}>{l}</p>{onClick && <Ic i={ChevronRight} s={14} mr={0} style={{ color: C.muted }} />}</div>
       <p className="text-2xl font-semibold">{v}</p>{sub && <p className="text-[10px] leading-tight mt-0.5" style={{ color: C.muted }}>{sub}</p>}
     </T>
@@ -3474,7 +3475,7 @@ function MProfile({ s, set, user, go }) {
         </div>
         <p className="label-sm mt-4 mb-1.5" style={{ color: C.muted }}>Quality</p>
         <div className="grid grid-cols-3 gap-2"><Tile l="Accepted" v={mine.length ? `${Math.round(acc / mine.length * 100)}%` : "—"} sub={`${acc} of ${mine.length}`} /><Tile l="Active time" v={avg !== null ? `${Math.round(avg)} min` : "—"} sub="avg., excl. waiting for the Head" /><Tile l="Traces" v={skips} sub="types that don't count" onClick={skips ? () => setDetail({ title: "Traces", items: [], traces: allMine.filter(i => !countsAs(s, i)) }) : null} /></div>
-      <p className="label-sm mt-4 mb-1.5" style={{ color: C.muted }}>By type</p><div className="grid grid-cols-2 gap-2">{typesOf(s).map(t => { const m = allMine.filter(i => typeOf(i) === t.id); return <button key={t.id} disabled={!m.length} onClick={() => setDetail({ title: t.name, items: t.autoAccept ? [] : m, traces: t.autoAccept ? m : [] })} className={`rounded-2xl p-3.5 text-left ${m.length ? "active:opacity-60" : ""}`} style={{ background: C.bg, border: `1px solid ${C.line}`, borderTop: `3px solid ${t.color}` }}><div className="flex items-center justify-between gap-1"><p className="text-xs" style={{ color: C.muted }}>{t.name}</p>{m.length > 0 && <Ic i={ChevronRight} s={14} mr={0} style={{ color: C.muted }} />}</div><p className="text-[22px] leading-tight font-semibold">{m.length}</p>{!t.autoAccept && m.length > 0 && <p className="text-[10px]" style={{ color: C.muted }}>{Math.round(m.filter(i => i.result === "Rejected").length / m.length * 100)}% rejected</p>}</button>; })}</div>
+      <p className="label-sm mt-4 mb-1.5" style={{ color: C.muted }}>By type</p><div className="grid grid-cols-2 gap-2">{typesOf(s).map(t => { const m = allMine.filter(i => typeOf(i) === t.id); return <button key={t.id} disabled={!m.length} onClick={() => setDetail({ title: t.name, items: t.autoAccept ? [] : m, traces: t.autoAccept ? m : [] })} className={`qc-tile rounded-2xl p-3.5 text-left ${m.length ? "qc-elev" : ""}`} style={{ background: C.bg, border: `1px solid ${C.line}`, borderTop: `3px solid ${t.color}` }}><div className="flex items-center justify-between gap-1"><p className="text-xs" style={{ color: C.muted }}>{t.name}</p>{m.length > 0 && <Ic i={ChevronRight} s={14} mr={0} style={{ color: C.muted }} />}</div><p className="text-[22px] leading-tight font-semibold">{m.length}</p>{!t.autoAccept && m.length > 0 && <p className="text-[10px]" style={{ color: C.muted }}>{Math.round(m.filter(i => i.result === "Rejected").length / m.length * 100)}% rejected</p>}</button>; })}</div>
       </div>
       <Sheet open={!!detail} onClose={() => setDetail(null)} title={detail?.title}>
         {detail && (() => {
@@ -3525,7 +3526,7 @@ function MUnreported({ s, set, user, go }) {
       <div className="px-4 pt-3">
         <p className="text-sm mb-3" style={{ color: C.muted }}>Pallets that dropped off the dock sheet before QC ever inspected them — picked or moved on. Logged automatically once a pallet has stayed missing for a full push cycle, so a brief sheet hiccup doesn't count.</p>
         <div className="grid grid-cols-4 gap-2 mb-3">
-          {[["Today", stats.today], ["Week", stats.week], ["Open", stats.open], ["Total", stats.total]].map(([l, v]) => <div key={l} className="rounded-2xl p-2.5 text-center" style={{ background: C.bg, border: `1px solid ${C.line}` }}><p className="text-lg font-semibold leading-tight">{v}</p><p className="text-[10px]" style={{ color: C.muted }}>{l}</p></div>)}
+          {[["Today", stats.today], ["Week", stats.week], ["Open", stats.open], ["Total", stats.total]].map(([l, v]) => <div key={l} className="qc-tile rounded-2xl p-2.5 text-center" style={{ background: C.bg, border: `1px solid ${C.line}` }}><p className="text-lg font-semibold leading-tight">{v}</p><p className="text-[10px]" style={{ color: C.muted }}>{l}</p></div>)}
         </div>
         <div className="flex gap-1.5 mb-3">{[["open", "Open"], ["all", "All"]].map(([k, l]) => <button key={k} onClick={() => setView(k)} className="text-xs px-3 py-1.5 rounded-full" style={{ background: view === k ? C.ink : "transparent", color: view === k ? C.onDark : C.ink, border: `1px solid ${view === k ? C.ink : C.line}` }}>{l}</button>)}</div>
         {!shown.length ? <p className="text-sm py-8 text-center" style={{ color: C.muted }}>{view === "open" ? "Nothing open — every disappearance so far has been reviewed." : "Nothing logged yet."}</p> : groups.map(g => (
@@ -3567,7 +3568,7 @@ function MHeadEscalations({ s, set, user, go, notify }) {
     notify && notify("Answered", `The Head answered re ${s.products.find(p => p.id === i.productId)?.name}: “${txt}”`, "Inspection", i.id, i.controllerId); setAnswers(a => ({ ...a, [i.id]: "" })); };
   return <div><TopBar title="Questions from controllers" onBack={() => go("back")} /><div className="px-4 pt-2">
     {list.length === 0 ? <p className="text-sm py-8 text-center" style={{ color: C.muted }}>Nothing is waiting for you.</p> : list.map(i => { const p = s.products.find(x => x.id === i.productId); const u = s.users.find(x => x.id === i.controllerId); return (
-      <div key={i.id} className="rounded-2xl p-3.5 mb-3" style={{ background: C.surface, border: `1px solid ${C.line}`, borderLeft: `3px solid ${C.warn}` }}>
+      <div key={i.id} className="qc-tile rounded-2xl p-3.5 mb-3" style={{ background: C.surface, border: `1px solid ${C.line}`, borderLeft: `3px solid ${C.warn}` }}>
         <p className="text-sm font-semibold">{p?.name}</p><p className="text-xs mb-2" style={{ color: C.muted }}>{u?.name} · {dayLabel(i.escalatedAt || i.startedAt)} {hhmm(i.escalatedAt || i.startedAt)} · inspection paused</p>
         <p className="text-sm mb-2">“{i.question}”</p>
         <div className="flex gap-2"><input value={answers[i.id] || ""} onChange={e => setAnswers(a => ({ ...a, [i.id]: e.target.value }))} onKeyDown={e => e.key === "Enter" && answer(i)} placeholder="your answer…" className="flex-1 text-sm" /><button onClick={() => answer(i)} className="px-3 rounded-xl text-sm" style={{ background: C.ink, color: C.onDark }}><Ic i={Send} s={14} mr={0} /></button></div>
@@ -3581,7 +3582,7 @@ function MHeadFlags({ s, set, user, go, notify }) {
   const resolve = f => { const txt = (res[f.id] || "").trim(); if (!txt) return; set(x => ({ ...x, flags: x.flags.map(q => q.id === f.id ? { ...q, status: "Resolved", resolution: txt, resolvedBy: user.id, resolvedAt: nowISO() } : q) })); notify && notify("Flag", `Flag resolved: ${txt}`, "ProductFlag", f.id, f.raisedBy); };
   return <div><TopBar title="Flags to resolve" onBack={() => go("back")} /><div className="px-4 pt-2">
     {open.length === 0 ? <p className="text-sm py-8 text-center" style={{ color: C.muted }}>No open flags.</p> : open.map(f => { const p = s.products.find(x => x.id === f.productId); const u = s.users.find(x => x.id === f.raisedBy); return (
-      <div key={f.id} className="rounded-2xl p-3.5 mb-3" style={{ background: C.surface, border: `1px solid ${C.line}`, borderLeft: `3px solid ${C.warn}` }}>
+      <div key={f.id} className="qc-tile rounded-2xl p-3.5 mb-3" style={{ background: C.surface, border: `1px solid ${C.line}`, borderLeft: `3px solid ${C.warn}` }}>
         <p className="text-sm font-semibold">{p?.name || "product"}</p><p className="text-xs mb-2" style={{ color: C.muted }}>{u?.name} · {dayLabel(f.createdAt)} {hhmm(f.createdAt)}</p>
         <p className="text-sm mb-2">{f.description}</p>
         <div className="flex gap-2"><input value={res[f.id] || ""} onChange={e => setRes(r => ({ ...r, [f.id]: e.target.value }))} onKeyDown={e => e.key === "Enter" && resolve(f)} placeholder="what was done?" className="flex-1 text-sm" /><button onClick={() => resolve(f)} className="px-3 rounded-xl text-sm" style={{ background: C.ink, color: C.onDark }}><Ic i={Check} s={14} mr={0} /></button></div>
