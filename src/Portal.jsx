@@ -3,6 +3,7 @@ import { createSyncer, guardUnload } from "./sync.js";
 import { hasV, specLabel, dayLabel, problemPath, typesOf, typeById, legacyTypeId, inspType, countsAs } from "./shared/format.js";
 import { readAsDataUrl, keepPhoto } from "./shared/report-images.js";
 import { drawReportPdf } from "./shared/report-pdf.js";
+import { isListSpec, specKey, resolveListSpec, numericSpecs, listSpecs, listSpecFor, listCheck, attributesToSpecs } from "./shared/specs.js";
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceArea, ReferenceLine, Legend } from "recharts";
 import { Clock, MessageCircle, Link2, List as ListIcon, BarChart3, Printer, SlidersHorizontal, SkipForward, LayoutDashboard, ClipboardList, Flag, Bell, FolderTree, ListTree, Package, LayoutTemplate, Truck, Globe, Megaphone, MessageSquare, Users, Search, Sun, Moon, Database, Home, Menu as MenuIcon, ScanLine, Plus, ChevronLeft, ChevronDown, ChevronRight, User, Camera, Image as ImageIcon, Paperclip, Send, Star, Pencil, Sparkles, HelpCircle, Download, Lock as LockIcon, AlertTriangle, Inbox, FileText, ShieldAlert, Tag, Layers, BookOpen, Filter, Check, X, Ruler, Boxes, Warehouse, Snowflake, Thermometer, ThumbsDown, ClipboardPaste, Trash2, Eye } from "lucide-react";
 
@@ -149,13 +150,14 @@ const basisTag = q => q?.basis === "cu" ? " /CU" : "";
 // Specification cascade by name: product → category → parent category
 const effectiveSpecs = (s, product) => {
   if (!product) return [];
-  const out = (product.specs || []).map(q => ({ ...q, source: "product" }));
-  const key = q => `${(q.name || "").trim().toLowerCase()}|${specBasis(q)}`;
-  const seen = new Set(out.map(key));
+  // List specs are resolved here (list name + expected value), so everything downstream reads q.name / q.value.
+  const deco = (q, source) => ({ ...(isListSpec(q) ? resolveListSpec(s.dictionaries, q) : q), source });
+  const out = (product.specs || []).map(q => deco(q, "product"));
+  const seen = new Set(out.map(specKey));
   const excluded = new Set((product.excludedSpecNames || []).map(x => x.trim().toLowerCase()));
   let cat = s.categories.find(c => c.id === product.categoryId);
   while (cat) {
-    (cat.specs || []).forEach(q => { const k = key(q); if (!seen.has(k)) { seen.add(k); if (!excluded.has((q.name || "").trim().toLowerCase())) out.push({ ...q, source: `category ${cat.name}` }); } });
+    (cat.specs || []).forEach(q => { const k = specKey(q); if (!seen.has(k)) { seen.add(k); const d = deco(q, `category ${cat.name}`); if (!excluded.has((d.name || "").trim().toLowerCase())) out.push(d); } });
     cat = cat.parentId ? s.categories.find(c => c.id === cat.parentId) : null;
   }
   return out;
@@ -244,23 +246,13 @@ const effectivePolicy = (s, product) => {
 };
 const policyAllows = (pol, typeId) => (pol.typeIds || []).includes(typeId);
 const allowedTypes = (s, product) => { const pol = effectivePolicy(s, product); return typesOf(s).filter(t => pol.typeIds.includes(t.id)); };
-// Product attributes from lists (ProductAttribute: DictionaryId + DictionaryItemId, on category or product). Product overrides category; category chain upward.
-const effectiveAttributes = (s, product) => {
-  if (!product) return [];
-  const dicts = byId(s.dictionaries || []); const out = []; const seen = new Set();
-  const push = (a, source) => { if (seen.has(a.dictionaryId)) return; const d = dicts[a.dictionaryId]; const it = d?.items.find(x => x.id === a.itemId); if (!d) return; seen.add(a.dictionaryId); out.push({ dictionaryId: a.dictionaryId, itemId: a.itemId, list: d.name, value: it?.value || "—", source }); };
-  (product.attributes || []).forEach(a => push(a, "product"));
-  let cat = s.categories.find(c => c.id === product.categoryId);
-  while (cat) { (cat.attributes || []).forEach(a => push(a, `category ${cat.name}`)); cat = cat.parentId ? s.categories.find(c => c.id === cat.parentId) : null; }
-  return out;
-};
 // Specification name registry (SpecificationDefinitions): every name used on a category, product or measurement field,
 // with its most common unit. Used to suggest, canonicalise spelling and catch near-duplicates ("Brixx" vs "Brix").
 const specRegistry = s => {
   const m = new Map();
   const add = (name, unit) => { const k = (name || "").trim().toLowerCase(); if (!k) return; const e = m.get(k) || { name: name.trim(), units: {}, uses: 0 }; e.uses++; if (unit) e.units[unit] = (e.units[unit] || 0) + 1; m.set(k, e); };
-  (s.categories || []).forEach(c => (c.specs || []).forEach(q => add(q.name, q.unit)));
-  (s.products || []).forEach(p => (p.specs || []).forEach(q => add(q.name, q.unit)));
+  (s.categories || []).forEach(c => numericSpecs(c.specs).forEach(q => add(q.name, q.unit)));
+  (s.products || []).forEach(p => numericSpecs(p.specs).forEach(q => add(q.name, q.unit)));
   (s.templates || []).forEach(t => (t.fields || []).forEach(f => { if (f.type === "Number") add(f.specName || f.label, null); }));
   return [...m.values()].map(e => ({ ...e, unit: Object.entries(e.units).sort((a, b) => b[1] - a[1])[0]?.[0] || "" })).sort((a, b) => b.uses - a.uses || a.name.localeCompare(b.name));
 };
@@ -359,7 +351,7 @@ const migrateLayered = s => {
     const usedParentFields = new Set(), usedParentRefs = new Set();
     (t.fields || []).forEach(f => {
       const mid = modMap[f.moduleId]; const pf = parent.fields.find(x => x.moduleId === mid && x.type === f.type && norm(x.label) === norm(f.label) && !usedParentFields.has(x.id));
-      if (pf) { usedParentFields.add(pf.id); const patch = {}; ["specId", "specName", "problemBelowId", "problemAboveId", "required", "allowPhotos"].forEach(k => { if ((f[k] ?? null) !== (pf[k] ?? null) && f[k] !== undefined) patch[k] = f[k]; }); if (Object.keys(patch).length) nt.fieldOverrides[pf.id] = patch; }
+      if (pf) { usedParentFields.add(pf.id); const patch = {}; ["specId", "specName", "problemBelowId", "problemAboveId", "problemMismatchId", "required", "allowPhotos"].forEach(k => { if ((f[k] ?? null) !== (pf[k] ?? null) && f[k] !== undefined) patch[k] = f[k]; }); if (Object.keys(patch).length) nt.fieldOverrides[pf.id] = patch; }
       else nt.fields.push({ ...f, moduleId: mid });
     });
     parent.fields.forEach(pf => { if (!usedParentFields.has(pf.id) && !nt.suppressed.includes(pf.moduleId)) nt.suppressed.push(pf.id); });
@@ -421,6 +413,25 @@ const descendantIds = (problems, rootId) => { const kids = problems.filter(p => 
 // ═══════════════════ PDF in the browser (jsPDF from cdnjs) — same sections as the server-side generator ═══════════════════
 const loadScript = src => new Promise((res, rej) => { if (document.querySelector(`script[src="${src}"][data-loaded]`)) return res(); const el = document.createElement("script"); el.src = src; const timer = setTimeout(() => rej(new Error("Loading the PDF library timed out — this sandbox may block scripts from cdnjs.cloudflare.com.")), 10000); el.onload = () => { clearTimeout(timer); el.setAttribute("data-loaded", "1"); res(); }; el.onerror = () => { clearTimeout(timer); rej(new Error("The sandbox blocked loading " + src)); }; document.head.appendChild(el); });
 const ensureJsPdf = async () => { if (!window.jspdf) await loadScript("https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"); if (!window.jspdf?.jsPDF?.API?.autoTable) await loadScript("https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"); return window.jspdf.jsPDF; };
+// Every answer with a specification behind it, judged: List fields against the expected value, Number fields (their
+// average) against the limits. Feeds the report screen and the Parameters section of the PDF.
+const specChecks = (s, insp) => {
+  const product = s.products.find(p => p.id === insp.productId); const t = insp.template; if (!product || !t) return [];
+  const specs = effectiveSpecs(s, product); const values = insp.values || {}; const ppc = insp.sample?.piecesPerCu || product.piecesPerCu;
+  const out = [];
+  [...(t.fields || [])].sort(bySort).forEach(f => {
+    if (f.type === "List") { const c = listCheck(listSpecFor(specs, f.dictionaryId), values[f.id]); if (c) out.push({ fieldId: f.id, label: fieldLabel(f), value: String(values[f.id]), expected: c.expected, ok: c.ok }); return; }
+    if (f.type !== "Number") return;
+    const nums = (values[f.id]?.measurements || []).filter(x => x !== "").map(Number); if (!nums.length) return;
+    const avg = nums.reduce((a, b) => a + b, 0) / nums.length;
+    const wanted = ((f.specName || "").trim() || f.label || "").toLowerCase(); const same = numericSpecs(specs).filter(q => (q.name || "").trim().toLowerCase() === wanted);
+    const spec = (f.specId && specs.find(q => q.id === f.specId)) || same.find(q => specBasis(q) === fieldBasis(f)) || same[0] || null;
+    const lim = limitsFor(spec, f, ppc); if (!hasV(lim.min) && !hasV(lim.max)) return;
+    const ok = !(hasV(lim.min) && avg < Number(lim.min)) && !(hasV(lim.max) && avg > Number(lim.max));
+    out.push({ fieldId: f.id, label: fieldLabel(f), value: `${fmt(avg)}${spec?.unit ? " " + spec.unit : ""}`, expected: specLabel({ min: lim.min, max: lim.max, unit: spec ? spec.unit : "" }) + (fieldBasis(f) === "cu" ? " per CU" : ""), ok });
+  });
+  return out;
+};
 async function buildReportPdf(insp, s) {
   const jsPDF = await ensureJsPdf();
   const settings = settingsOf(s), product = s.products.find(p => p.id === insp.productId) || {}, t = insp.template || { fields: [], modules: [], problemRefs: [], suppressed: [] };
@@ -445,7 +456,8 @@ async function buildReportPdf(insp, s) {
   });
   const remarks = (insp.remarks || []).map(r => { const unit = { PieceCount: "pcs", DirectWeight: "g", WholeUnitCount: "CU" }[r.mode] || ""; const p = r.mode === "Presence" ? null : pct(r, totals); return { problem: pathOf(problems, r.leafId), quantity: r.mode === "Presence" ? "present" : `${r.raw} ${unit}`, pct: p === null ? "—" : `${fmt(p)}%`, source: r.auto ? "measurement" : "reported" }; });
   const answered = (t.fields || []).filter(f => !isSystem(f.type) && insp.values?.[f.id] !== undefined && insp.values?.[f.id] !== "").sort(bySort);
-  const parameters = answered.map(f => { const v = insp.values[f.id]; let txt; if (f.type === "Number") { const nums = (v?.measurements || []).filter(x => x !== "").map(Number); txt = nums.map(fmt).join(" / ") + (nums.length > 1 ? ` — avg ${fmt(nums.reduce((a, b) => a + b, 0) / nums.length)}` : ""); } else txt = Array.isArray(v) ? v.join(", ") : String(v ?? ""); return [fieldLabel(f), txt]; });
+  const checks = specChecks(s, insp);
+  const parameters = answered.map(f => { const v = insp.values[f.id]; let txt; if (f.type === "Number") { const nums = (v?.measurements || []).filter(x => x !== "").map(Number); txt = nums.map(fmt).join(" / ") + (nums.length > 1 ? ` — avg ${fmt(nums.reduce((a, b) => a + b, 0) / nums.length)}` : ""); } else txt = Array.isArray(v) ? v.join(", ") : String(v ?? ""); const c = checks.find(x => x.fieldId === f.id); return c ? [fieldLabel(f), txt, c.expected, c.ok] : [fieldLabel(f), txt]; });
   const photoGroups = []; (t.fields || []).forEach(f => { const ph = asPhotoList((insp.photos || {})[f.id]); if (ph.length) photoGroups.push({ label: f.type === "Photos" ? photoBlockLabel(f, t) : f.label, photos: ph }); }); (insp.remarks || []).forEach(r => { const ph = asPhotoList(r.photos); if (ph.length) photoGroups.push({ label: `Problem: ${pathOf(problems, r.leafId)}`, photos: ph }); });
   const audit = (insp.audit || []).map(a => [a.action, `${fmtTime(a.at)} · ${users[a.userId]?.name || ""}${users[a.userId]?.email ? ` (${users[a.userId].email})` : ""}${a.details ? ` — ${a.details}` : ""}`]);
   const model = {
@@ -531,24 +543,6 @@ function PolicyEditor({ s, own, inherited, inheritedSource, onChange, hint }) {
 }
 
 // ═══════════════════ ATTRIBUTES FROM LISTS (category / product) ═══════════════════
-function AttributeForm({ s, own, inherited, onSet, onRemove, hint }) {
-  const [dictId, setDictId] = useState(""); const [itemId, setItemId] = useState("");
-  const dicts = s.dictionaries || []; const d = dicts.find(x => x.id === dictId);
-  const add = () => { if (!dictId || !itemId) return; onSet({ dictionaryId: dictId, itemId }); setDictId(""); setItemId(""); };
-  const dictName = id => dicts.find(x => x.id === id)?.name || "?"; const itemValue = (did, iid) => dicts.find(x => x.id === did)?.items.find(i => i.id === iid)?.value || "—";
-  return (
-    <div>
-      {hint && <p className="text-xs mb-2" style={{ color: C.muted }}>{hint}</p>}
-      {dicts.length === 0 ? <p className="text-xs mb-2" style={{ color: C.warn }}>No lists yet — create one in Dictionaries → Lists (e.g. Class: I, II, IND).</p> : (
-        <div className="flex gap-1.5 mb-2 flex-wrap"><select value={dictId} onChange={e => { setDictId(e.target.value); setItemId(""); }} className="text-sm" style={{ minWidth: 140 }}><option value="">— list —</option>{dicts.map(x => <option key={x.id} value={x.id}>{x.name}</option>)}</select><select value={itemId} onChange={e => setItemId(e.target.value)} disabled={!d} className="text-sm flex-1"><option value="">— value —</option>{(d?.items || []).map(i => <option key={i.id} value={i.id}>{i.value}</option>)}</select><Ghost onClick={add}>Set</Ghost></div>
-      )}
-      {(own || []).map(a => <div key={a.dictionaryId} className="flex items-center gap-2 text-sm py-1.5" style={{ borderTop: `1px solid ${C.line}` }}><span className="flex-1">{dictName(a.dictionaryId)}</span><span className="font-medium">{itemValue(a.dictionaryId, a.itemId)}</span><button onClick={() => onRemove(a.dictionaryId)} className="text-xs px-1" style={{ color: C.muted }}>×</button></div>)}
-      {inherited && inherited.length > 0 && <><p className="label-sm mt-3 mb-1">inherited</p>{inherited.map(a => <div key={a.dictionaryId} className="flex items-center gap-2 text-sm py-1.5" style={{ borderTop: `1px solid ${C.line}`, opacity: .65 }}><span className="flex-1">{a.list}</span><span className="font-medium">{a.value}</span><span className="text-xs" style={{ color: C.muted }}>{a.source}</span></div>)}</>}
-      {!(own || []).length && !(inherited || []).length && <p className="text-xs" style={{ color: C.muted }}>None.</p>}
-    </div>
-  );
-}
-
 // ═══════════════════ INTEGRATIONS — sheet column mapping (SheetIntegration + SheetColumnMapping) ═══════════════════
 // The Head maps sheet columns to system targets once; the parser is data, not code. Transforms cover the messy bits.
 const DOCK_TARGETS = [
@@ -1524,6 +1518,14 @@ function Dashboard({ s, setPage, seed, user, openProduct, onAssign, set }) {
 }
 function SpecForm({ specs, inherited, onAdd, onRemove, hint, excluded, onExclude, onRestore, sctx }) {
   const [sp, setSp] = useState({ name: "", unit: "", kind: "min", min: "", max: "", basis: "piece" });
+  // Two kinds of specification: a numeric limit matched to Number fields, or an expected answer from a list — the
+  // form's List fields bound to the same list compare against it (the former "Properties").
+  const [mode, setMode] = useState("number");
+  const [dictId, setDictId] = useState(""); const [itemId, setItemId] = useState("");
+  const dicts = sctx?.dictionaries || []; const dict = dicts.find(x => x.id === dictId);
+  const addList = () => { if (!dictId || !itemId) return; onAdd({ id: uid(), kind: "list", dictionaryId: dictId, itemId }); setDictId(""); setItemId(""); };
+  const shown = (specs || []).map(q => isListSpec(q) ? resolveListSpec(dicts, q) : q);
+  const ListTag = () => <span className="text-[10px] px-1.5 py-0.5 rounded-full" style={{ background: C.accentSoft, color: C.accent }}>from list</span>;
   const reg = sctx ? specRegistry(sctx) : []; const near = sctx ? nearSpecName(sctx, sp.name) : null;
   const knownNames = new Set([...(specs || []), ...(inherited || [])].map(q => `${(q.name || "").toLowerCase()}|${specBasis(q)}`));
   const suggestions = reg.filter(e => !knownNames.has(`${e.name.toLowerCase()}|${sp.basis}`) && (!sp.name.trim() || e.name.toLowerCase().includes(sp.name.trim().toLowerCase()))).slice(0, 8);
@@ -1531,6 +1533,14 @@ function SpecForm({ specs, inherited, onAdd, onRemove, hint, excluded, onExclude
   return (
     <>
       {hint && <p className="text-xs mb-3" style={{ color: C.muted }}>{hint}</p>}
+      <div className="flex gap-1.5 mb-2">{[["number", "Number limit"], ["list", "Answer from a list"]].map(([k, l]) => <button key={k} onClick={() => setMode(k)} className="text-xs px-2.5 py-1.5 rounded-lg" style={{ background: mode === k ? C.ink : C.bg, color: mode === k ? C.onDark : C.ink, border: `1px solid ${mode === k ? C.ink : C.line}` }}>{l}</button>)}</div>
+      {mode === "list" && (dicts.length === 0 ? <p className="text-xs mb-3" style={{ color: C.warn }}>No lists yet — create one in Dictionaries → Lists (e.g. Ripe: Yes, No).</p> : (
+        <div className="mb-3">
+          <div className="flex gap-1.5 flex-wrap"><select value={dictId} onChange={e => { setDictId(e.target.value); setItemId(""); }} className="text-sm" style={{ minWidth: 150 }}><option value="">— list —</option>{dicts.map(x => <option key={x.id} value={x.id}>{x.name}</option>)}</select><select value={itemId} onChange={e => setItemId(e.target.value)} disabled={!dict} className="text-sm flex-1"><option value="">— expected value —</option>{(dict?.items || []).map(i => <option key={i.id} value={i.id}>{i.value}</option>)}</select><Primary small onClick={addList}>+</Primary></div>
+          <p className="text-[11px] mt-1.5" style={{ color: C.muted }}>A form field "Choice from list" bound to the same list checks the controller's answer against this value. In the form builder the Head decides whether a mismatch raises a problem or only warns.</p>
+        </div>
+      ))}
+      {mode === "number" && <>
       <div className="flex gap-1.5 mb-1.5">
         <input value={sp.name} onChange={e => setSp(x => ({ ...x, name: e.target.value }))} placeholder="e.g. Brix" className="flex-1 text-sm rounded px-2 py-1.5 outline-none" style={{ ...inp }} />
         <input value={sp.unit} onChange={e => setSp(x => ({ ...x, unit: e.target.value }))} placeholder="%" className="w-14 text-sm rounded px-2 py-1.5 outline-none" style={{ ...inp }} />
@@ -1545,12 +1555,13 @@ function SpecForm({ specs, inherited, onAdd, onRemove, hint, excluded, onExclude
         {sp.kind !== "min" && <input type="number" value={sp.max} onChange={e => setSp(x => ({ ...x, max: e.target.value }))} onKeyDown={e => e.key === "Enter" && add()} placeholder={sp.kind === "range" ? "to" : "max"} className="w-16 text-sm rounded px-2 py-1.5 outline-none" style={{ ...inp }} />}
         <Primary small onClick={add}>+</Primary>
       </div>
+      </>}
       {specs.length === 0 && (!inherited || inherited.length === 0) && <p className="text-xs" style={{ color: C.muted }}>No specifications.</p>}
       {excluded && excluded.length > 0 && <div className="mt-2"><p className="label-sm mb-1">not inherited on this product</p>{excluded.map(n => <div key={n} className="flex items-center gap-2 text-xs py-1" style={{ color: C.muted }}><span className="flex-1 line-through">{n}</span><button onClick={() => onRestore(n)} className="text-xs" style={{ color: C.accent }}>restore</button></div>)}</div>}
-      {specs.map(q => <div key={q.id} className="flex items-center gap-2 text-sm py-1.5" style={{ borderTop: `1px solid ${C.line}` }}><span className="flex-1">{q.name}</span><span style={{ color: C.muted }}>{specLabel(q)}{basisTag(q)}</span><button onClick={() => onRemove(q.id)} className="text-xs px-1" style={{ color: C.muted }}>×</button></div>)}
+      {shown.map(q => <div key={q.id} className="flex items-center gap-2 text-sm py-1.5" style={{ borderTop: `1px solid ${C.line}` }}><span className="flex-1 flex items-center gap-2">{q.name}{isListSpec(q) && <ListTag />}</span><span style={{ color: isListSpec(q) ? C.ink : C.muted, fontWeight: isListSpec(q) ? 500 : 400 }}>{specLabel(q)}{basisTag(q)}</span><button onClick={() => onRemove(q.id)} className="text-xs px-1" style={{ color: C.muted }}>×</button></div>)}
       {inherited && inherited.length > 0 && <>
         <p className="label-sm mt-3 mb-1" style={{ color: C.muted }}>inherited</p>
-        {inherited.map(q => <div key={q.id} className="flex items-center gap-2 text-sm py-1.5" style={{ borderTop: `1px solid ${C.line}`, opacity: 0.65 }}><span className="flex-1">{q.name}</span><span style={{ color: C.muted }}>{specLabel(q)}{basisTag(q)} · {q.source}</span>{onExclude && <button onClick={() => onExclude(q.name)} className="text-xs px-1" style={{ color: C.muted }} title="don't inherit this specification on this product">exclude</button>}</div>)}
+        {inherited.map(q => <div key={q.id} className="flex items-center gap-2 text-sm py-1.5" style={{ borderTop: `1px solid ${C.line}`, opacity: 0.65 }}><span className="flex-1 flex items-center gap-2">{q.name}{isListSpec(q) && <ListTag />}</span><span style={{ color: C.muted }}>{specLabel(q)}{basisTag(q)} · {q.source}</span>{onExclude && <button onClick={() => onExclude(q.name)} className="text-xs px-1" style={{ color: C.muted }} title="don't inherit this specification on this product">exclude</button>}</div>)}
       </>}
     </>
   );
@@ -1690,12 +1701,6 @@ function CategoriesPage({ s, set, onMessage, onOpenProduct, presetSel, clearPres
           <PolicyEditor s={s} own={Array.isArray(cat.allowedTypeIds) ? cat.allowedTypeIds : null} inherited={effectivePolicy(s, { categoryId: cat.parentId || null }).typeIds} inheritedSource={effectivePolicy(s, { categoryId: cat.parentId || null }).source} onChange={v => patchCat({ allowedTypeIds: v })} hint="Inherited by every product and subcategory. Types are defined in Forms." />
         </Card>
       )}
-      {cat && (
-        <Card style={{ marginTop: 16 }}>
-          <p className="font-medium text-sm mb-1">Attributes from lists: {cat.name}</p>
-          <AttributeForm s={s} own={cat.attributes || []} inherited={cat.parentId ? effectiveAttributes(s, { categoryId: cat.parentId, attributes: [] }) : []} onSet={a => patchCat({ attributes: [...(cat.attributes || []).filter(x => x.dictionaryId !== a.dictionaryId), a] })} onRemove={did => patchCat({ attributes: (cat.attributes || []).filter(x => x.dictionaryId !== did) })} hint="A value set here is inherited by every product in the category and pre-filled in any form field bound to the same list. A product can override it." />
-        </Card>
-      )}
       {cat && !(cat.varieties || []).length && !varOpen && <button onClick={() => setVarOpen(true)} className="text-xs mt-3" style={{ color: C.accent }}>+ add a variety list for this category (optional)</button>}
       {cat && ((cat.varieties || []).length > 0 || varOpen) && (
         <Card style={{ marginTop: 16 }}>
@@ -1709,8 +1714,8 @@ function CategoriesPage({ s, set, onMessage, onOpenProduct, presetSel, clearPres
       {cat && (
         <Card style={{ marginTop: 16 }}>
           <p className="font-medium text-sm mb-1">Category specifications: {cat.name}</p>
-          <SpecForm sctx={s} specs={cat.specs || []} inherited={parentSpecs} onAdd={q => { patchCat({ specs: [...(cat.specs || []), q] }); const kids = productsUnder(cat.id); if (kids.length) setApplyAsk({ spec: q, kids, chosen: new Set(kids.map(p => p.id)), choosing: false }); }} onRemove={id => patchCat({ specs: (cat.specs || []).filter(q => q.id !== id) })}
-            hint="Inherited by all products in this category (by name). A product can override with its own spec of the same name. Set e.g. Brix or Firmness once for the whole category here." />
+          <SpecForm sctx={s} specs={cat.specs || []} inherited={parentSpecs} onAdd={q => { patchCat({ specs: [...(cat.specs || []), q] }); const kids = productsUnder(cat.id); if (kids.length) setApplyAsk({ spec: isListSpec(q) ? resolveListSpec(s.dictionaries, q) : q, kids, chosen: new Set(kids.map(p => p.id)), choosing: false }); }} onRemove={id => patchCat({ specs: (cat.specs || []).filter(q => q.id !== id) })}
+            hint="Inherited by all products in this category (by name, or by list). A product can override with its own spec of the same name. Set e.g. Brix, Firmness or Ripe = Yes once for the whole category here." />
         </Card>
       )}
 
@@ -1763,7 +1768,7 @@ const metricSeries = (s, inspections) => {
   const out = [];
   inspections.forEach(i => { const t = i.template; if (!t) return; const p = s.products.find(x => x.id === i.productId); const specs = p ? effectiveSpecs(s, p) : [];
     (t.fields || []).filter(f => f.type === "Number").forEach(f => { const nums = (i.values?.[f.id]?.measurements || []).filter(x => x !== "").map(Number).filter(n => !isNaN(n)); if (!nums.length) return;
-      const wantedN = (f.specName || f.label || "").trim().toLowerCase(); const sameN = specs.filter(q => (q.name || "").trim().toLowerCase() === wantedN);
+      const wantedN = (f.specName || f.label || "").trim().toLowerCase(); const sameN = numericSpecs(specs).filter(q => (q.name || "").trim().toLowerCase() === wantedN);
       const spec = f.specId ? specs.find(q => q.id === f.specId) : (sameN.find(q => specBasis(q) === fieldBasis(f)) || sameN[0]);
       const lim = limitsFor(spec, f, i.sample?.piecesPerCu || p?.piecesPerCu);
       out.push({ key: metricKey(f) + (fieldBasis(f) === "cu" ? "_cu" : ""), label: f.label + (fieldBasis(f) === "cu" ? " (per CU)" : ""), productId: i.productId, product: p?.name || "?", supplier: i.supplier || "—", controllerId: i.controllerId, when: i.completedAt || i.startedAt, avg: nums.reduce((a, b) => a + b, 0) / nums.length, lo: Math.min(...nums), hi: Math.max(...nums), n: nums.length, min: hasV(lim.min) ? Number(lim.min) : null, max: hasV(lim.max) ? Number(lim.max) : null, unit: spec?.unit || "", result: i.result, id: i.id }); }); });
@@ -2457,7 +2462,7 @@ function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset, onMessag
   const histAll = product ? s.inspections.filter(i => i.productId === product.id && i.status === "Completed" && countsAs(s, i)) : [];
   const histVerdict = histAll.filter(i => isVerdictType(s, i));
   const histInfo = histAll.filter(i => !isVerdictType(s, i));
-  const tabs = product ? [["profile", "Profile"], ["photos", `Photos${asPhotoList(product.photos).length ? ` · ${asPhotoList(product.photos).length}` : ""}`], ["specs", `Specifications${effectiveSpecs(s, product).length ? ` · ${effectiveSpecs(s, product).length}` : ""}`], ["attrs", `Properties${effectiveAttributes(s, product).length ? ` · ${effectiveAttributes(s, product).length}` : ""}`], ["supply", `Suppliers${(product.supplierIds || []).length ? ` · ${(product.supplierIds || []).length}` : ""}`], ["reference", `Reference guide${refCount ? ` · ${refCount}` : ""}`], ["guide", `Encyclopedia${effectiveGuide(s, product).length ? ` · ${effectiveGuide(s, product).length}` : ""}`], ["history", `Inspection history${histAll.length ? ` · ${histAll.length}` : ""}`], ["policy", "Inspection types"]] : [];
+  const tabs = product ? [["profile", "Profile"], ["photos", `Photos${asPhotoList(product.photos).length ? ` · ${asPhotoList(product.photos).length}` : ""}`], ["specs", `Specifications${effectiveSpecs(s, product).length ? ` · ${effectiveSpecs(s, product).length}` : ""}`], ["supply", `Suppliers${(product.supplierIds || []).length ? ` · ${(product.supplierIds || []).length}` : ""}`], ["reference", `Reference guide${refCount ? ` · ${refCount}` : ""}`], ["guide", `Encyclopedia${effectiveGuide(s, product).length ? ` · ${effectiveGuide(s, product).length}` : ""}`], ["history", `Inspection history${histAll.length ? ` · ${histAll.length}` : ""}`], ["policy", "Inspection types"]] : [];
   const missing = product ? [!product.articleId && "article ID", !product.barcodeCu && !product.barcodeTu && "barcode", !product.categoryId && "category", !asPhotoList(product.photos).length && "photo"].filter(Boolean) : [];
   return (
     <div>
@@ -2547,10 +2552,7 @@ function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset, onMessag
                   <PhotoStrip photos={product.photos} onAdd={got => patchP({ photos: [...asPhotoList(product.photos), ...got] })} onRemove={id => patchP({ photos: asPhotoList(product.photos).filter(x => x.id !== id) })} />
                 </div>}
                 {tab === "specs" && <div style={{ maxWidth: 720 }}>
-                  <SpecForm sctx={s} specs={product.specs} inherited={effectiveSpecs(s, product).filter(q => q.source !== "product")} onAdd={q => patchP({ specs: [...product.specs, q] })} onRemove={removeSpec} excluded={product.excludedSpecNames || []} onExclude={n => patchP({ excludedSpecNames: [...(product.excludedSpecNames || []), n] })} onRestore={n => patchP({ excludedSpecNames: (product.excludedSpecNames || []).filter(x => x !== n) })} hint="Own specifications override inherited ones of the same name. Most belong on the category — only exceptions here." />
-                </div>}
-                {tab === "attrs" && <div style={{ maxWidth: 720 }}>
-                  <AttributeForm s={s} own={product.attributes || []} inherited={effectiveAttributes(s, product).filter(a => a.source !== "product")} onSet={a => patchP({ attributes: [...(product.attributes || []).filter(x => x.dictionaryId !== a.dictionaryId), a] })} onRemove={did => patchP({ attributes: (product.attributes || []).filter(x => x.dictionaryId !== did) })} hint="Values from Lists. Own values override the category's; they pre-fill form fields bound to the same list." />
+                  <SpecForm sctx={s} specs={product.specs} inherited={effectiveSpecs(s, product).filter(q => q.source !== "product")} onAdd={q => patchP({ specs: [...product.specs, q] })} onRemove={removeSpec} excluded={product.excludedSpecNames || []} onExclude={n => patchP({ excludedSpecNames: [...(product.excludedSpecNames || []), n] })} onRestore={n => patchP({ excludedSpecNames: (product.excludedSpecNames || []).filter(x => x !== n) })} hint="Own specifications override inherited ones of the same name (or the same list). Most belong on the category — only exceptions here." />
                 </div>}
                 {tab === "supply" && <div className="grid gap-6" style={{ gridTemplateColumns: "1fr 1fr", maxWidth: 800 }}>
                   <div>
@@ -2708,7 +2710,10 @@ function FieldEditor({ f, onPatch, onRemove, onMove, problems, catalog, specs, s
         <button onClick={onRemove} className="text-xs px-1" style={{ color: C.muted }}>×</button>
       </div>
       {details && hasDetails && <>
-      {f.type === "List" && <div className="flex items-center gap-2 mb-1"><span className="text-xs" style={{ color: C.muted }}>list:</span><select value={f.dictionaryId || ""} onChange={e => onPatch({ dictionaryId: e.target.value || null })} className="text-xs" style={{ minHeight: 28 }}><option value="">— pick a list —</option>{(dictionaries || []).map(d => <option key={d.id} value={d.id}>{d.name} ({d.items.length})</option>)}</select>{!(dictionaries || []).length && <span className="text-xs" style={{ color: C.warn }}>no lists yet — Dictionaries → Lists</span>}</div>}
+      {f.type === "List" && <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 mb-1 text-xs" style={{ color: C.muted }}>
+        <span className="flex items-center gap-1">list: <select value={f.dictionaryId || ""} onChange={e => onPatch({ dictionaryId: e.target.value || null })} className="text-xs" style={{ minHeight: 28 }}><option value="">— pick a list —</option>{(dictionaries || []).map(d => <option key={d.id} value={d.id}>{d.name} ({d.items.length})</option>)}</select>{!(dictionaries || []).length && <span style={{ color: C.warn }}>no lists yet — Dictionaries → Lists</span>}</span>
+        <span className="flex items-center gap-1" title="When the product (or its category) has a specification from this list, an answer that differs from it raises this problem. Leave empty for a warning only.">doesn't match the specification → raises: <span style={{ minWidth: 180, display: "inline-block" }}><SearchSelect size="xs" value={f.problemMismatchId || ""} onChange={v => onPatch({ problemMismatchId: v || null })} options={leaves.map(l => ({ value: l.id, label: pathOf(problems, l.id) + (inScope(l.id) ? "" : " · outside this scope") }))} empty="— warning —" placeholder="Search problems…" style={{ borderColor: f.problemMismatchId ? C.accent : C.line }} /></span>{scopeNote(f.problemMismatchId)}</span>
+      </div>}
       {f.type === "SingleChoice" && <input value={f.optionsRaw ?? (f.options || []).join(", ")} onChange={e => onPatch({ optionsRaw: e.target.value, options: e.target.value.split(",").map(x => x.trim()).filter(Boolean) })} placeholder="options separated by commas, e.g. Spain, Morocco" className="w-full text-xs rounded px-2 py-1 outline-none" style={{ ...inp }} />}
       {f.type === "MultiChoice" && (
         <div>
@@ -2723,7 +2728,7 @@ function FieldEditor({ f, onPatch, onRemove, onMove, problems, catalog, specs, s
           <span className="flex items-center gap-1">measurements <input type="number" value={f.measurementCount ?? 1} onChange={e => onPatch({ measurementCount: Number(e.target.value) || 1 })} className="w-16 rounded px-1.5 py-0.5 outline-none" style={{ ...inp }} /></span>
           <span className="flex items-center gap-1 w-full" title="Leave empty for a typed number. With values here the controller picks one from a dropdown (search from 11 values); the values outside the specification are labelled with the problem they raise.">answer from a list of values: <input value={f.choicesRaw ?? (f.choices || []).join(", ")} onChange={e => onPatch({ choicesRaw: e.target.value, choices: e.target.value.split(/[,;\s]+/).map(x => x.trim()).filter(x => x !== "" && !isNaN(Number(x))).map(Number).sort((a, b) => a - b).map(String) })} placeholder="empty = typed number · e.g. 1, 1.5, 2, 2.5, 3, 3.5, 4, 5, 6, 7" className="flex-1 rounded px-1.5 py-0.5 outline-none font-mono" style={{ ...inp, borderColor: (f.choices || []).length ? C.ok : C.line }} />{(f.choices || []).length > 0 && <span style={{ color: C.ok }}>{f.choices.length} values → dropdown</span>}</span>
           <span className="flex items-center gap-1">specification by name: <input list={"spec-names-" + f.id} value={f.specName ?? ""} onChange={e => { const v = e.target.value; const patch = { specName: v }; if (v.trim() && (!f.label || !f.label.trim() || f.label.trim().toLowerCase() === "new field")) patch.label = v; onPatch(patch); }} onBlur={e => { if (sctxForNames && e.target.value.trim() && !nearSpecName(sctxForNames, e.target.value)) onPatch({ specName: canonicalSpecName(sctxForNames, e.target.value) }); }} placeholder={f.label} className="w-24 rounded px-1 py-0.5 outline-none" style={{ ...inp, borderColor: (f.specName || "").trim() ? C.ok : C.line }} title="matches the product specification with this name; empty = field label. Also fills the label above, if it's still the default." /><datalist id={"spec-names-" + f.id}>{(sctxForNames ? specRegistry(sctxForNames) : []).map(e => <option key={e.name} value={e.name} />)}</datalist>{(() => { const n = sctxForNames ? nearSpecName(sctxForNames, f.specName || "") : null; return n ? <button onClick={() => onPatch({ specName: n.name })} className="text-[11px] underline ml-1" style={{ color: C.warn }}>did you mean {n.name}?</button> : null; })()}</span>
-          {specs && <span className="flex items-center gap-1">or explicitly: <span style={{ minWidth: 160, display: "inline-block" }}><SearchSelect size="xs" value={f.specId || ""} onChange={v => { const specId = v || null; const patch = { specId }; if (specId && (!f.label || !f.label.trim() || f.label.trim().toLowerCase() === "new field")) { const sp = specs.find(sq => sq.id === specId); if (sp) patch.label = sp.name; } onPatch(patch); }} options={specs.map(q => ({ value: q.id, label: `${q.name} (${specLabel(q)})` }))} empty="— by name —" placeholder="Search specs…" style={{ borderColor: f.specId ? C.ok : C.line }} /></span></span>}
+          {specs && <span className="flex items-center gap-1">or explicitly: <span style={{ minWidth: 160, display: "inline-block" }}><SearchSelect size="xs" value={f.specId || ""} onChange={v => { const specId = v || null; const patch = { specId }; if (specId && (!f.label || !f.label.trim() || f.label.trim().toLowerCase() === "new field")) { const sp = specs.find(sq => sq.id === specId); if (sp) patch.label = sp.name; } onPatch(patch); }} options={numericSpecs(specs).map(q => ({ value: q.id, label: `${q.name} (${specLabel(q)})` }))} empty="— by name —" placeholder="Search specs…" style={{ borderColor: f.specId ? C.ok : C.line }} /></span></span>}
           <span className="flex items-center gap-1">or min <input type="number" value={f.min ?? ""} onChange={e => onPatch({ min: e.target.value === "" ? null : e.target.value })} className="w-12 rounded px-1 py-0.5 outline-none" style={{ ...inp }} /> max <input type="number" value={f.max ?? ""} onChange={e => onPatch({ max: e.target.value === "" ? null : e.target.value })} className="w-12 rounded px-1 py-0.5 outline-none" style={{ ...inp }} /></span>
           <span className="flex items-center gap-1">below raises: <span style={{ minWidth: 180, display: "inline-block" }}><SearchSelect size="xs" value={f.problemBelowId || ""} onChange={v => onPatch({ problemBelowId: v || null })} options={leaves.map(l => ({ value: l.id, label: pathOf(problems, l.id) + (inScope(l.id) ? "" : " · outside this scope") }))} empty="— warning —" placeholder="Search problems…" style={{ borderColor: f.problemBelowId ? C.accent : C.line }} /></span>{scopeNote(f.problemBelowId)}</span>
           <span className="flex items-center gap-1">above raises: <span style={{ minWidth: 180, display: "inline-block" }}><SearchSelect size="xs" value={f.problemAboveId || ""} onChange={v => onPatch({ problemAboveId: v || null })} options={leaves.map(l => ({ value: l.id, label: pathOf(problems, l.id) + (inScope(l.id) ? "" : " · outside this scope") }))} empty="— warning —" placeholder="Search problems…" style={{ borderColor: f.problemAboveId ? C.accent : C.line }} /></span>{scopeNote(f.problemAboveId)}</span>
@@ -2759,7 +2764,7 @@ function InheritedFieldOverride({ f, own, problems, specs, onOverride, onReset }
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs mt-1" style={{ color: C.muted }}>
       <span className="px-1 rounded" style={{ background: has ? C.accentSoft : "transparent", color: C.accent }}>{has ? "overridden here:" : "override here:"}</span>
-      {specs && <span className="flex items-center gap-1">specification <select value={f.specId || ""} onChange={e => onOverride({ specId: e.target.value || null })} className="rounded px-1 py-0.5 outline-none" style={{ ...inp, borderColor: ov.specId !== undefined ? C.accent : C.line }}><option value="">— by name —</option>{specs.map(q => <option key={q.id} value={q.id}>{q.name} ({specLabel(q)})</option>)}</select></span>}
+      {specs && <span className="flex items-center gap-1">specification <select value={f.specId || ""} onChange={e => onOverride({ specId: e.target.value || null })} className="rounded px-1 py-0.5 outline-none" style={{ ...inp, borderColor: ov.specId !== undefined ? C.accent : C.line }}><option value="">— by name —</option>{numericSpecs(specs).map(q => <option key={q.id} value={q.id}>{q.name} ({specLabel(q)})</option>)}</select></span>}
       <span className="flex items-center gap-1">below <select value={f.problemBelowId || ""} onChange={e => onOverride({ problemBelowId: e.target.value || null })} className="rounded px-1 py-0.5 outline-none" style={{ ...inp, borderColor: ov.problemBelowId !== undefined ? C.accent : C.line }}><option value="">—</option>{leaves.map(l => <option key={l.id} value={l.id}>{pathOf(problems, l.id)}</option>)}</select></span>
       <span className="flex items-center gap-1">above <select value={f.problemAboveId || ""} onChange={e => onOverride({ problemAboveId: e.target.value || null })} className="rounded px-1 py-0.5 outline-none" style={{ ...inp, borderColor: ov.problemAboveId !== undefined ? C.accent : C.line }}><option value="">—</option>{leaves.map(l => <option key={l.id} value={l.id}>{pathOf(problems, l.id)}</option>)}</select></span>
       {has && <button onClick={onReset} className="underline" style={{ color: C.muted }}>undo overrides</button>}
@@ -2807,7 +2812,7 @@ function Builder({ eff, own, setOwn, problems, specs, specsHint, readOnly, s, sc
   const usedSystem = new Set(eff.fields.filter(f => isSystem(f.type) && SYSTEM_TYPES[f.type].once).map(f => f.type));
   const hasProblems = eff.problemRefs.length > 0, hasSample = eff.fields.some(f => f.type === "SampleSize");
   const referenced = new Set(eff.problemRefs.flatMap(r => [...subtree(problems, r.problemTypeId)]));
-  const orphanLinks = eff.fields.flatMap(f => f.type === "Number" ? [f.problemBelowId, f.problemAboveId].filter(id => id && !referenced.has(id)).map(id => ({ f, id })) : []);
+  const orphanLinks = eff.fields.flatMap(f => f.type === "Number" ? [f.problemBelowId, f.problemAboveId].filter(id => id && !referenced.has(id)).map(id => ({ f, id })) : f.type === "List" ? [f.problemMismatchId].filter(id => id && !referenced.has(id)).map(id => ({ f, id })) : []);
   const pm = byId(problems);
   const hiddenIn = mid => [...eff.allFields.filter(f => f.moduleId === mid && eff.suppressed.has(f.id)), ...eff.allRefs.filter(r => r.moduleId === mid && eff.suppressed.has(r.id)).map(r => ({ ...r, label: pm[r.problemTypeId]?.name, isRef: true }))];
   const hiddenModules = eff.allModules.filter(m => eff.suppressed.has(m.id));
@@ -3012,6 +3017,50 @@ function FormsPage({ s, set }) {
   );
 }
 
+// The "report it" mini form shared by out-of-spec measurements and list answers that miss their specification:
+// how many are affected and in which unit, or a single Present when the linked problem has tolerance 0.
+function RaiseForm({ problems, overrides, linkedId, totals, onRaise, intro }) {
+  const lp = problems.find(p => p.id === linkedId);
+  const zero = lp && effTol(problems, overrides || [], lp.id) === 0;
+  const available = { PieceCount: totals.pieces > 0, DirectWeight: totals.weight > 0, WholeUnitCount: totals.cu > 0 };
+  const firstMode = Object.keys(available).find(k => available[k]) || "WholeUnitCount";
+  const [mode, setMode] = useState(firstMode);
+  const [raw, setRaw] = useState("");
+  const unit = mode === "PieceCount" ? "pcs" : mode === "DirectWeight" ? "g" : "CU";
+  return (
+    <div className="rounded-lg p-2 mt-1.5" style={{ background: C.warnBg }}>
+      <p className="text-xs mb-1.5" style={{ color: C.warn }}>{intro} → problem <b>{lp?.name}</b>.{zero ? " Tolerance 0% — presence alone is enough." : " How many are affected and in which unit?"}</p>
+      {zero ? (
+        <button onClick={() => onRaise(linkedId, "Presence", 1)} className="text-xs px-2 py-1 rounded font-medium" style={{ background: C.bad, color: C.onDark }}>Present</button>
+      ) : (
+        <div className="flex gap-1.5 flex-wrap">
+          {[["PieceCount", "pieces"], ["DirectWeight", "grams"], ["WholeUnitCount", "whole CU"]].map(([k, l]) => <button key={k} disabled={!available[k]} onClick={() => setMode(k)} title={available[k] ? "" : "no divisor — fill in the conversion in the sample"} className="text-xs px-2 py-1 rounded" style={{ background: !available[k] ? C.line : mode === k ? C.accent : C.surface, color: !available[k] ? C.muted : mode === k ? C.onDark : C.accent, border: `1px solid ${available[k] ? C.accent : C.line}` }}>{l}</button>)}
+          <input type="number" value={raw} onChange={e => setRaw(e.target.value)} placeholder="how many" className="w-16 text-xs rounded px-2 py-1 outline-none" style={{ ...inp }} />
+          <span className="text-xs self-center" style={{ color: C.muted }}>{unit}</span>
+          <button onClick={() => { if (raw !== "") { onRaise(linkedId, mode, raw); setRaw(""); } }} className="text-xs px-2 py-1 rounded font-medium" style={{ background: C.accent, color: C.onDark }}>Report</button>
+        </div>
+      )}
+    </div>
+  );
+}
+// "Choice from list" with a specification behind it: the field starts empty on purpose (the controller decides, the
+// spec is only a hint), and an answer that differs from the expected value is flagged — with the linked problem's
+// report form when the Head attached one in the form builder, as a plain warning otherwise.
+function ListInput({ f, spec, value, problems, allProblems, overrides, totals, onRaise, raised, picker }) {
+  const check = listCheck(spec, value);
+  const linkedId = linkedProblemId(allProblems || problems, problems, f.problemMismatchId);
+  const lp = linkedId && problems.find(p => p.id === linkedId);
+  const bad = check && !check.ok;
+  return (
+    <div>
+      {picker}
+      {spec && !spec.missing && !bad && <p className="text-[11px] mt-1" style={{ color: check ? C.ok : C.muted }}>{check ? "✓ Matches the specification" : "Specification"}: <b>{spec.value}</b>{spec.source && spec.source !== "product" ? <span style={{ color: C.muted }}> · {spec.source}</span> : null}</p>}
+      {bad && !lp && <div className="rounded-lg px-3 py-1.5 mt-1.5 text-xs" style={{ background: C.warnBg, color: C.warn }}>Doesn't match the specification (expected <b>{check.expected}</b>) — warning only.</div>}
+      {bad && lp && !raised && <RaiseForm problems={problems} overrides={overrides} linkedId={linkedId} totals={totals} onRaise={onRaise} intro={<>Doesn't match the specification (expected <b>{check.expected}</b>)</>} />}
+      {bad && lp && raised && <p className="text-xs mt-1.5" style={{ color: C.ok }}>✓ {lp.name} reported from this field.</p>}
+    </div>
+  );
+}
 // ═══════════════════ PAGE: Inspection ═══════════════════
 function NumberInput({ f, problems, allProblems, overrides, specs, totals, value, onChange, onRaise, raised, piecesPerCu }) {
   const n = f.measurementCount || 1, ms = value?.measurements || Array(n).fill("");
@@ -3019,7 +3068,7 @@ function NumberInput({ f, problems, allProblems, overrides, specs, totals, value
   const nums = ms.filter(x => x !== "").map(Number), avg = nums.length ? nums.reduce((a, b) => a + b, 0) / nums.length : null;
   // Specification: explicit (specId) or by name (specName, defaults to field label)
   const wanted = ((f.specName || "").trim() || f.label || "").toLowerCase();
-  const sameName = (specs || []).filter(q => (q.name || "").trim().toLowerCase() === wanted);
+  const sameName = numericSpecs(specs).filter(q => (q.name || "").trim().toLowerCase() === wanted);
   const spec = (f.specId && specs?.find(q => q.id === f.specId)) || sameName.find(q => specBasis(q) === fieldBasis(f)) || sameName[0] || null;
   const byName = spec && !(f.specId && spec.id === f.specId);
   let side = null, ref = null;
@@ -3028,12 +3077,6 @@ function NumberInput({ f, problems, allProblems, overrides, specs, totals, value
   const bad = side !== null;
   const linkedId = side === "below" ? belowId : side === "above" ? aboveId : null;
   const lp = linkedId && problems.find(p => p.id === linkedId);
-  const zero = lp && effTol(problems, overrides || [], lp.id) === 0;
-  const available = { PieceCount: totals.pieces > 0, DirectWeight: totals.weight > 0, WholeUnitCount: totals.cu > 0 };
-  const firstMode = Object.keys(available).find(k => available[k]) || "WholeUnitCount";
-  const [mode, setMode] = useState(firstMode);
-  const [raw, setRaw] = useState("");
-  const unit = mode === "PieceCount" ? "pcs" : mode === "DirectWeight" ? "g" : "CU";
   // "Answer from a list": fixed allowed values (see the form builder); values outside the specification are labelled
   // with the problem they raise. Average / out-of-spec / raising work exactly as for a typed number.
   const choices = Array.isArray(f.choices) ? f.choices.filter(v => v !== "" && v !== null && !isNaN(Number(v))) : [];
@@ -3048,21 +3091,7 @@ function NumberInput({ f, problems, allProblems, overrides, specs, totals, value
       {lim.note && <p className="text-[11px] mt-1" style={{ color: C.muted }}>{lim.note}</p>}
       {avg !== null && <p className="text-xs mt-1.5" style={{ color: C.muted }}>average <b style={{ color: C.ink }}>{fmt(avg)}</b>{ref ? ` · reference ${ref}${byName ? ` (by name “${spec.name}"${spec.source !== "product" ? ", " + spec.source : ""})` : ""}` : (f.problemBelowId || f.problemAboveId) ? <span style={{ color: C.warn }}> · no reference — the product has no specification “{(f.specName || "").trim() || f.label}“ and the field has no min/max</span> : ""}</p>}
       {bad && !lp && <div className="rounded-lg px-3 py-1.5 mt-1.5 text-xs" style={{ background: C.warnBg, color: C.warn }}>Out of spec — warning only.</div>}
-      {bad && lp && !raised && (
-        <div className="rounded-lg p-2 mt-1.5" style={{ background: C.warnBg }}>
-          <p className="text-xs mb-1.5" style={{ color: C.warn }}>Out of spec → problem <b>{lp.name}</b>.{zero ? " Tolerance 0% — presence alone is enough." : " How many are affected and in which unit?"}</p>
-          {zero ? (
-            <button onClick={() => onRaise(linkedId, "Presence", 1)} className="text-xs px-2 py-1 rounded font-medium" style={{ background: C.bad, color: C.onDark }}>Present</button>
-          ) : (
-            <div className="flex gap-1.5 flex-wrap">
-              {[["PieceCount", "pieces"], ["DirectWeight", "grams"], ["WholeUnitCount", "whole CU"]].map(([k, l]) => <button key={k} disabled={!available[k]} onClick={() => setMode(k)} title={available[k] ? "" : "no divisor — fill in the conversion in the sample"} className="text-xs px-2 py-1 rounded" style={{ background: !available[k] ? C.line : mode === k ? C.accent : C.surface, color: !available[k] ? C.muted : mode === k ? C.onDark : C.accent, border: `1px solid ${available[k] ? C.accent : C.line}` }}>{l}</button>)}
-              <input type="number" value={raw} onChange={e => setRaw(e.target.value)} placeholder="how many" className="w-16 text-xs rounded px-2 py-1 outline-none" style={{ ...inp }} />
-              <span className="text-xs self-center" style={{ color: C.muted }}>{unit}</span>
-              <button onClick={() => { if (raw !== "") { onRaise(linkedId, mode, raw); setRaw(""); } }} className="text-xs px-2 py-1 rounded font-medium" style={{ background: C.accent, color: C.onDark }}>Report</button>
-            </div>
-          )}
-        </div>
-      )}
+      {bad && lp && !raised && <RaiseForm problems={problems} overrides={overrides} linkedId={linkedId} totals={totals} onRaise={onRaise} intro="Out of spec" />}
       {raised && <p className="text-xs mt-1.5" style={{ color: C.ok }}>✓ {lp?.name} reported from this field.</p>}
     </div>
   );
@@ -3204,9 +3233,6 @@ function InspectionRunner({ insp, patch, t, problems, product, suppliers, dictio
   const modules = [...t.modules].sort(bySort);
   const [tab, setTab] = useState(0);
   const [question, setQuestion] = useState(""); const [flagText, setFlagText] = useState(""); const [flagOpen, setFlagOpen] = useState(false); const [askCancel, setAskCancel] = useState(false);
-  // Pre-fill "Choice from list" fields from the product's attributes (once, on open); the controller can still change them.
-  useEffect(() => { if (!sctx || !product || !t) return; const attrs = effectiveAttributes(sctx, product); if (!attrs.length) return;
-    patch(prev => { const v = { ...(prev.values || {}) }; let changed = false; (t.fields || []).forEach(f => { if (f.type !== "List" || v[f.id] !== undefined) return; const a = attrs.find(x => x.dictionaryId === f.dictionaryId); if (a && a.value !== "—") { v[f.id] = a.value; changed = true; } }); return changed ? { ...prev, values: v } : prev; }); }, [insp.id]);
   const values = insp.values || {}, remarks = insp.remarks || [], sample = insp.sample, photos = insp.photos || {}, pallets = insp.pallets || [""];
   const set = p => patch(prev => ({ ...prev, ...p }));
   const setV = (id, v) => patch(prev => ({ ...prev, values: { ...(prev.values || {}), [id]: v } }));
@@ -3285,12 +3311,12 @@ function InspectionRunner({ insp, patch, t, problems, product, suppliers, dictio
               {f.type === "Variety" && (effectiveVarieties(sctx, product).length ? <div className="flex flex-wrap gap-1.5">{effectiveVarieties(sctx, product).map(v => <button key={v.id} onClick={() => set({ variety: v.name })} className="text-xs px-3 py-1.5 rounded-full" style={{ background: insp.variety === v.name ? C.accent : C.accentSoft, color: insp.variety === v.name ? C.onDark : C.accent }}>{v.name}</button>)}</div> : <p className="text-xs" style={{ color: C.warn }}>No varieties — add them on the category or the product.</p>)}
               {f.type === "List" && (() => {
                 const d = (dictionaries || sctx?.dictionaries || []).find(x => x.id === f.dictionaryId);
-                const preset = sctx && product ? effectiveAttributes(sctx, product).find(a => a.dictionaryId === f.dictionaryId) : null;
+                const spec = listSpecFor(specs, f.dictionaryId);
                 if (!d) return <p className="text-xs" style={{ color: C.warn }}>No list attached to this field — the Head must pick one in the form builder.</p>;
                 if (!d.items.length) return <p className="text-xs" style={{ color: C.warn }}>The list “{d.name}” is empty — fill it in Dictionaries → Lists.</p>;
                 // Lists are always a dropdown; the search box appears from 11 options up (the Head can attach a 70-item country list).
                 const picker = <SearchSelect value={values[f.id] || ""} onChange={v => setV(f.id, v)} options={d.items.map(o => ({ value: o.value, label: o.value }))} empty={`— choose (${d.items.length} options) —`} placeholder={`Search ${d.name.toLowerCase()}…`} searchFrom={11} />;
-                return <div>{picker}{preset && <p className="text-[11px] mt-1" style={{ color: C.muted }}>Pre-filled from the product profile ({preset.source}: {preset.value}){values[f.id] && values[f.id] !== preset.value ? " — changed on the dock" : ""}.</p>}</div>;
+                return <ListInput f={f} spec={spec} value={values[f.id]} picker={picker} problems={problems} allProblems={sctx?.problems} overrides={t.overrides} totals={totals} onRaise={(leafId, mode, raw) => setRemarks(r => [...r, { id: uid(), leafId, mode, raw, auto: true, fieldId: f.id }])} raised={remarks.some(r => r.auto && r.fieldId === f.id)} />;
               })()}
               {f.type === "Pallet" && <div>{pallets.map((p, i) => <div key={i} className="flex gap-1.5 mb-1.5"><input value={p} onChange={e => setPallets(ps => ps.map((x, j) => j === i ? e.target.value : x))} placeholder={`pallet ${i + 1}`} className="flex-1 text-sm rounded px-2 py-1.5 outline-none" style={{ ...inp }} /><button className="text-xs px-2 rounded" style={{ background: C.line, color: C.muted }} title="camera scanning is only available in the phone app" disabled><Ic i={ScanLine} s={13} mr={0} /></button>{pallets.length > 1 && <button onClick={() => setPallets(ps => ps.filter((_, j) => j !== i))} className="text-xs px-1" style={{ color: C.muted }}>×</button>}</div>)}<button onClick={() => setPallets(ps => [...ps, ""])} className="text-xs" style={{ color: C.accent }}>+ another pallet</button><DeliveryPallets product={product} insp={insp} onAdd={hus => setPallets(ps => [...ps.filter(Boolean), ...hus.filter(h => !ps.includes(h))])} /></div>}
               {f.type === "DateCode" && <div><input type="date" value={insp.dateISO || ""} onChange={e => set({ dateISO: e.target.value })} className="w-full text-sm rounded px-2 py-1.5 outline-none" style={{ ...inp }} />{insp.dateISO && <p className="text-xs mt-1.5" style={{ color: C.muted }}>saved as date code: <b style={{ color: C.ink, fontVariantNumeric: "tabular-nums" }}>{dateCode(insp.dateISO)}</b> (week {dateCode(insp.dateISO).slice(0, -1)}, day {dateCode(insp.dateISO).slice(-1)})</p>}</div>}
@@ -3364,6 +3390,12 @@ function ReportView({ insp, s, onEdit, onAnswer, user, onMarkReference }) {
       {insp.answer && <Note tone="ok">💬 Head's answer: <i>„{insp.answer}"</i></Note>}
       {(insp.missingRequired || []).length > 0 && <Note tone="warn"><Ic i={AlertTriangle} s={13} />Finished with <b>{insp.missingRequired.length} required field{insp.missingRequired.length === 1 ? "" : "s"} empty</b>: {insp.missingRequired.join(", ")}</Note>}
       {t && <ProblemOverview t={t} problems={problems} remarks={insp.remarks || []} totals={totals} />}
+      {(() => { const checks = specChecks(s, insp); if (!checks.length) return null; const miss = checks.filter(c => !c.ok).length; return (
+        <div className="rounded-xl px-3 py-2 mb-3" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
+          <div className="flex items-center justify-between mb-1"><p className="label-sm" style={{ color: C.muted }}>Specification checks</p><span className="text-[11px] px-2 py-0.5 rounded-full" style={{ background: miss ? C.badBg : C.okBg, color: miss ? C.bad : C.ok }}>{miss ? `${miss} of ${checks.length} off spec` : `all ${checks.length} within spec`}</span></div>
+          {checks.map(c => <div key={c.fieldId} className="flex items-center gap-2 text-sm py-1" style={{ borderTop: `1px solid ${C.line}` }}><span className="flex-1 truncate">{c.label}</span><span className="font-medium" style={{ color: c.ok ? C.ok : C.bad }}>{c.value}</span><span className="text-xs whitespace-nowrap" style={{ color: C.muted }}>spec {c.expected}</span><span className="text-xs w-4 text-center" style={{ color: c.ok ? C.ok : C.bad }}>{c.ok ? "✓" : "✗"}</span></div>)}
+        </div>
+      ); })()}
       {(insp.remarks || []).map(r => <div key={r.id} className="flex items-center gap-2 text-sm py-1" style={{ borderTop: `1px solid ${C.line}` }}><span className="flex-1">{pathOf(problems, r.leafId)}{r.auto && <span className="text-xs" style={{ color: C.muted }}> (from measurement)</span>}</span><span className="text-xs" style={{ color: C.muted }}>{r.mode === "Presence" ? "present" : `${r.raw} ${r.mode === "PieceCount" ? "pcs" : r.mode === "DirectWeight" ? "g" : "CU"}`}</span><span>{r.mode === "Presence" ? "⚡" : `${fmt(pct(r, totals))}%`}</span></div>)}
       {insp.comment && <div className="rounded-lg p-3 mt-3 text-sm" style={{ background: C.bg }}>{insp.comment}</div>}
       {(() => { const groups = []; (t?.fields || []).forEach(f => { const ph = asPhotoList((insp.photos || {})[f.id]); if (ph.length) groups.push({ key: f.id, label: f.type === "Photos" ? photoBlockLabel(f, t) : f.label, photos: ph }); }); (insp.remarks || []).forEach(r => { const ph = asPhotoList(r.photos); if (ph.length) groups.push({ key: r.id, label: `Problem: ${pathOf(problems, r.leafId)}`, photos: ph }); }); return <div className="mt-4"><p className="label-sm mb-2">Photos</p>{groups.length ? groups.map(g => <div key={g.key} className="mb-2"><p className="text-xs mb-1" style={{ color: C.muted }}>{g.label}</p><PhotoStrip photos={g.photos} size={72} /></div>) : <p className="text-xs" style={{ color: C.muted }}>No photos in this inspection.</p>}</div>; })()}
@@ -3494,14 +3526,14 @@ function InspectionsPage({ s, set, user, notify, openId, setOpenId, preset, clea
 }
 
 // Read-only product profile in a side drawer, opened from inside an inspection. Everything the controller may want
-// to double-check mid-inspection (photos, facts, specs, properties, suppliers, encyclopedia, reference guide,
+// to double-check mid-inspection (photos, facts, specs incl. list specs, suppliers, encyclopedia, reference guide,
 // announcements, recent history) without leaving the form — the runner keeps its state underneath.
 function ProductPeek({ s, product, onClose }) {
   const [tab, setTab] = useState("overview");
   const [zoom, setZoom] = useState(null);
   useEffect(() => { const h = e => { if (e.key === "Escape") { if (zoom) setZoom(null); else onClose(); } }; window.addEventListener("keydown", h); return () => window.removeEventListener("keydown", h); }, [zoom, onClose]);
   const photos = asPhotoList(product.photos);
-  const specs = effectiveSpecs(s, product), attrs = effectiveAttributes(s, product), varieties = effectiveVarieties(s, product);
+  const specs = effectiveSpecs(s, product), varieties = effectiveVarieties(s, product);
   const suppliers = (product.supplierIds || []).map(id => (s.suppliers || []).find(x => x.id === id)).filter(Boolean);
   const guide = effectiveGuide(s, product);
   const notes = effectiveNotesFor(s, product);
@@ -3510,7 +3542,7 @@ function ProductPeek({ s, product, onClose }) {
   const reference = s.inspections.find(i => i.productId === product.id && i.isReference);
   const cat = s.categories.find(c => c.id === product.categoryId);
   const catPath = id => { const out = []; let c = s.categories.find(x => x.id === id); while (c) { out.unshift(c.name); c = c.parentId ? s.categories.find(x => x.id === c.parentId) : null; } return out.join(" › "); };
-  const tabs = [["overview", "Overview"], ["specs", `Specs${specs.length ? ` · ${specs.length}` : ""}`], ["attrs", `Properties${attrs.length ? ` · ${attrs.length}` : ""}`], ["guide", `Encyclopedia${guide.length ? ` · ${guide.length}` : ""}`], ["reference", `Reference guide${notes.length ? ` · ${notes.length}` : ""}`], ["history", `History${history.length ? ` · ${history.length}` : ""}`]];
+  const tabs = [["overview", "Overview"], ["specs", `Specs${specs.length ? ` · ${specs.length}` : ""}`], ["guide", `Encyclopedia${guide.length ? ` · ${guide.length}` : ""}`], ["reference", `Reference guide${notes.length ? ` · ${notes.length}` : ""}`], ["history", `History${history.length ? ` · ${history.length}` : ""}`]];
   const Row = ({ k, v }) => v ? <div className="flex justify-between gap-3 py-1.5 text-sm" style={{ borderBottom: `1px solid ${C.line}` }}><span style={{ color: C.muted }}>{k}</span><span className="text-right font-medium">{v}</span></div> : null;
   const H = ({ children }) => <p className="text-[11px] font-semibold uppercase tracking-wide mt-4 mb-2" style={{ color: C.muted }}>{children}</p>;
   const Photos = ({ list, size = 84 }) => list.length ? <div className="flex gap-2 flex-wrap">{list.map(ph => <button key={ph.id} onClick={() => setZoom(ph)} className="rounded-lg overflow-hidden" style={{ width: size, height: size, border: `1px solid ${C.line}`, background: C.bg }}><img src={photoSrc(ph) || ph.url || ph.src} alt="" className="w-full h-full object-cover" /></button>)}</div> : null;
@@ -3550,8 +3582,7 @@ function ProductPeek({ s, product, onClose }) {
             </>}
             {reference && <><H>Reference inspection</H><p className="text-sm"><Ic i={Star} s={13} mr={4} />{s.users.find(u => u.id === reference.controllerId)?.name} · {fmtTime(reference.completedAt)} · {reference.result || "—"}</p></>}
           </div>}
-          {tab === "specs" && <div className="mt-3">{specs.length === 0 ? <Empty icon="📏" title="No specifications" hint="Nothing set on the product or its categories." /> : specs.map((q, i) => <div key={q.id || i} className="flex justify-between gap-3 py-2 text-sm" style={{ borderBottom: `1px solid ${C.line}` }}><div><span className="font-medium">{q.name}</span>{q.source !== "product" && <span className="text-[10px] ml-2" style={{ color: C.muted }}>{q.source}</span>}</div><span className="font-mono whitespace-nowrap">{specLabel(q)}</span></div>)}</div>}
-          {tab === "attrs" && <div className="mt-3">{attrs.length === 0 ? <Empty icon="🏷️" title="No properties" hint="Nothing set on the product or its categories." /> : attrs.map(a => <div key={a.dictionaryId} className="flex justify-between gap-3 py-2 text-sm" style={{ borderBottom: `1px solid ${C.line}` }}><div><span style={{ color: C.muted }}>{a.list}</span>{a.source !== "product" && <span className="text-[10px] ml-2" style={{ color: C.muted }}>{a.source}</span>}</div><span className="font-medium text-right">{a.value}</span></div>)}</div>}
+          {tab === "specs" && <div className="mt-3">{specs.length === 0 ? <Empty icon="📏" title="No specifications" hint="Nothing set on the product or its categories." /> : specs.map((q, i) => <div key={q.id || i} className="flex justify-between gap-3 py-2 text-sm" style={{ borderBottom: `1px solid ${C.line}` }}><div><span className="font-medium">{q.name}</span>{isListSpec(q) && <span className="text-[10px] ml-2 px-1.5 py-0.5 rounded-full" style={{ background: C.accentSoft, color: C.accent }}>from list</span>}{q.source !== "product" && <span className="text-[10px] ml-2" style={{ color: C.muted }}>{q.source}</span>}</div><span className={`${isListSpec(q) ? "font-medium" : "font-mono"} whitespace-nowrap`}>{specLabel(q)}</span></div>)}</div>}
           {tab === "guide" && <div className="mt-3">{guide.length === 0 ? <Empty icon="📖" title="Encyclopedia is empty" hint="Fill it in on the product page (Products → Encyclopedia)." /> : guide.map(g => <FoldNote key={g.id} title={g.title || "Untitled entry"} chip={g.inherited ? <InheritChip label={g.source} /> : null}>{g.body && <p className="text-sm whitespace-pre-wrap mb-2" style={{ color: C.ink }}>{g.body}</p>}<Photos list={asPhotoList(g.photos)} /></FoldNote>)}</div>}
           {tab === "reference" && <div className="mt-3">{notes.length === 0 ? <Empty icon="🧭" title="No reference notes" hint="Notes and photos per defect are filled in on the product page." /> : notes.map(n => <FoldNote key={n.id} title={problemPath(s.problems, n.problemId) || "Defect"} chip={n.inherited ? <InheritChip label={n.source} /> : null}>{n.description && <p className="text-sm whitespace-pre-wrap mb-2">{n.description}</p>}<Photos list={asPhotoList(n.photos)} /></FoldNote>)}</div>}
           {tab === "history" && <div className="mt-3">{history.length === 0 ? <Empty icon="📋" title="No completed inspections yet" /> : history.map(i => { const it = inspType(s, i); return <div key={i.id} className="flex items-center gap-3 py-2 text-sm" style={{ borderBottom: `1px solid ${C.line}` }}><span className="inline-block rounded-full" style={{ width: 8, height: 8, background: it.autoAccept ? it.color : i.result === "Accepted" ? C.ok : i.result === "Rejected" ? C.bad : C.muted }} /><span className="flex-1 min-w-0 truncate">{it.autoAccept ? it.name : (i.result || "—")}{i.supplier ? ` · ${i.supplier}` : ""}{i.isReference && <Ic i={Star} s={12} mr={0} />}</span><span className="text-xs whitespace-nowrap" style={{ color: C.muted }}>{i.dateISO && `DC ${dateCode(i.dateISO)} · `}{s.users.find(u => u.id === i.controllerId)?.name} · {fmtTime(i.completedAt)}</span></div>; })}</div>}
@@ -3641,7 +3672,7 @@ function CatalogPage({ s, set, user, notify, onStartInspection }) {
               <ComplaintsNote s={s} articleId={product.articleId} />
               {openFlags.length > 0 && <Note tone="warn">🚩 {openFlags.length} open flag on this product — the Head hasn't resolved it yet.</Note>}
               {asPhotoList(product.photos).length > 1 && <div className="mb-3"><PhotoStrip photos={product.photos} size={56} /></div>}
-              {effectiveAttributes(s, product).length > 0 && <div className="flex flex-wrap gap-1.5 mb-3">{effectiveAttributes(s, product).map(a => <span key={a.dictionaryId} className="text-xs px-2.5 py-1 rounded-full" style={{ background: C.bg, border: `1px solid ${C.line}` }}><span style={{ color: C.muted }}>{a.list}:</span> <b>{a.value}</b></span>)}</div>}
+              {listSpecs(specs).length > 0 && <div className="flex flex-wrap gap-1.5 mb-3">{listSpecs(specs).map(a => <span key={a.dictionaryId} className="text-xs px-2.5 py-1 rounded-full" style={{ background: C.bg, border: `1px solid ${C.line}` }}><span style={{ color: C.muted }}>{a.list}:</span> <b>{a.value}</b></span>)}</div>}
               {(() => { const ref = s.inspections.find(i => i.productId === product.id && i.isReference); return ref ? <div className="rounded-lg p-2 mb-3 flex items-center gap-2" style={{ background: C.okBg }}><span className="text-sm inline-flex items-center" style={{ color: C.ok }}><Ic i={Star} s={14} />This product has a reference inspection</span><div className="flex-1" /><Ghost onClick={() => setShowRef(r => r ? null : ref.id)}>{showRef ? "hide" : "see how it should look"}</Ghost></div> : null; })()}
               {showRef && (() => { const ref = s.inspections.find(i => i.id === showRef); return ref ? <div className="rounded-lg p-3 mb-3" style={{ border: `1px solid ${C.ok}` }}><ReportView insp={ref} s={s} user={user} onEdit={() => {}} onAnswer={() => {}} /></div> : null; })()}
               <p className="label-sm mb-1" style={{ color: C.muted }}>Specs (specifications)</p>
@@ -4120,6 +4151,7 @@ function ListsPage({ s, set }) {
   const addList = () => { if (!name.trim()) return; const id = uid(); set(x => ({ ...x, dictionaries: [...(x.dictionaries || []), { id, name: name.trim(), items: [], isActive: true }] })); setName(""); setSel(id); };
   const addItem = () => { if (!item.trim() || !cur) return; patchList(cur.id, d => ({ ...d, items: [...d.items, { id: uid(), value: item.trim() }] })); setItem(""); };
   const usage = id => s.templates.reduce((n, t) => n + (t.fields || []).filter(f => f.type === "List" && f.dictionaryId === id).length, 0);
+  const specUsage = id => [...(s.categories || []), ...(s.products || [])].reduce((n, o) => n + listSpecs(o.specs).filter(q => q.dictionaryId === id).length, 0);
   return (
     <div>
       <h1 className="mb-1">Lists</h1>
@@ -4137,7 +4169,7 @@ function ListsPage({ s, set }) {
         {cur ? (
           <Card>
             <div className="flex items-center gap-2 mb-1"><input value={cur.name} onChange={e => patchList(cur.id, { name: e.target.value })} className="font-medium text-sm flex-1" /><button onClick={() => { set(x => ({ ...x, dictionaries: x.dictionaries.filter(d => d.id !== cur.id) })); setSel(null); }} className="text-xs px-2" style={{ color: C.muted }} title={usage(cur.id) ? "used by form fields — they will show an empty list" : "delete list"}>delete</button></div>
-            <p className="text-xs mb-3" style={{ color: C.muted }}>{usage(cur.id)} form field{usage(cur.id) === 1 ? "" : "s"} use this list.</p>
+            <p className="text-xs mb-3" style={{ color: C.muted }}>{usage(cur.id)} form field{usage(cur.id) === 1 ? "" : "s"} use this list{specUsage(cur.id) ? ` · ${specUsage(cur.id)} specification${specUsage(cur.id) === 1 ? "" : "s"} expect a value from it` : ""}.</p>
             <div className="flex gap-1.5 mb-3"><input value={item} onChange={e => setItem(e.target.value)} onKeyDown={e => e.key === "Enter" && addItem()} placeholder="new value" className="flex-1 text-sm" /><Ghost onClick={addItem}>Add</Ghost></div>
             {cur.items.length === 0 ? <p className="text-xs" style={{ color: C.muted }}>No values yet.</p> : cur.items.map((it, i) => <div key={it.id} className="flex items-center gap-2 py-1.5" style={{ borderTop: `1px solid ${C.line}` }}><input value={it.value} onChange={e => patchList(cur.id, d => ({ ...d, items: d.items.map(x => x.id === it.id ? { ...x, value: e.target.value } : x) }))} className="flex-1 text-sm bg-transparent" style={{ border: "none", minHeight: 0, padding: 0 }} /><button onClick={() => patchList(cur.id, d => { const a = [...d.items]; if (i > 0) [a[i - 1], a[i]] = [a[i], a[i - 1]]; return { ...d, items: a }; })} className="text-xs px-1" style={{ color: C.muted }}>↑</button><button onClick={() => patchList(cur.id, d => { const a = [...d.items]; if (i < a.length - 1) [a[i + 1], a[i]] = [a[i], a[i + 1]]; return { ...d, items: a }; })} className="text-xs px-1" style={{ color: C.muted }}>↓</button><button onClick={() => patchList(cur.id, d => ({ ...d, items: d.items.filter(x => x.id !== it.id) }))} className="text-xs px-1" style={{ color: C.muted }}>×</button></div>)}
           </Card>
@@ -4241,7 +4273,7 @@ const normalize = raw => {
   s.categories = s.categories.map(c => c.inspectionPolicy && !Array.isArray(c.allowedTypeIds) ? { ...c, allowedTypeIds: fromEnum(c.inspectionPolicy), inspectionPolicy: undefined } : c);
   s.products = s.products.map(p => p.inspectionPolicy && !Array.isArray(p.allowedTypeIds) ? { ...p, allowedTypeIds: fromEnum(p.inspectionPolicy), inspectionPolicy: undefined } : p);
 
-  s.categories = (s.categories || []).map(c => ({ ...c, specs: c.specs || [], varieties: c.varieties || [] }));
+  s.categories = (s.categories || []).map(c => attributesToSpecs({ ...c, specs: c.specs || [], varieties: c.varieties || [] }, uid));
   s.problems = (s.problems || []).map(p => ({ ...p, categoryId: p.categoryId || null, productId: p.productId || null }));
   s.categories = s.categories.map(c => ({ ...c, hiddenProblemIds: c.hiddenProblemIds || [], guide: Array.isArray(c.guide) ? c.guide.map(e => ({ ...e, photos: asPhotoList(e.photos) })) : [], hiddenGuideIds: Array.isArray(c.hiddenGuideIds) ? c.hiddenGuideIds : [] }));
   // Reference guide: per-product notes (description + photos) on a problem type, written by the Head, shown to controllers.
@@ -4262,7 +4294,7 @@ const normalize = raw => {
     }
     // Old specifications with a single "target" → minimum (all previous ones were "below = bad")
     const specs = (q.specs || []).map(sp => sp.target !== undefined && sp.min === undefined && sp.max === undefined ? { id: sp.id, name: sp.name, unit: sp.unit, min: sp.target, max: null } : sp);
-    return { ...q, supplierIds: q.supplierIds || [], varieties: q.varieties || [], specs, articleId: q.articleId || "", hiddenProblemIds: q.hiddenProblemIds || [], photos: asPhotoList(q.photos), barcodeCu: q.barcodeCu || q.barcode || "", barcodeTu: q.barcodeTu || "", consumerAppUrl: q.consumerAppUrl || "", isActive: q.isActive !== false, excludedSpecNames: q.excludedSpecNames || [], attributes: q.attributes || [] };
+    return attributesToSpecs({ ...q, supplierIds: q.supplierIds || [], varieties: q.varieties || [], specs, articleId: q.articleId || "", hiddenProblemIds: q.hiddenProblemIds || [], photos: asPhotoList(q.photos), barcodeCu: q.barcodeCu || q.barcode || "", barcodeTu: q.barcodeTu || "", consumerAppUrl: q.consumerAppUrl || "", isActive: q.isActive !== false, excludedSpecNames: q.excludedSpecNames || [] }, uid);
   });
   s.templates = (s.templates || []).map(t => ({ ...t, fields: (t.fields || []).map(f => f.problemId !== undefined && f.problemBelowId === undefined ? (({ problemId, ...rest }) => ({ ...rest, problemBelowId: problemId || null, problemAboveId: null }))(f) : f) }));
   return sortState(migrateLayered(s));
@@ -4510,7 +4542,7 @@ export default function App() {
   const onVisible = () => { if (document.visibilityState === "visible") syncerRef.current.tick(); }; document.addEventListener("visibilitychange", onVisible); window.addEventListener("focus", onVisible);
   return () => { clearInterval(id); document.removeEventListener("visibilitychange", onVisible); window.removeEventListener("focus", onVisible); }; }, [loaded]);
 
-  const badge = { forms: s.products.filter(p => { const t = resolveTemplate(s, p); return t && t.fields.some(f => (f.problemBelowId || f.problemAboveId) && !f.specId && !p.specs.some(q => (q.name || "").trim().toLowerCase() === ((f.specName || "").trim() || f.label || "").toLowerCase())) && p.specs.length > 0; }).length };
+  const badge = { forms: s.products.filter(p => { const t = resolveTemplate(s, p); return t && t.fields.some(f => (f.problemBelowId || f.problemAboveId) && !f.specId && !numericSpecs(p.specs).some(q => (q.name || "").trim().toLowerCase() === ((f.specName || "").trim() || f.label || "").toLowerCase())) && numericSpecs(p.specs).length > 0; }).length };
   const dataButton = <><button onClick={toggleTheme} className="text-xs px-2.5 py-1.5 rounded-lg" style={{ background: C.accentSoft, color: C.accent }} title="theme">{dark ? <><Ic i={Sun} s={13} />Light</> : <><Ic i={Moon} s={13} />Dark</>}</button><button onClick={() => setDataOpen(o => !o)} className="text-xs px-2.5 py-1.5 rounded-lg" style={{ background: dataOpen ? C.accent : C.accentSoft, color: dataOpen ? C.onDark : C.accent }}><Ic i={Database} s={13} />Data</button></>;
   if (!loaded) return <div className="min-h-screen flex items-center justify-center text-sm" style={{ background: C.bg, color: C.muted }}>Loading…</div>;
   const user = s.users.find(u => u.id === userId && u.active !== false) || null;

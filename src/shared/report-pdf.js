@@ -9,7 +9,7 @@
 //   facts: [[label, value]],                             // supplier, country, variety, date code, pallets…
 //   status: [{ name, found, tolerance, state, ratio }],  // state: clean | flagged | exceeded; ratio found/tol or null
 //   remarks: [{ problem, quantity, pct, source }],
-//   parameters: [[label, value]],
+//   parameters: [[label, value] | [label, value, specification, ok]],
 //   comment, photoGroups: [{ label, photos }], audit: [[action, text]],
 // }
 import { addImageNatural, drawPhotoGroup, fitWithin, imagePixels, transparentIcon } from "./report-images.js";
@@ -184,8 +184,24 @@ export async function drawReportPdf(doc, model, photoData) {
     });
   }
   if (model.parameters.length) {
-    section("Parameters", "answers recorded on the form");
-    table({ body: model.parameters, columnStyles: { 0: { cellWidth: 56, textColor: MUTED, fontStyle: "bold", fontSize: 8 } } });
+    // Rows are [label, value] or [label, value, specification, ok]; with any specification present the table gains a
+    // third column and the value is judged (green tick / red cross) so a miss is visible at a glance.
+    const judged = model.parameters.some(r => r.length > 2 && r[2]);
+    section("Parameters", judged ? "answers recorded on the form · checked against the specification" : "answers recorded on the form");
+    if (!judged) table({ body: model.parameters.map(r => [r[0], r[1]]), columnStyles: { 0: { cellWidth: 56, textColor: MUTED, fontStyle: "bold", fontSize: 8 } } });
+    else table({
+      head: [["Parameter", "Answer", "Specification"]],
+      body: model.parameters.map(r => [r[0], r[1], r.length > 2 && r[2] ? `     ${r[2]}` : ""]),
+      columnStyles: { 0: { cellWidth: 56, textColor: MUTED, fontStyle: "bold", fontSize: 8 }, 2: { cellWidth: 60 } },
+      didParseCell: d => { if (d.section !== "body") return; const r = model.parameters[d.row.index]; if (r && r.length > 2 && r[2] && d.column.index === 1) { d.cell.styles.textColor = r[3] ? OK : BAD; d.cell.styles.fontStyle = "bold"; } },
+      didDrawCell: d => {
+        if (d.section !== "body" || d.column.index !== 2) return; const r = model.parameters[d.row.index]; if (!r || r.length < 3 || !r[2]) return;
+        const ok = !!r[3], c = ok ? OK : BAD, soft = ok ? OK_SOFT : BAD_SOFT, cx = d.cell.x + 2.5 + 2.2, cy = d.cell.y + d.cell.height / 2;
+        fill(soft); doc.circle(cx, cy, 2.2, "F"); stroke(c, 0.45);
+        if (ok) { doc.line(cx - 1.1, cy + 0.1, cx - 0.3, cy + 0.9); doc.line(cx - 0.3, cy + 0.9, cx + 1.2, cy - 0.9); }
+        else { doc.line(cx - 0.9, cy - 0.9, cx + 0.9, cy + 0.9); doc.line(cx - 0.9, cy + 0.9, cx + 0.9, cy - 0.9); }
+      },
+    });
   }
   section("Comment");
   {
