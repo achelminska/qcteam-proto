@@ -78,7 +78,8 @@ const GLOBAL_CSS = () => `
   .qc input::placeholder,.qc textarea::placeholder{color:${C.muted};opacity:.9}
   .qc button{font:inherit;cursor:pointer;transition:background-color .12s,color .12s,border-color .12s,box-shadow .12s,transform .06s}
   .qc button:active{transform:translateY(1px)}
-  .qc button.qc-elev:active{box-shadow:0 1px 0 rgba(255,255,255,.03) inset,0 2px 6px rgba(0,0,0,.22)!important}
+  .qc-tile{box-shadow:${lift()}}
+  .qc button.qc-elev:active,.qc button.qc-tile:active{box-shadow:0 1px 0 rgba(255,255,255,.03) inset,0 2px 6px rgba(0,0,0,.22)!important}
   .qc button:disabled{cursor:not-allowed;opacity:.6}
   .qc button:focus-visible,.qc a:focus-visible{outline:2px solid ${C.accent};outline-offset:2px}
   .qc .label-sm{font-size:11.5px;font-weight:600;color:${C.muted};letter-spacing:0;text-transform:none}
@@ -1057,7 +1058,7 @@ function QueueRow({ s, set, user, b, onOpen }) {
 
 // ═══════════════════ UI: prymitywy ═══════════════════
 function Card({ children, style }) { return <section className="rounded-2xl p-5" style={{ background: C.surface, border: `1px solid ${C.line}`, boxShadow: lift(), ...style }}>{children}</section>; }
-function Primary({ children, onClick, disabled, small }) { return <button onClick={onClick} disabled={disabled} className={`${small ? "text-xs px-3" : "text-sm px-4"} font-semibold rounded-xl inline-flex items-center justify-center`} style={{ height: small ? 30 : 38, background: disabled ? C.line : C.accent, color: disabled ? C.muted : C.onDark }}>{children}</button>; }
+function Primary({ children, onClick, disabled, small }) { return <button onClick={onClick} disabled={disabled} className={`qc-elev qc-tile ${small ? "text-xs px-3" : "text-sm px-4"} font-semibold rounded-xl inline-flex items-center justify-center`} style={{ height: small ? 30 : 38, background: disabled ? C.line : C.accent, color: disabled ? C.muted : C.onDark, boxShadow: disabled ? "none" : lift() }}>{children}</button>; }
 function Ghost({ children, onClick }) { return <button onClick={onClick} className="text-xs font-semibold px-3 rounded-xl inline-flex items-center" style={{ height: 30, background: C.accentSoft, color: C.accent }}>{children}</button>; }
 function Empty({ icon, title, hint, action }) {
   return (
@@ -1071,7 +1072,7 @@ function Empty({ icon, title, hint, action }) {
 }
 function Note({ tone: t = "info", children }) {
   const [fg, bg] = t === "warn" ? [C.warn, C.warnBg] : t === "ok" ? [C.ok, C.okBg] : t === "bad" ? [C.bad, C.badBg] : [C.accent, C.accentSoft];
-  return <div className="rounded-xl px-3.5 py-2.5 text-sm mb-3" style={{ background: C.surface, color: C.ink, border: `1px solid ${C.line}`, borderLeft: `3px solid ${fg}` }}>{children}</div>;
+  return <div className="qc-tile rounded-xl px-3.5 py-2.5 text-sm mb-3" style={{ background: C.surface, color: C.ink, border: `1px solid ${C.line}`, borderLeft: `3px solid ${fg}` }}>{children}</div>;
 }
 
 // A dropdown with a search box for lists that can grow without limit (categories, products, problem catalog).
@@ -1218,7 +1219,7 @@ function ComplaintsPage({ s, set, user, openProduct }) {
       <p className="text-sm mb-4" style={{ color: C.muted, maxWidth: 720 }}>Customer freshness complaints per article{isHead ? ", keyed in here by the Head" : ""}. Everyone sees the same numbers — on this page, in the phone app and on every product profile.{meta.updatedAt ? ` Last updated ${fmtTime(meta.updatedAt)}${by ? ` by ${by.name}` : ""}.` : ""}</p>
       <div className="grid gap-3 mb-4" style={{ gridTemplateColumns: "repeat(4, 1fr)" }}>
         {[["Complaints", total, C.bad], ["Articles", rows.length, C.ink], ["Top sub-type", topSub ? topSub[0] : "—", C.warn, topSub ? `${topSub[1]} complaints` : ""], ["Period", meta.period || "—", C.accent, matched < rows.length ? `${rows.length - matched} article${rows.length - matched === 1 ? "" : "s"} not in the catalog` : rows.length ? "all articles matched to products" : ""]].map(([l, v, col, sub]) => (
-          <div key={l} className="rounded-2xl p-4" style={{ background: C.surface, border: `1px solid ${C.line}`, borderLeft: `3px solid ${col}` }}><p className="text-xs" style={{ color: C.muted }}>{l}</p><p className={`${typeof v === "number" ? "text-[26px]" : "text-[17px]"} leading-tight font-semibold mt-0.5 truncate`} title={String(v)}>{v}</p>{sub && <p className="text-[11px] mt-0.5" style={{ color: C.muted }}>{sub}</p>}</div>
+          <div key={l} className="qc-tile rounded-2xl p-4" style={{ background: C.surface, border: `1px solid ${C.line}`, borderLeft: `3px solid ${col}` }}><p className="text-xs" style={{ color: C.muted }}>{l}</p><p className={`${typeof v === "number" ? "text-[26px]" : "text-[17px]"} leading-tight font-semibold mt-0.5 truncate`} title={String(v)}>{v}</p>{sub && <p className="text-[11px] mt-0.5" style={{ color: C.muted }}>{sub}</p>}</div>
         ))}
       </div>
       {isHead && <Card style={{ marginBottom: 12 }}>
@@ -1647,7 +1648,7 @@ function Dashboard({ s, setPage, seed, user, openPallet, onAssign, set, openToda
       // the two views simply answering different questions.
       const totalOnDock = first.article ? f.dock.filter(x => x.article === first.article).length : rows.length;
       return { ...first, count: rows.length, totalOnDock, checked: rows.filter(x => completedInspectionFor(s, x.hu)).length, mixedPO, location: locs.size <= 1 ? first.location : `${locs.size} locations` }; }).sort((a, b) => `${a.arrived} ${a.arrivedTime}`.localeCompare(`${b.arrived} ${b.arrivedTime}`)); })();
-  const Tile = ({ label, value, sub, color, onClick, active }) => <button onClick={onClick} disabled={!onClick} className="qc-elev rounded-2xl p-4 text-left" style={{ background: active ? C.accentSoft : C.surface, border: `1px solid ${active ? C.accent : C.line}`, borderLeft: `3px solid ${color || C.line}`, cursor: onClick ? "pointer" : "default", boxShadow: lift() }}><p className="text-xs" style={{ color: C.muted }}>{label}</p><p className="text-[26px] leading-tight font-semibold mt-0.5" style={{ color: value > 0 && color ? color : C.ink }}>{value}</p>{sub && <p className="text-[11px]" style={{ color: C.muted }}>{sub}</p>}</button>;
+  const Tile = ({ label, value, sub, color, onClick, active }) => <button onClick={onClick} disabled={!onClick} className="qc-elev qc-tile rounded-2xl p-4 text-left" style={{ background: active ? C.accentSoft : C.surface, border: `1px solid ${active ? C.accent : C.line}`, borderLeft: `3px solid ${color || C.line}`, cursor: onClick ? "pointer" : "default" }}><p className="text-xs" style={{ color: C.muted }}>{label}</p><p className="text-[26px] leading-tight font-semibold mt-0.5" style={{ color: value > 0 && color ? color : C.ink }}>{value}</p>{sub && <p className="text-[11px]" style={{ color: C.muted }}>{sub}</p>}</button>;
   return (
     <div>
       <div className="flex items-baseline gap-3 mb-1"><h1>Floor now</h1><span className="text-xs" style={{ color: C.muted }}>{f.fresh.length ? f.fresh.map(x => `${x.purpose === "Dock" ? "dock" : "blocked"} sheet ${agoShort(x.at)}`).join(" · ") : "no sheets connected"}</span></div>
@@ -1713,9 +1714,9 @@ function Dashboard({ s, setPage, seed, user, openPallet, onAssign, set, openToda
       </Card>
 
       <div className="grid gap-3 mb-3" style={{ gridTemplateColumns: "repeat(5, 1fr)" }}>
-        <button onClick={() => openTodayInspections ? openTodayInspections() : setPage("inspections")} className="rounded-2xl p-4 text-left" style={{ background: C.surface, border: `1px solid ${C.line}`, borderLeft: `3px solid ${f.doneToday ? C.ok : C.line}` }}><p className="text-xs" style={{ color: C.muted }}>Inspections today</p><p className="text-[26px] leading-tight font-semibold mt-0.5" style={{ color: f.doneToday ? C.ok : C.ink }}>{f.doneToday}</p><p className="text-[11px]" style={{ color: C.muted }}>by the team</p></button>
+        <button onClick={() => openTodayInspections ? openTodayInspections() : setPage("inspections")} className="qc-elev qc-tile rounded-2xl p-4 text-left" style={{ background: C.surface, border: `1px solid ${C.line}`, borderLeft: `3px solid ${f.doneToday ? C.ok : C.line}` }}><p className="text-xs" style={{ color: C.muted }}>Inspections today</p><p className="text-[26px] leading-tight font-semibold mt-0.5" style={{ color: f.doneToday ? C.ok : C.ink }}>{f.doneToday}</p><p className="text-[11px]" style={{ color: C.muted }}>by the team</p></button>
         {[["Awaiting Head", s.inspections.filter(i => i.status === "PendingReview").length, "inspections"], ["Open flags", s.flags.filter(f => f.status === "Open").length, "flags"], ["Unread", s.notifications.filter(n => n.userId === user.id && !n.readAt).length, "notifications"], ["Products", s.products.length, "products"]].map(([l, v, pg]) => (
-          <button key={l} onClick={() => setPage(pg)} className="rounded-2xl p-4 text-left" style={{ background: C.surface, border: `1px solid ${C.line}`, borderLeft: `3px solid ${v > 0 && l !== "Products" ? C.warn : C.line}` }}><p className="text-xs" style={{ color: C.muted }}>{l}</p><p className="text-[26px] leading-tight font-semibold mt-0.5" style={{ color: v > 0 && l !== "Products" ? C.warn : C.ink }}>{v}</p></button>
+          <button key={l} onClick={() => setPage(pg)} className="qc-elev qc-tile rounded-2xl p-4 text-left" style={{ background: C.surface, border: `1px solid ${C.line}`, borderLeft: `3px solid ${v > 0 && l !== "Products" ? C.warn : C.line}` }}><p className="text-xs" style={{ color: C.muted }}>{l}</p><p className="text-[26px] leading-tight font-semibold mt-0.5" style={{ color: v > 0 && l !== "Products" ? C.warn : C.ink }}>{v}</p></button>
         ))}
       </div>
       {nextStep && <Card>
@@ -1828,7 +1829,7 @@ function CategoriesPage({ s, set, onMessage, onOpenProduct, presetSel, clearPres
   // The info/editing panel lives at the top of the page — jump there whenever a different category is picked from the grid below.
   const selectCat = id => { setSelCat(id); try { window.scrollTo({ top: 0, behavior: "smooth" }); } catch {} };
   const CatCard = ({ c, sub }) => (
-    <button onClick={() => selectCat(c.id)} className="rounded-2xl p-3 text-left flex items-center gap-2.5" style={{ background: selCat === c.id ? C.accentSoft : C.surface, border: `1px solid ${selCat === c.id ? C.accent : C.line}` }}>
+    <button onClick={() => selectCat(c.id)} className="qc-elev qc-tile rounded-2xl p-3 text-left flex items-center gap-2.5" style={{ background: selCat === c.id ? C.accentSoft : C.surface, border: `1px solid ${selCat === c.id ? C.accent : C.line}` }}>
       <span className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: sub ? C.bg : C.accentSoft, color: sub ? C.muted : C.accent }}>{sub ? "↳" : <Ic i={FolderTree} s={17} mr={0} />}</span>
       <span className="min-w-0">
         <span className="block text-sm font-medium truncate" style={{ color: selCat === c.id ? C.accent : C.ink }}>{c.name}</span>
@@ -2042,7 +2043,7 @@ function AnalyticsPage({ s, setPage, openInspection, initial }) {
   // supplier scorecard
   const scorecard = Object.values(all.filter(i => i.supplier).reduce((m, i) => { const k = i.supplier; m[k] = m[k] || { name: k, full: 0, rej: 0, skip: 0, visual: 0, problems: {} }; if (!countsAs(s, i)) m[k].skip++; else if (!isVerdictType(s, i)) m[k].visual++; else { m[k].full++; if (i.result === "Rejected") m[k].rej++; (i.remarks || []).forEach(r => { const n = pm[r.leafId]?.name; if (n) m[k].problems[n] = (m[k].problems[n] || 0) + 1; }); } return m; }, {})).map(r => ({ ...r, rate: pct1(r.rej, r.full), top: Object.entries(r.problems).sort((a, b) => b[1] - a[1])[0]?.[0] || "—" })).sort((a, b) => b.rate - a.rate || b.full - a.full);
   const byCtrl = s.users.filter(u => u.role === "Controller").map(u => { const mine = all.filter(i => i.controllerId === u.id); const f = mine.filter(i => isVerdictType(s, i) && countsAs(s, i)); return { name: u.name, full: f.length, visual: mine.filter(i => !isVerdictType(s, i) && countsAs(s, i)).length, skip: mine.filter(i => !countsAs(s, i)).length, rejRate: pct1(f.filter(i => i.result === "Rejected").length, f.length), avg: avgActiveMinutes(f) }; }).filter(r => r.full + r.visual + r.skip);
-  const Kpi = ({ l, v, sub, tone, delta }) => <div className="rounded-2xl p-4" style={{ background: C.surface, border: `1px solid ${C.line}`, borderLeft: `3px solid ${tone || C.line}` }}><p className="text-xs" style={{ color: C.muted }}>{l}</p><p className="text-[26px] leading-tight font-semibold mt-0.5">{v}</p>{sub && <p className="text-[11px]" style={{ color: C.muted }}>{sub}{delta != null && <span style={{ color: delta > 0 ? C.bad : delta < 0 ? C.ok : C.muted }}> · {delta > 0 ? "▲" : delta < 0 ? "▼" : "="} {Math.abs(delta)} pp vs previous</span>}</p>}</div>;
+  const Kpi = ({ l, v, sub, tone, delta }) => <div className="qc-tile rounded-2xl p-4" style={{ background: C.surface, border: `1px solid ${C.line}`, borderLeft: `3px solid ${tone || C.line}` }}><p className="text-xs" style={{ color: C.muted }}>{l}</p><p className="text-[26px] leading-tight font-semibold mt-0.5">{v}</p>{sub && <p className="text-[11px]" style={{ color: C.muted }}>{sub}{delta != null && <span style={{ color: delta > 0 ? C.bad : delta < 0 ? C.ok : C.muted }}> · {delta > 0 ? "▲" : delta < 0 ? "▼" : "="} {Math.abs(delta)} pp vs previous</span>}</p>}</div>;
   const tip = { contentStyle: { background: C.surface, border: `1px solid ${C.line}`, borderRadius: 10, color: C.ink, fontSize: 12 } };
   const toneColor = { bad: C.bad, warn: C.warn, info: C.accent };
   const goTo = g => { if (!g) return; if (g.page === "inspections" && g.id && openInspection) openInspection(g.id); else if (g.page === "analytics") { if (g.metric) setMetric(g.metric); if (g.product) setProdSel(g.product); } else if (setPage) setPage(g.page); };
@@ -2055,14 +2056,14 @@ function AnalyticsPage({ s, setPage, openInspection, initial }) {
           <div className="mb-5">
             <p className="label-sm mb-2">Needs attention</p>
             <div className="grid gap-2" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))" }}>
-              {insights.map((x, i) => <button key={i} onClick={() => goTo(x.go)} className="text-left rounded-2xl p-3.5" style={{ background: C.surface, border: `1px solid ${C.line}`, borderLeft: `3px solid ${toneColor[x.tone]}` }}><p className="text-sm font-semibold mb-0.5">{x.title}</p><p className="text-xs" style={{ color: C.muted }}>{x.body}</p></button>)}
+              {insights.map((x, i) => <button key={i} onClick={() => goTo(x.go)} className="qc-elev qc-tile text-left rounded-2xl p-3.5" style={{ background: C.surface, border: `1px solid ${C.line}`, borderLeft: `3px solid ${toneColor[x.tone]}` }}><p className="text-sm font-semibold mb-0.5">{x.title}</p><p className="text-xs" style={{ color: C.muted }}>{x.body}</p></button>)}
             </div>
           </div>
         )}
         <p className="label-sm mb-2">By inspection type</p>
         <div className="grid gap-3 mb-5" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))" }}>
           {typesOf(s).map(t => { const mine = all.filter(i => (i.typeId || legacyTypeId(i.type)) === t.id); const pmine = prev.filter(i => (i.typeId || legacyTypeId(i.type)) === t.id); const r = mine.filter(i => i.result === "Rejected").length; const rate = pct1(r, mine.length), prate = pct1(pmine.filter(i => i.result === "Rejected").length, pmine.length); const dur = avgActiveMinutes(mine); return (
-            <div key={t.id} className="rounded-2xl p-4" style={{ background: C.surface, border: `1px solid ${C.line}`, borderTop: `3px solid ${t.color}` }}>
+            <div key={t.id} className="qc-tile rounded-2xl p-4" style={{ background: C.surface, border: `1px solid ${C.line}`, borderTop: `3px solid ${t.color}` }}>
               <div className="flex items-center justify-between"><p className="text-sm font-semibold">{t.name}</p><span className="text-[10px] px-1.5 py-0.5 rounded" style={{ background: C.bg, color: C.muted }}>{t.countsAsInspection === false ? "trace" : t.autoAccept ? "auto" : "verdict"}</span></div>
               <p className="text-[26px] leading-tight font-semibold mt-1">{mine.length}<span className="text-xs font-normal ml-1" style={{ color: C.muted }}>{pmine.length ? `vs ${pmine.length}` : ""}</span></p>
               {t.autoAccept ? <p className="text-[11px]" style={{ color: C.muted }}>{mine.filter(i => (i.remarks || []).length).length} with remarks · {dur !== null ? `${fmt(dur)} min avg` : "—"}</p>
@@ -2867,7 +2868,7 @@ function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset, onMessag
         {s.products.length === 0 ? <Empty icon="📦" title="No products yet" hint="Create one, import a list, or map a product sheet in Integrations." /> : visible.length === 0 ? <p className="text-xs py-6 text-center" style={{ color: C.muted }}>Nothing matches.</p> : (
           <div className="grid gap-2" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(170px, 1fr))" }}>
             {visible.map(p => (
-              <button key={p.id} onClick={() => selectProduct(p.id)} className="rounded-2xl p-2.5 text-left" style={{ background: sel === p.id ? C.accentSoft : C.surface, border: `1px solid ${sel === p.id ? C.accent : C.line}`, opacity: p.isActive === false ? .55 : 1 }}>
+              <button key={p.id} onClick={() => selectProduct(p.id)} className="qc-elev qc-tile rounded-2xl p-2.5 text-left" style={{ background: sel === p.id ? C.accentSoft : C.surface, border: `1px solid ${sel === p.id ? C.accent : C.line}`, opacity: p.isActive === false ? .55 : 1 }}>
                 {asPhotoList(p.photos).length ? <img src={photoSrc(asPhotoList(p.photos)[0])} alt="" className="w-full rounded-xl object-contain mb-2" style={{ height: 72, background: PHOTO_BG }} /> : <div className="w-full rounded-xl flex items-center justify-center mb-2" style={{ height: 72, background: C.bg, color: C.muted }}><Ic i={Package} s={20} mr={0} /></div>}
                 <p className="text-xs font-medium leading-tight truncate" style={{ color: sel === p.id ? C.accent : C.ink }}>{p.name}</p>
                 <p className="text-[10px] mt-0.5 truncate" style={{ color: C.muted }}>{p.articleId || "no ID"} · {p.categoryId ? catPath(p.categoryId) : <span style={{ color: C.warn }}>no category</span>}</p>
@@ -4302,7 +4303,7 @@ function UnreportedPalletsPage({ s, set, user, setSel, setPage, setSelPallet }) 
       <p className="text-sm mb-4" style={{ color: C.muted, maxWidth: 680 }}>Pallets that dropped off the dock sheet — picked or moved on — before QC ever inspected them. Nobody scans a pallet that leaves this way, so without this list nobody would know it happened. Detected automatically from the dock pushes, independent of anyone having the app open; a pallet is only logged once it has stayed missing for a full push cycle, so a brief sheet hiccup (a formula recalculating) doesn't get logged as a real incident.</p>
       <div className="grid gap-3 mb-4" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))" }}>
         {[["Today", stats.today, C.bad], ["This week", stats.week, C.warn], ["Open", stats.open, C.warn], ["Total logged", stats.total, C.muted]].map(([l, v, col]) => (
-          <div key={l} className="rounded-2xl p-4" style={{ background: C.surface, border: `1px solid ${C.line}`, borderLeft: `3px solid ${col}` }}><p className="text-xs" style={{ color: C.muted }}>{l}</p><p className="text-[26px] leading-tight font-semibold">{v}</p></div>
+          <div key={l} className="qc-tile rounded-2xl p-4" style={{ background: C.surface, border: `1px solid ${C.line}`, borderLeft: `3px solid ${col}` }}><p className="text-xs" style={{ color: C.muted }}>{l}</p><p className="text-[26px] leading-tight font-semibold">{v}</p></div>
         ))}
       </div>
       <div className="flex gap-1.5 mb-3">{[["open", "Open"], ["all", "All incl. reviewed"]].map(([k, l]) => <button key={k} onClick={() => setView(k)} className="text-xs px-3 py-1.5 rounded-full" style={{ background: view === k ? C.ink : "transparent", color: view === k ? C.onDark : C.ink, border: `1px solid ${view === k ? C.ink : C.line}` }}>{l}</button>)}</div>
@@ -4351,7 +4352,7 @@ function BlockedQueuePage({ s, set, user, setSel, setPage, setSelPallet }) {
       <p className="text-sm mb-4" style={{ color: C.muted, maxWidth: 680 }}>Pallets picking is waiting for, from the blocked-pallets sheet. Controllers take them from the queue so two people don't walk to the same pallet; “in stack” marks pallets that can't be reached yet.</p>
       {!q.length ? <Card><Empty icon="📋" title="No blocked pallets" hint={sm ? "The sheet reports nothing blocked." : "Connect the blocked-pallets sheet in Integrations."} /></Card> : <>
         <div className="grid gap-3 mb-4" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))" }}>
-          {[["Open", open.length, C.bad], ["Taken", taken.length, C.accent], ["In stack", stacked.length, C.muted], ["Unassigned", open.length - taken.length - stacked.length, C.warn]].map(([l, v, col]) => <div key={l} className="rounded-2xl p-4" style={{ background: C.surface, border: `1px solid ${C.line}`, borderLeft: `3px solid ${col}` }}><p className="text-xs" style={{ color: C.muted }}>{l}</p><p className="text-[26px] leading-tight font-semibold">{v}</p></div>)}
+          {[["Open", open.length, C.bad], ["Taken", taken.length, C.accent], ["In stack", stacked.length, C.muted], ["Unassigned", open.length - taken.length - stacked.length, C.warn]].map(([l, v, col]) => <div key={l} className="qc-tile rounded-2xl p-4" style={{ background: C.surface, border: `1px solid ${C.line}`, borderLeft: `3px solid ${col}` }}><p className="text-xs" style={{ color: C.muted }}>{l}</p><p className="text-[26px] leading-tight font-semibold">{v}</p></div>)}
         </div>
         <div className="flex gap-1.5 mb-3">{[["open", "Open"], ["mine", "Mine"], ["all", "All incl. done"]].map(([k, l]) => <button key={k} onClick={() => setView(k)} className="text-xs px-3 py-1.5 rounded-full" style={{ background: view === k ? C.ink : "transparent", color: view === k ? C.onDark : C.ink, border: `1px solid ${view === k ? C.ink : C.line}` }}>{l}</button>)}</div>
         <Card>{list.length === 0 ? <p className="text-xs py-4" style={{ color: C.muted }}>Nothing here.</p> : list.map(b => <QueueRow key={b.key} s={s} set={set} user={user} b={b} onOpen={() => { if (setSelPallet) setSelPallet(b.hu || claimKey(b)); else { const prod = s.products.find(p => p.articleId === b.article); if (prod) { setSel(prod.id); setPage("products"); } } }} />)}</Card>
