@@ -2485,9 +2485,17 @@ function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset, onMessag
   const inCat = (p, cid) => cid === "none" ? !p.categoryId : cid ? (p.categoryId === cid || s.categories.some(c => c.id === p.categoryId && c.parentId === cid)) : true;
   const roots = s.categories.filter(c => !c.parentId); const children = pid => s.categories.filter(c => c.parentId === pid);
   const countIn = cid => s.products.filter(p => inCat(p, cid) && (showInactive || p.isActive !== false)).length;
+  const unassigned = s.products.filter(p => !p.categoryId).length;
+  const catFilterOptions = [
+    ...(unassigned > 0 ? [{ value: "none", label: `No category · ${countIn("none")}` }] : []),
+    ...roots.map(c => ({ value: c.id, label: `${c.name} · ${countIn(c.id)}` })),
+  ];
+  if (catSel && catSel !== "none" && !catFilterOptions.some(o => o.value === catSel)) {
+    const cur = s.categories.find(c => c.id === catSel);
+    if (cur) catFilterOptions.push({ value: cur.id, label: `${cur.name} · ${countIn(cur.id)}` });
+  }
   const visible = s.products.filter(p => (showInactive || p.isActive !== false) && inCat(p, catSel) && (!onlyBio || p.isBio) && (!filter || (p.name + " " + (p.articleId || "")).toLowerCase().includes(filter.toLowerCase())))
     .sort((a, b) => sortBy === "az" ? a.name.localeCompare(b.name) : sortBy === "id" ? String(a.articleId || "").localeCompare(String(b.articleId || "")) : sortBy === "cat" ? catPath(a.categoryId).localeCompare(catPath(b.categoryId)) || a.name.localeCompare(b.name) : 0);
-  const unassigned = s.products.filter(p => !p.categoryId).length;
   const [bulkCat, setBulkCat] = useState("");
   const visibleUnassigned = visible.filter(p => !p.categoryId);
   const assignVisible = () => { if (!bulkCat) return; const ids = new Set(visibleUnassigned.map(p => p.id)); set(x => ({ ...x, products: x.products.map(p => ids.has(p.id) ? { ...p, categoryId: bulkCat } : p) })); };
@@ -2682,11 +2690,7 @@ function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset, onMessag
       <Card style={{ padding: 12 }}>
         <SearchBox value={filter} onChange={setFilter} placeholder="Search name or article ID" className="mb-2" inputClass="rounded-lg" size={13} />
         <div className="flex items-center gap-1.5 mb-2 flex-wrap">
-          <select value={catSel} onChange={e => setCatSel(e.target.value)} className="text-[13px] rounded-md px-2 outline-none" style={{ ...inp, height: 32, minWidth: 180 }}>
-            <option value="">All categories · {countIn("")}</option>
-            {unassigned > 0 && <option value="none">No category · {countIn("none")}</option>}
-            {roots.map(c => <option key={c.id} value={c.id}>{c.name} · {countIn(c.id)}</option>)}
-          </select>
+          <span style={{ minWidth: 220, display: "inline-block" }}><SearchSelect value={catSel} onChange={setCatSel} options={catFilterOptions} empty={`All categories · ${countIn("")}`} placeholder="Search categories…" searchFrom={6} /></span>
           <select value={sortBy} onChange={e => setSortBy(e.target.value)} className="text-[13px] rounded-md px-1.5 outline-none flex-shrink-0" style={{ ...inp, height: 32, width: 92 }}><option value="az">A–Z</option><option value="id">by ID</option><option value="cat">by cat.</option></select>
           <label className="flex items-center gap-1 cursor-pointer text-xs ml-1" style={{ color: C.muted }}><input type="checkbox" checked={onlyBio} onChange={e => setOnlyBio(e.target.checked)} />bio</label>
           <label className="flex items-center gap-1 cursor-pointer text-xs" style={{ color: C.muted }}><input type="checkbox" checked={showInactive} onChange={e => setShowInactive(e.target.checked)} />inactive</label>
