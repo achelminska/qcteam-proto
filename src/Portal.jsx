@@ -1494,7 +1494,7 @@ function PalletPage({ s, set, user, hu, onBack, onOpenProduct, onOpenInspection,
     return <Tag type={onClick ? "button" : undefined} onClick={onClick} className="w-full text-left flex items-center gap-2 px-3 py-1.5 rounded-lg text-[13px] leading-snug" style={{ background: bg, color: fg }}><Ic i={I} s={13} mr={0} /><span className="min-w-0 flex-1">{children}</span>{onClick && <Ic i={ChevronRight} s={13} mr={0} />}</Tag>;
   };
   return (
-    <div>
+    <div style={{ maxWidth: 880 }}>
       <div className="flex items-center gap-3 mb-4 flex-wrap">
         <button type="button" onClick={onBack} className="text-sm inline-flex items-center" style={{ color: C.accent }}><Ic i={ChevronLeft} s={16} />Back</button>
         <h1 className="flex-1">Pallet</h1>
