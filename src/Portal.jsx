@@ -33,6 +33,15 @@ const DARK = {
 };
 const C = { ...LIGHT };
 const applyTheme = dark => { Object.assign(C, dark ? DARK : LIGHT); C.isDark = !!dark; };
+// Soft elevation: a hairline highlight on top + a drop shadow underneath. Enough to lift tiles off the page
+// without the cartoon "floating block" look.
+const lift = (n = 1) => C.isDark
+  ? n >= 2
+    ? "0 1px 0 rgba(255,255,255,.07) inset, 0 10px 22px rgba(0,0,0,.48), 0 2px 6px rgba(0,0,0,.32)"
+    : "0 1px 0 rgba(255,255,255,.055) inset, 0 6px 16px rgba(0,0,0,.36), 0 1px 3px rgba(0,0,0,.24)"
+  : n >= 2
+    ? "0 1px 0 rgba(255,255,255,.9) inset, 0 8px 18px rgba(24,34,25,.14), 0 2px 5px rgba(24,34,25,.08)"
+    : "0 1px 0 rgba(255,255,255,.75) inset, 0 5px 12px rgba(24,34,25,.10), 0 1px 2px rgba(24,34,25,.06)";
 const THEME_KEY = "qcteam-theme";
 const PHOTO_BG = "#E9EDDE";
 
@@ -67,8 +76,9 @@ const GLOBAL_CSS = () => `
   .qc input[type=checkbox],.qc input[type=radio]{-webkit-appearance:auto;appearance:auto;min-height:0;width:16px;height:16px;padding:0;accent-color:${C.accent};border-radius:4px}
   .qc input:focus,.qc select:focus,.qc textarea:focus{border-color:${C.accent};box-shadow:0 0 0 3px ${C.accentSoft}}
   .qc input::placeholder,.qc textarea::placeholder{color:${C.muted};opacity:.9}
-  .qc button{font:inherit;cursor:pointer;transition:background-color .12s,color .12s,border-color .12s,transform .06s}
+  .qc button{font:inherit;cursor:pointer;transition:background-color .12s,color .12s,border-color .12s,box-shadow .12s,transform .06s}
   .qc button:active{transform:translateY(1px)}
+  .qc button.qc-elev:active{box-shadow:0 1px 0 rgba(255,255,255,.03) inset,0 2px 6px rgba(0,0,0,.22)!important}
   .qc button:disabled{cursor:not-allowed;opacity:.6}
   .qc button:focus-visible,.qc a:focus-visible{outline:2px solid ${C.accent};outline-offset:2px}
   .qc .label-sm{font-size:11.5px;font-weight:600;color:${C.muted};letter-spacing:0;text-transform:none}
@@ -638,13 +648,13 @@ function DeadlineBanner({ s, alerts, onOpen, onMessage, now = Date.now() }) {
   return (
     <div className="mb-4">
       <div className="flex items-center gap-2 mb-1.5"><p className="text-xs font-semibold flex items-center" style={{ color: C.bad }}><Ic i={Clock} s={13} />Rejection window closing · {alerts.length}{breached ? ` · ${breached} expired` : ""}</p></div>
-      <div className="flex gap-2 overflow-x-auto pb-1" style={{ scrollbarWidth: "thin", WebkitOverflowScrolling: "touch" }}>
+      <div className="flex gap-2 overflow-x-auto pt-0.5 pb-2.5" style={{ scrollbarWidth: "thin", WebkitOverflowScrolling: "touch" }}>
         {alerts.map(a => { const left = a.deadlineAt - now; const urgent = left <= 3600000; const expired = left <= 0; return (
-          <button key={a.key} onClick={() => onOpen(a)} className="text-left rounded-2xl px-3 py-2.5 flex-shrink-0 active:opacity-70" style={{ width: 150, background: expired || urgent ? C.badBg : C.warnBg, color: C.ink, border: `1px solid ${expired || urgent ? C.bad : C.warn}` }}>
+          <button key={a.key} onClick={() => onOpen(a)} className="qc-elev text-left rounded-2xl px-3 py-2.5 flex-shrink-0" style={{ width: 150, background: C.surface, color: C.ink, border: `1px solid ${C.line}`, borderLeft: `3px solid ${expired || urgent ? C.bad : C.warn}`, boxShadow: lift() }}>
             <p className="text-lg font-bold tracking-tight leading-none" style={{ color: expired || urgent ? C.bad : C.warn, fontVariantNumeric: "tabular-nums" }}>{fmtLeft(left)}</p>
             <p className="text-xs font-medium mt-1.5 truncate">{a.name}</p>
-            <p className="text-[11px] truncate" style={{ opacity: .75 }}>{a.location}{a.risky ? " · rejected recently" : ""}</p>
-            {onMessage && <div className="flex items-center mt-1 text-[10px]" style={{ opacity: .85, minHeight: 14 }}><span onClick={e => { e.stopPropagation(); onMessage(a); }} className="ml-auto underline">assign</span></div>}
+            <p className="text-[11px] truncate" style={{ color: C.muted }}>{a.location}{a.risky ? " · rejected recently" : ""}</p>
+            {onMessage && <div className="flex items-center mt-1 text-[10px]" style={{ color: C.muted, minHeight: 14 }}><span onClick={e => { e.stopPropagation(); onMessage(a); }} className="ml-auto underline">assign</span></div>}
           </button>
         ); })}
       </div>
@@ -1046,7 +1056,7 @@ function QueueRow({ s, set, user, b, onOpen }) {
 }
 
 // ═══════════════════ UI: prymitywy ═══════════════════
-function Card({ children, style }) { return <section className="rounded-2xl p-5" style={{ background: C.surface, border: `1px solid ${C.line}`, ...style }}>{children}</section>; }
+function Card({ children, style }) { return <section className="rounded-2xl p-5" style={{ background: C.surface, border: `1px solid ${C.line}`, boxShadow: lift(), ...style }}>{children}</section>; }
 function Primary({ children, onClick, disabled, small }) { return <button onClick={onClick} disabled={disabled} className={`${small ? "text-xs px-3" : "text-sm px-4"} font-semibold rounded-xl inline-flex items-center justify-center`} style={{ height: small ? 30 : 38, background: disabled ? C.line : C.accent, color: disabled ? C.muted : C.onDark }}>{children}</button>; }
 function Ghost({ children, onClick }) { return <button onClick={onClick} className="text-xs font-semibold px-3 rounded-xl inline-flex items-center" style={{ height: 30, background: C.accentSoft, color: C.accent }}>{children}</button>; }
 function Empty({ icon, title, hint, action }) {
@@ -1637,7 +1647,7 @@ function Dashboard({ s, setPage, seed, user, openPallet, onAssign, set, openToda
       // the two views simply answering different questions.
       const totalOnDock = first.article ? f.dock.filter(x => x.article === first.article).length : rows.length;
       return { ...first, count: rows.length, totalOnDock, checked: rows.filter(x => completedInspectionFor(s, x.hu)).length, mixedPO, location: locs.size <= 1 ? first.location : `${locs.size} locations` }; }).sort((a, b) => `${a.arrived} ${a.arrivedTime}`.localeCompare(`${b.arrived} ${b.arrivedTime}`)); })();
-  const Tile = ({ label, value, sub, color, onClick, active }) => <button onClick={onClick} disabled={!onClick} className="rounded-2xl p-4 text-left" style={{ background: active ? C.accentSoft : C.surface, border: `1px solid ${active ? C.accent : C.line}`, borderLeft: `3px solid ${color || C.line}`, cursor: onClick ? "pointer" : "default" }}><p className="text-xs" style={{ color: C.muted }}>{label}</p><p className="text-[26px] leading-tight font-semibold mt-0.5" style={{ color: value > 0 && color ? color : C.ink }}>{value}</p>{sub && <p className="text-[11px]" style={{ color: C.muted }}>{sub}</p>}</button>;
+  const Tile = ({ label, value, sub, color, onClick, active }) => <button onClick={onClick} disabled={!onClick} className="qc-elev rounded-2xl p-4 text-left" style={{ background: active ? C.accentSoft : C.surface, border: `1px solid ${active ? C.accent : C.line}`, borderLeft: `3px solid ${color || C.line}`, cursor: onClick ? "pointer" : "default", boxShadow: lift() }}><p className="text-xs" style={{ color: C.muted }}>{label}</p><p className="text-[26px] leading-tight font-semibold mt-0.5" style={{ color: value > 0 && color ? color : C.ink }}>{value}</p>{sub && <p className="text-[11px]" style={{ color: C.muted }}>{sub}</p>}</button>;
   return (
     <div>
       <div className="flex items-baseline gap-3 mb-1"><h1>Floor now</h1><span className="text-xs" style={{ color: C.muted }}>{f.fresh.length ? f.fresh.map(x => `${x.purpose === "Dock" ? "dock" : "blocked"} sheet ${agoShort(x.at)}`).join(" · ") : "no sheets connected"}</span></div>
