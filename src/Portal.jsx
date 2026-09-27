@@ -2641,7 +2641,7 @@ function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset, onMessag
                       ) : (
                         <>
                           <div className="grid gap-2 mb-3" style={{ gridTemplateColumns: problemTally.length ? "1fr 1fr" : "1fr", maxWidth: 520 }}>
-                            <SearchSelect size="sm" value={histResult === "all" ? "" : histResult} onChange={v => { setHistResult(v || "all"); setHistProblem(""); }} options={[{ value: "Accepted", label: `accepted · ${acceptedCount}` }, { value: "Rejected", label: `rejected · ${rejectedCount}` }]} empty={`all · ${histVerdict.length}`} />
+                            <SearchSelect size="sm" value={histResult === "all" ? "" : histResult} onChange={v => { setHistResult(v || "all"); setHistProblem(""); }} options={[{ value: "Accepted", label: `accepted · ${acceptedCount}` }, { value: "Rejected", label: `rejected · ${rejectedCount}` }]} empty={`all · ${histVerdict.length}`} searchFrom={11} />
                             {problemTally.length > 0 && <SearchSelect size="sm" value={histProblem} onChange={setHistProblem} options={problemTally.map(pr => ({ value: pr.name, label: `${pr.name} · ${pr.count}` }))} empty="all remark types" placeholder="Search remark types…" searchFrom={11} />}
                           </div>
                           {rows.length === 0 ? <p className="text-xs py-4" style={{ color: C.muted }}>Nothing matches.</p> : rows.map(i => {

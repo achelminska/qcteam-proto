@@ -2898,7 +2898,7 @@ function MProductHistory({ s, user, go, productId }) {
           <>
             <p className="text-sm mb-3" style={{ color: C.muted }}>{histVerdict.length} completed inspection{histVerdict.length === 1 ? "" : "s"} with a verdict — {acceptedCount} accepted, {rejectedCount} rejected{histInfo.length ? ` · ${histInfo.length} more without a verdict` : ""}.</p>
             <div className="mb-2.5">
-              <SearchSelect value={result === "all" ? "" : result} onChange={v => { setResult(v || "all"); setProblem(""); }} options={[{ value: "Accepted", label: `accepted · ${acceptedCount}` }, { value: "Rejected", label: `rejected · ${rejectedCount}` }]} empty={`all · ${histVerdict.length}`} />
+              <SearchSelect value={result === "all" ? "" : result} onChange={v => { setResult(v || "all"); setProblem(""); }} options={[{ value: "Accepted", label: `accepted · ${acceptedCount}` }, { value: "Rejected", label: `rejected · ${rejectedCount}` }]} empty={`all · ${histVerdict.length}`} searchFrom={11} />
             </div>
             {problemTally.length > 0 && (
               <div className="mb-3">
