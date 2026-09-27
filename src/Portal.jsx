@@ -2640,17 +2640,19 @@ function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset, onMessag
                         <Empty icon="📋" title="No inspections yet" hint="They'll show up here once a controller completes one for this product." />
                       ) : (
                         <>
-                          <div className="flex gap-1.5 mb-3 flex-wrap">
-                            {[["all", `all · ${histVerdict.length}`], ["Accepted", `accepted · ${acceptedCount}`], ["Rejected", `rejected · ${rejectedCount}`]].map(([k, l]) => (
-                              <button key={k} onClick={() => { setHistResult(k); setHistProblem(""); }} className="text-xs px-2.5 py-1 rounded-full" style={{ background: histResult === k ? C.accent : C.accentSoft, color: histResult === k ? C.onDark : C.accent }}>{l}</button>
-                            ))}
+                          <div className="grid gap-2 mb-3" style={{ gridTemplateColumns: problemTally.length ? "1fr 1fr" : "1fr", maxWidth: 520 }}>
+                            <select value={histResult} onChange={e => { setHistResult(e.target.value); setHistProblem(""); }} className="text-sm rounded-md px-2 py-1.5 outline-none" style={{ ...inp }}>
+                              <option value="all">all · {histVerdict.length}</option>
+                              <option value="Accepted">accepted · {acceptedCount}</option>
+                              <option value="Rejected">rejected · {rejectedCount}</option>
+                            </select>
+                            {problemTally.length > 0 && (
+                              <select value={histProblem} onChange={e => setHistProblem(e.target.value)} className="text-sm rounded-md px-2 py-1.5 outline-none" style={{ ...inp }}>
+                                <option value="">all remark types</option>
+                                {problemTally.map(pr => <option key={pr.name} value={pr.name}>{pr.name} · {pr.count}</option>)}
+                              </select>
+                            )}
                           </div>
-                          {problemTally.length > 0 && (
-                            <div className="flex flex-wrap gap-1.5 mb-3">
-                              <button onClick={() => setHistProblem("")} className="text-[11px] px-2 py-1 rounded-full" style={{ background: !histProblem ? C.ink : "transparent", color: !histProblem ? C.onDark : C.ink, border: `1px solid ${C.line}` }}>all remark types</button>
-                              {problemTally.map(pr => <button key={pr.name} onClick={() => setHistProblem(pr.name)} className="text-[11px] px-2 py-1 rounded-full" style={{ background: histProblem === pr.name ? C.ink : "transparent", color: histProblem === pr.name ? C.onDark : C.ink, border: `1px solid ${C.line}` }}>{pr.name} · {pr.count}</button>)}
-                            </div>
-                          )}
                           {rows.length === 0 ? <p className="text-xs py-4" style={{ color: C.muted }}>Nothing matches.</p> : rows.map(i => {
                             const [fg, bg] = i.result === "Accepted" ? [C.ok, C.okBg] : [C.bad, C.badBg];
                             const rem = (i.remarks || []).map(r => pm[r.leafId]?.name).filter(Boolean);
