@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, Fragment } from "react";
 import { createSyncer, guardUnload } from "./sync.js";
-import { hasV, specLabel, dayLabel, typesOf, typeById, legacyTypeId, inspType, countsAs } from "./shared/format.js";
+import { hasV, specLabel, dayLabel, typesOf, typeById, legacyTypeId, inspType, countsAs, listCheck } from "./shared/format.js";
 import { peopleOnFloor, peopleAtDock, floorWhere, floorVerb, doneTodayCount } from "./shared/floor.js";
 import { readAsDataUrl, keepPhoto } from "./shared/report-images.js";
 import { drawReportPdf } from "./shared/report-pdf.js";
@@ -283,7 +283,7 @@ const linkedProblemId = (all, problems, id) => {
   const twin = problems.find(p => p.name === src.name && !problems.some(k => k.parentId === p.id) && ((p.parentId ? problems.find(k => k.id === p.parentId)?.name : null) === (srcParent ? srcParent.name : null)));
   return twin ? twin.id : id;
 };
-const withLinkedProblems = (s, problems, t) => { if (!t) return problems; const have = new Set(problems.map(p => p.id)); const out = [...problems]; const addChain = id => { let n = s.problems.find(p => p.id === id); while (n && !have.has(n.id)) { have.add(n.id); out.push(n); n = n.parentId ? s.problems.find(p => p.id === n.parentId) : null; } }; (t.fields || t.allFields || []).forEach(f => { if (f.type === "Number") { if (f.problemBelowId) addChain(linkedProblemId(s.problems, problems, f.problemBelowId)); if (f.problemAboveId) addChain(linkedProblemId(s.problems, problems, f.problemAboveId)); } }); return out; };
+const withLinkedProblems = (s, problems, t) => { if (!t) return problems; const have = new Set(problems.map(p => p.id)); const out = [...problems]; const addChain = id => { let n = s.problems.find(p => p.id === id); while (n && !have.has(n.id)) { have.add(n.id); out.push(n); n = n.parentId ? s.problems.find(p => p.id === n.parentId) : null; } }; (t.fields || t.allFields || []).forEach(f => { if (f.type === "Number") { if (f.problemBelowId) addChain(linkedProblemId(s.problems, problems, f.problemBelowId)); if (f.problemAboveId) addChain(linkedProblemId(s.problems, problems, f.problemAboveId)); } if (f.type === "List" && f.problemMismatchId) addChain(linkedProblemId(s.problems, problems, f.problemMismatchId)); }); return out; };
 const scopeTag = (p, s) => p.productId ? `product: ${s.products.find(x => x.id === p.productId)?.name ?? "?"}` : p.categoryId ? `category ${s.categories.find(x => x.id === p.categoryId)?.name ?? "?"}` : null;
 // Required inspection level: Full (raport) < Visual (visual is enough) < Skip (can be skipped). Product → category → system setting.
 // Inspection types are Head-defined (InspectionTypes). Behaviour comes from flags, not from the name.
@@ -418,7 +418,7 @@ const migrateLayered = s => {
     const usedParentFields = new Set(), usedParentRefs = new Set();
     (t.fields || []).forEach(f => {
       const mid = modMap[f.moduleId]; const pf = parent.fields.find(x => x.moduleId === mid && x.type === f.type && norm(x.label) === norm(f.label) && !usedParentFields.has(x.id));
-      if (pf) { usedParentFields.add(pf.id); const patch = {}; ["specId", "specName", "problemBelowId", "problemAboveId", "required", "allowPhotos"].forEach(k => { if ((f[k] ?? null) !== (pf[k] ?? null) && f[k] !== undefined) patch[k] = f[k]; }); if (Object.keys(patch).length) nt.fieldOverrides[pf.id] = patch; }
+      if (pf) { usedParentFields.add(pf.id); const patch = {}; ["specId", "specName", "problemBelowId", "problemAboveId", "problemMismatchId", "required", "allowPhotos"].forEach(k => { if ((f[k] ?? null) !== (pf[k] ?? null) && f[k] !== undefined) patch[k] = f[k]; }); if (Object.keys(patch).length) nt.fieldOverrides[pf.id] = patch; }
       else nt.fields.push({ ...f, moduleId: mid });
     });
     parent.fields.forEach(pf => { if (!usedParentFields.has(pf.id) && !nt.suppressed.includes(pf.moduleId)) nt.suppressed.push(pf.id); });
@@ -509,7 +509,7 @@ async function buildReportPdf(insp, s) {
   });
   const remarks = (insp.remarks || []).map(r => { const unit = { PieceCount: "pcs", DirectWeight: "g", WholeUnitCount: "CU" }[r.mode] || ""; const p = r.mode === "Presence" ? null : pct(r, totals); return { problem: pathOf(problems, r.leafId), quantity: r.mode === "Presence" ? "present" : `${r.raw} ${unit}`, pct: p === null ? "—" : `${fmt(p)}%`, source: r.auto ? "measurement" : "reported" }; });
   const answered = (t.fields || []).filter(f => !isSystem(f.type) && insp.values?.[f.id] !== undefined && insp.values?.[f.id] !== "").sort(bySort);
-  const parameters = answered.map(f => { const v = insp.values[f.id]; let txt; if (f.type === "Number") { const nums = (v?.measurements || []).filter(x => x !== "").map(Number); txt = nums.map(fmt).join(" / ") + (nums.length > 1 ? ` — avg ${fmt(nums.reduce((a, b) => a + b, 0) / nums.length)}` : ""); } else txt = Array.isArray(v) ? v.join(", ") : String(v ?? ""); return [fieldLabel(f), txt]; });
+  const parameters = answered.map(f => { const v = insp.values[f.id]; let txt; if (f.type === "Number") { const nums = (v?.measurements || []).filter(x => x !== "").map(Number); txt = nums.map(fmt).join(" / ") + (nums.length > 1 ? ` — avg ${fmt(nums.reduce((a, b) => a + b, 0) / nums.length)}` : ""); } else txt = Array.isArray(v) ? v.join(", ") : String(v ?? ""); if (f.type === "List") { const c = listCheck(effectiveAttributes(s, product).find(a => a.dictionaryId === f.dictionaryId), v); if (c) return [fieldLabel(f), txt, c.expected, c.ok]; } return [fieldLabel(f), txt]; });
   const photoGroups = []; (t.fields || []).forEach(f => { const ph = asPhotoList((insp.photos || {})[f.id]); if (ph.length) photoGroups.push({ label: f.type === "Photos" ? photoBlockLabel(f, t) : f.label, photos: ph }); }); (insp.remarks || []).forEach(r => { const ph = asPhotoList(r.photos); if (ph.length) photoGroups.push({ label: `Problem: ${pathOf(problems, r.leafId)}`, photos: ph }); });
   const audit = (insp.audit || []).map(a => [a.action, `${fmtTime(a.at)} · ${users[a.userId]?.name || ""}${users[a.userId]?.email ? ` (${users[a.userId].email})` : ""}${a.details ? ` — ${a.details}` : ""}`]);
   const model = {
@@ -1169,6 +1169,46 @@ function Note({ tone: t = "info", children }) {
   return <div className="rounded-xl px-3.5 py-2.5 text-sm mb-3" style={{ background: C.surface, color: C.ink, border: `1px solid ${C.line}`, borderLeft: `3px solid ${fg}` }}>{children}</div>;
 }
 
+function RaiseForm({ problems, overrides, linkedId, totals, onRaise, intro }) {
+  const lp = problems.find(p => p.id === linkedId);
+  const zero = lp && effTol(problems, overrides || [], lp.id) === 0;
+  const available = { PieceCount: totals.pieces > 0, DirectWeight: totals.weight > 0, WholeUnitCount: totals.cu > 0 };
+  const firstMode = Object.keys(available).find(k => available[k]) || "WholeUnitCount";
+  const [mode, setMode] = useState(firstMode);
+  const [raw, setRaw] = useState("");
+  const unit = mode === "PieceCount" ? "pcs" : mode === "DirectWeight" ? "g" : "CU";
+  return (
+    <div className="rounded-lg p-2 mt-1.5" style={{ background: C.warnBg }}>
+      <p className="text-xs mb-1.5" style={{ color: C.warn }}>{intro} → problem <b>{lp?.name}</b>.{zero ? " Tolerance 0% — presence alone is enough." : " How many are affected and in which unit?"}</p>
+      {zero ? (
+        <button onClick={() => onRaise(linkedId, "Presence", 1)} className="text-xs px-2 py-1 rounded font-medium" style={{ background: C.bad, color: C.onDark }}>Present</button>
+      ) : (
+        <div className="flex gap-1.5 flex-wrap">
+          {[["PieceCount", "pieces"], ["DirectWeight", "grams"], ["WholeUnitCount", "whole CU"]].map(([k, l]) => <button key={k} disabled={!available[k]} onClick={() => setMode(k)} title={available[k] ? "" : "no divisor — fill in the conversion in the sample"} className="text-xs px-2 py-1 rounded" style={{ background: !available[k] ? C.line : mode === k ? C.accent : C.surface, color: !available[k] ? C.muted : mode === k ? C.onDark : C.accent, border: `1px solid ${available[k] ? C.accent : C.line}` }}>{l}</button>)}
+          <input type="number" value={raw} onChange={e => setRaw(e.target.value)} placeholder="how many" className="w-16 text-xs rounded px-2 py-1 outline-none" style={{ ...inp }} />
+          <span className="text-xs self-center" style={{ color: C.muted }}>{unit}</span>
+          <button onClick={() => { if (raw !== "") { onRaise(linkedId, mode, raw); setRaw(""); } }} className="text-xs px-2 py-1 rounded font-medium" style={{ background: C.accent, color: C.onDark }}>Report</button>
+        </div>
+      )}
+    </div>
+  );
+}
+function ListInput({ f, spec, value, problems, allProblems, overrides, totals, onRaise, raised, picker }) {
+  const check = listCheck(spec, value);
+  const linkedId = linkedProblemId(allProblems || problems, problems, f.problemMismatchId);
+  const lp = linkedId && problems.find(p => p.id === linkedId);
+  const bad = check && !check.ok;
+  const expected = spec && spec.value && spec.value !== "—" ? spec.value : check?.expected;
+  return (
+    <div>
+      {picker}
+      {expected && !bad && <p className="text-[11px] mt-1" style={{ color: check ? C.ok : C.muted }}>{check ? "✓ Matches the specification" : "Specification"}: <b>{expected}</b>{spec?.source && spec.source !== "product" ? <span style={{ color: C.muted }}> · {spec.source}</span> : null}</p>}
+      {bad && !lp && <div className="rounded-lg px-3 py-1.5 mt-1.5 text-xs" style={{ background: C.warnBg, color: C.warn }}>Doesn't match the specification (expected <b>{check.expected}</b>) — warning only.</div>}
+      {bad && lp && !raised && <RaiseForm problems={problems} overrides={overrides} linkedId={linkedId} totals={totals} onRaise={onRaise} intro={<>Doesn't match the specification (expected <b>{check.expected}</b>)</>} />}
+      {bad && lp && raised && <p className="text-xs mt-1.5" style={{ color: C.ok }}>✓ {lp.name} reported from this field.</p>}
+    </div>
+  );
+}
 function NumberInput({ f, problems, allProblems, overrides, specs, totals, value, onChange, onRaise, raised, piecesPerCu }) {
   const n = f.measurementCount || 1, ms = value?.measurements || Array(n).fill("");
   const belowId = linkedProblemId(allProblems || problems, problems, f.problemBelowId), aboveId = linkedProblemId(allProblems || problems, problems, f.problemAboveId);
@@ -1184,12 +1224,6 @@ function NumberInput({ f, problems, allProblems, overrides, specs, totals, value
   const bad = side !== null;
   const linkedId = side === "below" ? belowId : side === "above" ? aboveId : null;
   const lp = linkedId && problems.find(p => p.id === linkedId);
-  const zero = lp && effTol(problems, overrides || [], lp.id) === 0;
-  const available = { PieceCount: totals.pieces > 0, DirectWeight: totals.weight > 0, WholeUnitCount: totals.cu > 0 };
-  const firstMode = Object.keys(available).find(k => available[k]) || "WholeUnitCount";
-  const [mode, setMode] = useState(firstMode);
-  const [raw, setRaw] = useState("");
-  const unit = mode === "PieceCount" ? "pcs" : mode === "DirectWeight" ? "g" : "CU";
   // "Answer from a list": the Head fixed the allowed values (a colour scale 1…7 in halves, say). Each measurement is a
   // dropdown of those values; the ones outside the specification are named for what they mean (→ Unripe / → Overripe),
   // so the controller sees the threshold before picking. Everything downstream (average, out-of-spec, raising the
@@ -1206,21 +1240,7 @@ function NumberInput({ f, problems, allProblems, overrides, specs, totals, value
       {lim.note && <p className="text-[11px] mt-1" style={{ color: C.muted }}>{lim.note}</p>}
       {avg !== null && <p className="text-xs mt-1.5" style={{ color: C.muted }}>average <b style={{ color: C.ink }}>{fmt(avg)}</b>{ref ? ` · reference ${ref}${byName ? ` (by name “${spec.name}"${spec.source !== "product" ? ", " + spec.source : ""})` : ""}` : (f.problemBelowId || f.problemAboveId) ? <span style={{ color: C.warn }}> · no reference — the product has no specification “{(f.specName || "").trim() || f.label}“ and the field has no min/max</span> : ""}</p>}
       {bad && !lp && <div className="rounded-lg px-3 py-1.5 mt-1.5 text-xs" style={{ background: C.warnBg, color: C.warn }}>Out of spec — warning only.</div>}
-      {bad && lp && !raised && (
-        <div className="rounded-lg p-2 mt-1.5" style={{ background: C.warnBg }}>
-          <p className="text-xs mb-1.5" style={{ color: C.warn }}>Out of spec → problem <b>{lp.name}</b>.{zero ? " Tolerance 0% — presence alone is enough." : " How many are affected and in which unit?"}</p>
-          {zero ? (
-            <button onClick={() => onRaise(linkedId, "Presence", 1)} className="text-xs px-2 py-1 rounded font-medium" style={{ background: C.bad, color: C.onDark }}>Present</button>
-          ) : (
-            <div className="flex gap-1.5 flex-wrap">
-              {[["PieceCount", "pieces"], ["DirectWeight", "grams"], ["WholeUnitCount", "whole CU"]].map(([k, l]) => <button key={k} disabled={!available[k]} onClick={() => setMode(k)} title={available[k] ? "" : "no divisor — fill in the conversion in the sample"} className="text-xs px-2 py-1 rounded" style={{ background: !available[k] ? C.line : mode === k ? C.accent : C.surface, color: !available[k] ? C.muted : mode === k ? C.onDark : C.accent, border: `1px solid ${available[k] ? C.accent : C.line}` }}>{l}</button>)}
-              <input type="number" value={raw} onChange={e => setRaw(e.target.value)} placeholder="how many" className="w-16 text-xs rounded px-2 py-1 outline-none" style={{ ...inp }} />
-              <span className="text-xs self-center" style={{ color: C.muted }}>{unit}</span>
-              <button onClick={() => { if (raw !== "") { onRaise(linkedId, mode, raw); setRaw(""); } }} className="text-xs px-2 py-1 rounded font-medium" style={{ background: C.accent, color: C.onDark }}>Report</button>
-            </div>
-          )}
-        </div>
-      )}
+      {bad && lp && !raised && <RaiseForm problems={problems} overrides={overrides} linkedId={linkedId} totals={totals} onRaise={onRaise} intro="Out of spec" />}
       {raised && <p className="text-xs mt-1.5" style={{ color: C.ok }}>✓ {lp?.name} reported from this field.</p>}
     </div>
   );
@@ -1495,8 +1515,8 @@ function InspectionRunner({ insp, patch, t, problems, product, suppliers, dictio
                 if (!d) return <p className="text-xs" style={{ color: C.warn }}>No list attached to this field — the Head must pick one in the form builder.</p>;
                 if (!d.items.length) return <p className="text-xs" style={{ color: C.warn }}>The list "{d.name}" is empty — fill it in Dictionaries → Lists.</p>;
                 // Lists are always a dropdown; the search box appears from 11 options up (the Head can attach a 70-item country list).
-                const picker = <SearchSelect value={values[f.id] || ""} onChange={v => setV(f.id, v)} options={d.items.map(o => ({ value: o.value, label: o.value }))} empty={`— choose (${d.items.length} options) —`} placeholder={`Search ${d.name.toLowerCase()}…`} searchFrom={11} />;
-                return <div>{picker}{preset && <p className="text-[11px] mt-1" style={{ color: C.muted }}>Pre-filled from the product profile ({preset.source}: {preset.value}){values[f.id] && values[f.id] !== preset.value ? " — changed on the dock" : ""}.</p>}</div>;
+                const picker = <SearchSelect value={values[f.id] || ""} onChange={v => setV(f.id, v)} options={d.items.map(o => { const c = listCheck(preset, o.value); return { value: o.value, label: c && !c.ok ? `${o.value} · expected ${c.expected}` : o.value, tone: c && !c.ok ? C.warn : undefined }; })} empty={`— choose (${d.items.length} options) —`} placeholder={`Search ${d.name.toLowerCase()}…`} searchFrom={11} />;
+                return <ListInput f={f} spec={preset} value={values[f.id]} problems={problems} allProblems={sctx?.problems} overrides={t.overrides} totals={totals} onRaise={(leafId, mode, raw) => setRemarks(r => [...r, { id: uid(), leafId, mode, raw, auto: true, fieldId: f.id }])} raised={remarks.some(r => r.auto && r.fieldId === f.id)} picker={picker} />;
               })()}
               {f.type === "Pallet" && <div>{pallets.map((p, i) => <div key={i} className="flex gap-1.5 mb-1.5"><input value={p} onChange={e => setPallets(ps => ps.map((x, j) => j === i ? e.target.value : x))} placeholder={`pallet ${i + 1}`} className="flex-1 text-sm rounded px-2 py-1.5 outline-none font-mono" style={{ ...inp }} /><button onClick={() => setScanPalletIdx(i)} className="text-xs px-2 rounded" style={{ background: C.accentSoft, color: C.accent }} title="scan pallet barcode (SSCC)"><Ic i={ScanLine} s={13} mr={0} /></button>{pallets.length > 1 && <button onClick={() => setPallets(ps => ps.filter((_, j) => j !== i))} className="text-xs px-1" style={{ color: C.muted }}>×</button>}</div>)}<button onClick={() => setPallets(ps => [...ps, ""])} className="text-xs" style={{ color: C.accent }}>+ another pallet</button><DeliveryPallets product={product} insp={insp} onAdd={hus => setPallets(ps => [...ps.filter(Boolean), ...hus.filter(h => !ps.includes(h))])} />
                 {scanPalletIdx !== null && (
