@@ -3357,15 +3357,53 @@ function MProfile({ s, set, user, go }) {
   const acc = mine.filter(i => i.result === "Accepted").length;
   const avg = avgActiveMinutes(mine);
   const week = mine.filter(i => (new Date() - new Date(i.completedAt)) < 7 * 86400000).length;
-  const todayN = mine.filter(i => (i.completedAt || "").slice(0, 10) === new Date().toISOString().slice(0, 10)).length;
-  const Tile = ({ l, v, sub }) => <div className="rounded-2xl p-3.5" style={{ background: C.bg, border: `1px solid ${C.line}` }}><p className="text-xs" style={{ color: C.muted }}>{l}</p><p className="text-2xl font-semibold">{v}</p>{sub && <p className="text-[10px]" style={{ color: C.muted }}>{sub}</p>}</div>;
+  const todayISO = new Date().toISOString().slice(0, 10);
+  const inToday = i => (i.completedAt || "").slice(0, 10) === todayISO;
+  const inWeek = i => (new Date() - new Date(i.completedAt)) < 7 * 86400000;
+  const todayN = mine.filter(inToday).length;
+  // Every number here is a door: tapping a period (or a type) opens the concrete reports behind it — which products,
+  // when, with what result — instead of leaving the controller with a bare count.
+  const [detail, setDetail] = useState(null);
+  const typeOf = i => i.typeId || legacyTypeId(i.type);
+  const openPeriod = (key, title) => { const pick = key === "today" ? inToday : key === "week" ? inWeek : () => true; setDetail({ title, items: mine.filter(pick), traces: allMine.filter(i => !countsAs(s, i)).filter(pick) }); };
+  const splitSub = list => { const n = list.length; if (!n) return null; const a = list.filter(i => i.result === "Accepted").length; return `${a} accepted · ${n - a} rejected`; };
+  const Tile = ({ l, v, sub, onClick }) => { const T = onClick ? "button" : "div"; return (
+    <T onClick={onClick} className={`rounded-2xl p-3.5 text-left flex flex-col ${onClick ? "active:opacity-60" : ""}`} style={{ background: C.bg, border: `1px solid ${C.line}` }}>
+      <div className="flex items-center justify-between gap-1"><p className="text-xs" style={{ color: C.muted }}>{l}</p>{onClick && <Ic i={ChevronRight} s={14} mr={0} style={{ color: C.muted }} />}</div>
+      <p className="text-2xl font-semibold">{v}</p>{sub && <p className="text-[10px] leading-tight mt-0.5" style={{ color: C.muted }}>{sub}</p>}
+    </T>
+  ); };
   return (
     <div>
       <TopBar title="Profile" onBack={() => go("back")} />
       <div className="px-4 pt-4"><div className="flex items-center gap-3 mb-4"><Avatar user={user} size={56} onPick={url => set(x => ({ ...x, users: x.users.map(q => q.id === user.id ? { ...q, photoUrl: url } : q) }))} /><div><p className="font-semibold">{user.name}</p><p className="text-xs" style={{ color: C.muted }}>{user.email} · {user.role === "Head" ? "Head of Quality" : "Controller"}</p></div></div>
-        <div className="grid grid-cols-2 gap-2"><Tile l="Today" v={todayN} /><Tile l="This week" v={week} /><Tile l="Total" v={mine.length} /><Tile l="Accepted" v={mine.length ? `${Math.round(acc / mine.length * 100)}%` : "—"} sub={`${acc} of ${mine.length}`} /><Tile l="Avg. active time" v={avg !== null ? `${fmt(avg)} min` : "—"} sub="excl. waiting for the Head" /><Tile l="Traces" v={skips} sub="types that don't count" /></div>
-      <p className="label-sm mt-4 mb-1.5">By type</p><div className="grid grid-cols-2 gap-2">{typesOf(s).map(t => { const m = allMine.filter(i => (i.typeId || legacyTypeId(i.type)) === t.id); return <div key={t.id} className="rounded-2xl p-3.5" style={{ background: C.bg, border: `1px solid ${C.line}`, borderTop: `3px solid ${t.color}` }}><p className="text-xs" style={{ color: C.muted }}>{t.name}</p><p className="text-[22px] leading-tight font-semibold">{m.length}</p>{!t.autoAccept && m.length > 0 && <p className="text-[10px]" style={{ color: C.muted }}>{Math.round(m.filter(i => i.result === "Rejected").length / m.length * 100)}% rejected</p>}</div>; })}</div>
+        <p className="label-sm mb-1.5" style={{ color: C.muted }}>My inspections</p>
+        <div className="grid grid-cols-3 gap-2">
+          <Tile l="Today" v={todayN} sub={splitSub(mine.filter(inToday)) || "nothing yet today"} onClick={todayN ? () => openPeriod("today", "Today") : null} />
+          <Tile l="This week" v={week} sub={splitSub(mine.filter(inWeek)) || "none in 7 days"} onClick={week ? () => openPeriod("week", "Last 7 days") : null} />
+          <Tile l="Total" v={mine.length} sub={splitSub(mine) || "no inspections yet"} onClick={mine.length ? () => openPeriod("total", "All my inspections") : null} />
+        </div>
+        <p className="label-sm mt-4 mb-1.5" style={{ color: C.muted }}>Quality</p>
+        <div className="grid grid-cols-3 gap-2"><Tile l="Accepted" v={mine.length ? `${Math.round(acc / mine.length * 100)}%` : "—"} sub={`${acc} of ${mine.length}`} /><Tile l="Active time" v={avg !== null ? `${Math.round(avg)} min` : "—"} sub="avg., excl. waiting for the Head" /><Tile l="Traces" v={skips} sub="types that don't count" onClick={skips ? () => setDetail({ title: "Traces", items: [], traces: allMine.filter(i => !countsAs(s, i)) }) : null} /></div>
+      <p className="label-sm mt-4 mb-1.5" style={{ color: C.muted }}>By type</p><div className="grid grid-cols-2 gap-2">{typesOf(s).map(t => { const m = allMine.filter(i => typeOf(i) === t.id); return <button key={t.id} disabled={!m.length} onClick={() => setDetail({ title: t.name, items: t.autoAccept ? [] : m, traces: t.autoAccept ? m : [] })} className={`rounded-2xl p-3.5 text-left ${m.length ? "active:opacity-60" : ""}`} style={{ background: C.bg, border: `1px solid ${C.line}`, borderTop: `3px solid ${t.color}` }}><div className="flex items-center justify-between gap-1"><p className="text-xs" style={{ color: C.muted }}>{t.name}</p>{m.length > 0 && <Ic i={ChevronRight} s={14} mr={0} style={{ color: C.muted }} />}</div><p className="text-[22px] leading-tight font-semibold">{m.length}</p>{!t.autoAccept && m.length > 0 && <p className="text-[10px]" style={{ color: C.muted }}>{Math.round(m.filter(i => i.result === "Rejected").length / m.length * 100)}% rejected</p>}</button>; })}</div>
       </div>
+      <Sheet open={!!detail} onClose={() => setDetail(null)} title={detail?.title}>
+        {detail && (() => {
+          const items = detail.items, traces = detail.traces; const a = items.filter(i => i.result === "Accepted").length, r = items.length - a; const av = avgActiveMinutes(items);
+          const byType = typesOf(s).map(t => [t, [...items, ...traces].filter(i => typeOf(i) === t.id).length]).filter(([, n]) => n > 0);
+          const all = [...items, ...traces].sort((x, y) => (y.completedAt || "").localeCompare(x.completedAt || ""));
+          const groups = []; all.forEach(i => { const k = dayLabel(i.completedAt); let g = groups.find(x => x.k === k); if (!g) { g = { k, items: [] }; groups.push(g); } g.items.push(i); });
+          const Stat = ({ l, v, color }) => <div className="rounded-xl px-3 py-2" style={{ background: C.bg, border: `1px solid ${C.line}` }}><p className="text-[10px]" style={{ color: C.muted }}>{l}</p><p className="text-lg font-semibold leading-tight" style={{ color: color || C.ink }}>{v}</p></div>;
+          return (
+            <>
+              {items.length > 0 && <div className="grid grid-cols-3 gap-2 mb-2"><Stat l="Inspections" v={items.length} /><Stat l="Accepted" v={a} color={a ? C.ok : C.ink} /><Stat l="Rejected" v={r} color={r ? C.bad : C.ink} /></div>}
+              <p className="text-xs mb-3" style={{ color: C.muted }}>{[items.length > 0 && av !== null && `avg. active time ${Math.round(av)} min`, traces.length > 0 && `${traces.length} trace${traces.length === 1 ? "" : "s"} (types that don't count)`].filter(Boolean).join(" · ") || "Tap a report to open it."}</p>
+              {byType.length > 1 && <div className="flex flex-wrap gap-1.5 mb-2">{byType.map(([t, n]) => <span key={t.id} className="text-[11px] px-2 py-1 rounded-full inline-flex items-center gap-1.5" style={{ background: C.bg, border: `1px solid ${C.line}` }}><span className="rounded-full" style={{ width: 8, height: 8, background: t.color }} />{t.name} · {n}</span>)}</div>}
+              {groups.map(g => <div key={g.k}><p className="label-sm mt-3 mb-1" style={{ color: C.muted }}>{g.k}</p>{g.items.map(i => <button key={i.id} onClick={() => { setDetail(null); go("inspection", i.id); }} className="w-full text-left flex items-center gap-2 py-2.5" style={{ borderBottom: `1px solid ${C.line}` }}><div className="flex-1 min-w-0"><p className="text-sm truncate">{s.products.find(p => p.id === i.productId)?.name || `Pallet ${(i.pallets || [])[0] || ""}`}</p><p className="text-xs" style={{ color: C.muted }}>{hhmm(i.completedAt)}{byType.length > 1 && ` · ${inspType(s, i)?.name || ""}`}{i.dateISO && ` · DC ${dateCode(i.dateISO)}`}{i.supplier && ` · ${i.supplier}`}</p></div><ResultPill i={i} s={s} /></button>)}</div>)}
+            </>
+          );
+        })()}
+      </Sheet>
     </div>
   );
 }
