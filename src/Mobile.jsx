@@ -1781,7 +1781,7 @@ function Phone({ children, nav, onNav, page, badges, fab, dark, onTheme, overlay
   const shell = real ? { width: "100%", height: "100dvh", background: C.surface, paddingTop: "env(safe-area-inset-top)", overscrollBehavior: "none" } : { width: 390, height: 844, background: C.surface, borderRadius: 44, border: `10px solid ${C.ink}`, overflow: "hidden", boxShadow: "0 30px 60px rgba(0,0,0,.28)" };
   return (
     <div className={`qc flex items-start justify-center ${real ? "" : "min-h-screen p-4 md:p-8"}`} style={outer}>
-      <style>{GLOBAL_CSS() + (real ? " html,body{overscroll-behavior:none;background:" + C.surface + "} body{position:fixed;inset:0;} " : "")}</style>
+      <style>{GLOBAL_CSS() + (real ? " html,body{overscroll-behavior:none;background:" + C.surface + "} body{position:fixed;inset:0;} .qc-sheet{position:fixed;} " : "")}</style>
       <div className="relative flex flex-col" style={shell}>
         {!real && <div className="flex items-center justify-between px-6 pt-3 pb-1 text-[11px] font-medium" style={{ color: C.ink }}><span>{new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}</span><span className="flex items-center gap-2"><button onClick={onTheme} title="theme" className="flex">{dark ? <Ic i={Sun} s={13} mr={0} /> : <Ic i={Moon} s={13} mr={0} />}</button>●●● ᯤ ▮</span></div>}
         <div className="flex-1 overflow-y-auto relative" style={{ color: C.ink }}>{children}</div>
@@ -1802,16 +1802,19 @@ function Phone({ children, nav, onNav, page, badges, fab, dark, onTheme, overlay
   );
 }
 const TopBar = ({ title, onBack, right }) => <div className="flex items-center gap-3 px-4 pt-2 pb-3" style={{ borderBottom: `1px solid ${C.line}` }}>{onBack && <button onClick={onBack} className="flex" style={{ color: C.ink }}><Ic i={ChevronLeft} s={22} mr={0} /></button>}<p className="text-base font-semibold flex-1 truncate">{title}</p>{right}</div>;
+// Sheets and modals sit inside the scrolling page, so "absolute inset-0" spans the whole scrolled content and ends
+// above the bottom nav — a tall sheet got cut off there. On a real phone (.qc-real) they are fixed to the viewport
+// instead: the sheet rests on the actual bottom edge, over the nav, and gets nearly the whole screen for its content.
 const Sheet = ({ open, onClose, title, children }) => !open ? null : (
-  <div className="absolute inset-0 flex items-end" style={{ background: "rgba(31,42,36,.45)", zIndex: 40 }} onClick={onClose}>
-    <div className="w-full rounded-t-3xl p-5" style={{ background: C.surface, maxHeight: "80%", overflowY: "auto" }} onClick={e => e.stopPropagation()}>
+  <div className="qc-sheet absolute inset-0 flex items-end" style={{ background: "rgba(31,42,36,.45)", zIndex: 40 }} onClick={onClose}>
+    <div className="w-full rounded-t-3xl px-5 pt-4" style={{ background: C.surface, maxHeight: "92%", overflowY: "auto", paddingBottom: "calc(20px + env(safe-area-inset-bottom))" }} onClick={e => e.stopPropagation()}>
       <div className="w-10 h-1 rounded-full mx-auto mb-3" style={{ background: C.line }} />
       {title && <p className="font-semibold text-base mb-3">{title}</p>}
       {children}
     </div>
   </div>
 );
-const Modal = ({ open, children }) => !open ? null : <div className="absolute inset-0 flex items-center justify-center p-6" style={{ background: "rgba(31,42,36,.55)", zIndex: 45 }}><div className="w-full rounded-2xl p-5" style={{ background: C.surface }}>{children}</div></div>;
+const Modal = ({ open, children }) => !open ? null : <div className="qc-sheet absolute inset-0 flex items-center justify-center p-6" style={{ background: "rgba(31,42,36,.55)", zIndex: 45 }}><div className="w-full rounded-2xl p-5" style={{ background: C.surface }}>{children}</div></div>;
 
 function MBlocking({ s, set, user }) {
   const pending = s.announcements.filter(a => a.isBlocking && user.role === "Controller" && !(a.acks || {})[user.id]);
@@ -2805,10 +2808,9 @@ function MHistory({ s, user, go }) {
       <Sheet open={open} onClose={() => setOpen(false)} title="Filters">
         <div className="flex items-center justify-between mb-2"><span className="label-sm" style={{ color: C.muted }}>Date range</span><button onClick={() => setF({ range: "7", result: "", status: "", supplier: "", controller: "", category: "", from: "", to: "", code: "", packFrom: "", packTo: "", type: "" })} className="text-xs" style={{ color: C.accent }}>Clear everything</button></div>
         <div className="flex flex-wrap gap-1.5 mb-3">{[["0", "Today"], ["7", "7 days"], ["30", "30 days"], ["custom", "Custom"]].map(([k, l]) => <Chip key={k} on={f.range === k} onClick={() => setF(x => ({ ...x, range: k }))}>{l}</Chip>)}</div>
-        {f.range === "custom" && <div className="flex gap-2 mb-3"><input type="date" value={f.from} onChange={e => setF(x => ({ ...x, from: e.target.value }))} className="flex-1 text-xs rounded-lg px-2 py-1.5 outline-none" style={{ ...inp }} /><input type="date" value={f.to} onChange={e => setF(x => ({ ...x, to: e.target.value }))} className="flex-1 text-xs rounded-lg px-2 py-1.5 outline-none" style={{ ...inp }} /></div>}
-        <p className="label-sm mb-1" style={{ color: C.muted }}>Date code (packing date)</p>
-        <p className="text-[10px] mb-2" style={{ color: C.muted }}>A different axis than the inspection date — a pallet with code 372 may be inspected in week 38.</p>
-        <div className="flex gap-2 mb-3 items-center"><input value={f.code} onChange={e => setF(x => ({ ...x, code: e.target.value }))} placeholder="code, e.g. 382" className="w-24 text-sm rounded-lg px-2 py-1.5 outline-none font-mono" style={{ ...inp }} /><span className="text-xs" style={{ color: C.muted }}>or</span><input type="date" value={f.packFrom} onChange={e => setF(x => ({ ...x, packFrom: e.target.value }))} className="flex-1 text-xs rounded-lg px-2 py-1.5 outline-none" style={{ ...inp }} /><input type="date" value={f.packTo} onChange={e => setF(x => ({ ...x, packTo: e.target.value }))} className="flex-1 text-xs rounded-lg px-2 py-1.5 outline-none" style={{ ...inp }} /></div>
+        {f.range === "custom" && <div className="flex gap-2 mb-3"><input type="date" value={f.from} onChange={e => setF(x => ({ ...x, from: e.target.value }))} className="flex-1 min-w-0 text-xs rounded-lg px-2 py-1.5 outline-none" style={{ ...inp, width: 0 }} /><input type="date" value={f.to} onChange={e => setF(x => ({ ...x, to: e.target.value }))} className="flex-1 min-w-0 text-xs rounded-lg px-2 py-1.5 outline-none" style={{ ...inp, width: 0 }} /></div>}
+        <p className="label-sm mb-2" style={{ color: C.muted }}>Date code (packing date) <span className="font-normal normal-case tracking-normal">· independent of the inspection date</span></p>
+        <div className="flex gap-2 mb-3 items-center"><input value={f.code} onChange={e => setF(x => ({ ...x, code: e.target.value }))} placeholder="code, e.g. 382" className="w-24 text-sm rounded-lg px-2 py-1.5 outline-none font-mono" style={{ ...inp }} /><span className="text-xs" style={{ color: C.muted }}>or</span><input type="date" value={f.packFrom} onChange={e => setF(x => ({ ...x, packFrom: e.target.value }))} className="flex-1 min-w-0 text-xs rounded-lg px-2 py-1.5 outline-none" style={{ ...inp, width: 0 }} /><input type="date" value={f.packTo} onChange={e => setF(x => ({ ...x, packTo: e.target.value }))} className="flex-1 min-w-0 text-xs rounded-lg px-2 py-1.5 outline-none" style={{ ...inp, width: 0 }} /></div>
         <p className="label-sm mb-2" style={{ color: C.muted }}>Type</p>
         <div className="flex flex-wrap gap-1.5 mb-3">{[["", "all"], ...typesOf(s).map(t => [t.id, t.name.toLowerCase()])].map(([k, l]) => <Chip key={k} on={f.type === k} onClick={() => setF(x => ({ ...x, type: k }))}>{l}</Chip>)}</div>
         <p className="label-sm mb-2" style={{ color: C.muted }}>Result</p>
