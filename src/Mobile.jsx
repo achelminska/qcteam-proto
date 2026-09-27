@@ -1414,6 +1414,10 @@ function InspectionRunner({ insp, patch, t, problems, product, suppliers, dictio
   const tryFinish = () => { if (missingRequired.length && !remind) { setRemind(true); return; } const result = itype.autoAccept && !insp.result ? "Accepted" : insp.result; if (result && result !== insp.result) set({ result }); onFinish({ anyExceeded, generalFlag, autoAccept: itype.autoAccept, missingRequired: missingRequired.map(f => f.label), result }); };
   const isSummary = hasSummary && tab === modules.length, m = modules[Math.min(tab, modules.length - 1)];
   const isLastModule = !hasSummary && tab >= modules.length - 1;
+  const stepNames = [...modules.map(x => x.name), ...(hasSummary ? ["Summary"] : [])];
+  const rootRef = useRef(null);
+  // Every module ends with a button to the next one, so the controller never has to scroll back up to the step row.
+  const goTab = i => { setTab(i); const sc = rootRef.current?.closest(".overflow-y-auto"); if (sc) sc.scrollTo({ top: 0 }); };
   const specs = effectiveSpecs(sctx, product);
   const editingCompleted = insp.status === "Completed";
   const finishControls = (
@@ -1435,7 +1439,7 @@ function InspectionRunner({ insp, patch, t, problems, product, suppliers, dictio
     </>
   );
   return (
-    <div>
+    <div ref={rootRef}>
       <div className="mb-3 text-xs" style={{ color: C.muted }}>
         <div className="flex items-center gap-2 flex-wrap">
           <span className="px-2 py-0.5 rounded-full" style={{ background: STATUS[insp.status][2], color: STATUS[insp.status][1], fontWeight: 500 }}>{STATUS[insp.status][0]}</span>
@@ -1453,12 +1457,12 @@ function InspectionRunner({ insp, patch, t, problems, product, suppliers, dictio
       {sctx.announcements.filter(a => annMatchesProduct(sctx, a, product)).map(a => <Note key={a.id} tone="warn">📣 <b>{a.title}</b> — {a.body}</Note>)}
       {escalated && <Note tone="warn">⏸ Paused — question for the Head: <i>„{insp.question}"</i>. You can keep filling in; the result is locked until answered.</Note>}
       {insp.answer && insp.status !== "PendingReview" && <Note tone="ok">💬 Head's answer: <i>„{insp.answer}"</i></Note>}
-      {(() => { const names = [...modules.map(x => x.name), ...(hasSummary ? ["Summary"] : [])]; return (
+      {(() => { const names = stepNames; return (
         <div className="mb-3">
           {/* One row, no sideways scrolling: every step keeps its number, the current one gets the most room for its name.
               Highlight is a soft accent tint, so it reads as "current" without a glaring block in the dark theme. */}
           <div className="flex items-stretch gap-1.5">
-            {names.map((name, i) => { const on = tab === i; const compact = names.length > 3 && !on; const req = i < modules.length ? t.fields.filter(f => f.moduleId === modules[i].id && f.required && !isSystem(f.type)) : []; const done = req.length > 0 && req.every(f => !isEmptyValue(f)); return <button key={i} onClick={() => setTab(i)} title={name} className={`min-w-0 text-[11px] py-1.5 rounded-full inline-flex items-center justify-center gap-1.5 ${compact ? "px-1.5" : "px-2.5"}`} style={{ flex: compact ? "0 0 auto" : "1 1 0", background: on ? C.accentSoft : C.bg, color: on ? C.ink : done ? C.ink : C.muted, border: `1px solid ${on ? C.accent : C.line}`, fontWeight: on ? 600 : 500 }}>
+            {names.map((name, i) => { const on = tab === i; const compact = names.length > 3 && !on; const req = i < modules.length ? t.fields.filter(f => f.moduleId === modules[i].id && f.required && !isSystem(f.type)) : []; const done = req.length > 0 && req.every(f => !isEmptyValue(f)); return <button key={i} onClick={() => goTab(i)} title={name} className={`min-w-0 text-[11px] py-1.5 rounded-full inline-flex items-center justify-center gap-1.5 ${compact ? "px-1.5" : "px-2.5"}`} style={{ flex: compact ? "0 0 auto" : "1 1 0", background: on ? C.accentSoft : C.bg, color: on ? C.ink : done ? C.ink : C.muted, border: `1px solid ${on ? C.accent : C.line}`, fontWeight: on ? 600 : 500 }}>
               <span className="rounded-full inline-flex items-center justify-center text-[10px] flex-shrink-0" style={{ width: 16, height: 16, background: on ? C.accent : done ? C.okBg : C.line, color: on ? C.onDark : done ? C.ok : C.muted }}>{done && !on ? <Ic i={Check} s={10} mr={0} /> : i + 1}</span>{!compact && <span className="truncate">{name}</span>}
             </button>; })}
           </div>
@@ -1517,6 +1521,15 @@ function InspectionRunner({ insp, patch, t, problems, product, suppliers, dictio
           {t.problemRefs.filter(r => r.moduleId === m.id).length > 0 && !sampleReady && <Note tone="bad">{hasSampleBlock ? "Sample size gives 0 CU — fill in the “Sample size” block to compute percentages." : "This template has no “Sample size” block — the Head must add it."}</Note>}
           {t.problemRefs.filter(r => r.moduleId === m.id).sort(bySort).map(r => pm[r.problemTypeId] && <ProblemTreeView key={r.id} root={pm[r.problemTypeId]} problems={problems} overrides={t.overrides} remarks={remarks} totals={totals} disabled={!sampleReady} notes={effectiveNotesFor(sctx, product)} onReport={rem => setRemarks(x => [...x, { id: uid(), ...rem }])} onDelete={id => setRemarks(x => x.filter(q => q.id !== id))} onPhoto={async id => { const got = await pickPhotos(); if (got.length) setRemarks(x => x.map(q => q.id === id ? { ...q, photos: [...asPhotoList(q.photos), ...got] } : q)); }} onRemovePhoto={(id, pid) => setRemarks(x => x.map(q => q.id === id ? { ...q, photos: asPhotoList(q.photos).filter(ph => ph.id !== pid) } : q))} />)}
           {t.fields.filter(f => f.moduleId === m.id).length + t.problemRefs.filter(r => r.moduleId === m.id).length === 0 && <p className="text-sm" style={{ color: C.muted }}>Empty module.</p>}
+          {!isLastModule && (() => { const missing = t.fields.filter(f => f.moduleId === m.id && f.required && !isSystem(f.type) && isEmptyValue(f)).length; return (
+            <div className="mt-4 pt-4" style={{ borderTop: `1px solid ${C.line}` }}>
+              <div className="flex items-stretch gap-2">
+                {tab > 0 && <button onClick={() => goTab(tab - 1)} className="px-4 rounded-xl text-sm inline-flex items-center" style={{ background: C.bg, border: `1px solid ${C.line}`, color: C.ink }}><Ic i={ChevronLeft} s={16} mr={0} /></button>}
+                <button onClick={() => goTab(tab + 1)} className="flex-1 py-3 rounded-xl text-sm font-semibold inline-flex items-center justify-center gap-1" style={{ background: C.accent, color: C.onDark }}>Next: {stepNames[tab + 1]}<Ic i={ChevronRight} s={16} mr={0} /></button>
+              </div>
+              {missing > 0 && <p className="text-[11px] mt-2 text-center" style={{ color: C.muted }}>{missing} required field{missing === 1 ? "" : "s"} in this module still empty</p>}
+            </div>
+          ); })()}
           {isLastModule && <div className="mt-5 pt-4" style={{ borderTop: `1px solid ${C.line}` }}>
             <Note tone={escalated ? "warn" : anyExceeded || generalFlag ? "bad" : remarks.length ? "warn" : "ok"}>{escalated ? "Paused — awaiting the Head." : anyExceeded ? "Tolerance exceeded — the system suggests rejection." : generalFlag ? "General problem flagged — the system suggests rejection." : remarks.length ? `${remarks.length} remark${remarks.length === 1 ? "" : "s"} within tolerance.` : "No problems."}</Note>
             {finishControls}
