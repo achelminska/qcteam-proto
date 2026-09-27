@@ -464,7 +464,7 @@ function PhotoStrip({ photos, onAdd, onRemove, size = 64, addLabel = "Add photo"
   const touch = typeof navigator !== "undefined" && navigator.maxTouchPoints > 0;
   return (
     <div className="flex flex-wrap gap-2 items-center">
-      {list.map(ph => <div key={ph.id} className="relative"><img src={ph.path || photoSrc(ph)} alt="" onClick={() => setView(ph)} className="object-cover rounded-lg cursor-pointer" style={{ width: size, height: size, border: `1px solid ${C.line}` }} />{onRemove && <button onClick={() => onRemove(ph.id)} className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full text-[10px] leading-none" style={{ background: C.bad, color: C.onDark }} title="delete">×</button>}</div>)}
+      {list.map(ph => <div key={ph.id} className="relative"><img src={ph.path || photoSrc(ph)} alt="" onClick={() => setView(list.indexOf(ph))} className="object-cover rounded-lg cursor-pointer" style={{ width: size, height: size, border: `1px solid ${C.line}` }} />{onRemove && <button onClick={() => onRemove(ph.id)} className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full text-[10px] leading-none" style={{ background: C.bad, color: C.onDark }} title="delete">×</button>}</div>)}
       {busy && <div className="rounded-lg flex items-center justify-center text-[10px]" style={{ width: size, height: size, background: C.bg, color: C.muted, border: `1px solid ${C.line}` }}>uploading…</div>}
       {onAdd && size < 56 && <>
         {touch && <button onClick={() => add(true)} disabled={busy} className="rounded-full inline-flex items-center gap-1.5 text-xs font-semibold px-3" style={{ height: 32, color: C.onDark, background: C.accent }}><Ic i={Camera} s={14} mr={0} />Photo</button>}
@@ -474,7 +474,8 @@ function PhotoStrip({ photos, onAdd, onRemove, size = 64, addLabel = "Add photo"
       {onAdd && size >= 56 && <button onClick={() => add(false)} disabled={busy} className="rounded-lg flex flex-col items-center justify-center text-xs" style={{ width: size, height: size, border: `1px dashed ${C.line}`, color: C.accent, background: C.accentSoft, gap: 2 }}><Ic i={ImageIcon} s={18} mr={0} /><span className="text-[10px] leading-tight">{touch ? "From library" : addLabel}</span></button>}
       {!onAdd && list.length === 0 && <span className="text-xs" style={{ color: C.muted }}>no photos</span>}
       {err && <span className="text-xs w-full" style={{ color: C.bad }}>{err}</span>}
-      {view && <div className="fixed inset-0 flex items-center justify-center p-6" style={{ background: "rgba(0,0,0,.85)", zIndex: 60 }} onClick={() => setView(null)}><img src={view.path || view.dataUrl} alt="" className="max-w-full max-h-full rounded-xl" /><button className="absolute top-4 right-5 text-2xl" style={{ color: "#fff" }}>×</button></div>}
+      {/* Same viewer as the product profile: counter, arrows, dots and swipe between the photos of this strip. */}
+      {view != null && <MPhotoViewer photos={list} index={view} onIndex={setView} onClose={() => setView(null)} />}
     </div>
   );
 }
