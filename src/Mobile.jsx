@@ -3547,9 +3547,9 @@ function MBriefing({ s, user, go }) {
   const edge = c => c.kind === "risk" ? (c.r.priority === "High issues" ? C.warn : C.bad) : c.kind === "complaint" ? C.bad : c.kind === "ann" && c.a.isBlocking ? C.bad : C.accent;
   const trans = anim && !dragging.current ? "transform .32s cubic-bezier(.2,.8,.2,1), opacity .28s ease" : "none";
   const face = pos => {
-    if (pos < 0) return { top: 0, left: 16, right: 16, height: 34, overflow: "hidden", zIndex: 1, opacity: .5, transform: `translateY(${Math.max(0, dy) * .12}px)`, transition: trans, pointerEvents: "none" };
-    if (pos > 0) return { bottom: 0, left: 16, right: 16, height: 34, overflow: "hidden", zIndex: 1, opacity: .5, transform: `translateY(${Math.min(0, dy) * .12}px)`, transition: trans, pointerEvents: "none" };
-    return { top: 22, bottom: 22, left: 0, right: 0, zIndex: 4, transform: `translateY(${dy}px)`, opacity: dy < 0 ? Math.max(.4, 1 + dy / 260) : 1, transition: trans, pointerEvents: "auto" };
+    if (pos < 0) return { top: 0, left: 16, right: 16, height: 44, overflow: "hidden", zIndex: 1, opacity: .55, transform: `translateY(${Math.max(0, dy) * .12}px)`, transition: trans, pointerEvents: "none" };
+    if (pos > 0) return { bottom: 0, left: 16, right: 16, height: 44, overflow: "hidden", zIndex: 1, opacity: .55, transform: `translateY(${Math.min(0, dy) * .12}px)`, transition: trans, pointerEvents: "none" };
+    return { top: 32, bottom: 32, left: 0, right: 0, zIndex: 4, transform: `translateY(${dy}px)`, opacity: dy < 0 ? Math.max(.4, 1 + dy / 260) : 1, transition: trans, pointerEvents: "auto" };
   };
   const Shot = ({ product, name }) => {
     const photo = product && asPhotoList(product.photos)[0];
@@ -3603,12 +3603,12 @@ function MBriefing({ s, user, go }) {
       </>;
     }
     return (
-      <div key={`${c.kind}-${c.a?.id || c.r?.articleId || c.c?.id || "x"}-${pos}`} className="absolute flex flex-col rounded-[28px] px-5 pt-5 pb-4" style={{ background: C.bg, border: `1px solid ${C.line}`, borderTop: `3px solid ${edge(c)}`, boxShadow: lift(2), ...face(pos) }}>
+      <div key={`${c.kind}-${c.a?.id || c.r?.articleId || c.c?.id || "x"}-${pos}`} className="absolute flex flex-col rounded-[28px] px-5 pt-5 pb-4 overflow-hidden" style={{ background: C.bg, border: `1px solid ${C.line}`, borderTop: `3px solid ${edge(c)}`, boxShadow: lift(2), ...face(pos) }}>
         {body}
       </div>
     );
   };
-  const rejN = unseen.anns + unseen.risks;
+  const rejN = unseen.anns.length + unseen.risks.length;
   const Tab = ({ id, label, count }) => <button data-story-cta onClick={() => setTab(id)} className="flex-1 py-2 text-sm font-medium" style={{ background: tab === id ? C.ink : "transparent", color: tab === id ? C.onDark : C.ink }}>{label}{count ? ` · ${count}` : ""}</button>;
   return (
     <div className="absolute inset-0 flex flex-col" style={{ background: C.surface }}>
@@ -3616,7 +3616,7 @@ function MBriefing({ s, user, go }) {
       <div className="px-4 pt-2">
         <div className="flex rounded-xl overflow-hidden" style={{ border: `1px solid ${C.line}` }}>
           <Tab id="rejections" label="Rejections" count={rejN} />
-          <Tab id="complaints" label="Complaints" count={unseen.complaints} />
+          <Tab id="complaints" label="Complaints" count={unseen.complaints.length} />
         </div>
       </div>
       {n === 0 ? (
