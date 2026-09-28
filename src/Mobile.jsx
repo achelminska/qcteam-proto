@@ -3539,8 +3539,8 @@ function MBriefing({ s, user, go }) {
   const Hero = ({ product, name }) => {
     const photo = product && asPhotoList(product.photos)[0];
     return (
-      <div className="relative flex-shrink-0 overflow-hidden flex items-center justify-center" style={{ height: 128, background: PHOTO_BG }}>
-        {photo && <img src={photoSrc(photo)} alt="" className="absolute inset-0 w-full h-full object-cover" onError={e => { e.currentTarget.style.display = "none"; const el = e.currentTarget.parentElement?.querySelector("[data-letter]"); if (el) el.style.opacity = "1"; }} />}
+      <div className="relative flex-shrink-0 overflow-hidden flex items-center justify-center" style={{ height: 148, background: PHOTO_BG }}>
+        {photo && <img src={photoSrc(photo)} alt="" className="absolute inset-0 w-full h-full object-contain p-4" onError={e => { e.currentTarget.style.display = "none"; const el = e.currentTarget.parentElement?.querySelector("[data-letter]"); if (el) el.style.opacity = "1"; }} />}
         <span data-letter className="text-[56px] font-semibold leading-none" style={{ color: "#8A9278", opacity: photo ? 0 : .55 }}>{(name || "?")[0]}</span>
       </div>
     );
