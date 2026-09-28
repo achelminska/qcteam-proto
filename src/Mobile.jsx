@@ -3249,6 +3249,18 @@ const briefingRejections = s => {
 };
 const briefingComplaints = s => [...complaintsMeta(s).rows].filter(r => r.count).sort((a, b) => (b.count || 0) - (a.count || 0) || (a.name || "").localeCompare(b.name || ""));
 const briefingPulse = s => { const anns = briefingAnnouncements(s).length, rejections = briefingRejections(s).length, complaints = briefingComplaints(s).length; return { anns, rejections, complaints, total: anns + rejections + complaints }; };
+// One card per beat — cover, each Head note, each problem product, each complaint, then "caught up".
+const briefingDeck = s => {
+  const anns = briefingAnnouncements(s), risks = briefingRejections(s), complaints = briefingComplaints(s), meta = complaintsMeta(s);
+  return [
+    { kind: "cover", anns: anns.length, risks: risks.length, complaints: complaints.length, period: meta.period },
+    ...anns.map(a => ({ kind: "ann", a })),
+    ...risks.map(r => ({ kind: "risk", r })),
+    ...complaints.map(c => ({ kind: "complaint", c })),
+    { kind: "done", anns: anns.length, risks: risks.length, complaints: complaints.length },
+  ];
+};
+const briefingChapter = kind => kind === "ann" ? "From the Head" : kind === "risk" ? "Watch this" : kind === "complaint" ? "Customers" : kind === "done" ? "Caught up" : "Today";
 const ComplaintChip = ({ s, articleId }) => { const c = complaintsFor(s, articleId); if (!c || !c.count) return null; return <span className="text-[10px] px-1.5 py-0.5 rounded-full inline-flex items-center gap-1 flex-shrink-0" style={{ background: C.badBg, color: C.bad }}><Ic i={ThumbsDown} s={10} mr={0} />{c.count}</span>; };
 function MComplaints({ s, user, go }) {
   const meta = complaintsMeta(s); const [q, setQ] = useState(""); const qq = q.trim().toLowerCase();
@@ -3470,80 +3482,159 @@ function MDocks({ s, user, go }) {
 }
 function MBriefing({ s, user, go }) {
   useEffect(() => { markBriefingSeen(user.id); }, [user.id]);
-  const [annOpen, setAnnOpen] = useState(null);
-  const anns = briefingAnnouncements(s);
-  const rejections = briefingRejections(s);
-  const complaints = briefingComplaints(s);
-  const meta = complaintsMeta(s);
+  const cards = briefingDeck(s);
+  const [i, setI] = useState(0);
+  const [dy, setDy] = useState(0);
+  const [anim, setAnim] = useState(false);
+  const start = useRef(null);
+  const dragging = useRef(false);
+  const wheelLock = useRef(false);
+  const stage = useRef(null);
+  const n = cards.length;
+  const ix = Math.max(0, Math.min(i, n - 1));
+  const card = cards[ix];
+  const goTo = nI => { setAnim(true); setDy(0); setI(Math.max(0, Math.min(n - 1, nI))); };
+  const firstOf = kind => cards.findIndex(c => c.kind === kind);
+  const chapter = briefingChapter(card.kind);
+  const inChapter = cards.map((c, k) => ({ c, k })).filter(x => briefingChapter(x.c.kind) === chapter);
+  const chapN = inChapter.length, chapI = Math.max(0, inChapter.findIndex(x => x.k === ix));
   const catPath = id => { const c = s.categories.find(x => x.id === id); if (!c) return null; const p = c.parentId && s.categories.find(x => x.id === c.parentId); return p ? `${p.name} › ${c.name}` : c.name; };
   const who = id => s.users.find(u => u.id === id)?.name.split(" ")[0];
-  return (
-    <div className="pb-8">
-      <TopBar title="Shift update" onBack={() => go("back")} />
-      <div className="px-4 pt-3">
-        <p className="text-sm mb-4" style={{ color: C.muted }}>Open this at the start of your shift — Head notes, recent rejections and customer complaints, so you know what is live on the floor.</p>
-
-        <p className="label-sm mb-1.5" style={{ color: C.muted }}>From the Head{anns.length ? ` · ${anns.length}` : ""}</p>
-        {anns.length === 0 ? <p className="text-sm mb-4" style={{ color: C.muted }}>No live announcements.</p> : <div className="mb-4">{anns.map(a => (
-          <button key={a.id} onClick={() => a.productId ? go("catalog", a.productId) : setAnnOpen(a)} className="qc-elev qc-tile w-full text-left rounded-2xl px-3.5 py-3 mb-2" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
-            <div className="flex items-start gap-2.5">
-              <span className="mt-0.5" style={{ color: a.isBlocking ? C.bad : C.accent }}><Ic i={Megaphone} s={15} mr={0} /></span>
-              <span className="min-w-0 flex-1">
-                <span className="flex flex-wrap items-center gap-1.5 mb-1">
-                  {a.isBlocking && <span className="text-[10px] px-1.5 rounded" style={{ background: C.badBg, color: C.bad }}>blocking</span>}
-                  {a.showOnDashboard && <span className="text-[10px] px-1.5 rounded" style={{ background: C.accentSoft, color: C.accent }}>dashboard</span>}
-                  {a.productId && <span className="text-[10px] px-1.5 rounded" style={{ background: C.warnBg, color: C.warn }}>{s.products.find(p => p.id === a.productId)?.name || "product"}</span>}
-                  {a.categoryId && <span className="text-[10px] px-1.5 rounded" style={{ background: C.okBg, color: C.ok }}>{catPath(a.categoryId) || "category"}</span>}
-                </span>
-                <span className="block text-sm font-semibold leading-snug">{a.title}</span>
-                {a.body && <span className="block text-xs mt-1 leading-snug" style={{ color: C.muted }}>{truncate(a.body, 140)}</span>}
-                <span className="block text-[11px] mt-1.5" style={{ color: C.muted }}>{dayLabel(a.createdAt)}{who(a.createdBy) ? ` · ${who(a.createdBy)}` : ""}{(a.acks || {})[user.id] ? " · acknowledged" : ""}</span>
-              </span>
-              <Ic i={ChevronRight} s={16} mr={0} style={{ color: C.muted, marginTop: 2 }} />
-            </div>
-          </button>
-        ))}</div>}
-
-        <p className="label-sm mb-1.5" style={{ color: C.muted }}>Rejections & high-risk{rejections.length ? ` · ${rejections.length}` : ""}</p>
-        {rejections.length === 0 ? <p className="text-sm mb-4" style={{ color: C.muted }}>No recent rejected verdicts and nothing high-risk on the docks.</p> : <div className="mb-4">{rejections.map(r => {
-          const open = () => r.product ? go("catalog", r.product.id) : r.hu ? go("palletInfo", r.hu) : go("priority", r.priority || "High risk");
-          const sub = r.count ? `${r.count} rejected${r.lastAt ? ` · last ${dayLabel(r.lastAt)}` : ""}` : r.priority === "High risk" ? "rejected before — on dock now" : "history of remarks — on dock now";
-          return (
-          <button key={r.product?.id || r.articleId || r.hu} onClick={open} className="qc-elev qc-tile w-full text-left rounded-2xl px-3.5 py-3 mb-2" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
-            <div className="flex items-start gap-2">
-              <span className="min-w-0 flex-1">
-                <span className="flex flex-wrap items-center gap-1.5 mb-0.5">
-                  <span className="text-sm font-semibold leading-snug">{r.name}</span>
-                  {r.priority && <span className="text-[10px] px-1.5 rounded" style={{ background: r.priority === "High risk" ? C.badBg : C.warnBg, color: r.priority === "High risk" ? C.bad : C.warn }}>{r.priority}</span>}
-                  {r.dock && <span className="text-[10px] px-1.5 rounded" style={{ background: C.accentSoft, color: C.accent }}>{r.pallets} on dock</span>}
-                </span>
-                <span className="block text-xs" style={{ color: C.bad }}>{sub}</span>
-                {r.problems.length > 0 && <span className="block text-[11px] mt-1 leading-snug" style={{ color: C.muted }}>Look for: {r.problems.slice(0, 3).map(p => `${p.name} ×${p.count}`).join(", ")}{r.problems.length > 3 ? "…" : ""}</span>}
-              </span>
-              <Ic i={ChevronRight} s={16} mr={0} style={{ color: C.muted, marginTop: 2 }} />
-            </div>
-          </button>
-          );
-        })}</div>}
-
-        <p className="label-sm mb-1.5" style={{ color: C.muted }}>Customer complaints{meta.period ? ` · ${meta.period}` : ""}{complaints.length ? ` · ${complaints.length}` : ""}</p>
-        {complaints.length === 0 ? <p className="text-sm" style={{ color: C.muted }}>No complaints entered yet.</p> : complaints.map(r => {
-          const p = productForArticle(s, r.articleId);
-          return (
-            <button key={r.id} onClick={() => p ? go("catalog", p.id) : go("complaints")} disabled={!p} className="qc-elev qc-tile w-full text-left rounded-2xl px-3.5 py-3 mb-2" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
-              <div className="flex items-start gap-2">
-                <span className="min-w-0 flex-1">
-                  <span className="block text-sm font-semibold leading-snug">{r.name || p?.name || r.articleId}</span>
-                  <span className="block text-xs mt-0.5" style={{ color: C.bad }}>{r.count} freshness complaint{r.count === 1 ? "" : "s"}{r.subType ? ` · mostly ${r.subType}` : ""}</span>
-                  <span className="block text-[11px] mt-1" style={{ color: C.muted }}>{r.articleId}{!p ? " · no catalog profile" : ""}</span>
-                </span>
-                {p && <Ic i={ChevronRight} s={16} mr={0} style={{ color: C.muted, marginTop: 2 }} />}
-              </div>
-            </button>
-          );
-        })}
+  const onDown = e => {
+    if (e.target.closest("[data-story-cta]")) return;
+    dragging.current = true;
+    start.current = { y: e.clientY, x: e.clientX };
+    setAnim(false);
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch {}
+  };
+  const onMove = e => { if (!dragging.current || !start.current) return; setDy(e.clientY - start.current.y); };
+  const onUp = e => {
+    if (!dragging.current || !start.current) return;
+    dragging.current = false;
+    const d = e.clientY - start.current.y, dx = e.clientX - start.current.x;
+    const tap = Math.abs(d) < 12 && Math.abs(dx) < 12;
+    if (tap && stage.current) {
+      const rect = stage.current.getBoundingClientRect();
+      goTo(e.clientY > rect.top + rect.height * 0.58 ? ix + 1 : ix - 1);
+    } else if (d < -56) goTo(ix + 1);
+    else if (d > 56) goTo(ix - 1);
+    else { setAnim(true); setDy(0); }
+    start.current = null;
+  };
+  const onWheel = e => {
+    e.stopPropagation();
+    if (wheelLock.current) return;
+    if (Math.abs(e.deltaY) < 18) return;
+    wheelLock.current = true;
+    goTo(ix + (e.deltaY > 0 ? 1 : -1));
+    setTimeout(() => { wheelLock.current = false; }, 380);
+  };
+  const openRisk = r => r.product ? go("catalog", r.product.id) : r.hu ? go("palletInfo", r.hu) : go("priority", r.priority || "High risk");
+  const Cta = ({ children, onClick }) => <button data-story-cta onClick={onClick} className="mt-auto w-full py-3 rounded-2xl text-sm font-semibold" style={{ background: C.ink, color: C.onDark }}>{children}</button>;
+  const Eye = ({ children, color }) => <p className="text-[11px] font-semibold uppercase tracking-[0.14em] mb-2" style={{ color: color || C.muted }}>{children}</p>;
+  const face = (c, pos) => {
+    const off = pos === 0 ? dy : pos === 1 ? 16 + Math.min(20, Math.max(-8, dy * 0.12)) : 30;
+    const scale = pos === 0 ? 1 : pos === 1 ? 0.96 : 0.92;
+    const op = pos === 0 ? 1 : pos === 1 ? 0.88 : 0.5;
+    return {
+      transform: `translateY(${off}px) scale(${scale})`,
+      opacity: pos === 0 && dy < 0 ? Math.max(0.25, 1 + dy / 280) : op,
+      transition: anim && !dragging.current ? "transform .32s cubic-bezier(.2,.8,.2,1), opacity .28s ease" : "none",
+      zIndex: 8 - pos, pointerEvents: pos === 0 ? "auto" : "none",
+    };
+  };
+  const renderCard = (c, pos) => {
+    if (!c) return null;
+    const photoOf = p => p && asPhotoList(p.photos)[0];
+    const hero = (photo, letter, wash) => photo
+      ? <div className="rounded-[22px] overflow-hidden mb-4" style={{ height: 168, background: PHOTO_BG }}><img src={photoSrc(photo)} alt="" className="w-full h-full object-cover" /></div>
+      : <div className="rounded-[22px] mb-4 flex items-end px-4 pb-2" style={{ height: 132, background: wash }}><span className="text-[72px] font-semibold leading-none" style={{ color: C.ink, opacity: .12 }}>{letter}</span></div>;
+    let body = null;
+    if (c.kind === "cover") {
+      const first = (user.name || "").split(" ")[0];
+      const date = new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "short" });
+      const Jump = ({ n, l, kind }) => <button data-story-cta disabled={!n} onClick={() => n && goTo(firstOf(kind))} className="flex-1 text-left py-1"><p className="text-[28px] font-semibold leading-none" style={{ fontVariantNumeric: "tabular-nums" }}>{n}</p><p className="text-[11px] mt-1.5 leading-snug" style={{ color: C.muted }}>{l}</p></button>;
+      body = <>
+        <Eye color={C.accent}>{date}</Eye>
+        <p className="text-[34px] font-semibold leading-[1.05] tracking-tight">Today on<br />the floor.</p>
+        <p className="text-[15px] mt-3 leading-snug" style={{ color: C.muted }}>{first ? `${first}, two minutes` : "Two minutes"} — then you walk. Flip through what's live.</p>
+        <div className="flex gap-4 mt-8 mb-2" style={{ borderTop: `1px solid ${C.line}`, paddingTop: 18 }}>
+          <Jump n={c.anns} l="notes from Head" kind="ann" />
+          <Jump n={c.risks} l="products to watch" kind="risk" />
+          <Jump n={c.complaints} l="complaint articles" kind="complaint" />
+        </div>
+        <p className="mt-auto text-[12px] text-center" style={{ color: C.muted }}>swipe up</p>
+      </>;
+    } else if (c.kind === "ann") {
+      const a = c.a, prod = a.productId && s.products.find(p => p.id === a.productId);
+      body = <>
+        <Eye color={a.isBlocking ? C.bad : C.accent}>{a.isBlocking ? "Blocking note" : "From the Head"}</Eye>
+        {a.categoryId && <p className="text-[11px] mb-2" style={{ color: C.ok }}>{catPath(a.categoryId)}</p>}
+        <p className="text-[26px] font-semibold leading-[1.12] tracking-tight">{a.title}</p>
+        {a.body && <p className="text-[15px] mt-3 leading-relaxed" style={{ color: C.ink }}>{a.body}</p>}
+        <p className="text-[12px] mt-4" style={{ color: C.muted }}>{dayLabel(a.createdAt)}{who(a.createdBy) ? ` · ${who(a.createdBy)}` : ""}{(a.acks || {})[user.id] ? " · acknowledged" : ""}</p>
+        {prod ? <Cta onClick={() => go("catalog", prod.id)}>Open {prod.name}</Cta> : <p className="mt-auto text-[12px] text-center" style={{ color: C.muted }}>swipe up</p>}
+      </>;
+    } else if (c.kind === "risk") {
+      const r = c.r, photo = photoOf(r.product);
+      const wash = r.priority === "High issues" ? C.warnBg : C.badBg;
+      const tone = r.priority === "High issues" ? C.warn : C.bad;
+      const line = r.count ? `${r.count} rejected${r.lastAt ? ` · last ${dayLabel(r.lastAt)}` : ""}` : r.priority === "High risk" ? "Rejected before — still standing on the docks." : "History of remarks — still standing on the docks.";
+      body = <>
+        <Eye color={tone}>{r.priority || "Watch this"}</Eye>
+        {hero(photo, (r.name || "?")[0], wash)}
+        <p className="text-[26px] font-semibold leading-[1.12] tracking-tight">{r.name}</p>
+        <p className="text-[15px] mt-2 leading-snug" style={{ color: tone }}>{line}</p>
+        {r.dock && <p className="text-[13px] mt-1" style={{ color: C.muted }}>{r.pallets} pallet{r.pallets === 1 ? "" : "s"} on dock now</p>}
+        {r.problems.length > 0 && <p className="text-[13px] mt-3 leading-snug" style={{ color: C.muted }}>Look for {r.problems.slice(0, 3).map(p => `${p.name} ×${p.count}`).join(", ")}{r.problems.length > 3 ? "…" : ""}.</p>}
+        <Cta onClick={() => openRisk(r)}>{r.product ? "Open product" : "Open pallet"}</Cta>
+      </>;
+    } else if (c.kind === "complaint") {
+      const row = c.c, p = productForArticle(s, row.articleId), photo = photoOf(p);
+      body = <>
+        <Eye color={C.bad}>Customers{complaintsMeta(s).period ? ` · ${complaintsMeta(s).period}` : ""}</Eye>
+        {hero(photo, (row.name || p?.name || "?")[0], C.badBg)}
+        <p className="text-[56px] font-semibold leading-none tracking-tight" style={{ color: C.bad, fontVariantNumeric: "tabular-nums" }}>{row.count}</p>
+        <p className="text-[15px] mt-1" style={{ color: C.bad }}>freshness complaint{row.count === 1 ? "" : "s"}{row.subType ? ` · mostly ${row.subType}` : ""}</p>
+        <p className="text-[24px] font-semibold leading-[1.15] tracking-tight mt-3">{row.name || p?.name || row.articleId}</p>
+        <p className="text-[13px] mt-2 leading-snug" style={{ color: C.muted }}>Customers already noticed. Look closer today.{!p ? " No catalog profile yet." : ""}</p>
+        {p ? <Cta onClick={() => go("catalog", p.id)}>Open product</Cta> : <Cta onClick={() => go("complaints")}>See all complaints</Cta>}
+      </>;
+    } else {
+      body = <>
+        <Eye color={C.ok}>Caught up</Eye>
+        <p className="text-[34px] font-semibold leading-[1.05] tracking-tight">You're<br />up to date.</p>
+        <p className="text-[15px] mt-3 leading-snug" style={{ color: C.muted }}>{[c.anns && `${c.anns} note${c.anns === 1 ? "" : "s"} from Head`, c.risks && `${c.risks} product${c.risks === 1 ? "" : "s"} to watch`, c.complaints && `${c.complaints} complaint article${c.complaints === 1 ? "" : "s"}`].filter(Boolean).join(" · ") || "Quiet floor — nothing live."}</p>
+        <Cta onClick={() => go("back")}>Back to the floor</Cta>
+      </>;
+    }
+    return (
+      <div key={`${c.kind}-${c.a?.id || c.r?.articleId || c.c?.id || c.kind}-${pos}`} className="absolute inset-0 flex flex-col rounded-[28px] px-5 pt-5 pb-4 overflow-hidden" style={{ background: C.bg, border: `1px solid ${C.line}`, boxShadow: lift(2), ...face(c, pos) }}>
+        {body}
       </div>
-      {annOpen && <MAnnouncementModal a={annOpen} onClose={() => setAnnOpen(null)} />}
+    );
+  };
+  return (
+    <div className="absolute inset-0 flex flex-col" style={{ background: C.surface }}>
+      <TopBar title="Shift update" onBack={() => go("back")} right={<span className="text-[11px] font-medium" style={{ color: C.muted, fontVariantNumeric: "tabular-nums" }}>{ix + 1} / {n}</span>} />
+      <div className="px-4 pt-2 pb-1">
+        <div className="flex items-center justify-between mb-1.5">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.12em]" style={{ color: C.muted }}>{chapter}</p>
+          <p className="text-[11px]" style={{ color: C.muted }}>{chapN > 1 ? `${chapI + 1} of ${chapN}` : ""}</p>
+        </div>
+        <div className="flex gap-1">{cards.map((c, k) => <button key={k} data-story-cta onClick={() => goTo(k)} className="h-[3px] rounded-full flex-1" style={{ background: k === ix ? C.ink : k < ix ? C.accent : C.line, opacity: k === ix ? 1 : .7 }} />)}</div>
+      </div>
+      <div ref={stage} className="relative flex-1 min-h-0 mx-3 mb-2" style={{ touchAction: "none" }}
+        onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp} onWheel={onWheel}>
+        {renderCard(cards[ix + 2], 2)}
+        {renderCard(cards[ix + 1], 1)}
+        {renderCard(cards[ix], 0)}
+      </div>
+      <div className="flex items-center justify-center gap-8 pb-2">
+        <button data-story-cta onClick={() => goTo(ix - 1)} disabled={ix === 0} className="w-10 h-10 rounded-full flex items-center justify-center" style={{ border: `1px solid ${C.line}`, color: ix === 0 ? C.line : C.ink }}><Ic i={ChevronLeft} s={18} mr={0} /></button>
+        <p className="text-[11px]" style={{ color: C.muted }}>{ix === 0 ? "swipe up to start" : ix === n - 1 ? "that's all" : "swipe up"}</p>
+        <button data-story-cta onClick={() => goTo(ix + 1)} disabled={ix === n - 1} className="w-10 h-10 rounded-full flex items-center justify-center" style={{ border: `1px solid ${C.line}`, color: ix === n - 1 ? C.line : C.ink }}><Ic i={ChevronRight} s={18} mr={0} /></button>
+      </div>
     </div>
   );
 }
