@@ -2290,12 +2290,12 @@ function MDashboard({ s, set, user, go, dismissed, setDismissed, onAssign }) {
         </div>
       ); })()}
       {(() => {
-        const pulse = briefingPulse(s);
-        const seen = briefingSeenToday(user.id);
+        const pulse = briefingUnseen(s, user.id);
+        const seen = pulse.total === 0;
+        const rej = pulse.anns + pulse.risks;
         const bits = [
-          pulse.anns && `${pulse.anns} note${pulse.anns === 1 ? "" : "s"} from Head`,
-          pulse.rejections && `${pulse.rejections} product${pulse.rejections === 1 ? "" : "s"} to watch`,
-          pulse.complaints && `${pulse.complaints} complaint article${pulse.complaints === 1 ? "" : "s"}`,
+          rej && `${rej} new rejection${rej === 1 ? "" : "s"}`,
+          pulse.complaints && `${pulse.complaints} new complaint${pulse.complaints === 1 ? "" : "s"}`,
         ].filter(Boolean);
         return (
           <div className="px-5 mb-3">
@@ -3217,10 +3217,18 @@ const complaintsLine = (s, articleId) => { const c = complaintsFor(s, articleId)
 const complaintsSeenKey = userId => `qcteam-complaints-seen-${userId}`;
 const complaintsNewCount = (s, userId) => { const meta = complaintsMeta(s); if (!meta.rows.length) return 0; let seen = ""; try { seen = localStorage.getItem(complaintsSeenKey(userId)) || ""; } catch {} return meta.rows.filter(r => (r.updatedAt || meta.updatedAt || "") > seen).length; };
 const markComplaintsSeen = userId => { try { localStorage.setItem(complaintsSeenKey(userId), nowISO()); } catch {} };
-// Shift update: what a controller should read before they start walking. Seen-today is device-local, same idea as complaints.
-const briefingSeenKey = userId => `qcteam-briefing-seen-${userId}`;
-const briefingSeenToday = userId => { try { return localStorage.getItem(briefingSeenKey(userId)) === new Date().toISOString().slice(0, 10); } catch { return false; } };
-const markBriefingSeen = userId => { try { localStorage.setItem(briefingSeenKey(userId), new Date().toISOString().slice(0, 10)); } catch {} };
+// Shift update: each card is an update. Viewing it stores a fingerprint on this device; next open only shows new ones
+// (a later rejection or a higher complaint count is a new fingerprint).
+const briefingItemsKey = userId => `qcteam-briefing-items-${userId}`;
+const readBriefingSeen = userId => { try { return new Set(JSON.parse(localStorage.getItem(briefingItemsKey(userId)) || "[]")); } catch { return new Set(); } };
+const markBriefingItem = (userId, fp) => { if (!fp) return; const set = readBriefingSeen(userId); set.add(fp); try { localStorage.setItem(briefingItemsKey(userId), JSON.stringify([...set])); } catch {} };
+const briefingFp = c => {
+  if (!c) return null;
+  if (c.kind === "ann") return `ann:${c.a.id}`;
+  if (c.kind === "risk") { const r = c.r; return `rej:${r.product?.id || r.articleId || r.hu}:${r.lastAt || ""}:${r.count || 0}:${r.priority || ""}:${r.pallets || 0}`; }
+  if (c.kind === "complaint") return `comp:${c.c.id}:${c.c.count}:${c.c.updatedAt || ""}`;
+  return null;
+};
 const briefingAnnouncements = s => (s.announcements || []).filter(a => (a.showOnDashboard || a.isBlocking || a.productId || a.categoryId) && (a.isBlocking || annActive(a))).sort((a, b) => (!!b.isBlocking - !!a.isBlocking) || (b.createdAt || "").localeCompare(a.createdAt || ""));
 const briefingRejections = s => {
   const live = dockRowsLive(s).filter(r => !lostOf(s, r));
@@ -3248,19 +3256,18 @@ const briefingRejections = s => {
   return out.sort((a, b) => (rank(b) - rank(a)) || (b.dock - a.dock) || ((b.count || 0) - (a.count || 0)) || (b.lastAt || "").localeCompare(a.lastAt || "") || (a.name || "").localeCompare(b.name || ""));
 };
 const briefingComplaints = s => [...complaintsMeta(s).rows].filter(r => r.count).sort((a, b) => (b.count || 0) - (a.count || 0) || (a.name || "").localeCompare(b.name || ""));
-const briefingPulse = s => { const anns = briefingAnnouncements(s).length, rejections = briefingRejections(s).length, complaints = briefingComplaints(s).length; return { anns, rejections, complaints, total: anns + rejections + complaints }; };
-// One card per beat — cover, each Head note, each problem product, each complaint, then "caught up".
-const briefingDeck = s => {
-  const anns = briefingAnnouncements(s), risks = briefingRejections(s), complaints = briefingComplaints(s), meta = complaintsMeta(s);
-  return [
-    { kind: "cover", anns: anns.length, risks: risks.length, complaints: complaints.length, period: meta.period },
-    ...anns.map(a => ({ kind: "ann", a })),
-    ...risks.map(r => ({ kind: "risk", r })),
-    ...complaints.map(c => ({ kind: "complaint", c })),
-    { kind: "done", anns: anns.length, risks: risks.length, complaints: complaints.length },
-  ];
+const briefingUnseen = (s, userId) => {
+  const seen = readBriefingSeen(userId);
+  const anns = briefingAnnouncements(s).filter(a => !seen.has(briefingFp({ kind: "ann", a })));
+  const risks = briefingRejections(s).filter(r => !seen.has(briefingFp({ kind: "risk", r })));
+  const complaints = briefingComplaints(s).filter(c => !seen.has(briefingFp({ kind: "complaint", c })));
+  return { anns, risks, complaints, total: anns.length + risks.length + complaints.length };
 };
-const briefingChapter = kind => kind === "ann" ? "From the Head" : kind === "risk" ? "Watch this" : kind === "complaint" ? "Customers" : kind === "done" ? "Caught up" : "Today";
+const briefingTabDeck = (s, tab, userId) => {
+  const u = briefingUnseen(s, userId);
+  if (tab === "complaints") return u.complaints.map(c => ({ kind: "complaint", c }));
+  return [...u.anns.map(a => ({ kind: "ann", a })), ...u.risks.map(r => ({ kind: "risk", r }))];
+};
 const ComplaintChip = ({ s, articleId }) => { const c = complaintsFor(s, articleId); if (!c || !c.count) return null; return <span className="text-[10px] px-1.5 py-0.5 rounded-full inline-flex items-center gap-1 flex-shrink-0" style={{ background: C.badBg, color: C.bad }}><Ic i={ThumbsDown} s={10} mr={0} />{c.count}</span>; };
 function MComplaints({ s, user, go }) {
   const meta = complaintsMeta(s); const [q, setQ] = useState(""); const qq = q.trim().toLowerCase();
@@ -3481,8 +3488,9 @@ function MDocks({ s, user, go }) {
   );
 }
 function MBriefing({ s, user, go }) {
-  useEffect(() => { markBriefingSeen(user.id); }, [user.id]);
-  const cards = briefingDeck(s);
+  const unseen = briefingUnseen(s, user.id);
+  const [tab, setTab] = useState("rejections");
+  const [cards, setCards] = useState(() => briefingTabDeck(s, "rejections", user.id));
   const [i, setI] = useState(0);
   const [dy, setDy] = useState(0);
   const [anim, setAnim] = useState(false);
@@ -3490,14 +3498,16 @@ function MBriefing({ s, user, go }) {
   const dragging = useRef(false);
   const wheelLock = useRef(false);
   const stage = useRef(null);
+  useEffect(() => { setCards(briefingTabDeck(s, tab, user.id)); setI(0); setDy(0); }, [tab]);
   const n = cards.length;
-  const ix = Math.max(0, Math.min(i, n - 1));
-  const card = cards[ix];
-  const goTo = nI => { setAnim(true); setDy(0); setI(Math.max(0, Math.min(n - 1, nI))); };
-  const firstOf = kind => cards.findIndex(c => c.kind === kind);
-  const chapter = briefingChapter(card.kind);
-  const inChapter = cards.map((c, k) => ({ c, k })).filter(x => briefingChapter(x.c.kind) === chapter);
-  const chapN = inChapter.length, chapI = Math.max(0, inChapter.findIndex(x => x.k === ix));
+  const ix = n ? Math.max(0, Math.min(i, n - 1)) : 0;
+  useEffect(() => {
+    const fp = briefingFp(cards[ix]);
+    if (!fp) return;
+    const t = setTimeout(() => markBriefingItem(user.id, fp), 400);
+    return () => clearTimeout(t);
+  }, [ix, tab, cards, user.id]);
+  const goTo = nI => { if (!n) return; setAnim(true); setDy(0); setI(Math.max(0, Math.min(n - 1, nI))); };
   const catPath = id => { const c = s.categories.find(x => x.id === id); if (!c) return null; const p = c.parentId && s.categories.find(x => x.id === c.parentId); return p ? `${p.name} › ${c.name}` : c.name; };
   const who = id => s.users.find(u => u.id === id)?.name.split(" ")[0];
   const onDown = e => {
@@ -3529,123 +3539,111 @@ function MBriefing({ s, user, go }) {
     goTo(ix + (e.deltaY > 0 ? 1 : -1));
     setTimeout(() => { wheelLock.current = false; }, 380);
   };
-  const openRisk = r => r.product ? go("catalog", r.product.id) : r.hu ? go("palletInfo", r.hu) : go("priority", r.priority || "High risk");
-  const Cta = ({ children, onClick }) => <button data-story-cta onClick={onClick} className="mt-auto w-full py-3 rounded-2xl text-sm font-semibold" style={{ background: C.ink, color: C.onDark }}>{children}</button>;
+  const openProduct = p => p && go("catalog", p.id);
+  const openRisk = r => r.hu ? go("palletInfo", r.hu) : go("priority", r.priority || "High risk");
+  const Cta = ({ children, onClick }) => <button data-story-cta onClick={onClick} className="mt-3 w-full py-3 rounded-2xl text-sm font-semibold" style={{ background: C.ink, color: C.onDark }}>{children}</button>;
+  const ProfileLink = ({ product }) => product ? <button data-story-cta onClick={() => openProduct(product)} className="mt-3 text-sm font-medium inline-flex items-center" style={{ color: C.accent }}>Product profile<Ic i={ChevronRight} s={14} mr={0} style={{ marginLeft: 2 }} /></button> : null;
   const Eye = ({ children, color }) => <p className="text-[11px] font-semibold uppercase tracking-[0.14em] mb-2" style={{ color: color || C.muted }}>{children}</p>;
   const edge = c => c.kind === "risk" ? (c.r.priority === "High issues" ? C.warn : C.bad) : c.kind === "complaint" ? C.bad : c.kind === "ann" && c.a.isBlocking ? C.bad : C.accent;
-  const face = (c, pos) => {
-    const liftY = pos === 0 ? dy : pos === 1 ? 10 : 18;
-    return {
-      top: pos === 0 ? 0 : 10 + pos * 6,
-      left: pos === 0 ? 0 : 12 + pos * 4,
-      right: pos === 0 ? 0 : 12 + pos * 4,
-      bottom: pos === 0 ? 28 : 0,
-      transform: `translateY(${liftY}px)`,
-      opacity: pos === 0 && dy < 0 ? Math.max(0.35, 1 + dy / 260) : pos === 0 ? 1 : pos === 1 ? 0.95 : 0.7,
-      transition: anim && !dragging.current ? "transform .32s cubic-bezier(.2,.8,.2,1), opacity .28s ease, top .32s ease" : "none",
-      zIndex: 8 - pos, pointerEvents: pos === 0 ? "auto" : "none",
-    };
+  const trans = anim && !dragging.current ? "transform .32s cubic-bezier(.2,.8,.2,1), opacity .28s ease" : "none";
+  const face = pos => {
+    if (pos < 0) return { top: 0, left: 16, right: 16, height: 34, overflow: "hidden", zIndex: 1, opacity: .5, transform: `translateY(${Math.max(0, dy) * .12}px)`, transition: trans, pointerEvents: "none" };
+    if (pos > 0) return { bottom: 0, left: 16, right: 16, height: 34, overflow: "hidden", zIndex: 1, opacity: .5, transform: `translateY(${Math.min(0, dy) * .12}px)`, transition: trans, pointerEvents: "none" };
+    return { top: 22, bottom: 22, left: 0, right: 0, zIndex: 4, transform: `translateY(${dy}px)`, opacity: dy < 0 ? Math.max(.4, 1 + dy / 260) : 1, transition: trans, pointerEvents: "auto" };
+  };
+  const Shot = ({ product, name }) => {
+    const photo = product && asPhotoList(product.photos)[0];
+    return (
+      <div className="rounded-[20px] mt-3 overflow-hidden flex items-center justify-center relative" style={{ height: 140, background: C.surface, border: `1px solid ${C.line}` }}>
+        {photo && <img src={photoSrc(photo)} alt="" className="absolute inset-0 w-full h-full object-contain p-3" onError={e => { e.currentTarget.style.display = "none"; const el = e.currentTarget.parentElement?.querySelector("[data-letter]"); if (el) el.style.opacity = ".35"; }} />}
+        <span data-letter className="text-[56px] font-semibold leading-none" style={{ color: C.line, opacity: photo ? 0 : .55 }}>{(name || "?")[0]}</span>
+      </div>
+    );
   };
   const renderCard = (c, pos) => {
     if (!c) return null;
-    const photoOf = p => p && asPhotoList(p.photos)[0];
-    const hero = (photo, letter, wash, tone) => (
-      <div className="rounded-[22px] mb-4 relative overflow-hidden flex items-end" style={{ height: 128, background: wash }}>
-        {photo && <img src={photoSrc(photo)} alt="" className="absolute inset-0 w-full h-full object-contain p-3" onError={e => { e.currentTarget.style.display = "none"; const el = e.currentTarget.parentElement?.querySelector("[data-letter]"); if (el) el.style.opacity = ".4"; }} />}
-        <span data-letter className="relative text-[64px] font-semibold leading-none px-3 pb-0.5" style={{ color: tone, opacity: photo ? 0 : .4 }}>{letter}</span>
-      </div>
-    );
-    const nextUp = cards.find((x, k) => k > ix && (x.kind === "risk" || x.kind === "complaint" || x.kind === "ann"));
     let body = null;
-    if (c.kind === "cover") {
-      const first = (user.name || "").split(" ")[0];
-      const date = new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "short" });
-      const Jump = ({ n, l, kind, tone }) => <button data-story-cta disabled={!n} onClick={() => n && goTo(firstOf(kind))} className="flex-1 rounded-2xl px-2.5 py-3 text-left" style={{ background: C.surface, border: `1px solid ${C.line}` }}><p className="text-[30px] font-semibold leading-none" style={{ color: n ? tone : C.muted, fontVariantNumeric: "tabular-nums" }}>{n}</p><p className="text-[10px] mt-1.5 leading-snug" style={{ color: C.muted }}>{l}</p></button>;
-      const tease = cards.find(x => x.kind === "risk") || cards.find(x => x.kind === "complaint") || cards.find(x => x.kind === "ann");
-      body = <>
-        <Eye color={C.accent}>{date}</Eye>
-        <p className="text-[34px] font-semibold leading-[1.05] tracking-tight">Today on<br />the floor.</p>
-        <p className="text-[15px] mt-3 leading-snug" style={{ color: C.muted }}>{first ? `${first}, two minutes` : "Two minutes"} — then you walk.</p>
-        <div className="flex gap-2 mt-6">
-          <Jump n={c.anns} l="from Head" kind="ann" tone={C.accent} />
-          <Jump n={c.risks} l="to watch" kind="risk" tone={C.bad} />
-          <Jump n={c.complaints} l="complaints" kind="complaint" tone={C.warn} />
-        </div>
-        {tease && <p className="text-[13px] mt-5 leading-snug" style={{ color: C.ink }}><span style={{ color: C.muted }}>Next up · </span>{tease.kind === "risk" ? tease.r.name : tease.kind === "complaint" ? (tease.c.name || tease.c.articleId) : tease.a.title}</p>}
-        <p className="mt-auto text-[12px] text-center" style={{ color: C.muted }}>swipe up</p>
-      </>;
-    } else if (c.kind === "ann") {
+    if (c.kind === "ann") {
       const a = c.a, prod = a.productId && s.products.find(p => p.id === a.productId);
       body = <>
         <Eye color={a.isBlocking ? C.bad : C.accent}>{a.isBlocking ? "Blocking note" : "From the Head"}</Eye>
-        {a.categoryId && <p className="text-[11px] mb-2" style={{ color: C.ok }}>{catPath(a.categoryId)}</p>}
-        <p className="text-[26px] font-semibold leading-[1.12] tracking-tight">{a.title}</p>
-        {a.body && <p className="text-[15px] mt-3 leading-relaxed" style={{ color: C.ink }}>{a.body}</p>}
-        <p className="text-[12px] mt-4" style={{ color: C.muted }}>{dayLabel(a.createdAt)}{who(a.createdBy) ? ` · ${who(a.createdBy)}` : ""}{(a.acks || {})[user.id] ? " · acknowledged" : ""}</p>
-        {prod ? <Cta onClick={() => go("catalog", prod.id)}>Open {prod.name}</Cta> : <p className="mt-auto text-[12px] text-center" style={{ color: C.muted }}>swipe up{nextUp ? ` · ${nextUp.kind === "risk" ? nextUp.r.name : "next"}` : ""}</p>}
+        <p className="text-[24px] font-semibold leading-[1.12] tracking-tight">{prod?.name || a.title}</p>
+        {prod && <Shot product={prod} name={prod.name} />}
+        {prod && a.title !== prod.name && <p className="text-[15px] font-semibold mt-3">{a.title}</p>}
+        {a.categoryId && <p className="text-[12px] mt-2" style={{ color: C.ok }}>{catPath(a.categoryId)}</p>}
+        {a.body && <p className="text-[14px] mt-3 leading-relaxed" style={{ color: C.ink }}>{a.body}</p>}
+        <p className="text-[12px] mt-3" style={{ color: C.muted }}>{dayLabel(a.createdAt)}{who(a.createdBy) ? ` · ${who(a.createdBy)}` : ""}</p>
+        <div className="mt-auto"><ProfileLink product={prod} /></div>
       </>;
     } else if (c.kind === "risk") {
-      const r = c.r, photo = photoOf(r.product);
-      const wash = r.priority === "High issues" ? C.warnBg : C.badBg;
-      const tone = r.priority === "High issues" ? C.warn : C.bad;
+      const r = c.r, tone = r.priority === "High issues" ? C.warn : C.bad;
       const line = r.count ? `${r.count} rejected${r.lastAt ? ` · last ${dayLabel(r.lastAt)}` : ""}` : r.priority === "High risk" ? "Rejected before — still on the docks." : "History of remarks — still on the docks.";
       body = <>
-        <Eye color={tone}>{r.priority || "Watch this"}</Eye>
-        {hero(photo, (r.name || "?")[0], wash, tone)}
+        <Eye color={tone}>{r.priority || "Rejection"}</Eye>
         <p className="text-[24px] font-semibold leading-[1.12] tracking-tight">{r.name}</p>
-        <p className="text-[15px] mt-2 leading-snug" style={{ color: tone }}>{line}</p>
-        {r.dock && <div className="flex items-end gap-2 mt-4"><p className="text-[40px] font-semibold leading-none" style={{ color: C.ink, fontVariantNumeric: "tabular-nums" }}>{r.pallets}</p><p className="text-[13px] pb-1" style={{ color: C.muted }}>pallet{r.pallets === 1 ? "" : "s"} standing now</p></div>}
-        {r.problems.length > 0 && <p className="text-[13px] mt-3 leading-snug" style={{ color: C.muted }}>Look for {r.problems.slice(0, 3).map(p => `${p.name} ×${p.count}`).join(", ")}{r.problems.length > 3 ? "…" : ""}.</p>}
-        <Cta onClick={() => openRisk(r)}>{r.product ? "Open product" : "Open pallet"}</Cta>
-      </>;
-    } else if (c.kind === "complaint") {
-      const row = c.c, p = productForArticle(s, row.articleId), photo = photoOf(p);
-      body = <>
-        <Eye color={C.bad}>Customers{complaintsMeta(s).period ? ` · ${complaintsMeta(s).period}` : ""}</Eye>
-        {hero(photo, (row.name || p?.name || "?")[0], C.badBg, C.bad)}
-        <p className="text-[56px] font-semibold leading-none tracking-tight" style={{ color: C.bad, fontVariantNumeric: "tabular-nums" }}>{row.count}</p>
-        <p className="text-[15px] mt-1" style={{ color: C.bad }}>freshness complaint{row.count === 1 ? "" : "s"}{row.subType ? ` · mostly ${row.subType}` : ""}</p>
-        <p className="text-[22px] font-semibold leading-[1.15] tracking-tight mt-3">{row.name || p?.name || row.articleId}</p>
-        <p className="text-[13px] mt-2 leading-snug" style={{ color: C.muted }}>Customers already noticed. Look closer today.{!p ? " No catalog profile yet." : ""}</p>
-        {p ? <Cta onClick={() => go("catalog", p.id)}>Open product</Cta> : <Cta onClick={() => go("complaints")}>See all complaints</Cta>}
+        <Shot product={r.product} name={r.name} />
+        <p className="text-[15px] mt-3 leading-snug" style={{ color: tone }}>{line}</p>
+        {r.dock && <div className="flex items-end gap-2 mt-3"><p className="text-[36px] font-semibold leading-none" style={{ fontVariantNumeric: "tabular-nums" }}>{r.pallets}</p><p className="text-[13px] pb-1" style={{ color: C.muted }}>on dock now</p></div>}
+        {r.problems.length > 0 && <p className="text-[13px] mt-2 leading-snug" style={{ color: C.muted }}>Look for {r.problems.slice(0, 3).map(p => `${p.name} ×${p.count}`).join(", ")}{r.problems.length > 3 ? "…" : ""}.</p>}
+        <div className="mt-auto">
+          <ProfileLink product={r.product} />
+          {!r.product && <Cta onClick={() => openRisk(r)}>Open pallet</Cta>}
+        </div>
       </>;
     } else {
+      const row = c.c, p = productForArticle(s, row.articleId);
       body = <>
-        <Eye color={C.ok}>Caught up</Eye>
-        <p className="text-[34px] font-semibold leading-[1.05] tracking-tight">You're<br />up to date.</p>
-        <p className="text-[15px] mt-3 leading-snug" style={{ color: C.muted }}>{[c.anns && `${c.anns} note${c.anns === 1 ? "" : "s"} from Head`, c.risks && `${c.risks} product${c.risks === 1 ? "" : "s"} to watch`, c.complaints && `${c.complaints} complaint article${c.complaints === 1 ? "" : "s"}`].filter(Boolean).join(" · ") || "Quiet floor — nothing live."}</p>
-        <Cta onClick={() => go("back")}>Back to the floor</Cta>
+        <Eye color={C.bad}>Complaint{complaintsMeta(s).period ? ` · ${complaintsMeta(s).period}` : ""}</Eye>
+        <p className="text-[24px] font-semibold leading-[1.12] tracking-tight">{row.name || p?.name || row.articleId}</p>
+        <Shot product={p} name={row.name || p?.name} />
+        <p className="text-[48px] font-semibold leading-none tracking-tight mt-3" style={{ color: C.bad, fontVariantNumeric: "tabular-nums" }}>{row.count}</p>
+        <p className="text-[14px] mt-1" style={{ color: C.bad }}>freshness complaint{row.count === 1 ? "" : "s"}{row.subType ? ` · mostly ${row.subType}` : ""}</p>
+        <p className="text-[13px] mt-2 leading-snug" style={{ color: C.muted }}>{p ? "Customers already noticed. Look closer today." : "No catalog profile yet."}</p>
+        <div className="mt-auto"><ProfileLink product={p} />{!p && <Cta onClick={() => go("complaints")}>See all complaints</Cta>}</div>
       </>;
     }
     return (
-      <div key={`${c.kind}-${c.a?.id || c.r?.articleId || c.c?.id || c.kind}-${pos}`} className="absolute flex flex-col rounded-[28px] px-5 pt-5 pb-4 overflow-hidden" style={{ background: C.bg, border: `1px solid ${C.line}`, borderTop: `3px solid ${edge(c)}`, boxShadow: lift(2), ...face(c, pos) }}>
+      <div key={`${c.kind}-${c.a?.id || c.r?.articleId || c.c?.id || "x"}-${pos}`} className="absolute flex flex-col rounded-[28px] px-5 pt-5 pb-4" style={{ background: C.bg, border: `1px solid ${C.line}`, borderTop: `3px solid ${edge(c)}`, boxShadow: lift(2), ...face(pos) }}>
         {body}
       </div>
     );
   };
+  const rejN = unseen.anns + unseen.risks;
+  const Tab = ({ id, label, count }) => <button data-story-cta onClick={() => setTab(id)} className="flex-1 py-2 text-sm font-medium" style={{ background: tab === id ? C.ink : "transparent", color: tab === id ? C.onDark : C.ink }}>{label}{count ? ` · ${count}` : ""}</button>;
   return (
     <div className="absolute inset-0 flex flex-col" style={{ background: C.surface }}>
-      <TopBar title="Shift update" onBack={() => go("back")} right={<span className="text-[11px] font-medium" style={{ color: C.muted, fontVariantNumeric: "tabular-nums" }}>{ix + 1} / {n}</span>} />
-      <div className="px-4 pt-2 pb-1">
-        <div className="flex items-center justify-between mb-1.5">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.12em]" style={{ color: C.muted }}>{chapter}{chapN > 1 ? ` · ${chapI + 1} of ${chapN}` : ""}</p>
-          <p className="text-[11px]" style={{ color: C.muted }}>{ix + 1} / {n}</p>
+      <TopBar title="Shift update" onBack={() => go("back")} right={n > 0 && <span className="text-[11px] font-medium" style={{ color: C.muted, fontVariantNumeric: "tabular-nums" }}>{ix + 1} / {n}</span>} />
+      <div className="px-4 pt-2">
+        <div className="flex rounded-xl overflow-hidden" style={{ border: `1px solid ${C.line}` }}>
+          <Tab id="rejections" label="Rejections" count={rejN} />
+          <Tab id="complaints" label="Complaints" count={unseen.complaints} />
         </div>
-        <button data-story-cta onClick={() => goTo(ix + 1)} className="w-full h-[4px] rounded-full overflow-hidden" style={{ background: C.line }}>
-          <span className="block h-full rounded-full" style={{ width: `${Math.round((ix + 1) / n * 100)}%`, background: C.ink }} />
-        </button>
       </div>
-      <div ref={stage} className="relative flex-1 min-h-0 mx-3 mb-1 overflow-hidden" style={{ touchAction: "none" }}
-        onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp} onWheel={onWheel}>
-        {renderCard(cards[ix + 2], 2)}
-        {renderCard(cards[ix + 1], 1)}
-        {renderCard(cards[ix], 0)}
-      </div>
-      <div className="flex items-center justify-center gap-8 pb-2">
-        <button data-story-cta onClick={() => goTo(ix - 1)} disabled={ix === 0} className="w-10 h-10 rounded-full flex items-center justify-center" style={{ border: `1px solid ${C.line}`, color: ix === 0 ? C.line : C.ink }}><Ic i={ChevronLeft} s={18} mr={0} /></button>
-        <p className="text-[11px]" style={{ color: C.muted }}>{ix === 0 ? "swipe up to start" : ix === n - 1 ? "that's all" : "swipe up"}</p>
-        <button data-story-cta onClick={() => goTo(ix + 1)} disabled={ix === n - 1} className="w-10 h-10 rounded-full flex items-center justify-center" style={{ border: `1px solid ${C.line}`, color: ix === n - 1 ? C.line : C.ink }}><Ic i={ChevronRight} s={18} mr={0} /></button>
-      </div>
+      {n === 0 ? (
+        <div className="flex-1 flex flex-col items-center justify-center px-8 text-center">
+          <p className="text-[22px] font-semibold tracking-tight">You're up to date.</p>
+          <p className="text-sm mt-2" style={{ color: C.muted }}>{tab === "complaints" ? "No new complaints to review." : "No new rejections to review."}</p>
+        </div>
+      ) : (
+        <>
+          <div className="px-4 pt-2 pb-1">
+            <div className="h-[3px] rounded-full overflow-hidden" style={{ background: C.line }}>
+              <span className="block h-full rounded-full" style={{ width: `${Math.round((ix + 1) / n * 100)}%`, background: C.ink }} />
+            </div>
+          </div>
+          <div ref={stage} className="relative flex-1 min-h-0 mx-3 mb-1 overflow-hidden" style={{ touchAction: "none" }}
+            onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp} onWheel={onWheel}>
+            {renderCard(cards[ix - 1], -1)}
+            {renderCard(cards[ix + 1], 1)}
+            {renderCard(cards[ix], 0)}
+          </div>
+          <div className="flex items-center justify-center gap-8 pb-2">
+            <button data-story-cta onClick={() => goTo(ix - 1)} disabled={ix === 0} className="w-10 h-10 rounded-full flex items-center justify-center" style={{ border: `1px solid ${C.line}`, color: ix === 0 ? C.line : C.ink }}><Ic i={ChevronLeft} s={18} mr={0} /></button>
+            <p className="text-[11px]" style={{ color: C.muted }}>{ix === n - 1 ? "that's all" : "swipe up"}</p>
+            <button data-story-cta onClick={() => goTo(ix + 1)} disabled={ix === n - 1} className="w-10 h-10 rounded-full flex items-center justify-center" style={{ border: `1px solid ${C.line}`, color: ix === n - 1 ? C.line : C.ink }}><Ic i={ChevronRight} s={18} mr={0} /></button>
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -3657,7 +3655,7 @@ function MMenu({ s, set, user, go, users, setUser, onLogout, dark, onTheme, simO
   return (
     <div>
       <TopBar title="Menu" />
-      <div className="px-4 pt-2">{items.map(([k, I, l]) => <button key={k} onClick={() => go(k)} className="w-full flex items-center gap-3 py-3.5 text-left" style={{ borderBottom: `1px solid ${C.line}` }}><span className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: C.bg, color: C.accent }}><Ic i={I} s={17} mr={0} /></span><span className="text-sm flex-1">{l}{k === "briefing" && !briefingSeenToday(user.id) && <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded-full font-medium" style={{ background: C.accentSoft, color: C.accent }}>open first</span>}</span><span style={{ color: C.muted }}>›</span></button>)}
+      <div className="px-4 pt-2">{items.map(([k, I, l]) => <button key={k} onClick={() => go(k)} className="w-full flex items-center gap-3 py-3.5 text-left" style={{ borderBottom: `1px solid ${C.line}` }}><span className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: C.bg, color: C.accent }}><Ic i={I} s={17} mr={0} /></span><span className="text-sm flex-1">{l}{k === "briefing" && briefingUnseen(s, user.id).total > 0 && <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded-full font-medium" style={{ background: C.accentSoft, color: C.accent }}>open first</span>}</span><span style={{ color: C.muted }}>›</span></button>)}
         <button onClick={onSimOffline} className="w-full flex items-center gap-3 py-3.5 text-left" style={{ borderBottom: `1px solid ${C.line}` }}><span className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: C.bg, color: simOffline ? C.warn : C.accent }}><Ic i={AlertTriangle} s={17} mr={0} /></span><span className="text-sm flex-1">Simulate no connection<span className="block text-[11px]" style={{ color: C.muted }}>prototype only — shows the offline banner</span></span><span className="w-10 h-6 rounded-full relative" style={{ background: simOffline ? C.warn : C.line }}><span className="absolute top-0.5 w-5 h-5 rounded-full" style={{ background: C.surface, left: simOffline ? 18 : 2, transition: "left .15s" }} /></span></button>
         <button onClick={onTheme} className="w-full flex items-center gap-3 py-3.5 text-left" style={{ borderBottom: `1px solid ${C.line}` }}><span className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: C.bg, color: C.accent }}><Ic i={dark ? Sun : Moon} s={17} mr={0} /></span><span className="text-sm flex-1">{dark ? "Light theme" : "Dark theme"}</span><span className="w-10 h-6 rounded-full relative" style={{ background: dark ? C.accent : C.line }}><span className="absolute top-0.5 w-5 h-5 rounded-full" style={{ background: C.surface, left: dark ? 18 : 2, transition: "left .15s" }} /></span></button>
         <p className="label-sm mt-5 mb-2" style={{ color: C.muted }}>Signed in</p>
