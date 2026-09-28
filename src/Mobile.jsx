@@ -2289,6 +2289,30 @@ function MDashboard({ s, set, user, go, dismissed, setDismissed, onAssign }) {
           {fr.map(f => { const stale = now - new Date(f.at).getTime() > 10 * 60000; return <span key={f.purpose} className="text-[11px] flex items-center gap-1" style={{ color: stale ? C.warn : C.muted }}><Ic i={stale ? AlertTriangle : Clock} s={11} mr={0} />{f.purpose === "Dock" ? "Dock data" : "Blocked pallets"} · {ago(f.at)}</span>; })}
         </div>
       ); })()}
+      {(() => {
+        const pulse = briefingPulse(s);
+        const seen = briefingSeenToday(user.id);
+        const bits = [
+          pulse.anns && `${pulse.anns} note${pulse.anns === 1 ? "" : "s"} from Head`,
+          pulse.rejections && `${pulse.rejections} product${pulse.rejections === 1 ? "" : "s"} rejected recently`,
+          pulse.complaints && `${pulse.complaints} complaint article${pulse.complaints === 1 ? "" : "s"}`,
+        ].filter(Boolean);
+        return (
+          <div className="px-5 mb-3">
+            <button onClick={() => go("briefing")} className="qc-elev qc-tile w-full text-left rounded-2xl px-3.5 py-3 flex items-center gap-3" style={{ background: C.bg, border: `1px solid ${C.line}`, borderLeft: `3px solid ${seen ? C.line : C.accent}` }}>
+              <span className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: C.accentSoft, color: C.accent }}><Ic i={BookOpen} s={18} mr={0} /></span>
+              <span className="min-w-0 flex-1">
+                <span className="flex items-center gap-2">
+                  <span className="text-sm font-semibold">Shift update</span>
+                  {!seen && <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium" style={{ background: C.accentSoft, color: C.accent }}>open first</span>}
+                </span>
+                <span className="block text-[11px] mt-0.5 leading-snug" style={{ color: C.muted }}>{bits.length ? bits.join(" · ") : "Nothing live — still worth a look"}</span>
+              </span>
+              <Ic i={ChevronRight} s={16} mr={0} style={{ color: C.muted }} />
+            </button>
+          </div>
+        );
+      })()}
       <div className="px-5"><DeadlineBanner s={s} alerts={computeDeadlineAlerts(s, now)} now={now} onOpen={al => go("palletInfo", al.hu)} /></div>
       {anns.length === 1 && <button onClick={() => anns[0].productId ? go("catalog", anns[0].productId) : setAnnOpen(anns[0])} className="qc-elev qc-tile text-left mx-5 mb-3 rounded-xl px-3.5 py-2.5 flex items-start gap-2.5" style={{ background: C.surface, border: `1px solid ${C.line}`, borderLeft: `3px solid ${C.accent}` }}><span style={{ color: C.accent, marginTop: 2 }}><Ic i={Megaphone} s={14} mr={0} /></span><p className="text-sm flex-1"><b>{anns[0].title}</b><span style={{ color: C.muted }}> — {truncate(anns[0].body)}</span></p><span onClick={e => { e.stopPropagation(); setDismissed(d => [...d, anns[0].id]); }} className="text-sm" style={{ color: C.muted }}>×</span></button>}
       {anns.length > 1 && <div className="mx-5 mb-3 rounded-xl overflow-hidden" style={{ background: C.surface, border: `1px solid ${C.line}` }}>{anns.map((a, i) => <button key={a.id} onClick={() => a.productId ? go("catalog", a.productId) : setAnnOpen(a)} className="w-full text-left px-3.5 py-2 flex items-center gap-2.5" style={{ borderTop: i ? `1px solid ${C.line}` : "none", borderLeft: `3px solid ${C.accent}` }}><span style={{ color: C.accent }}><Ic i={Megaphone} s={13} mr={0} /></span><p className="text-sm flex-1 truncate"><b>{a.title}</b></p><span onClick={e => { e.stopPropagation(); setDismissed(d => [...d, a.id]); }} className="text-sm" style={{ color: C.muted }}>×</span></button>)}</div>}
@@ -3193,6 +3217,23 @@ const complaintsLine = (s, articleId) => { const c = complaintsFor(s, articleId)
 const complaintsSeenKey = userId => `qcteam-complaints-seen-${userId}`;
 const complaintsNewCount = (s, userId) => { const meta = complaintsMeta(s); if (!meta.rows.length) return 0; let seen = ""; try { seen = localStorage.getItem(complaintsSeenKey(userId)) || ""; } catch {} return meta.rows.filter(r => (r.updatedAt || meta.updatedAt || "") > seen).length; };
 const markComplaintsSeen = userId => { try { localStorage.setItem(complaintsSeenKey(userId), nowISO()); } catch {} };
+// Shift update: what a controller should read before they start walking. Seen-today is device-local, same idea as complaints.
+const briefingSeenKey = userId => `qcteam-briefing-seen-${userId}`;
+const briefingSeenToday = userId => { try { return localStorage.getItem(briefingSeenKey(userId)) === new Date().toISOString().slice(0, 10); } catch { return false; } };
+const markBriefingSeen = userId => { try { localStorage.setItem(briefingSeenKey(userId), new Date().toISOString().slice(0, 10)); } catch {} };
+const briefingAnnouncements = s => (s.announcements || []).filter(a => (a.showOnDashboard || a.isBlocking || a.productId || a.categoryId) && (a.isBlocking || annActive(a))).sort((a, b) => (!!b.isBlocking - !!a.isBlocking) || (b.createdAt || "").localeCompare(a.createdAt || ""));
+const briefingRejections = s => {
+  const live = dockRowsLive(s).filter(r => !lostOf(s, r));
+  const onDock = new Set(live.map(r => r.article).filter(Boolean));
+  return s.products.map(p => {
+    const hist = recentProblemsFor(s, p.id);
+    if (!hist.count) return null;
+    const dock = !!(p.articleId && onDock.has(p.articleId));
+    return { product: p, dock, pallets: dock ? live.filter(r => r.article === p.articleId).length : 0, ...hist };
+  }).filter(Boolean).sort((a, b) => (b.dock - a.dock) || (b.lastAt || "").localeCompare(a.lastAt || ""));
+};
+const briefingComplaints = s => [...complaintsMeta(s).rows].filter(r => r.count).sort((a, b) => (b.count || 0) - (a.count || 0) || (a.name || "").localeCompare(b.name || ""));
+const briefingPulse = s => { const anns = briefingAnnouncements(s).length, rejections = briefingRejections(s).length, complaints = briefingComplaints(s).length; return { anns, rejections, complaints, total: anns + rejections + complaints }; };
 const ComplaintChip = ({ s, articleId }) => { const c = complaintsFor(s, articleId); if (!c || !c.count) return null; return <span className="text-[10px] px-1.5 py-0.5 rounded-full inline-flex items-center gap-1 flex-shrink-0" style={{ background: C.badBg, color: C.bad }}><Ic i={ThumbsDown} s={10} mr={0} />{c.count}</span>; };
 function MComplaints({ s, user, go }) {
   const meta = complaintsMeta(s); const [q, setQ] = useState(""); const qq = q.trim().toLowerCase();
@@ -3412,15 +3453,89 @@ function MDocks({ s, user, go }) {
     </div>
   );
 }
+function MBriefing({ s, user, go }) {
+  useEffect(() => { markBriefingSeen(user.id); }, [user.id]);
+  const [annOpen, setAnnOpen] = useState(null);
+  const anns = briefingAnnouncements(s);
+  const rejections = briefingRejections(s);
+  const complaints = briefingComplaints(s);
+  const meta = complaintsMeta(s);
+  const catPath = id => { const c = s.categories.find(x => x.id === id); if (!c) return null; const p = c.parentId && s.categories.find(x => x.id === c.parentId); return p ? `${p.name} › ${c.name}` : c.name; };
+  const who = id => s.users.find(u => u.id === id)?.name.split(" ")[0];
+  return (
+    <div className="pb-8">
+      <TopBar title="Shift update" onBack={() => go("back")} />
+      <div className="px-4 pt-3">
+        <p className="text-sm mb-4" style={{ color: C.muted }}>Open this at the start of your shift — Head notes, recent rejections and customer complaints, so you know what is live on the floor.</p>
+
+        <p className="label-sm mb-1.5" style={{ color: C.muted }}>From the Head{anns.length ? ` · ${anns.length}` : ""}</p>
+        {anns.length === 0 ? <p className="text-sm mb-4" style={{ color: C.muted }}>No live announcements.</p> : <div className="mb-4">{anns.map(a => (
+          <button key={a.id} onClick={() => a.productId ? go("catalog", a.productId) : setAnnOpen(a)} className="qc-elev qc-tile w-full text-left rounded-2xl px-3.5 py-3 mb-2" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
+            <div className="flex items-start gap-2.5">
+              <span className="mt-0.5" style={{ color: a.isBlocking ? C.bad : C.accent }}><Ic i={Megaphone} s={15} mr={0} /></span>
+              <span className="min-w-0 flex-1">
+                <span className="flex flex-wrap items-center gap-1.5 mb-1">
+                  {a.isBlocking && <span className="text-[10px] px-1.5 rounded" style={{ background: C.badBg, color: C.bad }}>blocking</span>}
+                  {a.showOnDashboard && <span className="text-[10px] px-1.5 rounded" style={{ background: C.accentSoft, color: C.accent }}>dashboard</span>}
+                  {a.productId && <span className="text-[10px] px-1.5 rounded" style={{ background: C.warnBg, color: C.warn }}>{s.products.find(p => p.id === a.productId)?.name || "product"}</span>}
+                  {a.categoryId && <span className="text-[10px] px-1.5 rounded" style={{ background: C.okBg, color: C.ok }}>{catPath(a.categoryId) || "category"}</span>}
+                </span>
+                <span className="block text-sm font-semibold leading-snug">{a.title}</span>
+                {a.body && <span className="block text-xs mt-1 leading-snug" style={{ color: C.muted }}>{truncate(a.body, 140)}</span>}
+                <span className="block text-[11px] mt-1.5" style={{ color: C.muted }}>{dayLabel(a.createdAt)}{who(a.createdBy) ? ` · ${who(a.createdBy)}` : ""}{(a.acks || {})[user.id] ? " · acknowledged" : ""}</span>
+              </span>
+              <Ic i={ChevronRight} s={16} mr={0} style={{ color: C.muted, marginTop: 2 }} />
+            </div>
+          </button>
+        ))}</div>}
+
+        <p className="label-sm mb-1.5" style={{ color: C.muted }}>Recent rejections · last 14 days{rejections.length ? ` · ${rejections.length}` : ""}</p>
+        {rejections.length === 0 ? <p className="text-sm mb-4" style={{ color: C.muted }}>No rejected verdicts in the last 14 days.</p> : <div className="mb-4">{rejections.map(r => (
+          <button key={r.product.id} onClick={() => go("catalog", r.product.id)} className="qc-elev qc-tile w-full text-left rounded-2xl px-3.5 py-3 mb-2" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
+            <div className="flex items-start gap-2">
+              <span className="min-w-0 flex-1">
+                <span className="flex flex-wrap items-center gap-1.5 mb-0.5">
+                  <span className="text-sm font-semibold leading-snug">{r.product.name}</span>
+                  {r.dock && <span className="text-[10px] px-1.5 rounded" style={{ background: C.badBg, color: C.bad }}>{r.pallets} on dock</span>}
+                </span>
+                <span className="block text-xs" style={{ color: C.bad }}>{r.count} rejected{r.lastAt ? ` · last ${dayLabel(r.lastAt)}` : ""}</span>
+                {r.problems.length > 0 && <span className="block text-[11px] mt-1 leading-snug" style={{ color: C.muted }}>Look for: {r.problems.slice(0, 3).map(p => `${p.name} ×${p.count}`).join(", ")}{r.problems.length > 3 ? "…" : ""}</span>}
+              </span>
+              <Ic i={ChevronRight} s={16} mr={0} style={{ color: C.muted, marginTop: 2 }} />
+            </div>
+          </button>
+        ))}</div>}
+
+        <p className="label-sm mb-1.5" style={{ color: C.muted }}>Customer complaints{meta.period ? ` · ${meta.period}` : ""}{complaints.length ? ` · ${complaints.length}` : ""}</p>
+        {complaints.length === 0 ? <p className="text-sm" style={{ color: C.muted }}>No complaints entered yet.</p> : complaints.map(r => {
+          const p = productForArticle(s, r.articleId);
+          return (
+            <button key={r.id} onClick={() => p ? go("catalog", p.id) : go("complaints")} disabled={!p} className="qc-elev qc-tile w-full text-left rounded-2xl px-3.5 py-3 mb-2" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
+              <div className="flex items-start gap-2">
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-semibold leading-snug">{r.name || p?.name || r.articleId}</span>
+                  <span className="block text-xs mt-0.5" style={{ color: C.bad }}>{r.count} freshness complaint{r.count === 1 ? "" : "s"}{r.subType ? ` · mostly ${r.subType}` : ""}</span>
+                  <span className="block text-[11px] mt-1" style={{ color: C.muted }}>{r.articleId}{!p ? " · no catalog profile" : ""}</span>
+                </span>
+                {p && <Ic i={ChevronRight} s={16} mr={0} style={{ color: C.muted, marginTop: 2 }} />}
+              </div>
+            </button>
+          );
+        })}
+      </div>
+      {annOpen && <MAnnouncementModal a={annOpen} onClose={() => setAnnOpen(null)} />}
+    </div>
+  );
+}
 function MMenu({ s, set, user, go, users, setUser, onLogout, dark, onTheme, simOffline, onSimOffline, onSync, syncMsg }) {
-  const items = user.role === "Head" ? [["profile", User, "Profile and statistics"], ["docks", Warehouse, "Dock map"], ["complaints", ThumbsDown, "Complaints"], ["head-escalations", HelpCircle, "Questions from controllers"], ["head-flags", Flag, "Flags to resolve"], ["head-announce", Megaphone, "New announcement"], ["announcements", Megaphone, "Announcements"], ["unreported", ShieldAlert, "Unreported pallets"], ["notifications", Bell, "Notifications"], ["history", ClipboardList, "Inspection history"]] : [["profile", User, "Profile and statistics"], ["docks", Warehouse, "Dock map"], ["complaints", ThumbsDown, "Complaints"], ["announcements", Megaphone, "Announcements"], ["unreported", ShieldAlert, "Unreported pallets"], ["notifications", Bell, "Notifications"], ["flags", Flag, "My flags"], ["history", ClipboardList, "Inspection history"]];
+  const items = user.role === "Head" ? [["briefing", BookOpen, "Shift update"], ["profile", User, "Profile and statistics"], ["docks", Warehouse, "Dock map"], ["complaints", ThumbsDown, "Complaints"], ["head-escalations", HelpCircle, "Questions from controllers"], ["head-flags", Flag, "Flags to resolve"], ["head-announce", Megaphone, "New announcement"], ["announcements", Megaphone, "Announcements"], ["unreported", ShieldAlert, "Unreported pallets"], ["notifications", Bell, "Notifications"], ["history", ClipboardList, "Inspection history"]] : [["briefing", BookOpen, "Shift update"], ["profile", User, "Profile and statistics"], ["docks", Warehouse, "Dock map"], ["complaints", ThumbsDown, "Complaints"], ["announcements", Megaphone, "Announcements"], ["unreported", ShieldAlert, "Unreported pallets"], ["notifications", Bell, "Notifications"], ["flags", Flag, "My flags"], ["history", ClipboardList, "Inspection history"]];
   const [dataOpen, setDataOpen] = useState(false); const [io, setIo] = useState(""); const [msg, setMsg] = useState("");
   const exportState = async () => { const json = JSON.stringify(s, null, 2); setIo(json); try { await navigator.clipboard.writeText(json); setMsg("Copied."); } catch { setMsg("Copy manually from the field."); } };
   const importState = () => { try { const p = JSON.parse(io); if (!p || !Array.isArray(p.categories)) throw 0; set(normalize(p), { replace: true }); setMsg("Loaded — portal data is on the phone."); } catch { setMsg("Not a valid export."); } };
   return (
     <div>
       <TopBar title="Menu" />
-      <div className="px-4 pt-2">{items.map(([k, I, l]) => <button key={k} onClick={() => go(k)} className="w-full flex items-center gap-3 py-3.5 text-left" style={{ borderBottom: `1px solid ${C.line}` }}><span className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: C.bg, color: C.accent }}><Ic i={I} s={17} mr={0} /></span><span className="text-sm flex-1">{l}</span><span style={{ color: C.muted }}>›</span></button>)}
+      <div className="px-4 pt-2">{items.map(([k, I, l]) => <button key={k} onClick={() => go(k)} className="w-full flex items-center gap-3 py-3.5 text-left" style={{ borderBottom: `1px solid ${C.line}` }}><span className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: C.bg, color: C.accent }}><Ic i={I} s={17} mr={0} /></span><span className="text-sm flex-1">{l}{k === "briefing" && !briefingSeenToday(user.id) && <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded-full font-medium" style={{ background: C.accentSoft, color: C.accent }}>open first</span>}</span><span style={{ color: C.muted }}>›</span></button>)}
         <button onClick={onSimOffline} className="w-full flex items-center gap-3 py-3.5 text-left" style={{ borderBottom: `1px solid ${C.line}` }}><span className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: C.bg, color: simOffline ? C.warn : C.accent }}><Ic i={AlertTriangle} s={17} mr={0} /></span><span className="text-sm flex-1">Simulate no connection<span className="block text-[11px]" style={{ color: C.muted }}>prototype only — shows the offline banner</span></span><span className="w-10 h-6 rounded-full relative" style={{ background: simOffline ? C.warn : C.line }}><span className="absolute top-0.5 w-5 h-5 rounded-full" style={{ background: C.surface, left: simOffline ? 18 : 2, transition: "left .15s" }} /></span></button>
         <button onClick={onTheme} className="w-full flex items-center gap-3 py-3.5 text-left" style={{ borderBottom: `1px solid ${C.line}` }}><span className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: C.bg, color: C.accent }}><Ic i={dark ? Sun : Moon} s={17} mr={0} /></span><span className="text-sm flex-1">{dark ? "Light theme" : "Dark theme"}</span><span className="w-10 h-6 rounded-full relative" style={{ background: dark ? C.accent : C.line }}><span className="absolute top-0.5 w-5 h-5 rounded-full" style={{ background: C.surface, left: dark ? 18 : 2, transition: "left .15s" }} /></span></button>
         <p className="label-sm mt-5 mb-2" style={{ color: C.muted }}>Signed in</p>
@@ -3743,7 +3858,7 @@ export default function App() {
   // The bottom bar is on every screen: a controller is never more than one tap from home, chat, catalog or the menu.
   // Leaving a running inspection this way is safe — it stays a Draft and can be resumed from History or by scanning the
   // pallet again. Sub-screens light up the tab they were opened from (menu pages → Menu, product history → Catalog).
-  const MENU_PAGES = ["profile", "notifications", "announcements", "flags", "history", "unreported", "docks", "complaints", "head-escalations", "head-flags", "head-announce"];
+  const MENU_PAGES = ["briefing", "profile", "notifications", "announcements", "flags", "history", "unreported", "docks", "complaints", "head-escalations", "head-flags", "head-announce"];
   const navPage = ["home", "chat", "catalog", "menu"].includes(page) ? page : MENU_PAGES.includes(page) ? "menu" : page === "productHistory" ? "catalog" : null;
   const unreadMsgs = s.conversations.filter(c => c.participantIds.includes(user.id)).reduce((a, c) => a + unreadIn(c, user.id), 0);
   const withNav = true;
@@ -3775,6 +3890,7 @@ export default function App() {
       {page === "flags" && <MFlags s={s} user={user} go={go} />}
       {page === "unreported" && <MUnreported s={s} set={set} user={user} go={go} />}
       {page === "docks" && <MDocks s={s} user={user} go={go} />}
+      {page === "briefing" && <MBriefing s={s} user={user} go={go} />}
       {page === "complaints" && <MComplaints s={s} user={user} go={go} />}
       {page === "head-escalations" && <MHeadEscalations s={s} set={set} user={user} go={go} notify={notify} />}
       {page === "head-flags" && <MHeadFlags s={s} set={set} user={user} go={go} notify={notify} />}
