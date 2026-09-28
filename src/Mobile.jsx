@@ -3529,16 +3529,17 @@ function MBriefing({ s, user, go }) {
   const Cta = ({ children, onClick, ghost }) => <button data-story-cta onClick={onClick} className="w-full py-2.5 rounded-2xl text-sm font-semibold inline-flex items-center justify-center gap-1" style={ghost ? { background: "transparent", color: C.ink, border: `1px solid ${C.line}` } : { background: C.ink, color: C.onDark }}>{children}</button>;
   const edge = c => c.kind === "rej" ? C.bad : c.kind === "complaint" ? C.bad : c.kind === "ann" && c.a.isBlocking ? C.bad : C.accent;
   const trans = anim && !dragging.current ? "transform .32s cubic-bezier(.2,.8,.2,1), opacity .28s ease" : "none";
-  const PEEK = 22;
+  const SIDE = 48;
   const face = pos => {
-    if (pos < 0) return { top: 18, bottom: 18, left: 0, width: PEEK + 6, overflow: "hidden", zIndex: 1, opacity: .4, transform: `translateX(${Math.max(0, dx) * .12}px)`, transition: trans, pointerEvents: "none" };
-    if (pos > 0) return { top: 18, bottom: 18, right: 0, width: PEEK + 6, overflow: "hidden", zIndex: 1, opacity: .4, transform: `translateX(${Math.min(0, dx) * .12}px)`, transition: trans, pointerEvents: "none" };
-    return { top: 6, bottom: 6, left: PEEK, right: PEEK, zIndex: 4, transform: `translateX(${dx}px)`, opacity: Math.abs(dx) > 8 ? Math.max(.45, 1 - Math.abs(dx) / 280) : 1, transition: trans, pointerEvents: "auto" };
+    const box = { top: 28, bottom: 28, left: SIDE, right: SIDE, overflow: "hidden" };
+    if (pos < 0) return { ...box, top: 44, bottom: 44, zIndex: 1, opacity: .5, transform: `translateX(${-SIDE + 10 + Math.max(0, dx) * .14}px) scale(.96)`, transformOrigin: "center", transition: trans, pointerEvents: "none" };
+    if (pos > 0) return { ...box, top: 44, bottom: 44, zIndex: 1, opacity: .5, transform: `translateX(${SIDE - 10 + Math.min(0, dx) * .14}px) scale(.96)`, transformOrigin: "center", transition: trans, pointerEvents: "none" };
+    return { ...box, top: 20, bottom: 20, zIndex: 4, transform: `translateX(${dx}px)`, opacity: Math.abs(dx) > 8 ? Math.max(.45, 1 - Math.abs(dx) / 280) : 1, transition: trans, pointerEvents: "auto" };
   };
   const Hero = ({ product, name }) => {
     const photo = product && asPhotoList(product.photos)[0];
     return (
-      <div className="relative flex-shrink-0 overflow-hidden flex items-center justify-center" style={{ height: 168, background: PHOTO_BG }}>
+      <div className="relative flex-shrink-0 overflow-hidden flex items-center justify-center" style={{ height: 128, background: PHOTO_BG }}>
         {photo && <img src={photoSrc(photo)} alt="" className="absolute inset-0 w-full h-full object-cover" onError={e => { e.currentTarget.style.display = "none"; const el = e.currentTarget.parentElement?.querySelector("[data-letter]"); if (el) el.style.opacity = "1"; }} />}
         <span data-letter className="text-[56px] font-semibold leading-none" style={{ color: "#8A9278", opacity: photo ? 0 : .55 }}>{(name || "?")[0]}</span>
       </div>
@@ -3561,7 +3562,7 @@ function MBriefing({ s, user, go }) {
       hero = <Hero product={prod} name={prod?.name || a.title} />;
       body = <>
         <p className="text-[11px] font-semibold uppercase tracking-[0.16em]" style={{ color: a.isBlocking ? C.bad : C.accent }}>{a.isBlocking ? "Blocking note" : "From the Head"}</p>
-        <p className="text-[22px] font-semibold leading-[1.15] tracking-tight mt-1">{prod?.name || a.title}</p>
+        <p className="text-[20px] font-semibold leading-[1.15] tracking-tight mt-1">{prod?.name || a.title}</p>
         {prod && <p className="text-[12px] mt-1" style={{ color: C.muted }}>{factsOf(prod).join(" · ")}</p>}
         {prod && a.title !== prod.name && <p className="text-[15px] font-semibold mt-2">{a.title}</p>}
         {a.categoryId && !prod && <p className="text-[12px] mt-1" style={{ color: C.ok }}>{catPath(a.categoryId)}</p>}
@@ -3576,7 +3577,7 @@ function MBriefing({ s, user, go }) {
       hero = <Hero product={prod} name={prod?.name} />;
       body = <>
         <p className="text-[11px] font-semibold uppercase tracking-[0.16em]" style={{ color: C.bad }}>Rejected · {dayLabel(insp.completedAt)}, {hhmm(insp.completedAt)}</p>
-        <p className="text-[22px] font-semibold leading-[1.15] tracking-tight mt-1">{prod?.name || "Product"}</p>
+        <p className="text-[20px] font-semibold leading-[1.15] tracking-tight mt-1">{prod?.name || "Product"}</p>
         {prod && <p className="text-[12px] mt-1" style={{ color: C.muted }}>{factsOf(prod).join(" · ")}</p>}
         <p className="text-[13px] mt-2.5" style={{ color: C.ink }}>by {who(insp.controllerId) || "controller"}{insp.supplier ? ` · ${insp.supplier}` : ""}{(insp.pallets || []).filter(Boolean).length ? ` · ${insp.pallets.filter(Boolean).join(", ")}` : ""}</p>
         {remarks.length > 0 && (
@@ -3598,9 +3599,9 @@ function MBriefing({ s, user, go }) {
       hero = <Hero product={p} name={row.name || p?.name} />;
       body = <>
         <p className="text-[11px] font-semibold uppercase tracking-[0.16em]" style={{ color: C.bad }}>Complaint{complaintsMeta(s).period ? ` · ${complaintsMeta(s).period}` : ""}</p>
-        <p className="text-[22px] font-semibold leading-[1.15] tracking-tight mt-1">{row.name || p?.name || row.articleId}</p>
+        <p className="text-[20px] font-semibold leading-[1.15] tracking-tight mt-1">{row.name || p?.name || row.articleId}</p>
         <p className="text-[12px] mt-1" style={{ color: C.muted }}>{[row.articleId && `ID ${row.articleId}`, p && catPath(p.categoryId)].filter(Boolean).join(" · ")}</p>
-        <p className="text-[40px] font-semibold leading-none tracking-tight mt-3" style={{ color: C.bad, fontVariantNumeric: "tabular-nums" }}>{row.count}</p>
+        <p className="text-[34px] font-semibold leading-none tracking-tight mt-2.5" style={{ color: C.bad, fontVariantNumeric: "tabular-nums" }}>{row.count}</p>
         <p className="text-[14px] mt-1" style={{ color: C.bad }}>freshness complaint{row.count === 1 ? "" : "s"}{row.subType ? ` · mostly ${row.subType}` : ""}</p>
         <p className="text-[13px] mt-2 leading-snug" style={{ color: C.muted }}>{p ? "Customers already noticed. Look closer today." : "No catalog profile yet."}</p>
         <div className="mt-auto pt-3 space-y-2">
@@ -3641,7 +3642,7 @@ function MBriefing({ s, user, go }) {
               <span className="block h-full rounded-full" style={{ width: `${Math.round((ix + 1) / n * 100)}%`, background: C.ink }} />
             </div>
           </div>
-          <div ref={stage} className="relative flex-1 min-h-0 mx-2 mb-1 overflow-hidden" style={{ touchAction: "none" }}
+          <div ref={stage} className="relative flex-1 min-h-0 mx-1 mb-1 overflow-hidden" style={{ touchAction: "none" }}
             onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp} onWheel={onWheel}>
             {renderCard(cards[ix - 1], -1)}
             {renderCard(cards[ix + 1], 1)}
