@@ -2236,6 +2236,10 @@ function ProblemsPage({ s, set }) {
   const sourceLabel = list => list.length <= 2 ? list.join(", ") : `${list.slice(0, 2).join(", ")} +${list.length - 2}`;
   const [addingSuggestion, setAddingSuggestion] = useState(null);
   const [addParent, setAddParent] = useState("");
+  const [sugQ, setSugQ] = useState("");
+  useEffect(() => { setSugQ(""); setAddingSuggestion(null); }, [scope.kind, scope.id]);
+  const sugQQ = sugQ.trim().toLowerCase();
+  const shownSug = sugQQ ? suggestions.filter(x => `${x.name} ${x.sources.join(" ")}`.toLowerCase().includes(sugQQ)) : suggestions;
   const parentOptions = problemParentOptions(visible);
   const catPath = c => { const p = c.parentId && s.categories.find(x => x.id === c.parentId); return p ? `${p.name} › ${c.name}` : c.name; };
   const isOwned = scope.kind === "Global" ? null : n => scope.kind === "Category" ? n.categoryId === scope.id : n.productId === scope.id;
@@ -2269,8 +2273,10 @@ function ProblemsPage({ s, set }) {
         {suggestions.length > 0 && (
           <Card>
             <p className="font-medium text-sm mb-1 flex items-center gap-1"><Ic i={Sparkles} s={14} mr={0} />Suggestions</p>
-            <p className="text-xs mb-3" style={{ color: C.muted }}>Used elsewhere, not yet here — click + to add.</p>
-            {suggestions.map(sug => (
+            <p className="text-xs mb-2" style={{ color: C.muted }}>Used elsewhere, not yet here — click + to add.</p>
+            <SearchBox value={sugQ} onChange={setSugQ} placeholder="Search suggestions" className="mb-2" inputClass="rounded-lg" size={13} />
+            {shownSug.length === 0 && <p className="text-xs py-3" style={{ color: C.muted }}>Nothing matches “{sugQ}”.</p>}
+            {shownSug.map(sug => (
               <div key={sug.name} className="py-1.5 px-1 rounded-lg" style={{ borderTop: `1px solid ${C.line}` }}>
                 <div className="flex items-center gap-2">
                   <span className="flex-1 min-w-0">
