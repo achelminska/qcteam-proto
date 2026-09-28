@@ -3532,37 +3532,46 @@ function MBriefing({ s, user, go }) {
   const openRisk = r => r.product ? go("catalog", r.product.id) : r.hu ? go("palletInfo", r.hu) : go("priority", r.priority || "High risk");
   const Cta = ({ children, onClick }) => <button data-story-cta onClick={onClick} className="mt-auto w-full py-3 rounded-2xl text-sm font-semibold" style={{ background: C.ink, color: C.onDark }}>{children}</button>;
   const Eye = ({ children, color }) => <p className="text-[11px] font-semibold uppercase tracking-[0.14em] mb-2" style={{ color: color || C.muted }}>{children}</p>;
+  const edge = c => c.kind === "risk" ? (c.r.priority === "High issues" ? C.warn : C.bad) : c.kind === "complaint" ? C.bad : c.kind === "ann" && c.a.isBlocking ? C.bad : C.accent;
   const face = (c, pos) => {
-    const off = pos === 0 ? dy : pos === 1 ? 16 + Math.min(20, Math.max(-8, dy * 0.12)) : 30;
-    const scale = pos === 0 ? 1 : pos === 1 ? 0.96 : 0.92;
-    const op = pos === 0 ? 1 : pos === 1 ? 0.88 : 0.5;
+    const liftY = pos === 0 ? dy : pos === 1 ? 10 : 18;
     return {
-      transform: `translateY(${off}px) scale(${scale})`,
-      opacity: pos === 0 && dy < 0 ? Math.max(0.25, 1 + dy / 280) : op,
-      transition: anim && !dragging.current ? "transform .32s cubic-bezier(.2,.8,.2,1), opacity .28s ease" : "none",
+      top: pos === 0 ? 0 : 10 + pos * 6,
+      left: pos === 0 ? 0 : 12 + pos * 4,
+      right: pos === 0 ? 0 : 12 + pos * 4,
+      bottom: pos === 0 ? 28 : 0,
+      transform: `translateY(${liftY}px)`,
+      opacity: pos === 0 && dy < 0 ? Math.max(0.35, 1 + dy / 260) : pos === 0 ? 1 : pos === 1 ? 0.95 : 0.7,
+      transition: anim && !dragging.current ? "transform .32s cubic-bezier(.2,.8,.2,1), opacity .28s ease, top .32s ease" : "none",
       zIndex: 8 - pos, pointerEvents: pos === 0 ? "auto" : "none",
     };
   };
   const renderCard = (c, pos) => {
     if (!c) return null;
     const photoOf = p => p && asPhotoList(p.photos)[0];
-    const hero = (photo, letter, wash) => photo
-      ? <div className="rounded-[22px] overflow-hidden mb-4" style={{ height: 168, background: PHOTO_BG }}><img src={photoSrc(photo)} alt="" className="w-full h-full object-cover" /></div>
-      : <div className="rounded-[22px] mb-4 flex items-end px-4 pb-2" style={{ height: 132, background: wash }}><span className="text-[72px] font-semibold leading-none" style={{ color: C.ink, opacity: .12 }}>{letter}</span></div>;
+    const hero = (photo, letter, wash, tone) => (
+      <div className="rounded-[22px] mb-4 relative overflow-hidden flex items-end" style={{ height: 128, background: wash }}>
+        {photo && <img src={photoSrc(photo)} alt="" className="absolute inset-0 w-full h-full object-contain p-3" />}
+        <span className="relative text-[64px] font-semibold leading-none px-3 pb-0.5" style={{ color: tone, opacity: photo ? 0 : .4 }}>{letter}</span>
+      </div>
+    );
+    const nextUp = cards.find((x, k) => k > ix && (x.kind === "risk" || x.kind === "complaint" || x.kind === "ann"));
     let body = null;
     if (c.kind === "cover") {
       const first = (user.name || "").split(" ")[0];
       const date = new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "short" });
-      const Jump = ({ n, l, kind }) => <button data-story-cta disabled={!n} onClick={() => n && goTo(firstOf(kind))} className="flex-1 text-left py-1"><p className="text-[28px] font-semibold leading-none" style={{ fontVariantNumeric: "tabular-nums" }}>{n}</p><p className="text-[11px] mt-1.5 leading-snug" style={{ color: C.muted }}>{l}</p></button>;
+      const Jump = ({ n, l, kind, tone }) => <button data-story-cta disabled={!n} onClick={() => n && goTo(firstOf(kind))} className="flex-1 rounded-2xl px-2.5 py-3 text-left" style={{ background: C.surface, border: `1px solid ${C.line}` }}><p className="text-[30px] font-semibold leading-none" style={{ color: n ? tone : C.muted, fontVariantNumeric: "tabular-nums" }}>{n}</p><p className="text-[10px] mt-1.5 leading-snug" style={{ color: C.muted }}>{l}</p></button>;
+      const tease = cards.find(x => x.kind === "risk") || cards.find(x => x.kind === "complaint") || cards.find(x => x.kind === "ann");
       body = <>
         <Eye color={C.accent}>{date}</Eye>
         <p className="text-[34px] font-semibold leading-[1.05] tracking-tight">Today on<br />the floor.</p>
-        <p className="text-[15px] mt-3 leading-snug" style={{ color: C.muted }}>{first ? `${first}, two minutes` : "Two minutes"} — then you walk. Flip through what's live.</p>
-        <div className="flex gap-4 mt-8 mb-2" style={{ borderTop: `1px solid ${C.line}`, paddingTop: 18 }}>
-          <Jump n={c.anns} l="notes from Head" kind="ann" />
-          <Jump n={c.risks} l="products to watch" kind="risk" />
-          <Jump n={c.complaints} l="complaint articles" kind="complaint" />
+        <p className="text-[15px] mt-3 leading-snug" style={{ color: C.muted }}>{first ? `${first}, two minutes` : "Two minutes"} — then you walk.</p>
+        <div className="flex gap-2 mt-6">
+          <Jump n={c.anns} l="from Head" kind="ann" tone={C.accent} />
+          <Jump n={c.risks} l="to watch" kind="risk" tone={C.bad} />
+          <Jump n={c.complaints} l="complaints" kind="complaint" tone={C.warn} />
         </div>
+        {tease && <p className="text-[13px] mt-5 leading-snug" style={{ color: C.ink }}><span style={{ color: C.muted }}>Next up · </span>{tease.kind === "risk" ? tease.r.name : tease.kind === "complaint" ? (tease.c.name || tease.c.articleId) : tease.a.title}</p>}
         <p className="mt-auto text-[12px] text-center" style={{ color: C.muted }}>swipe up</p>
       </>;
     } else if (c.kind === "ann") {
@@ -3573,19 +3582,19 @@ function MBriefing({ s, user, go }) {
         <p className="text-[26px] font-semibold leading-[1.12] tracking-tight">{a.title}</p>
         {a.body && <p className="text-[15px] mt-3 leading-relaxed" style={{ color: C.ink }}>{a.body}</p>}
         <p className="text-[12px] mt-4" style={{ color: C.muted }}>{dayLabel(a.createdAt)}{who(a.createdBy) ? ` · ${who(a.createdBy)}` : ""}{(a.acks || {})[user.id] ? " · acknowledged" : ""}</p>
-        {prod ? <Cta onClick={() => go("catalog", prod.id)}>Open {prod.name}</Cta> : <p className="mt-auto text-[12px] text-center" style={{ color: C.muted }}>swipe up</p>}
+        {prod ? <Cta onClick={() => go("catalog", prod.id)}>Open {prod.name}</Cta> : <p className="mt-auto text-[12px] text-center" style={{ color: C.muted }}>swipe up{nextUp ? ` · ${nextUp.kind === "risk" ? nextUp.r.name : "next"}` : ""}</p>}
       </>;
     } else if (c.kind === "risk") {
       const r = c.r, photo = photoOf(r.product);
       const wash = r.priority === "High issues" ? C.warnBg : C.badBg;
       const tone = r.priority === "High issues" ? C.warn : C.bad;
-      const line = r.count ? `${r.count} rejected${r.lastAt ? ` · last ${dayLabel(r.lastAt)}` : ""}` : r.priority === "High risk" ? "Rejected before — still standing on the docks." : "History of remarks — still standing on the docks.";
+      const line = r.count ? `${r.count} rejected${r.lastAt ? ` · last ${dayLabel(r.lastAt)}` : ""}` : r.priority === "High risk" ? "Rejected before — still on the docks." : "History of remarks — still on the docks.";
       body = <>
         <Eye color={tone}>{r.priority || "Watch this"}</Eye>
-        {hero(photo, (r.name || "?")[0], wash)}
-        <p className="text-[26px] font-semibold leading-[1.12] tracking-tight">{r.name}</p>
+        {hero(photo, (r.name || "?")[0], wash, tone)}
+        <p className="text-[24px] font-semibold leading-[1.12] tracking-tight">{r.name}</p>
         <p className="text-[15px] mt-2 leading-snug" style={{ color: tone }}>{line}</p>
-        {r.dock && <p className="text-[13px] mt-1" style={{ color: C.muted }}>{r.pallets} pallet{r.pallets === 1 ? "" : "s"} on dock now</p>}
+        {r.dock && <div className="flex items-end gap-2 mt-4"><p className="text-[40px] font-semibold leading-none" style={{ color: C.ink, fontVariantNumeric: "tabular-nums" }}>{r.pallets}</p><p className="text-[13px] pb-1" style={{ color: C.muted }}>pallet{r.pallets === 1 ? "" : "s"} standing now</p></div>}
         {r.problems.length > 0 && <p className="text-[13px] mt-3 leading-snug" style={{ color: C.muted }}>Look for {r.problems.slice(0, 3).map(p => `${p.name} ×${p.count}`).join(", ")}{r.problems.length > 3 ? "…" : ""}.</p>}
         <Cta onClick={() => openRisk(r)}>{r.product ? "Open product" : "Open pallet"}</Cta>
       </>;
@@ -3593,10 +3602,10 @@ function MBriefing({ s, user, go }) {
       const row = c.c, p = productForArticle(s, row.articleId), photo = photoOf(p);
       body = <>
         <Eye color={C.bad}>Customers{complaintsMeta(s).period ? ` · ${complaintsMeta(s).period}` : ""}</Eye>
-        {hero(photo, (row.name || p?.name || "?")[0], C.badBg)}
+        {hero(photo, (row.name || p?.name || "?")[0], C.badBg, C.bad)}
         <p className="text-[56px] font-semibold leading-none tracking-tight" style={{ color: C.bad, fontVariantNumeric: "tabular-nums" }}>{row.count}</p>
         <p className="text-[15px] mt-1" style={{ color: C.bad }}>freshness complaint{row.count === 1 ? "" : "s"}{row.subType ? ` · mostly ${row.subType}` : ""}</p>
-        <p className="text-[24px] font-semibold leading-[1.15] tracking-tight mt-3">{row.name || p?.name || row.articleId}</p>
+        <p className="text-[22px] font-semibold leading-[1.15] tracking-tight mt-3">{row.name || p?.name || row.articleId}</p>
         <p className="text-[13px] mt-2 leading-snug" style={{ color: C.muted }}>Customers already noticed. Look closer today.{!p ? " No catalog profile yet." : ""}</p>
         {p ? <Cta onClick={() => go("catalog", p.id)}>Open product</Cta> : <Cta onClick={() => go("complaints")}>See all complaints</Cta>}
       </>;
@@ -3609,7 +3618,7 @@ function MBriefing({ s, user, go }) {
       </>;
     }
     return (
-      <div key={`${c.kind}-${c.a?.id || c.r?.articleId || c.c?.id || c.kind}-${pos}`} className="absolute inset-0 flex flex-col rounded-[28px] px-5 pt-5 pb-4 overflow-hidden" style={{ background: C.bg, border: `1px solid ${C.line}`, boxShadow: lift(2), ...face(c, pos) }}>
+      <div key={`${c.kind}-${c.a?.id || c.r?.articleId || c.c?.id || c.kind}-${pos}`} className="absolute flex flex-col rounded-[28px] px-5 pt-5 pb-4 overflow-hidden" style={{ background: C.bg, border: `1px solid ${C.line}`, borderTop: `3px solid ${edge(c)}`, boxShadow: lift(2), ...face(c, pos) }}>
         {body}
       </div>
     );
@@ -3619,12 +3628,14 @@ function MBriefing({ s, user, go }) {
       <TopBar title="Shift update" onBack={() => go("back")} right={<span className="text-[11px] font-medium" style={{ color: C.muted, fontVariantNumeric: "tabular-nums" }}>{ix + 1} / {n}</span>} />
       <div className="px-4 pt-2 pb-1">
         <div className="flex items-center justify-between mb-1.5">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.12em]" style={{ color: C.muted }}>{chapter}</p>
-          <p className="text-[11px]" style={{ color: C.muted }}>{chapN > 1 ? `${chapI + 1} of ${chapN}` : ""}</p>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.12em]" style={{ color: C.muted }}>{chapter}{chapN > 1 ? ` · ${chapI + 1} of ${chapN}` : ""}</p>
+          <p className="text-[11px]" style={{ color: C.muted }}>{ix + 1} / {n}</p>
         </div>
-        <div className="flex gap-1">{cards.map((c, k) => <button key={k} data-story-cta onClick={() => goTo(k)} className="h-[3px] rounded-full flex-1" style={{ background: k === ix ? C.ink : k < ix ? C.accent : C.line, opacity: k === ix ? 1 : .7 }} />)}</div>
+        <button data-story-cta onClick={() => goTo(ix + 1)} className="w-full h-[4px] rounded-full overflow-hidden" style={{ background: C.line }}>
+          <span className="block h-full rounded-full" style={{ width: `${Math.round((ix + 1) / n * 100)}%`, background: C.ink }} />
+        </button>
       </div>
-      <div ref={stage} className="relative flex-1 min-h-0 mx-3 mb-2" style={{ touchAction: "none" }}
+      <div ref={stage} className="relative flex-1 min-h-0 mx-3 mb-1 overflow-hidden" style={{ touchAction: "none" }}
         onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp} onWheel={onWheel}>
         {renderCard(cards[ix + 2], 2)}
         {renderCard(cards[ix + 1], 1)}
