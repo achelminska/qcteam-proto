@@ -2292,10 +2292,11 @@ function MDashboard({ s, set, user, go, dismissed, setDismissed, onAssign }) {
       {(() => {
         const pulse = briefingUnseen(s, user.id);
         const seen = pulse.total === 0;
-        const rej = pulse.anns + pulse.risks;
+        const rej = pulse.anns.length + pulse.risks.length;
+        const comp = pulse.complaints.length;
         const bits = [
           rej && `${rej} new rejection${rej === 1 ? "" : "s"}`,
-          pulse.complaints && `${pulse.complaints} new complaint${pulse.complaints === 1 ? "" : "s"}`,
+          comp && `${comp} new complaint${comp === 1 ? "" : "s"}`,
         ].filter(Boolean);
         return (
           <div className="px-5 mb-3">
@@ -3541,22 +3542,22 @@ function MBriefing({ s, user, go }) {
   };
   const openProduct = p => p && go("catalog", p.id);
   const openRisk = r => r.hu ? go("palletInfo", r.hu) : go("priority", r.priority || "High risk");
-  const Cta = ({ children, onClick }) => <button data-story-cta onClick={onClick} className="mt-3 w-full py-3 rounded-2xl text-sm font-semibold" style={{ background: C.ink, color: C.onDark }}>{children}</button>;
-  const ProfileLink = ({ product }) => product ? <button data-story-cta onClick={() => openProduct(product)} className="mt-3 text-sm font-medium inline-flex items-center" style={{ color: C.accent }}>Product profile<Ic i={ChevronRight} s={14} mr={0} style={{ marginLeft: 2 }} /></button> : null;
-  const Eye = ({ children, color }) => <p className="text-[11px] font-semibold uppercase tracking-[0.14em] mb-2" style={{ color: color || C.muted }}>{children}</p>;
+  const Cta = ({ children, onClick, ghost }) => <button data-story-cta onClick={onClick} className="mt-3 w-full py-3 rounded-2xl text-sm font-semibold inline-flex items-center justify-center gap-1" style={ghost ? { background: "transparent", color: C.ink, border: `1px solid ${C.line}` } : { background: C.ink, color: C.onDark }}>{children}</button>;
+  const ProfileLink = ({ product }) => product ? <Cta ghost onClick={() => openProduct(product)}>Product profile<Ic i={ChevronRight} s={15} mr={0} /></Cta> : null;
+  const Eye = ({ children, color }) => <p className="text-[11px] font-semibold uppercase tracking-[0.16em] mb-2" style={{ color: color || C.muted }}>{children}</p>;
   const edge = c => c.kind === "risk" ? (c.r.priority === "High issues" ? C.warn : C.bad) : c.kind === "complaint" ? C.bad : c.kind === "ann" && c.a.isBlocking ? C.bad : C.accent;
   const trans = anim && !dragging.current ? "transform .32s cubic-bezier(.2,.8,.2,1), opacity .28s ease" : "none";
   const face = pos => {
-    if (pos < 0) return { top: 0, left: 16, right: 16, height: 44, overflow: "hidden", zIndex: 1, opacity: .55, transform: `translateY(${Math.max(0, dy) * .12}px)`, transition: trans, pointerEvents: "none" };
-    if (pos > 0) return { bottom: 0, left: 16, right: 16, height: 44, overflow: "hidden", zIndex: 1, opacity: .55, transform: `translateY(${Math.min(0, dy) * .12}px)`, transition: trans, pointerEvents: "none" };
-    return { top: 32, bottom: 32, left: 0, right: 0, zIndex: 4, transform: `translateY(${dy}px)`, opacity: dy < 0 ? Math.max(.4, 1 + dy / 260) : 1, transition: trans, pointerEvents: "auto" };
+    if (pos < 0) return { top: 6, left: 22, right: 22, height: 78, overflow: "hidden", zIndex: 1, opacity: .42, transform: `translateY(${Math.max(0, dy) * .1}px) scale(.97)`, transformOrigin: "top center", transition: trans, pointerEvents: "none" };
+    if (pos > 0) return { bottom: 6, left: 22, right: 22, height: 78, overflow: "hidden", zIndex: 1, opacity: .42, transform: `translateY(${Math.min(0, dy) * .1}px) scale(.97)`, transformOrigin: "bottom center", transition: trans, pointerEvents: "none" };
+    return { top: 58, bottom: 58, left: 0, right: 0, zIndex: 4, transform: `translateY(${dy}px)`, opacity: dy < 0 ? Math.max(.4, 1 + dy / 260) : 1, transition: trans, pointerEvents: "auto" };
   };
   const Shot = ({ product, name }) => {
     const photo = product && asPhotoList(product.photos)[0];
     return (
-      <div className="rounded-[20px] mt-3 overflow-hidden flex items-center justify-center relative" style={{ height: 140, background: C.surface, border: `1px solid ${C.line}` }}>
-        {photo && <img src={photoSrc(photo)} alt="" className="absolute inset-0 w-full h-full object-contain p-3" onError={e => { e.currentTarget.style.display = "none"; const el = e.currentTarget.parentElement?.querySelector("[data-letter]"); if (el) el.style.opacity = ".35"; }} />}
-        <span data-letter className="text-[56px] font-semibold leading-none" style={{ color: C.line, opacity: photo ? 0 : .55 }}>{(name || "?")[0]}</span>
+      <div className="mx-auto mt-3 rounded-[22px] overflow-hidden flex items-center justify-center relative" style={{ width: 112, height: 112, background: PHOTO_BG, border: `1px solid ${C.line}` }}>
+        {photo && <img src={photoSrc(photo)} alt="" className="absolute inset-0 w-full h-full object-contain p-2" onError={e => { e.currentTarget.style.display = "none"; const el = e.currentTarget.parentElement?.querySelector("[data-letter]"); if (el) el.style.opacity = "1"; }} />}
+        <span data-letter className="text-[40px] font-semibold leading-none" style={{ color: "#8A9278", opacity: photo ? 0 : 1 }}>{(name || "?")[0]}</span>
       </div>
     );
   };
@@ -3568,6 +3569,7 @@ function MBriefing({ s, user, go }) {
       body = <>
         <Eye color={a.isBlocking ? C.bad : C.accent}>{a.isBlocking ? "Blocking note" : "From the Head"}</Eye>
         <p className="text-[24px] font-semibold leading-[1.12] tracking-tight">{prod?.name || a.title}</p>
+        {prod && <p className="text-[12px] mt-1" style={{ color: C.muted }}>{prod.articleId || "in catalog"}</p>}
         {prod && <Shot product={prod} name={prod.name} />}
         {prod && a.title !== prod.name && <p className="text-[15px] font-semibold mt-3">{a.title}</p>}
         {a.categoryId && <p className="text-[12px] mt-2" style={{ color: C.ok }}>{catPath(a.categoryId)}</p>}
@@ -3581,6 +3583,7 @@ function MBriefing({ s, user, go }) {
       body = <>
         <Eye color={tone}>{r.priority || "Rejection"}</Eye>
         <p className="text-[24px] font-semibold leading-[1.12] tracking-tight">{r.name}</p>
+        {r.articleId && <p className="text-[12px] mt-1" style={{ color: C.muted }}>{r.articleId}</p>}
         <Shot product={r.product} name={r.name} />
         <p className="text-[15px] mt-3 leading-snug" style={{ color: tone }}>{line}</p>
         {r.dock && <div className="flex items-end gap-2 mt-3"><p className="text-[36px] font-semibold leading-none" style={{ fontVariantNumeric: "tabular-nums" }}>{r.pallets}</p><p className="text-[13px] pb-1" style={{ color: C.muted }}>on dock now</p></div>}
@@ -3595,6 +3598,7 @@ function MBriefing({ s, user, go }) {
       body = <>
         <Eye color={C.bad}>Complaint{complaintsMeta(s).period ? ` · ${complaintsMeta(s).period}` : ""}</Eye>
         <p className="text-[24px] font-semibold leading-[1.12] tracking-tight">{row.name || p?.name || row.articleId}</p>
+        {row.articleId && <p className="text-[12px] mt-1" style={{ color: C.muted }}>{row.articleId}</p>}
         <Shot product={p} name={row.name || p?.name} />
         <p className="text-[48px] font-semibold leading-none tracking-tight mt-3" style={{ color: C.bad, fontVariantNumeric: "tabular-nums" }}>{row.count}</p>
         <p className="text-[14px] mt-1" style={{ color: C.bad }}>freshness complaint{row.count === 1 ? "" : "s"}{row.subType ? ` · mostly ${row.subType}` : ""}</p>
@@ -3608,15 +3612,16 @@ function MBriefing({ s, user, go }) {
       </div>
     );
   };
-  const rejN = unseen.anns.length + unseen.risks.length;
-  const Tab = ({ id, label, count }) => <button data-story-cta onClick={() => setTab(id)} className="flex-1 py-2 text-sm font-medium" style={{ background: tab === id ? C.ink : "transparent", color: tab === id ? C.onDark : C.ink }}>{label}{count ? ` · ${count}` : ""}</button>;
+  const rejN = tab === "rejections" ? n : unseen.anns.length + unseen.risks.length;
+  const compN = tab === "complaints" ? n : unseen.complaints.length;
+  const Tab = ({ id, label, count }) => <button data-story-cta onClick={() => setTab(id)} className="flex-1 py-2 text-[13px] font-medium whitespace-nowrap" style={{ background: tab === id ? C.ink : "transparent", color: tab === id ? C.onDark : C.ink }}>{label}{count ? ` · ${count}` : ""}</button>;
   return (
     <div className="absolute inset-0 flex flex-col" style={{ background: C.surface }}>
       <TopBar title="Shift update" onBack={() => go("back")} right={n > 0 && <span className="text-[11px] font-medium" style={{ color: C.muted, fontVariantNumeric: "tabular-nums" }}>{ix + 1} / {n}</span>} />
       <div className="px-4 pt-2">
         <div className="flex rounded-xl overflow-hidden" style={{ border: `1px solid ${C.line}` }}>
           <Tab id="rejections" label="Rejections" count={rejN} />
-          <Tab id="complaints" label="Complaints" count={unseen.complaints.length} />
+          <Tab id="complaints" label="Complaints" count={compN} />
         </div>
       </div>
       {n === 0 ? (
