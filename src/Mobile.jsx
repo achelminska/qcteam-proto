@@ -3551,8 +3551,8 @@ function MBriefing({ s, user, go }) {
     const photoOf = p => p && asPhotoList(p.photos)[0];
     const hero = (photo, letter, wash, tone) => (
       <div className="rounded-[22px] mb-4 relative overflow-hidden flex items-end" style={{ height: 128, background: wash }}>
-        {photo && <img src={photoSrc(photo)} alt="" className="absolute inset-0 w-full h-full object-contain p-3" />}
-        <span className="relative text-[64px] font-semibold leading-none px-3 pb-0.5" style={{ color: tone, opacity: photo ? 0 : .4 }}>{letter}</span>
+        {photo && <img src={photoSrc(photo)} alt="" className="absolute inset-0 w-full h-full object-contain p-3" onError={e => { e.currentTarget.style.display = "none"; const el = e.currentTarget.parentElement?.querySelector("[data-letter]"); if (el) el.style.opacity = ".4"; }} />}
+        <span data-letter className="relative text-[64px] font-semibold leading-none px-3 pb-0.5" style={{ color: tone, opacity: photo ? 0 : .4 }}>{letter}</span>
       </div>
     );
     const nextUp = cards.find((x, k) => k > ix && (x.kind === "risk" || x.kind === "complaint" || x.kind === "ann"));
