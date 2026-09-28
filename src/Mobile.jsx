@@ -2294,7 +2294,7 @@ function MDashboard({ s, set, user, go, dismissed, setDismissed, onAssign }) {
         const seen = briefingSeenToday(user.id);
         const bits = [
           pulse.anns && `${pulse.anns} note${pulse.anns === 1 ? "" : "s"} from Head`,
-          pulse.rejections && `${pulse.rejections} product${pulse.rejections === 1 ? "" : "s"} rejected recently`,
+          pulse.rejections && `${pulse.rejections} product${pulse.rejections === 1 ? "" : "s"} to watch`,
           pulse.complaints && `${pulse.complaints} complaint article${pulse.complaints === 1 ? "" : "s"}`,
         ].filter(Boolean);
         return (
@@ -3224,13 +3224,28 @@ const markBriefingSeen = userId => { try { localStorage.setItem(briefingSeenKey(
 const briefingAnnouncements = s => (s.announcements || []).filter(a => (a.showOnDashboard || a.isBlocking || a.productId || a.categoryId) && (a.isBlocking || annActive(a))).sort((a, b) => (!!b.isBlocking - !!a.isBlocking) || (b.createdAt || "").localeCompare(a.createdAt || ""));
 const briefingRejections = s => {
   const live = dockRowsLive(s).filter(r => !lostOf(s, r));
-  const onDock = new Set(live.map(r => r.article).filter(Boolean));
-  return s.products.map(p => {
+  const byArticle = {};
+  live.forEach(r => { const k = r.article || r.hu; if (k) (byArticle[k] = byArticle[k] || []).push(r); });
+  const worstOf = rows => rows.find(r => r.priority === "High risk") ? "High risk" : rows.find(r => r.priority === "High issues") ? "High issues" : null;
+  const seen = new Set();
+  const out = [];
+  (s.products || []).forEach(p => {
     const hist = recentProblemsFor(s, p.id);
-    if (!hist.count) return null;
-    const dock = !!(p.articleId && onDock.has(p.articleId));
-    return { product: p, dock, pallets: dock ? live.filter(r => r.article === p.articleId).length : 0, ...hist };
-  }).filter(Boolean).sort((a, b) => (b.dock - a.dock) || (b.lastAt || "").localeCompare(a.lastAt || ""));
+    const rows = p.articleId ? (byArticle[p.articleId] || []) : [];
+    const priority = worstOf(rows);
+    if (!hist.count && !priority) return;
+    if (p.articleId) seen.add(p.articleId);
+    out.push({ product: p, name: p.name, articleId: p.articleId, dock: rows.length > 0, pallets: rows.length, priority, hu: rows[0]?.hu || null, ...hist });
+  });
+  Object.entries(byArticle).forEach(([article, rows]) => {
+    if (seen.has(article)) return;
+    const priority = worstOf(rows);
+    if (!priority) return;
+    const first = rows[0];
+    out.push({ product: null, name: first.name || article, articleId: article, dock: true, pallets: rows.length, priority, hu: first.hu || null, count: 0, problems: [], lastAt: null });
+  });
+  const rank = r => r.priority === "High risk" ? 2 : r.priority === "High issues" ? 1 : 0;
+  return out.sort((a, b) => (rank(b) - rank(a)) || (b.dock - a.dock) || ((b.count || 0) - (a.count || 0)) || (b.lastAt || "").localeCompare(a.lastAt || "") || (a.name || "").localeCompare(b.name || ""));
 };
 const briefingComplaints = s => [...complaintsMeta(s).rows].filter(r => r.count).sort((a, b) => (b.count || 0) - (a.count || 0) || (a.name || "").localeCompare(b.name || ""));
 const briefingPulse = s => { const anns = briefingAnnouncements(s).length, rejections = briefingRejections(s).length, complaints = briefingComplaints(s).length; return { anns, rejections, complaints, total: anns + rejections + complaints }; };
@@ -3489,22 +3504,27 @@ function MBriefing({ s, user, go }) {
           </button>
         ))}</div>}
 
-        <p className="label-sm mb-1.5" style={{ color: C.muted }}>Recent rejections · last 14 days{rejections.length ? ` · ${rejections.length}` : ""}</p>
-        {rejections.length === 0 ? <p className="text-sm mb-4" style={{ color: C.muted }}>No rejected verdicts in the last 14 days.</p> : <div className="mb-4">{rejections.map(r => (
-          <button key={r.product.id} onClick={() => go("catalog", r.product.id)} className="qc-elev qc-tile w-full text-left rounded-2xl px-3.5 py-3 mb-2" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
+        <p className="label-sm mb-1.5" style={{ color: C.muted }}>Rejections & high-risk{rejections.length ? ` · ${rejections.length}` : ""}</p>
+        {rejections.length === 0 ? <p className="text-sm mb-4" style={{ color: C.muted }}>No recent rejected verdicts and nothing high-risk on the docks.</p> : <div className="mb-4">{rejections.map(r => {
+          const open = () => r.product ? go("catalog", r.product.id) : r.hu ? go("palletInfo", r.hu) : go("priority", r.priority || "High risk");
+          const sub = r.count ? `${r.count} rejected${r.lastAt ? ` · last ${dayLabel(r.lastAt)}` : ""}` : r.priority === "High risk" ? "rejected before — on dock now" : "history of remarks — on dock now";
+          return (
+          <button key={r.product?.id || r.articleId || r.hu} onClick={open} className="qc-elev qc-tile w-full text-left rounded-2xl px-3.5 py-3 mb-2" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
             <div className="flex items-start gap-2">
               <span className="min-w-0 flex-1">
                 <span className="flex flex-wrap items-center gap-1.5 mb-0.5">
-                  <span className="text-sm font-semibold leading-snug">{r.product.name}</span>
-                  {r.dock && <span className="text-[10px] px-1.5 rounded" style={{ background: C.badBg, color: C.bad }}>{r.pallets} on dock</span>}
+                  <span className="text-sm font-semibold leading-snug">{r.name}</span>
+                  {r.priority && <span className="text-[10px] px-1.5 rounded" style={{ background: r.priority === "High risk" ? C.badBg : C.warnBg, color: r.priority === "High risk" ? C.bad : C.warn }}>{r.priority}</span>}
+                  {r.dock && <span className="text-[10px] px-1.5 rounded" style={{ background: C.accentSoft, color: C.accent }}>{r.pallets} on dock</span>}
                 </span>
-                <span className="block text-xs" style={{ color: C.bad }}>{r.count} rejected{r.lastAt ? ` · last ${dayLabel(r.lastAt)}` : ""}</span>
+                <span className="block text-xs" style={{ color: C.bad }}>{sub}</span>
                 {r.problems.length > 0 && <span className="block text-[11px] mt-1 leading-snug" style={{ color: C.muted }}>Look for: {r.problems.slice(0, 3).map(p => `${p.name} ×${p.count}`).join(", ")}{r.problems.length > 3 ? "…" : ""}</span>}
               </span>
               <Ic i={ChevronRight} s={16} mr={0} style={{ color: C.muted, marginTop: 2 }} />
             </div>
           </button>
-        ))}</div>}
+          );
+        })}</div>}
 
         <p className="label-sm mb-1.5" style={{ color: C.muted }}>Customer complaints{meta.period ? ` · ${meta.period}` : ""}{complaints.length ? ` · ${complaints.length}` : ""}</p>
         {complaints.length === 0 ? <p className="text-sm" style={{ color: C.muted }}>No complaints entered yet.</p> : complaints.map(r => {
