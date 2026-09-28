@@ -2289,6 +2289,31 @@ function MDashboard({ s, set, user, go, dismissed, setDismissed, onAssign }) {
           {fr.map(f => { const stale = now - new Date(f.at).getTime() > 10 * 60000; return <span key={f.purpose} className="text-[11px] flex items-center gap-1" style={{ color: stale ? C.warn : C.muted }}><Ic i={stale ? AlertTriangle : Clock} s={11} mr={0} />{f.purpose === "Dock" ? "Dock data" : "Blocked pallets"} · {ago(f.at)}</span>; })}
         </div>
       ); })()}
+      {(() => {
+        const pulse = briefingUnseen(s, user.id);
+        const seen = pulse.total === 0;
+        const rej = pulse.anns.length + pulse.risks.length;
+        const comp = pulse.complaints.length;
+        const bits = [
+          rej && `${rej} new rejection${rej === 1 ? "" : "s"}`,
+          comp && `${comp} new complaint${comp === 1 ? "" : "s"}`,
+        ].filter(Boolean);
+        return (
+          <div className="px-5 mb-3">
+            <button onClick={() => go("briefing")} className="qc-elev qc-tile w-full text-left rounded-2xl px-3.5 py-3 flex items-center gap-3" style={{ background: C.bg, border: `1px solid ${C.line}`, borderLeft: `3px solid ${seen ? C.line : C.accent}` }}>
+              <span className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: C.accentSoft, color: C.accent }}><Ic i={BookOpen} s={18} mr={0} /></span>
+              <span className="min-w-0 flex-1">
+                <span className="flex items-center gap-2">
+                  <span className="text-sm font-semibold">Shift update</span>
+                  {!seen && <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium" style={{ background: C.accentSoft, color: C.accent }}>open first</span>}
+                </span>
+                <span className="block text-[11px] mt-0.5 leading-snug" style={{ color: C.muted }}>{bits.length ? bits.join(" · ") : "Nothing live — still worth a look"}</span>
+              </span>
+              <Ic i={ChevronRight} s={16} mr={0} style={{ color: C.muted }} />
+            </button>
+          </div>
+        );
+      })()}
       <div className="px-5"><DeadlineBanner s={s} alerts={computeDeadlineAlerts(s, now)} now={now} onOpen={al => go("palletInfo", al.hu)} /></div>
       {anns.length === 1 && <button onClick={() => anns[0].productId ? go("catalog", anns[0].productId) : setAnnOpen(anns[0])} className="qc-elev qc-tile text-left mx-5 mb-3 rounded-xl px-3.5 py-2.5 flex items-start gap-2.5" style={{ background: C.surface, border: `1px solid ${C.line}`, borderLeft: `3px solid ${C.accent}` }}><span style={{ color: C.accent, marginTop: 2 }}><Ic i={Megaphone} s={14} mr={0} /></span><p className="text-sm flex-1"><b>{anns[0].title}</b><span style={{ color: C.muted }}> — {truncate(anns[0].body)}</span></p><span onClick={e => { e.stopPropagation(); setDismissed(d => [...d, anns[0].id]); }} className="text-sm" style={{ color: C.muted }}>×</span></button>}
       {anns.length > 1 && <div className="mx-5 mb-3 rounded-xl overflow-hidden" style={{ background: C.surface, border: `1px solid ${C.line}` }}>{anns.map((a, i) => <button key={a.id} onClick={() => a.productId ? go("catalog", a.productId) : setAnnOpen(a)} className="w-full text-left px-3.5 py-2 flex items-center gap-2.5" style={{ borderTop: i ? `1px solid ${C.line}` : "none", borderLeft: `3px solid ${C.accent}` }}><span style={{ color: C.accent }}><Ic i={Megaphone} s={13} mr={0} /></span><p className="text-sm flex-1 truncate"><b>{a.title}</b></p><span onClick={e => { e.stopPropagation(); setDismissed(d => [...d, a.id]); }} className="text-sm" style={{ color: C.muted }}>×</span></button>)}</div>}
@@ -3193,6 +3218,57 @@ const complaintsLine = (s, articleId) => { const c = complaintsFor(s, articleId)
 const complaintsSeenKey = userId => `qcteam-complaints-seen-${userId}`;
 const complaintsNewCount = (s, userId) => { const meta = complaintsMeta(s); if (!meta.rows.length) return 0; let seen = ""; try { seen = localStorage.getItem(complaintsSeenKey(userId)) || ""; } catch {} return meta.rows.filter(r => (r.updatedAt || meta.updatedAt || "") > seen).length; };
 const markComplaintsSeen = userId => { try { localStorage.setItem(complaintsSeenKey(userId), nowISO()); } catch {} };
+// Shift update: each card is an update. Viewing it stores a fingerprint on this device; next open only shows new ones
+// (a later rejection or a higher complaint count is a new fingerprint).
+const briefingItemsKey = userId => `qcteam-briefing-items-${userId}`;
+const readBriefingSeen = userId => { try { return new Set(JSON.parse(localStorage.getItem(briefingItemsKey(userId)) || "[]")); } catch { return new Set(); } };
+const markBriefingItem = (userId, fp) => { if (!fp) return; const set = readBriefingSeen(userId); set.add(fp); try { localStorage.setItem(briefingItemsKey(userId), JSON.stringify([...set])); } catch {} };
+const briefingFp = c => {
+  if (!c) return null;
+  if (c.kind === "ann") return `ann:${c.a.id}`;
+  if (c.kind === "risk") { const r = c.r; return `rej:${r.product?.id || r.articleId || r.hu}:${r.lastAt || ""}:${r.count || 0}:${r.priority || ""}:${r.pallets || 0}`; }
+  if (c.kind === "complaint") return `comp:${c.c.id}:${c.c.count}:${c.c.updatedAt || ""}`;
+  return null;
+};
+const briefingAnnouncements = s => (s.announcements || []).filter(a => (a.showOnDashboard || a.isBlocking || a.productId || a.categoryId) && (a.isBlocking || annActive(a))).sort((a, b) => (!!b.isBlocking - !!a.isBlocking) || (b.createdAt || "").localeCompare(a.createdAt || ""));
+const briefingRejections = s => {
+  const live = dockRowsLive(s).filter(r => !lostOf(s, r));
+  const byArticle = {};
+  live.forEach(r => { const k = r.article || r.hu; if (k) (byArticle[k] = byArticle[k] || []).push(r); });
+  const worstOf = rows => rows.find(r => r.priority === "High risk") ? "High risk" : rows.find(r => r.priority === "High issues") ? "High issues" : null;
+  const seen = new Set();
+  const out = [];
+  (s.products || []).forEach(p => {
+    const hist = recentProblemsFor(s, p.id);
+    const rows = p.articleId ? (byArticle[p.articleId] || []) : [];
+    const priority = worstOf(rows);
+    if (!hist.count && !priority) return;
+    if (p.articleId) seen.add(p.articleId);
+    out.push({ product: p, name: p.name, articleId: p.articleId, dock: rows.length > 0, pallets: rows.length, priority, hu: rows[0]?.hu || null, ...hist });
+  });
+  Object.entries(byArticle).forEach(([article, rows]) => {
+    if (seen.has(article)) return;
+    const priority = worstOf(rows);
+    if (!priority) return;
+    const first = rows[0];
+    out.push({ product: null, name: first.name || article, articleId: article, dock: true, pallets: rows.length, priority, hu: first.hu || null, count: 0, problems: [], lastAt: null });
+  });
+  const rank = r => r.priority === "High risk" ? 2 : r.priority === "High issues" ? 1 : 0;
+  return out.sort((a, b) => (rank(b) - rank(a)) || (b.dock - a.dock) || ((b.count || 0) - (a.count || 0)) || (b.lastAt || "").localeCompare(a.lastAt || "") || (a.name || "").localeCompare(b.name || ""));
+};
+const briefingComplaints = s => [...complaintsMeta(s).rows].filter(r => r.count).sort((a, b) => (b.count || 0) - (a.count || 0) || (a.name || "").localeCompare(b.name || ""));
+const briefingUnseen = (s, userId) => {
+  const seen = readBriefingSeen(userId);
+  const anns = briefingAnnouncements(s).filter(a => !seen.has(briefingFp({ kind: "ann", a })));
+  const risks = briefingRejections(s).filter(r => !seen.has(briefingFp({ kind: "risk", r })));
+  const complaints = briefingComplaints(s).filter(c => !seen.has(briefingFp({ kind: "complaint", c })));
+  return { anns, risks, complaints, total: anns.length + risks.length + complaints.length };
+};
+const briefingTabDeck = (s, tab, userId) => {
+  const u = briefingUnseen(s, userId);
+  if (tab === "complaints") return u.complaints.map(c => ({ kind: "complaint", c }));
+  return [...u.anns.map(a => ({ kind: "ann", a })), ...u.risks.map(r => ({ kind: "risk", r }))];
+};
 const ComplaintChip = ({ s, articleId }) => { const c = complaintsFor(s, articleId); if (!c || !c.count) return null; return <span className="text-[10px] px-1.5 py-0.5 rounded-full inline-flex items-center gap-1 flex-shrink-0" style={{ background: C.badBg, color: C.bad }}><Ic i={ThumbsDown} s={10} mr={0} />{c.count}</span>; };
 function MComplaints({ s, user, go }) {
   const meta = complaintsMeta(s); const [q, setQ] = useState(""); const qq = q.trim().toLowerCase();
@@ -3412,15 +3488,179 @@ function MDocks({ s, user, go }) {
     </div>
   );
 }
+function MBriefing({ s, user, go }) {
+  const unseen = briefingUnseen(s, user.id);
+  const [tab, setTab] = useState("rejections");
+  const [cards, setCards] = useState(() => briefingTabDeck(s, "rejections", user.id));
+  const [i, setI] = useState(0);
+  const [dy, setDy] = useState(0);
+  const [anim, setAnim] = useState(false);
+  const start = useRef(null);
+  const dragging = useRef(false);
+  const wheelLock = useRef(false);
+  const stage = useRef(null);
+  useEffect(() => { setCards(briefingTabDeck(s, tab, user.id)); setI(0); setDy(0); }, [tab]);
+  const n = cards.length;
+  const ix = n ? Math.max(0, Math.min(i, n - 1)) : 0;
+  useEffect(() => {
+    const fp = briefingFp(cards[ix]);
+    if (!fp) return;
+    const t = setTimeout(() => markBriefingItem(user.id, fp), 400);
+    return () => clearTimeout(t);
+  }, [ix, tab, cards, user.id]);
+  const goTo = nI => { if (!n) return; setAnim(true); setDy(0); setI(Math.max(0, Math.min(n - 1, nI))); };
+  const catPath = id => { const c = s.categories.find(x => x.id === id); if (!c) return null; const p = c.parentId && s.categories.find(x => x.id === c.parentId); return p ? `${p.name} › ${c.name}` : c.name; };
+  const who = id => s.users.find(u => u.id === id)?.name.split(" ")[0];
+  const onDown = e => {
+    if (e.target.closest("[data-story-cta]")) return;
+    dragging.current = true;
+    start.current = { y: e.clientY, x: e.clientX };
+    setAnim(false);
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch {}
+  };
+  const onMove = e => { if (!dragging.current || !start.current) return; setDy(e.clientY - start.current.y); };
+  const onUp = e => {
+    if (!dragging.current || !start.current) return;
+    dragging.current = false;
+    const d = e.clientY - start.current.y, dx = e.clientX - start.current.x;
+    const tap = Math.abs(d) < 12 && Math.abs(dx) < 12;
+    if (tap && stage.current) {
+      const rect = stage.current.getBoundingClientRect();
+      goTo(e.clientY > rect.top + rect.height * 0.58 ? ix + 1 : ix - 1);
+    } else if (d < -56) goTo(ix + 1);
+    else if (d > 56) goTo(ix - 1);
+    else { setAnim(true); setDy(0); }
+    start.current = null;
+  };
+  const onWheel = e => {
+    e.stopPropagation();
+    if (wheelLock.current) return;
+    if (Math.abs(e.deltaY) < 18) return;
+    wheelLock.current = true;
+    goTo(ix + (e.deltaY > 0 ? 1 : -1));
+    setTimeout(() => { wheelLock.current = false; }, 380);
+  };
+  const openProduct = p => p && go("catalog", p.id);
+  const openRisk = r => r.hu ? go("palletInfo", r.hu) : go("priority", r.priority || "High risk");
+  const Cta = ({ children, onClick, ghost }) => <button data-story-cta onClick={onClick} className="mt-3 w-full py-3 rounded-2xl text-sm font-semibold inline-flex items-center justify-center gap-1" style={ghost ? { background: "transparent", color: C.ink, border: `1px solid ${C.line}` } : { background: C.ink, color: C.onDark }}>{children}</button>;
+  const ProfileLink = ({ product }) => product ? <Cta ghost onClick={() => openProduct(product)}>Product profile<Ic i={ChevronRight} s={15} mr={0} /></Cta> : null;
+  const Eye = ({ children, color }) => <p className="text-[11px] font-semibold uppercase tracking-[0.16em] mb-2" style={{ color: color || C.muted }}>{children}</p>;
+  const edge = c => c.kind === "risk" ? (c.r.priority === "High issues" ? C.warn : C.bad) : c.kind === "complaint" ? C.bad : c.kind === "ann" && c.a.isBlocking ? C.bad : C.accent;
+  const trans = anim && !dragging.current ? "transform .32s cubic-bezier(.2,.8,.2,1), opacity .28s ease" : "none";
+  const face = pos => {
+    if (pos < 0) return { top: 6, left: 22, right: 22, height: 78, overflow: "hidden", zIndex: 1, opacity: .42, transform: `translateY(${Math.max(0, dy) * .1}px) scale(.97)`, transformOrigin: "top center", transition: trans, pointerEvents: "none" };
+    if (pos > 0) return { bottom: 6, left: 22, right: 22, height: 78, overflow: "hidden", zIndex: 1, opacity: .42, transform: `translateY(${Math.min(0, dy) * .1}px) scale(.97)`, transformOrigin: "bottom center", transition: trans, pointerEvents: "none" };
+    return { top: 58, bottom: 58, left: 0, right: 0, zIndex: 4, transform: `translateY(${dy}px)`, opacity: dy < 0 ? Math.max(.4, 1 + dy / 260) : 1, transition: trans, pointerEvents: "auto" };
+  };
+  const Shot = ({ product, name }) => {
+    const photo = product && asPhotoList(product.photos)[0];
+    return (
+      <div className="mx-auto mt-3 rounded-[22px] overflow-hidden flex items-center justify-center relative" style={{ width: 112, height: 112, background: PHOTO_BG, border: `1px solid ${C.line}` }}>
+        {photo && <img src={photoSrc(photo)} alt="" className="absolute inset-0 w-full h-full object-contain p-2" onError={e => { e.currentTarget.style.display = "none"; const el = e.currentTarget.parentElement?.querySelector("[data-letter]"); if (el) el.style.opacity = "1"; }} />}
+        <span data-letter className="text-[40px] font-semibold leading-none" style={{ color: "#8A9278", opacity: photo ? 0 : 1 }}>{(name || "?")[0]}</span>
+      </div>
+    );
+  };
+  const renderCard = (c, pos) => {
+    if (!c) return null;
+    let body = null;
+    if (c.kind === "ann") {
+      const a = c.a, prod = a.productId && s.products.find(p => p.id === a.productId);
+      body = <>
+        <Eye color={a.isBlocking ? C.bad : C.accent}>{a.isBlocking ? "Blocking note" : "From the Head"}</Eye>
+        <p className="text-[24px] font-semibold leading-[1.12] tracking-tight">{prod?.name || a.title}</p>
+        {prod && <p className="text-[12px] mt-1" style={{ color: C.muted }}>{prod.articleId || "in catalog"}</p>}
+        {prod && <Shot product={prod} name={prod.name} />}
+        {prod && a.title !== prod.name && <p className="text-[15px] font-semibold mt-3">{a.title}</p>}
+        {a.categoryId && <p className="text-[12px] mt-2" style={{ color: C.ok }}>{catPath(a.categoryId)}</p>}
+        {a.body && <p className="text-[14px] mt-3 leading-relaxed" style={{ color: C.ink }}>{a.body}</p>}
+        <p className="text-[12px] mt-3" style={{ color: C.muted }}>{dayLabel(a.createdAt)}{who(a.createdBy) ? ` · ${who(a.createdBy)}` : ""}</p>
+        <div className="mt-auto"><ProfileLink product={prod} /></div>
+      </>;
+    } else if (c.kind === "risk") {
+      const r = c.r, tone = r.priority === "High issues" ? C.warn : C.bad;
+      const line = r.count ? `${r.count} rejected${r.lastAt ? ` · last ${dayLabel(r.lastAt)}` : ""}` : r.priority === "High risk" ? "Rejected before — still on the docks." : "History of remarks — still on the docks.";
+      body = <>
+        <Eye color={tone}>{r.priority || "Rejection"}</Eye>
+        <p className="text-[24px] font-semibold leading-[1.12] tracking-tight">{r.name}</p>
+        {r.articleId && <p className="text-[12px] mt-1" style={{ color: C.muted }}>{r.articleId}</p>}
+        <Shot product={r.product} name={r.name} />
+        <p className="text-[15px] mt-3 leading-snug" style={{ color: tone }}>{line}</p>
+        {r.dock && <div className="flex items-end gap-2 mt-3"><p className="text-[36px] font-semibold leading-none" style={{ fontVariantNumeric: "tabular-nums" }}>{r.pallets}</p><p className="text-[13px] pb-1" style={{ color: C.muted }}>on dock now</p></div>}
+        {r.problems.length > 0 && <p className="text-[13px] mt-2 leading-snug" style={{ color: C.muted }}>Look for {r.problems.slice(0, 3).map(p => `${p.name} ×${p.count}`).join(", ")}{r.problems.length > 3 ? "…" : ""}.</p>}
+        <div className="mt-auto">
+          <ProfileLink product={r.product} />
+          {!r.product && <Cta onClick={() => openRisk(r)}>Open pallet</Cta>}
+        </div>
+      </>;
+    } else {
+      const row = c.c, p = productForArticle(s, row.articleId);
+      body = <>
+        <Eye color={C.bad}>Complaint{complaintsMeta(s).period ? ` · ${complaintsMeta(s).period}` : ""}</Eye>
+        <p className="text-[24px] font-semibold leading-[1.12] tracking-tight">{row.name || p?.name || row.articleId}</p>
+        {row.articleId && <p className="text-[12px] mt-1" style={{ color: C.muted }}>{row.articleId}</p>}
+        <Shot product={p} name={row.name || p?.name} />
+        <p className="text-[48px] font-semibold leading-none tracking-tight mt-3" style={{ color: C.bad, fontVariantNumeric: "tabular-nums" }}>{row.count}</p>
+        <p className="text-[14px] mt-1" style={{ color: C.bad }}>freshness complaint{row.count === 1 ? "" : "s"}{row.subType ? ` · mostly ${row.subType}` : ""}</p>
+        <p className="text-[13px] mt-2 leading-snug" style={{ color: C.muted }}>{p ? "Customers already noticed. Look closer today." : "No catalog profile yet."}</p>
+        <div className="mt-auto"><ProfileLink product={p} />{!p && <Cta onClick={() => go("complaints")}>See all complaints</Cta>}</div>
+      </>;
+    }
+    return (
+      <div key={`${c.kind}-${c.a?.id || c.r?.articleId || c.c?.id || "x"}-${pos}`} className="absolute flex flex-col rounded-[28px] px-5 pt-5 pb-4 overflow-hidden" style={{ background: C.bg, border: `1px solid ${C.line}`, borderTop: `3px solid ${edge(c)}`, boxShadow: lift(2), ...face(pos) }}>
+        {body}
+      </div>
+    );
+  };
+  const rejN = tab === "rejections" ? n : unseen.anns.length + unseen.risks.length;
+  const compN = tab === "complaints" ? n : unseen.complaints.length;
+  const Tab = ({ id, label, count }) => <button data-story-cta onClick={() => setTab(id)} className="flex-1 py-2 text-[13px] font-medium whitespace-nowrap" style={{ background: tab === id ? C.ink : "transparent", color: tab === id ? C.onDark : C.ink }}>{label}{count ? ` · ${count}` : ""}</button>;
+  return (
+    <div className="absolute inset-0 flex flex-col" style={{ background: C.surface }}>
+      <TopBar title="Shift update" onBack={() => go("back")} right={n > 0 && <span className="text-[11px] font-medium" style={{ color: C.muted, fontVariantNumeric: "tabular-nums" }}>{ix + 1} / {n}</span>} />
+      <div className="px-4 pt-2">
+        <div className="flex rounded-xl overflow-hidden" style={{ border: `1px solid ${C.line}` }}>
+          <Tab id="rejections" label="Rejections" count={rejN} />
+          <Tab id="complaints" label="Complaints" count={compN} />
+        </div>
+      </div>
+      {n === 0 ? (
+        <div className="flex-1 flex flex-col items-center justify-center px-8 text-center">
+          <p className="text-[22px] font-semibold tracking-tight">You're up to date.</p>
+          <p className="text-sm mt-2" style={{ color: C.muted }}>{tab === "complaints" ? "No new complaints to review." : "No new rejections to review."}</p>
+        </div>
+      ) : (
+        <>
+          <div className="px-4 pt-2 pb-1">
+            <div className="h-[3px] rounded-full overflow-hidden" style={{ background: C.line }}>
+              <span className="block h-full rounded-full" style={{ width: `${Math.round((ix + 1) / n * 100)}%`, background: C.ink }} />
+            </div>
+          </div>
+          <div ref={stage} className="relative flex-1 min-h-0 mx-3 mb-1 overflow-hidden" style={{ touchAction: "none" }}
+            onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp} onWheel={onWheel}>
+            {renderCard(cards[ix - 1], -1)}
+            {renderCard(cards[ix + 1], 1)}
+            {renderCard(cards[ix], 0)}
+          </div>
+          <div className="flex items-center justify-center gap-8 pb-2">
+            <button data-story-cta onClick={() => goTo(ix - 1)} disabled={ix === 0} className="w-10 h-10 rounded-full flex items-center justify-center" style={{ border: `1px solid ${C.line}`, color: ix === 0 ? C.line : C.ink }}><Ic i={ChevronLeft} s={18} mr={0} /></button>
+            <p className="text-[11px]" style={{ color: C.muted }}>{ix === n - 1 ? "that's all" : "swipe up"}</p>
+            <button data-story-cta onClick={() => goTo(ix + 1)} disabled={ix === n - 1} className="w-10 h-10 rounded-full flex items-center justify-center" style={{ border: `1px solid ${C.line}`, color: ix === n - 1 ? C.line : C.ink }}><Ic i={ChevronRight} s={18} mr={0} /></button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
 function MMenu({ s, set, user, go, users, setUser, onLogout, dark, onTheme, simOffline, onSimOffline, onSync, syncMsg }) {
-  const items = user.role === "Head" ? [["profile", User, "Profile and statistics"], ["docks", Warehouse, "Dock map"], ["complaints", ThumbsDown, "Complaints"], ["head-escalations", HelpCircle, "Questions from controllers"], ["head-flags", Flag, "Flags to resolve"], ["head-announce", Megaphone, "New announcement"], ["announcements", Megaphone, "Announcements"], ["unreported", ShieldAlert, "Unreported pallets"], ["notifications", Bell, "Notifications"], ["history", ClipboardList, "Inspection history"]] : [["profile", User, "Profile and statistics"], ["docks", Warehouse, "Dock map"], ["complaints", ThumbsDown, "Complaints"], ["announcements", Megaphone, "Announcements"], ["unreported", ShieldAlert, "Unreported pallets"], ["notifications", Bell, "Notifications"], ["flags", Flag, "My flags"], ["history", ClipboardList, "Inspection history"]];
+  const items = user.role === "Head" ? [["briefing", BookOpen, "Shift update"], ["profile", User, "Profile and statistics"], ["docks", Warehouse, "Dock map"], ["complaints", ThumbsDown, "Complaints"], ["head-escalations", HelpCircle, "Questions from controllers"], ["head-flags", Flag, "Flags to resolve"], ["head-announce", Megaphone, "New announcement"], ["announcements", Megaphone, "Announcements"], ["unreported", ShieldAlert, "Unreported pallets"], ["notifications", Bell, "Notifications"], ["history", ClipboardList, "Inspection history"]] : [["briefing", BookOpen, "Shift update"], ["profile", User, "Profile and statistics"], ["docks", Warehouse, "Dock map"], ["complaints", ThumbsDown, "Complaints"], ["announcements", Megaphone, "Announcements"], ["unreported", ShieldAlert, "Unreported pallets"], ["notifications", Bell, "Notifications"], ["flags", Flag, "My flags"], ["history", ClipboardList, "Inspection history"]];
   const [dataOpen, setDataOpen] = useState(false); const [io, setIo] = useState(""); const [msg, setMsg] = useState("");
   const exportState = async () => { const json = JSON.stringify(s, null, 2); setIo(json); try { await navigator.clipboard.writeText(json); setMsg("Copied."); } catch { setMsg("Copy manually from the field."); } };
   const importState = () => { try { const p = JSON.parse(io); if (!p || !Array.isArray(p.categories)) throw 0; set(normalize(p), { replace: true }); setMsg("Loaded — portal data is on the phone."); } catch { setMsg("Not a valid export."); } };
   return (
     <div>
       <TopBar title="Menu" />
-      <div className="px-4 pt-2">{items.map(([k, I, l]) => <button key={k} onClick={() => go(k)} className="w-full flex items-center gap-3 py-3.5 text-left" style={{ borderBottom: `1px solid ${C.line}` }}><span className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: C.bg, color: C.accent }}><Ic i={I} s={17} mr={0} /></span><span className="text-sm flex-1">{l}</span><span style={{ color: C.muted }}>›</span></button>)}
+      <div className="px-4 pt-2">{items.map(([k, I, l]) => <button key={k} onClick={() => go(k)} className="w-full flex items-center gap-3 py-3.5 text-left" style={{ borderBottom: `1px solid ${C.line}` }}><span className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: C.bg, color: C.accent }}><Ic i={I} s={17} mr={0} /></span><span className="text-sm flex-1">{l}{k === "briefing" && briefingUnseen(s, user.id).total > 0 && <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded-full font-medium" style={{ background: C.accentSoft, color: C.accent }}>open first</span>}</span><span style={{ color: C.muted }}>›</span></button>)}
         <button onClick={onSimOffline} className="w-full flex items-center gap-3 py-3.5 text-left" style={{ borderBottom: `1px solid ${C.line}` }}><span className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: C.bg, color: simOffline ? C.warn : C.accent }}><Ic i={AlertTriangle} s={17} mr={0} /></span><span className="text-sm flex-1">Simulate no connection<span className="block text-[11px]" style={{ color: C.muted }}>prototype only — shows the offline banner</span></span><span className="w-10 h-6 rounded-full relative" style={{ background: simOffline ? C.warn : C.line }}><span className="absolute top-0.5 w-5 h-5 rounded-full" style={{ background: C.surface, left: simOffline ? 18 : 2, transition: "left .15s" }} /></span></button>
         <button onClick={onTheme} className="w-full flex items-center gap-3 py-3.5 text-left" style={{ borderBottom: `1px solid ${C.line}` }}><span className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: C.bg, color: C.accent }}><Ic i={dark ? Sun : Moon} s={17} mr={0} /></span><span className="text-sm flex-1">{dark ? "Light theme" : "Dark theme"}</span><span className="w-10 h-6 rounded-full relative" style={{ background: dark ? C.accent : C.line }}><span className="absolute top-0.5 w-5 h-5 rounded-full" style={{ background: C.surface, left: dark ? 18 : 2, transition: "left .15s" }} /></span></button>
         <p className="label-sm mt-5 mb-2" style={{ color: C.muted }}>Signed in</p>
@@ -3743,7 +3983,7 @@ export default function App() {
   // The bottom bar is on every screen: a controller is never more than one tap from home, chat, catalog or the menu.
   // Leaving a running inspection this way is safe — it stays a Draft and can be resumed from History or by scanning the
   // pallet again. Sub-screens light up the tab they were opened from (menu pages → Menu, product history → Catalog).
-  const MENU_PAGES = ["profile", "notifications", "announcements", "flags", "history", "unreported", "docks", "complaints", "head-escalations", "head-flags", "head-announce"];
+  const MENU_PAGES = ["briefing", "profile", "notifications", "announcements", "flags", "history", "unreported", "docks", "complaints", "head-escalations", "head-flags", "head-announce"];
   const navPage = ["home", "chat", "catalog", "menu"].includes(page) ? page : MENU_PAGES.includes(page) ? "menu" : page === "productHistory" ? "catalog" : null;
   const unreadMsgs = s.conversations.filter(c => c.participantIds.includes(user.id)).reduce((a, c) => a + unreadIn(c, user.id), 0);
   const withNav = true;
@@ -3775,6 +4015,7 @@ export default function App() {
       {page === "flags" && <MFlags s={s} user={user} go={go} />}
       {page === "unreported" && <MUnreported s={s} set={set} user={user} go={go} />}
       {page === "docks" && <MDocks s={s} user={user} go={go} />}
+      {page === "briefing" && <MBriefing s={s} user={user} go={go} />}
       {page === "complaints" && <MComplaints s={s} user={user} go={go} />}
       {page === "head-escalations" && <MHeadEscalations s={s} set={set} user={user} go={go} notify={notify} />}
       {page === "head-flags" && <MHeadFlags s={s} set={set} user={user} go={go} notify={notify} />}
