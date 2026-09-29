@@ -2,7 +2,7 @@
 // HTTP on :3001 and, if server/cert.pem + server/key.pem exist, HTTPS on :3002 (needed when the app itself runs over HTTPS —
 // browsers block mixed content). Create the cert once:  npm run cert
 import http from "node:http"; import https from "node:https"; import fs from "node:fs"; import os from "node:os"; import path from "node:path"; import { fileURLToPath } from "node:url"; import zlib from "node:zlib";
-import { targetsFor, suggestMappings, applyMapping, detectTable, extractSummary } from "./sheetlogic.mjs";
+import { targetsFor, suggestMappings, adoptNewColumns, applyMapping, detectTable, extractSummary } from "./sheetlogic.mjs";
 import { applyDeadlineAlerts } from "./alertlogic.mjs";
 import { computeMissingPalletUpdate } from "./misslogic.mjs";
 import { retainInspections } from "./retain.mjs";
@@ -95,7 +95,7 @@ const applyPushToState = (purpose, sheet) => {
       // Still missing → the sheet's columns really changed (or this push is garbage mid-recalculation). Never wipe the dashboard
       // with a re-guessed mapping: keep the last good rows + the Head's mapping and say so; the Head re-maps in Integrations.
       if (needed.length && missing.length) { note += ` (kept last good data: ${missing.length} mapped column(s) missing — ${missing.slice(0, 3).join(", ")})`; return { ...i, rawHeader: sheet.header, rawRows: sheet.rows, lastPushAt: sheet.receivedAt, needsRemap: true, liveStatus: `Sheet columns changed — ${missing.length} mapped column(s) missing (${missing.slice(0, 3).join(", ")}). Keeping the last good data from ${i.lastSyncAt ? new Date(i.lastSyncAt).toLocaleTimeString("en-GB") : "before"}; re-map here to apply new pushes.` }; }
-      const mappings = i.mappings?.length && (i.header || []).join("|") === j.header.join("|") ? i.mappings : (needed.length ? i.mappings : suggestMappings(j.header, j.rows, tg));
+      const mappings = i.mappings?.length && (i.header || []).join("|") === j.header.join("|") ? i.mappings : (needed.length ? adoptNewColumns(i.mappings, j.header, j.rows, tg) : suggestMappings(j.header, j.rows, tg));
       const rows = applyMapping({ ...i, mappings }, j.header, j.rows);
       // A push where (almost) every row lacks a required value, right after a clean one, is the sheet caught mid-recalculation
       // (a formula column blank for a moment) — not the truth. Keep the last good rows; the next push will be clean again.
