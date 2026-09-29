@@ -10,11 +10,13 @@ export function SpecValue({ spec, temp, colors: C, extra }) {
   }
   const applied = spec?.perm ? spec : applyTempSpec(spec, t);
   return (
-    <span className="inline-flex items-baseline gap-1.5 flex-wrap justify-end" style={{ fontVariantNumeric: "tabular-nums" }}>
-      <span style={{ color: C.muted, textDecoration: "line-through" }}>{specLabel(applied.perm)}</span>
-      <span style={{ color: C.bad, fontWeight: 600 }}>{specLabel(applied)}</span>
-      {t.expiresAt ? <span className="text-[10px] font-medium whitespace-nowrap" style={{ color: C.bad }}>{tempUntilLabel(t)}</span> : null}
-      {extra}
+    <span className="inline-flex flex-col items-end leading-tight" style={{ fontVariantNumeric: "tabular-nums" }}>
+      <span className="inline-flex items-baseline gap-1.5">
+        <span style={{ color: C.muted, textDecoration: "line-through", textDecorationThickness: "1.5px" }}>{specLabel(applied.perm)}</span>
+        <span style={{ color: C.bad, fontWeight: 600 }}>{specLabel(applied)}</span>
+        {extra}
+      </span>
+      {t.expiresAt ? <span className="text-[10px] mt-0.5 font-medium" style={{ color: C.bad }}>{tempUntilLabel(t)}</span> : null}
     </span>
   );
 }
