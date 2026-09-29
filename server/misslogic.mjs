@@ -8,10 +8,11 @@
 // just one instant — does it get confirmed. This absorbs the sheet's own hiccups (a formula recalculating,
 // IMPORTRANGE lag) that can drop a handful of rows for a single push without anything real having happened.
 // A candidate that reappears before confirmation is dropped silently — it was never actually gone.
+import { rowUsable } from "../src/shared/sheet-rows.js";
 const norm = h => String(h || "").replace(/\D/g, "").replace(/^0+/, "");
 const samePallet = (a, b) => { const x = norm(a), y = norm(b); return !!x && !!y && (x === y || x.endsWith(y) || y.endsWith(x)); };
 // Rows with no HU have no stable identity to track disappearance by — they can't be told apart from one push to the next.
-const cleanRows = rows => { const seen = new Set(); return (rows || []).filter(r => !r._errors?.length).map(r => ({
+const cleanRows = rows => { const seen = new Set(); return (rows || []).filter(rowUsable).map(r => ({
   hu: String(r.hu || "").trim(), article: String(r.article || ""), name: r.name || "", location: r.location || "",
   priority: r.priority || "", po: r.po || "", transporter: r.transporter || "", arrived: r.arrived || "", arrivedTime: r.arrivedTime || "", cusPerTu: r.cusPerTu || "",
 })).filter(r => { const k = norm(r.hu); if (!k || seen.has(k)) return false; seen.add(k); return true; }); };

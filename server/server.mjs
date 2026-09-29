@@ -3,6 +3,7 @@
 // browsers block mixed content). Create the cert once:  npm run cert
 import http from "node:http"; import https from "node:https"; import fs from "node:fs"; import os from "node:os"; import path from "node:path"; import { fileURLToPath } from "node:url"; import zlib from "node:zlib";
 import { targetsFor, suggestMappings, applyMapping, detectTable, extractSummary } from "./sheetlogic.mjs";
+import { pushLooksLikeRecalc, rowUsable } from "../src/shared/sheet-rows.js";
 import { applyDeadlineAlerts } from "./alertlogic.mjs";
 import { computeMissingPalletUpdate } from "./misslogic.mjs";
 import { retainInspections } from "./retain.mjs";
@@ -89,10 +90,11 @@ const applyPushToState = (purpose, sheet) => {
       if (needed.length && missing.length) { note += ` (kept last good data: ${missing.length} mapped column(s) missing — ${missing.slice(0, 3).join(", ")})`; return { ...i, rawHeader: sheet.header, rawRows: sheet.rows, lastPushAt: sheet.receivedAt, needsRemap: true, liveStatus: `Sheet columns changed — ${missing.length} mapped column(s) missing (${missing.slice(0, 3).join(", ")}). Keeping the last good data from ${i.lastSyncAt ? new Date(i.lastSyncAt).toLocaleTimeString("en-GB") : "before"}; re-map here to apply new pushes.` }; }
       const mappings = i.mappings?.length && (i.header || []).join("|") === j.header.join("|") ? i.mappings : (needed.length ? i.mappings : suggestMappings(j.header, j.rows, tg));
       const rows = applyMapping({ ...i, mappings }, j.header, j.rows);
-      // A push where (almost) every row lacks a required value, right after a clean one, is the sheet caught mid-recalculation
-      // (a formula column blank for a moment) — not the truth. Keep the last good rows; the next push will be clean again.
-      const bad = rows.filter(r => r._errors?.length).length, prev = i.rows || [], prevBad = prev.filter(r => r._errors?.length).length;
-      if (rows.length >= 5 && bad / rows.length >= 0.5 && prev.length >= 5 && prevBad / prev.length < 0.2) { const top = {}; rows.forEach(r => (r._errors || []).forEach(e => { top[e] = (top[e] || 0) + 1; })); const why = Object.entries(top).sort((a, b) => b[1] - a[1]).slice(0, 2).map(([e, n]) => `${e} ×${n}`).join(", "); note += ` (kept last good data: ${bad}/${rows.length} rows unusable — ${why})`; return { ...i, rawHeader: sheet.header, rawRows: sheet.rows, lastPushAt: sheet.receivedAt, liveStatus: `Push at ${new Date(sheet.receivedAt).toLocaleTimeString("en-GB")}: ${bad} of ${rows.length} rows had no usable value (${why}) — the sheet was probably recalculating. Keeping the last good data from ${i.lastSyncAt ? new Date(i.lastSyncAt).toLocaleTimeString("en-GB") : "before"}.` }; }
+      // A push where (almost) every row loses its identity (HU / article), right after a clean one, is the sheet
+      // caught mid-recalculation. A blank arrival-date column is not that — those rows still have HUs and must land
+      // so a pallet that just appeared on the sheet is not kept off the phones for the next few pushes.
+      const prev = i.rows || [];
+      if (pushLooksLikeRecalc(rows, prev)) { const bad = rows.filter(r => !rowUsable(r)).length; const top = {}; rows.forEach(r => (r._errors || []).forEach(e => { top[e] = (top[e] || 0) + 1; })); const why = Object.entries(top).sort((a, b) => b[1] - a[1]).slice(0, 2).map(([e, n]) => `${e} ×${n}`).join(", "); note += ` (kept last good data: ${bad}/${rows.length} rows unusable — ${why})`; return { ...i, rawHeader: sheet.header, rawRows: sheet.rows, lastPushAt: sheet.receivedAt, liveStatus: `Push at ${new Date(sheet.receivedAt).toLocaleTimeString("en-GB")}: ${bad} of ${rows.length} rows had no usable value (${why}) — the sheet was probably recalculating. Keeping the last good data from ${i.lastSyncAt ? new Date(i.lastSyncAt).toLocaleTimeString("en-GB") : "before"}.` }; }
       return { ...i, header: j.header, sample: j.rows, rawHeader: sheet.header, rawRows: sheet.rows, mappings, needsRemap: false, rows: P !== "Products" ? rows : i.rows, summary: P !== "Products" ? extractSummary(sheet.header, sheet.rows) : i.summary, lastSyncAt: new Date().toISOString(), lastPushAt: sheet.receivedAt, liveStatus: `OK — ${j.rows.length} rows, pushed by the sheet at ${new Date(sheet.receivedAt).toLocaleTimeString("en-GB")} (applied on the server)` }; });
     // Same rows, same summary as before → nothing for the phones to re-download. Freshness travels via /meta instead.
     const gist = it => JSON.stringify([it.rows, it.summary, it.header, it.mappings, it.needsRemap]);
