@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, Fragment } from "react";
 import { createSyncer, guardUnload } from "./sync.js";
 import { hasV, specLabel, dayLabel, typesOf, typeById, legacyTypeId, inspType, countsAs, listCheck } from "./shared/format.js";
+import { activeTempForSpec, applyTempSpec, closeExpiredTempSpecs, tempUntilLabel } from "./shared/tempspec.js";
 import { peopleOnFloor, peopleAtDock, floorWhere, floorVerb, doneTodayCount } from "./shared/floor.js";
 import { readAsDataUrl, keepPhoto } from "./shared/report-images.js";
 import { drawReportPdf } from "./shared/report-pdf.js";
@@ -255,7 +256,7 @@ const tone = s => s === "exceeded" ? [C.bad, C.badBg] : s === "flagged" ? [C.war
 // ProductSpecification: MinValue / MaxValue (at least one). The "bad when" direction follows from what is set.
 const basisTag = q => q?.basis === "cu" ? " /CU" : "";
 // Specification cascade by name: product → category → parent category
-const effectiveSpecs = (s, product) => {
+const effectiveSpecs = (s, product, opts) => {
   if (!product) return [];
   const out = (product.specs || []).map(q => ({ ...q, source: "product" }));
   const key = q => `${(q.name || "").trim().toLowerCase()}|${specBasis(q)}`;
@@ -266,7 +267,8 @@ const effectiveSpecs = (s, product) => {
     (cat.specs || []).forEach(q => { const k = key(q); if (!seen.has(k)) { seen.add(k); if (!excluded.has((q.name || "").trim().toLowerCase())) out.push({ ...q, source: `category ${cat.name}` }); } });
     cat = cat.parentId ? s.categories.find(c => c.id === cat.parentId) : null;
   }
-  return out;
+  if (opts?.applyTemp === false) return out;
+  return out.map(q => applyTempSpec(q, activeTempForSpec(s.tempSpecs, q.id, product.id)));
 };
 // Problem nodes have a scope: none (global), categoryId or productId. Effective tree = global + category chain + product, minus hidden, no orphans.
 const categoryChainIds = (s, categoryId) => { const out = []; let c = s.categories.find(x => x.id === categoryId); while (c) { out.push(c.id); c = c.parentId ? s.categories.find(x => x.id === c.parentId) : null; } return out; };
@@ -1246,6 +1248,7 @@ function NumberInput({ f, problems, allProblems, overrides, specs, totals, value
         ? <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${Math.min(n, 2)}, minmax(0,1fr))` }}>{ms.map((m, i) => <SearchSelect key={i} value={m === "" ? "" : String(m)} onChange={v => setM(i, v)} options={choiceOptions} empty={n > 1 ? `reading ${i + 1}` : "— choose —"} placeholder="Search values…" searchFrom={11} />)}</div>
         : <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${n}, minmax(0,1fr))` }}>{ms.map((m, i) => <input key={i} type="number" inputMode="decimal" value={m} onChange={e => setM(i, e.target.value)} placeholder={`reading ${i + 1}`} className="text-base rounded-xl px-2 py-2.5 outline-none text-center" style={{ ...inp, fontVariantNumeric: "tabular-nums" }} />)}</div>}
       {lim.note && <p className="text-[11px] mt-1" style={{ color: C.muted }}>{lim.note}</p>}
+      {spec?.temp && <p className="text-[11px] mt-1" style={{ color: C.warn }}>Temporary spec {tempUntilLabel(spec.temp)}{spec.temp.note ? ` — ${spec.temp.note}` : ""}</p>}
       {avg !== null && <p className="text-xs mt-1.5" style={{ color: C.muted }}>average <b style={{ color: C.ink }}>{fmt(avg)}</b>{ref ? ` · reference ${ref}${byName ? ` (by name “${spec.name}"${spec.source !== "product" ? ", " + spec.source : ""})` : ""}` : (f.problemBelowId || f.problemAboveId) ? <span style={{ color: C.warn }}> · no reference — the product has no specification “{(f.specName || "").trim() || f.label}“ and the field has no min/max</span> : ""}</p>}
       {bad && !lp && <div className="rounded-lg px-3 py-1.5 mt-1.5 text-xs" style={{ background: C.warnBg, color: C.warn }}>Out of spec — warning only.</div>}
       {bad && lp && !raised && <RaiseForm problems={problems} overrides={overrides} linkedId={linkedId} totals={totals} onRaise={onRaise} intro="Out of spec" />}
@@ -1656,7 +1659,7 @@ const convName = (conv, s, userId) => conv.name || conv.participantIds.filter(id
 
 const SEED_USERS = () => [{ id: "u-head", name: "Aleksandra Chełmińska", firstName: "Aleksandra", lastName: "Chełmińska", email: "aleksandra.chelminska@qc.local", role: "Head", active: true }, { id: "u-anna", name: "Damian Mrówka", firstName: "Damian", lastName: "Mrówka", email: "damian.mrowka@qc.local", role: "Controller", active: true }, { id: "u-jakub", name: "Snizhana Myshkina", firstName: "Snizhana", lastName: "Myshkina", email: "snizhana.myshkina@qc.local", role: "Controller", active: true }];
 
-const EMPTY = { categories: [], problems: [], problemNotes: [], products: [], templates: [], suppliers: [], countries: [], users: SEED_USERS(), inspections: [], flags: [], notifications: [], announcements: [], conversations: [], dictionaries: [], inspectionTypes: SEED_TYPES(), settings: { defaultPolicy: "Visual", skipReasonRequired: false } };
+const EMPTY = { categories: [], problems: [], problemNotes: [], products: [], templates: [], suppliers: [], countries: [], users: SEED_USERS(), inspections: [], flags: [], notifications: [], announcements: [], conversations: [], dictionaries: [], inspectionTypes: SEED_TYPES(), tempSpecs: [], settings: { defaultPolicy: "Visual", skipReasonRequired: false } };
 
 // Migration of older exports: product.suppliers as names → global list + supplierIds
 
@@ -1691,6 +1694,7 @@ const normalize = raw => {
   s.categories = s.categories.map(c => ({ ...c, hiddenProblemIds: c.hiddenProblemIds || [], guide: Array.isArray(c.guide) ? c.guide.map(e => ({ ...e, photos: asPhotoList(e.photos) })) : [], hiddenGuideIds: Array.isArray(c.hiddenGuideIds) ? c.hiddenGuideIds : [] }));
   // Reference guide: per-product notes (description + photos) on a problem type, written by the Head, shown to controllers.
   s.problemNotes = (Array.isArray(s.problemNotes) ? s.problemNotes : []).map(n => ({ ...n, photos: asPhotoList(n.photos), description: n.description || "" }));
+  s.tempSpecs = closeExpiredTempSpecs(Array.isArray(s.tempSpecs) ? s.tempSpecs : []);
   s.countries = Array.isArray(s.countries) ? s.countries : [];
   s.dictionaries = Array.isArray(s.dictionaries) ? s.dictionaries : [];
   if (!s.dictionaries.length && s.countries.length) s.dictionaries = [{ id: "dict-countries", name: "Countries", items: s.countries.map(c => ({ id: c.id, value: c.name })), isActive: true }];
@@ -2570,7 +2574,12 @@ function MProductInfo({ s, user, product, go, setState, embedded }) {
       {ref && <button onClick={() => go("inspection", ref.id)} className="w-full rounded-xl px-3 py-2 mb-2 text-[13px] text-left flex items-center" style={{ background: C.okBg, color: C.ok }}><Ic i={Star} s={14} />Reference inspection<span className="ml-1" style={{ opacity: .75 }}>· what a good pallet looks like</span><Ic i={ChevronRight} s={14} mr={0} style={{ marginLeft: "auto" }} /></button>}
 
       {guide.length > 0 && <MSection title="Encyclopedia" count={guide.length}>{guide.map((e, ix) => <MEncyclopediaEntry key={e.id} e={e} last={ix === guide.length - 1} />)}</MSection>}
-      {specs.length > 0 && <MSection title="Specifications" count={specs.length}>{specs.map((q, ix) => <MRow key={q.id} k={q.name} v={specLabel(q)} last={ix === specs.length - 1} />)}</MSection>}
+      {specs.length > 0 && <MSection title="Specifications" count={specs.length}>{specs.map((q, ix) => (
+        <div key={q.id} className="py-1.5" style={{ borderBottom: ix === specs.length - 1 ? "none" : `1px solid ${C.line}` }}>
+          <div className="flex items-baseline justify-between gap-3 text-[13px]"><span style={{ color: C.muted }}>{q.name}{q.temp && <span className="ml-1.5 text-[10px] px-1.5 rounded-full" style={{ background: C.warnBg, color: C.warn }}>temp {tempUntilLabel(q.temp)}</span>}</span><span className="font-medium text-right" style={{ fontVariantNumeric: "tabular-nums" }}>{specLabel(q)}</span></div>
+          {q.temp?.note && <p className="text-[12px] mt-1 leading-snug" style={{ color: C.warn }}>{q.temp.note}</p>}
+        </div>
+      ))}</MSection>}
       {attrs.length > 0 && <MSection title="Properties" count={attrs.length}>{attrs.map((a, ix) => <MRow key={a.dictionaryId} k={a.list} v={a.value} last={ix === attrs.length - 1} />)}</MSection>}
       {refNotes.length > 0 && <MSection title="Reference guide" count={refNotes.length}>
         {refNotes.map((n, ix) => { const [parent, leaf] = splitPath(n.problemId); return <MGuideNote key={n.id} note={n} parent={parent} leaf={leaf} last={ix === refNotes.length - 1} />; })}
@@ -3039,12 +3048,14 @@ function MCatalog({ s, user, go, onStart, setState, notify, onVisual, preset }) 
           <p className="text-xs mb-2" style={{ color: C.muted }}>{products.length} product{products.length === 1 ? "" : "s"}</p>
           {(catOf(cat)?.specs || []).length > 0 && (
             <div className="grid grid-cols-2 gap-1.5 mb-3">
-              {catOf(cat).specs.map(q => (
+              {catOf(cat).specs.map(q => {
+                const shown = applyTempSpec(q, activeTempForSpec(s.tempSpecs, q.id, null));
+                return (
                 <div key={q.id} className="qc-tile rounded-xl px-3 py-2" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
-                  <p className="text-[10px] uppercase tracking-wide truncate" style={{ color: C.muted }}>{q.name}</p>
-                  <p className="text-[13px] font-semibold mt-0.5 leading-snug" style={{ fontVariantNumeric: "tabular-nums" }}>{specLabel(q)}</p>
+                  <p className="text-[10px] uppercase tracking-wide truncate" style={{ color: C.muted }}>{q.name}{shown.temp ? " · temp" : ""}</p>
+                  <p className="text-[13px] font-semibold mt-0.5 leading-snug" style={{ fontVariantNumeric: "tabular-nums" }}>{specLabel(shown)}</p>
                 </div>
-              ))}
+              ); })}
             </div>
           )}
           {subCats.length > 0 && <div className="flex gap-1.5 overflow-x-auto pb-2 mb-2">{subCats.map(c => <Chip key={c.id} on={false} onClick={() => setCat(c.id)}>{c.name} · {countIn(c.id)}</Chip>)}</div>}
