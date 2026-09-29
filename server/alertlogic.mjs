@@ -1,6 +1,7 @@
 // Rejection-deadline alerts: a pallet can only be rejected within `rejectionWindowHours` of arrival, sooner for a product
 // rejected recently. This is the server-side twin of computeDeadlineAlerts()/settingsOf() in Portal.jsx — kept in sync by
 // hand. This module is what actually *fires* notifications: it runs on a timer, independent of anyone having the app open.
+import { rowUsable } from "../src/shared/sheet-rows.js";
 const norm = h => String(h || "").replace(/\D/g, "").replace(/^0+/, "");
 const samePallet = (a, b) => { const x = norm(a), y = norm(b); return !!x && !!y && (x === y || x.endsWith(y) || y.endsWith(x)); };
 const settingsOf = s => ({ rejectionWindowHours: 24, deadlineWarnHours: 6, deadlineWarnHoursRisky: 10, riskyLookbackDays: 14, ...(s.settings || {}) });
@@ -8,7 +9,7 @@ const dockRows = s => {
   const it = (s.integrations || []).find(i => i.purpose === "Dock" && i.rows?.length);
   if (!it) return [];
   const seen = new Set();
-  return it.rows.filter(r => !r._errors?.length)
+  return it.rows.filter(r => rowUsable(r))
     .map(r => ({ hu: String(r.hu || "").trim(), article: String(r.article || ""), name: r.name || "", location: r.location || "", arrived: r.arrived || "", arrivedTime: r.arrivedTime || "" }))
     .filter(r => { const k = norm(r.hu); if (!k || seen.has(k)) return false; seen.add(k); return true; });
 };
