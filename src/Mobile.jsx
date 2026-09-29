@@ -3246,7 +3246,15 @@ const briefingUnseen = (s, userId) => {
 const briefingTabDeck = (s, tab, userId) => {
   const u = briefingUnseen(s, userId);
   if (tab === "complaints") return u.complaints.map(c => ({ kind: "complaint", c }));
-  return [...u.anns.map(a => ({ kind: "ann", a })), ...u.rejs.map(i => ({ kind: "rej", i }))];
+  if (tab === "notes") return u.anns.map(a => ({ kind: "ann", a }));
+  return u.rejs.map(i => ({ kind: "rej", i }));
+};
+const briefingDefaultTab = (s, userId) => {
+  const u = briefingUnseen(s, userId);
+  if (u.anns.length) return "notes";
+  if (u.rejs.length) return "rejections";
+  if (u.complaints.length) return "complaints";
+  return "rejections";
 };
 const briefingRemark = (s, r) => {
   const name = pathOf(s.problems, r.leafId).split(" › ").pop() || "?";
@@ -3475,8 +3483,8 @@ function MDocks({ s, user, go }) {
 }
 function MBriefing({ s, user, go }) {
   const unseen = briefingUnseen(s, user.id);
-  const [tab, setTab] = useState("rejections");
-  const [cards, setCards] = useState(() => briefingTabDeck(s, "rejections", user.id));
+  const [tab, setTab] = useState(() => briefingDefaultTab(s, user.id));
+  const [cards, setCards] = useState(() => briefingTabDeck(s, briefingDefaultTab(s, user.id), user.id));
   const [i, setI] = useState(0);
   const [dx, setDx] = useState(0);
   const [anim, setAnim] = useState(false);
@@ -3566,9 +3574,12 @@ function MBriefing({ s, user, go }) {
         {prod && <p className="text-[12px] mt-1" style={{ color: C.muted }}>{factsOf(prod).join(" · ")}</p>}
         {prod && a.title !== prod.name && <p className="text-[15px] font-semibold mt-2">{a.title}</p>}
         {a.categoryId && !prod && <p className="text-[12px] mt-1" style={{ color: C.ok }}>{catPath(a.categoryId)}</p>}
-        {a.body && <p className="text-[14px] mt-2 leading-relaxed" style={{ color: C.ink }}>{a.body}</p>}
+        {a.body && <p className="text-[14px] mt-2 leading-snug line-clamp-2" style={{ color: C.ink }}>{truncate(a.body, 140)}</p>}
         <p className="text-[12px] mt-2" style={{ color: C.muted }}>{dayLabel(a.createdAt)}{who(a.createdBy) ? ` · ${who(a.createdBy)}` : ""}</p>
-        <div className="mt-auto pt-3 space-y-2">{prod && <Cta ghost onClick={() => go("catalog", prod.id)}>Product profile<Ic i={ChevronRight} s={15} mr={0} /></Cta>}</div>
+        <div className="mt-auto pt-3 space-y-2">
+          {prod && <Cta ghost onClick={() => go("catalog", prod.id)}>Product profile<Ic i={ChevronRight} s={15} mr={0} /></Cta>}
+          {!prod && <Cta ghost onClick={() => go("announcements")}>Read full note<Ic i={ChevronRight} s={15} mr={0} /></Cta>}
+        </div>
       </>;
     } else if (c.kind === "rej") {
       const insp = c.i, prod = s.products.find(p => p.id === insp.productId);
@@ -3618,14 +3629,17 @@ function MBriefing({ s, user, go }) {
       </div>
     );
   };
-  const rejN = tab === "rejections" ? n : unseen.anns.length + unseen.rejs.length;
+  const notesN = tab === "notes" ? n : unseen.anns.length;
+  const rejN = tab === "rejections" ? n : unseen.rejs.length;
   const compN = tab === "complaints" ? n : unseen.complaints.length;
-  const Tab = ({ id, label, count }) => <button data-story-cta onClick={() => setTab(id)} className="flex-1 py-2 text-[13px] font-medium whitespace-nowrap" style={{ background: tab === id ? C.ink : "transparent", color: tab === id ? C.onDark : C.ink }}>{label}{count ? ` · ${count}` : ""}</button>;
+  const Tab = ({ id, label, count }) => <button data-story-cta onClick={() => setTab(id)} className="flex-1 py-2 text-[12px] font-medium whitespace-nowrap" style={{ background: tab === id ? C.ink : "transparent", color: tab === id ? C.onDark : C.ink }}>{label}{count ? ` · ${count}` : ""}</button>;
+  const emptyCopy = tab === "complaints" ? "No new complaints to review." : tab === "notes" ? "No new notes to review." : "No new rejections to review.";
   return (
     <div className="absolute inset-0 flex flex-col" style={{ background: C.surface }}>
       <TopBar title="Shift update" onBack={() => go("back")} right={n > 0 && <span className="text-[11px] font-medium" style={{ color: C.muted, fontVariantNumeric: "tabular-nums" }}>{ix + 1} / {n}</span>} />
       <div className="px-4 pt-2">
         <div className="flex rounded-xl overflow-hidden" style={{ border: `1px solid ${C.line}` }}>
+          <Tab id="notes" label="Notes" count={notesN} />
           <Tab id="rejections" label="Rejections" count={rejN} />
           <Tab id="complaints" label="Complaints" count={compN} />
         </div>
@@ -3633,7 +3647,7 @@ function MBriefing({ s, user, go }) {
       {n === 0 ? (
         <div className="flex-1 flex flex-col items-center justify-center px-8 text-center">
           <p className="text-[22px] font-semibold tracking-tight">You're up to date.</p>
-          <p className="text-sm mt-2" style={{ color: C.muted }}>{tab === "complaints" ? "No new complaints to review." : "No new rejections to review."}</p>
+          <p className="text-sm mt-2" style={{ color: C.muted }}>{emptyCopy}</p>
         </div>
       ) : (
         <>
