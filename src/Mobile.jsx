@@ -159,10 +159,10 @@ const GLOBAL_CSS = () => `
   .qc button:active{transform:translateY(1px)}
   .qc-tile{box-shadow:${lift()}}
   .qc button.qc-elev:active,.qc button.qc-tile:active{box-shadow:0 1px 0 rgba(255,255,255,.03) inset,0 2px 6px rgba(0,0,0,.22)!important}
-  @keyframes qc-led-breathe{0%,100%{opacity:${C.isDark ? .55 : .38}}50%{opacity:${C.isDark ? .95 : .72}}}
-  .qc-led-under{position:absolute;left:16px;right:16px;bottom:-6px;height:14px;pointer-events:none;z-index:0}
-  .qc-led-under::before{content:"";position:absolute;inset:0;border-radius:999px;background:${C.accent};filter:blur(12px);opacity:${C.isDark ? .7 : .42}}
-  .qc-led-under::after{content:"";position:absolute;left:16%;right:16%;top:1px;height:3px;border-radius:999px;background:${C.accent};box-shadow:0 0 8px ${C.accent},0 4px 14px ${C.accent};opacity:${C.isDark ? .95 : .78}}
+  @keyframes qc-led-breathe{0%,100%{opacity:${C.isDark ? .62 : .42}}50%{opacity:1}}
+  .qc-led-under{position:absolute;left:10px;right:10px;bottom:-14px;height:28px;pointer-events:none;z-index:0}
+  .qc-led-under::before{content:"";position:absolute;left:-8px;right:-8px;top:4px;height:22px;border-radius:999px;background:${C.accent};filter:blur(16px);opacity:${C.isDark ? .88 : .48}}
+  .qc-led-under::after{content:"";position:absolute;left:8%;right:8%;top:0;height:4px;border-radius:999px;background:${C.isDark ? "#d4f5de" : C.accent};box-shadow:0 0 10px ${C.accent},0 8px 22px ${C.accent},0 14px 28px ${C.isDark ? "rgba(140,211,166,.45)" : "rgba(31,92,62,.28)"};opacity:${C.isDark ? .98 : .86}}
   @media (prefers-reduced-motion:no-preference){.qc-led-under::before,.qc-led-under::after{animation:qc-led-breathe 2.6s ease-in-out infinite}}
   .qc button:disabled{cursor:not-allowed;opacity:.6}
   .qc button:focus-visible,.qc a:focus-visible{outline:2px solid ${C.accent};outline-offset:2px}
@@ -2325,7 +2325,7 @@ function MDashboard({ s, set, user, go, dismissed, setDismissed, onAssign }) {
           notes && `${notes} note${notes === 1 ? "" : "s"} from the Head`,
         ].filter(Boolean);
         return (
-          <div className="px-5 mb-3">
+          <div className={`px-5 ${seen ? "mb-3" : "mb-5"}`}>
             <div className="relative">
               {!seen && <span aria-hidden className="qc-led-under" />}
               <button onClick={() => go("briefing")} className="qc-elev qc-tile w-full text-left rounded-2xl px-3.5 py-3 flex items-center gap-3 relative" style={{ background: C.bg, border: `1px solid ${C.line}`, borderLeft: `3px solid ${seen ? C.line : C.accent}`, zIndex: 1 }}>
