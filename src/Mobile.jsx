@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, Fragment } from "react";
 import { createSyncer, guardUnload } from "./sync.js";
 import { hasV, specLabel, dayLabel, typesOf, typeById, legacyTypeId, inspType, countsAs, listCheck } from "./shared/format.js";
 import { activeTempForSpec, applyTempSpec, closeExpiredTempSpecs, tempUntilLabel } from "./shared/tempspec.js";
+import { SpecValue } from "./shared/SpecValue.jsx";
 import { peopleOnFloor, peopleAtDock, floorWhere, floorVerb, doneTodayCount } from "./shared/floor.js";
 import { readAsDataUrl, keepPhoto } from "./shared/report-images.js";
 import { drawReportPdf } from "./shared/report-pdf.js";
@@ -2576,8 +2577,8 @@ function MProductInfo({ s, user, product, go, setState, embedded }) {
       {guide.length > 0 && <MSection title="Encyclopedia" count={guide.length}>{guide.map((e, ix) => <MEncyclopediaEntry key={e.id} e={e} last={ix === guide.length - 1} />)}</MSection>}
       {specs.length > 0 && <MSection title="Specifications" count={specs.length}>{specs.map((q, ix) => (
         <div key={q.id} className="py-1.5" style={{ borderBottom: ix === specs.length - 1 ? "none" : `1px solid ${C.line}` }}>
-          <div className="flex items-baseline justify-between gap-3 text-[13px]"><span style={{ color: C.muted }}>{q.name}{q.temp && <span className="ml-1.5 text-[10px] px-1.5 rounded-full" style={{ background: C.warnBg, color: C.warn }}>temp {tempUntilLabel(q.temp)}</span>}</span><span className="font-medium text-right" style={{ fontVariantNumeric: "tabular-nums" }}>{specLabel(q)}</span></div>
-          {q.temp?.note && <p className="text-[12px] mt-1 leading-snug" style={{ color: C.warn }}>{q.temp.note}</p>}
+          <div className="flex items-baseline justify-between gap-3 text-[13px]"><span style={{ color: C.muted }}>{q.name}</span><SpecValue spec={q} colors={C} /></div>
+          {q.temp?.note && <p className="text-[12px] mt-1 leading-snug" style={{ color: C.bad }}>{q.temp.note}</p>}
         </div>
       ))}</MSection>}
       {attrs.length > 0 && <MSection title="Properties" count={attrs.length}>{attrs.map((a, ix) => <MRow key={a.dictionaryId} k={a.list} v={a.value} last={ix === attrs.length - 1} />)}</MSection>}
