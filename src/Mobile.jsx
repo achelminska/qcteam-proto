@@ -3325,6 +3325,15 @@ const dockLabel = n => n === 0 ? "D-00" : String(n);
 // so neighbours never blur together; the dark variants are lifted so they still read on the dark surfaces.
 const DOCK_STATUS = [["blocked", "Needed today", "#9b111e", "#9b111e", "#e05252", "#ff8a80"], ["Now needed", "Now needed", "#e0457b", "#b8265c", "#ff7aa8", "#ff9cbf"], ["High risk", "High risk", "#f28c28", "#b35e0a", "#ffa94d", "#ffb866"], ["High issues", "High issues", "#f2c531", "#7d6200", "#ffd75e", "#ffe07a"], ["Late inspection", "Late inspection", "#7c5cbf", "#5f42a3", "#b39ddb", "#c5b3e6"], ["Inspection due", "Inspection due", "#2a9d8f", "#1f7a6f", "#5fd0c2", "#7fe0d4"], ["Skippable", "Skippable", "#c3cad3", "#6b7480", "#4b5560", "#9aa5b1"]];
 const dockStatus = r => r.blocking ? "blocked" : DOCK_STATUS.some(([k]) => k === r.priority) ? r.priority : "Inspection due";
+// Needed today (blocking flag) and the priority label are two columns. The bar paints the more severe one, but a
+// legend click matches every status the pallet actually has — a Needed-today + Now-needed pallet stays blood-red
+// on the map and still appears when someone taps Now needed.
+const dockHasStatus = (r, k) => {
+  if (k === "blocked") return !!r.blocking;
+  if (k === "Skippable") return r.priority === "Skippable" || !!r.skippable;
+  if (DOCK_STATUS.some(([x]) => x === r.priority)) return r.priority === k;
+  return !r.blocking && k === "Inspection due";
+};
 const dockStatusColor = k => { const e = DOCK_STATUS.find(x => x[0] === k); return e ? (C.isDark ? e[4] : e[2]) : (C.isDark ? "#5fd0c2" : "#2a9d8f"); };
 const dockStatusText = k => { const e = DOCK_STATUS.find(x => x[0] === k); return e ? (C.isDark ? e[5] : e[3]) : dockStatusColor(k); };
 const dockStatusRank = k => { const i = DOCK_STATUS.findIndex(x => x[0] === k); return i < 0 ? 99 : i; };
@@ -3374,7 +3383,7 @@ function MDocks({ s, user, go }) {
   const keyOf = r => mode === "age" ? dockAge(r) : dockStatus(r);
   const legend = mode === "age" ? DOCK_AGE.map(([k, l]) => [k, l]) : DOCK_STATUS.map(([k, l]) => [k, l]);
   const colorOf = k => mode === "age" ? dockAgeColor(k) : dockStatusColor(k);
-  const vis = arr => filter ? arr.filter(r => keyOf(r) === filter) : arr;
+  const vis = arr => filter ? arr.filter(r => mode === "age" ? keyOf(r) === filter : dockHasStatus(r, filter)) : arr;
   const max = Math.max(1, ...Object.values(byDock).map(a => vis(a).length));
   const skusOf = arr => new Set(arr.map(r => r.article || r.hu)).size;
   const counts = arr => { const c = {}; arr.forEach(r => { const k = keyOf(r); c[k] = (c[k] || 0) + 1; }); return c; };
