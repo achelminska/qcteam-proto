@@ -2814,7 +2814,6 @@ function MScan({ s, user, go, onStart, onVisual, onSkip, setState, notify, prese
         {mode === "product" && product && (
           <div>
             {(() => { const k = codeKind(product, scanned); return k && k !== "article" && <p className="text-xs mb-2 px-1" style={{ color: C.muted }}>Scanned the <b style={{ color: C.ink }}>{k === "TU" ? "TU barcode (box / case)" : "CU barcode (consumer pack)"}</b> · {scanned}</p>; })()}
-            <DockPresence product={product} onPickPallet={pickPalletOfProduct} />
             <MProductCard s={s} user={user} product={product} onBack={() => setMode(null)} onStart={typeId => start(product.id, typeId)} go={go} setState={setState} notify={notify} onVisual={onVisual} />
           </div>
         )}
