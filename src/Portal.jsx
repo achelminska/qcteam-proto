@@ -729,8 +729,9 @@ const unreviewUnreported = (set, id) => set(x => ({ ...x, unreportedPallets: (x.
 const clearUnreported = (set, user) => set(x => ({ ...x, unreportedPallets: [], dockGoneCandidates: {}, unreportedCleared: { at: nowISO(), byUserId: user.id, count: (x.unreportedPallets || []).length } }));
 // QC status: from the sheet when it has one; otherwise derived from the queue (claim) and finished inspections of that pallet/article.
 const blockedQueue = s => blockedRowsLive(s).map(b => { const claim = claimOf(s, b); let status = b.status; if (!status) { const done = s.inspections.some(i => i.status === "Completed" && ((b.hu && (i.pallets || []).some(h => String(h).replace(/\D/g, "").endsWith(b.hu.replace(/^0+/, "")))) || (!b.hu && (s.products.find(p => p.id === i.productId)?.articleId === b.article) && (i.completedAt || "") > (claim?.at || "1970")))); status = done ? "Completed" : claim?.status === "taken" ? "Started" : "Not started"; } return { ...b, claim, status, key: claimKey(b), lost: lostOf(s, b) }; });
-// "40 TU" on its own, or the whole pallet in CU when the sheet also gives CU per TU: "40 TU × 6 = 240 CU".
-const palletQty = (r, product) => { if (r?.quantity == null) return ""; const cpt = Number(r.cusPerTu) || Number(product?.cusPerTu) || 0; return cpt ? `${r.quantity} TU × ${cpt} = ${r.quantity * cpt} CU` : `${r.quantity} TU`; };
+// How much stands on the pallet, as the sheet gives it: "40 TU". (It used to multiply by CU/TU as well — nobody needs
+// the CU total on the dock, it only made the chip longer.)
+const palletQty = r => r?.quantity == null ? "" : `${r.quantity} TU`;
 const dockRowsLive = s => { const it = (s.integrations || []).find(i => i.purpose === "Dock" && i.rows?.length); if (!it) return CLEAN_START ? [] : SHEET.dock; return dedupeByHu(it.rows.filter(r => !r._errors?.length)).map(r => ({ hu: String(r.hu || "").trim(), article: String(r.article || ""), name: r.name || "", location: r.location || "", priority: r.priority || (r.skippable ? "Skippable" : "Inspection due"), blocking: !!r.blocking, skippable: !!r.skippable, arrived: r.arrived || "", arrivedTime: r.arrivedTime || "", transporter: r.transporter || "", po: r.po || "", cusPerTu: r.cusPerTu ? Number(r.cusPerTu) : null, quantity: r.quantity !== undefined && r.quantity !== null && r.quantity !== "" && !isNaN(Number(r.quantity)) ? Number(r.quantity) : null, sortable: !!r.sortable, onDock: 0, inBuffer: 0 })); };
 // Resolve a pallet key (HU, claimKey, lostKey, or unreported id) to a row the portal pallet sheet can render.
 const findPalletRow = (s, key) => {
@@ -1565,7 +1566,7 @@ function PalletPage({ s, set, user, hu, onBack, onOpenProduct, onOpenInspection,
                   <Fact k="Sortable" v={"sortable" in r ? (r.sortable ? "Yes" : "No") : (r.deadline ? `dep. ${r.deadline}` : null)} />
                 </div>
                 {(r.quantity != null || r.cusPerTu != null && r.cusPerTu !== "" || r.deadline && "sortable" in r) && (
-                  <p className="text-[11px] mt-2" style={{ color: C.muted }}>{r.quantity != null ? <b style={{ color: C.ink }}>{palletQty(r, product)} on the pallet</b> : (r.cusPerTu != null && r.cusPerTu !== "" ? `${r.cusPerTu} CU/TU` : "")}{r.deadline && "sortable" in r ? `${(r.quantity != null || r.cusPerTu) ? " · " : ""}departure ${r.deadline}` : ""}</p>
+                  <p className="text-[11px] mt-2" style={{ color: C.muted }}>{r.quantity != null ? <b style={{ color: C.ink }}>{palletQty(r)} on the pallet</b> : (r.cusPerTu != null && r.cusPerTu !== "" ? `${r.cusPerTu} CU/TU` : "")}{r.deadline && "sortable" in r ? `${(r.quantity != null || r.cusPerTu) ? " · " : ""}departure ${r.deadline}` : ""}</p>
                 )}
               </div>
             </div>
