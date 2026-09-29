@@ -37,6 +37,12 @@ describe("adoptNewColumns — a column appears in a sheet the Head already mappe
     expect(after.find(m => m.source === "Buffer").target).toBe("quantity");
     expect(after.find(m => m.source === "Quantity").target).toBe("ignore");
   });
+  it("also fills a column that sat on ignore only because its target did not exist yet (same header)", () => {
+    const savedAfterColumnAppeared = suggestMappings(HEADER, [ROW], DOCK_TARGETS).map(m => m.source === "Quantity" ? { ...m, target: "ignore", transform: "none", required: false } : m);
+    const after = adoptNewColumns(savedAfterColumnAppeared, HEADER, [ROW], DOCK_TARGETS);
+    expect(byTarget(after).quantity).toMatchObject({ source: "Quantity", transform: "number" });
+    expect(adoptNewColumns(after, HEADER, [ROW], DOCK_TARGETS)).toEqual(after); // idempotent from then on
+  });
   it("follows the new header order and drops mappings of vanished, unmapped columns", () => {
     const after = adoptNewColumns(before, HEADER.filter(h => h !== "Time needed"), [ROW], DOCK_TARGETS);
     expect(after.map(m => m.source)).toEqual(HEADER.filter(h => h !== "Time needed"));

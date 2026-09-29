@@ -31,12 +31,15 @@ const suggestMappings = (header, rows, targets) => {
   out.forEach((m, i) => { if (m.target === "status" && free.has("wmsStatus")) { const v = String(rows[0]?.[i] || ""); if (/^[A-Z0-9_]{6,}$/.test(v)) { out[i] = { ...m, target: "wmsStatus", transform: "none", required: false }; free.delete("wmsStatus"); free.add("status"); } } });
   return out;
 };
-// The sheet grew a column (Quantity arrived this way). Keep every mapping the Head made and, for header cells not mapped
-// yet, take the suggestion — but only onto targets still free, so nothing the Head chose is ever overridden.
+// The sheet grew a column (Quantity arrived this way). Keep every mapping the Head made to a real target and, for header
+// cells that are new or still on "ignore", take the suggestion — but only onto targets still free. A column the Head
+// mapped somewhere is never touched; an ignored column is re-suggested because "ignore" is also what a column gets
+// when its target did not exist yet (the mapping may have been saved after the column appeared but before the app
+// knew the target), and the suggestion can only land on a target nobody uses.
 const adoptNewColumns = (existing, header, rows, targets) => {
   const used = new Set(existing.map(m => m.target).filter(t => t && t !== "ignore"));
   const suggested = suggestMappings(header, rows, targets);
-  return header.map((h, i) => { const cur = existing.find(m => m.source === h); if (cur) return cur; const s = suggested[i]; if (s && s.target !== "ignore" && !used.has(s.target)) { used.add(s.target); return s; } return { source: h, target: "ignore", transform: "none", required: false }; });
+  return header.map((h, i) => { const cur = existing.find(m => m.source === h); if (cur && cur.target && cur.target !== "ignore") return cur; const s = suggested[i]; if (s && s.target !== "ignore" && !used.has(s.target)) { used.add(s.target); return s; } return cur || { source: h, target: "ignore", transform: "none", required: false }; });
 };
 const dedupeMappings = ms => { const seen = new Set(); return ms.map(m => { if (m.target === "ignore") return m; if (seen.has(m.target)) return { ...m, target: "ignore", required: false }; seen.add(m.target); return m; }); };
 const applyMapping = (integration, header, rows) => rows.map(r => { const out = {}; const errs = []; integration.mappings.forEach(m => { if (!m.target || m.target === "ignore") return; const idx = header.indexOf(m.source); if (idx < 0) { errs.push(`missing column ${m.source}`); return; } let v; try { v = transformOf(m.transform)(r[idx] ?? ""); } catch (e) { errs.push(`${m.source}: ${e.message}`); v = ""; } if (m.required && (v === "" || v == null)) errs.push(`${m.target} empty`); out[m.target] = v; }); return { ...out, _errors: errs }; });
