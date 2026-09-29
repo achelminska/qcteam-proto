@@ -1,15 +1,22 @@
 // Drop-in window.storage for the prototypes. Import this in src/main.jsx BEFORE rendering:
 //   import "./storage-shim.js";
 // If a QCteam state server is reachable, both apps share one live state; otherwise it falls back to localStorage.
-// Served by the state server itself (hosted, or `npm run preview` behind node server)? Then the API is same-origin. Under Vite dev it's on :3001/:3002.
+// Served by the state server itself (hosted, or `npm run preview` behind node server)? Then the API is same-origin. Under Vite dev it's on :3001/:3002
+// (any other dev port: set VITE_QC_SERVER, see .env.example).
+import { installAccessGate } from "./access-gate.js";
 const devPorts = ["5173", "4173"];
 const SERVER = (import.meta.env && import.meta.env.VITE_QC_SERVER) || (devPorts.includes(location.port) ? `${location.protocol === "https:" ? "https" : "http"}://${location.hostname}:${location.protocol === "https:" ? 3002 : 3001}` : location.origin);
 window.__qcServer = SERVER;
+// Access key (server/auth.mjs): from here on every call to the API carries the device's cookie, and a 401 raises the
+// key prompt. Installed before the first fetch below.
+installAccessGate(SERVER);
 let remote = null; // null = unknown, true/false after the first probe
 // A failed probe is not final: during a deploy the server is away for ~20 s. Re-probe on every call until it answers,
 // and never treat a temporary outage as "this device is the source of truth".
+// A 401 means the server is there but this device has no key yet — that is NOT "offline": the gate is up, and
+// falling back to localStorage here would show stale data behind it.
 let lastProbeAt = 0;
-async function probe() { if (remote === true) return true; if (remote === false && Date.now() - lastProbeAt < 5000) return false; lastProbeAt = Date.now(); try { const r = await fetch(`${SERVER}/storage/__probe`, { method: "GET", cache: "no-store" }); remote = r.status === 200 || r.status === 404; } catch { remote = false; } if (remote) console.log(`QCteam: using shared state at ${SERVER}`); else console.log("QCteam: server not reachable right now — will retry"); return remote; }
+async function probe() { if (remote === true) return true; if (remote === false && Date.now() - lastProbeAt < 5000) return false; lastProbeAt = Date.now(); try { const r = await fetch(`${SERVER}/storage/__probe`, { method: "GET", cache: "no-store" }); remote = r.status === 200 || r.status === 404 || r.status === 401; } catch { remote = false; } if (remote) console.log(`QCteam: using shared state at ${SERVER}`); else console.log("QCteam: server not reachable right now — will retry"); return remote; }
 // Every device keeps a local copy of what it saved. If the server comes back empty (free hosting restarts wipe its disk),
 // the first device to open the app re-seeds the server from its copy. The sheet re-pushes its own data within minutes anyway.
 // Caching the shared state here is only a fallback for a wiped server. A multi-megabyte copy does not fit
@@ -23,6 +30,7 @@ window.storage = {
   async get(key) {
     if (await probe()) {
       const r = await fetch(`${SERVER}/storage/${encodeURIComponent(key)}`, { cache: "no-store" });
+      if (r.status === 401) return null;   // locked — the gate is showing; nothing to read or restore until it's unlocked
       if (r.status === 404) { const mine = local.get(key); if (mine != null) { console.log("QCteam: server had no state — restoring from this device"); await fetch(`${SERVER}/storage/${encodeURIComponent(key)}`, { method: "PUT", headers: { "Content-Type": "text/plain; charset=utf-8" }, body: mine }); return { key, value: mine }; } return null; }
       const j = await r.json(); j.version = j.updatedAt ? String(j.updatedAt) : null;
       // (Removed: "server state looks empty but this device has data → force-restore this device's copy". Whatever the

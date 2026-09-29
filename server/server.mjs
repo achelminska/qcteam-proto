@@ -7,18 +7,25 @@ import { applyDeadlineAlerts } from "./alertlogic.mjs";
 import { computeMissingPalletUpdate } from "./misslogic.mjs";
 import { retainInspections } from "./retain.mjs";
 import { slimStateJson } from "./blobs.mjs";
+import { isPublic, isAuthorized, isSecure, safeEqual, cookieHeader, clearCookieHeader, corsFor } from "./auth.mjs";
 const STATE_KEY = "qcteam-portal-state-v2-clean";
 // Static hosting of the built app (dist/) so one service = API + portal + phone app. Any unknown path falls back to index.html.
 const DIST = new URL("../dist/", import.meta.url).pathname;
 const MIME = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css", ".png": "image/png", ".svg": "image/svg+xml", ".webmanifest": "application/manifest+json", ".json": "application/json", ".ico": "image/x-icon", ".woff2": "font/woff2", ".ttf": "font/ttf" };
 const serveStatic = (req, res) => {
-  if (!fs.existsSync(DIST)) return res.writeHead(404, cors).end("no dist/ — run npm run build");
+  if (!fs.existsSync(DIST)) return res.writeHead(404, corsFor(req)).end("no dist/ — run npm run build");
   let p = decodeURIComponent(req.url.split("?")[0]); if (p === "/") p = "/index.html";
   let file = path.join(DIST, p); if (!file.startsWith(DIST) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) file = path.join(DIST, "index.html");
   res.writeHead(200, { "Content-Type": MIME[path.extname(file)] || "application/octet-stream", "Cache-Control": file.endsWith("index.html") || file.endsWith("sw.js") || file.endsWith(".webmanifest") ? "no-cache" : "public, max-age=31536000, immutable" });
   fs.createReadStream(file).pipe(res);
 };
 const SYNC_KEY = process.env.QC_SYNC_KEY || "";
+// QC_APP_TOKEN: the access key every device enters once (see auth.mjs). Without it the API is open to anyone who
+// knows the URL — fine on a laptop, not on a public host with real warehouse data.
+const APP_TOKEN = process.env.QC_APP_TOKEN || "";
+if (!APP_TOKEN) console.log("WARNING: QC_APP_TOKEN is not set — the API (state, photos, backups) is open to anyone who knows the URL");
+else if (APP_TOKEN.length < 16) console.log("WARNING: QC_APP_TOKEN is short — use at least 16 random characters");
+if (APP_TOKEN && !SYNC_KEY) console.log("WARNING: QC_APP_TOKEN is set but QC_SYNC_KEY is not — the sheet's pushes to /sheet/* will be refused until the Apps Script sends X-Sync-Key and QC_SYNC_KEY matches it");
 // Changes on every process start (every deploy restarts the process). Clients poll it to notice "the server changed under me" and offer a refresh.
 const BOOT_ID = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 // STATE_DIR: mount a persistent disk there (e.g. Render Disk at /data) so state survives deploys. Default: next to this file.
@@ -45,9 +52,10 @@ const slimStoredState = () => {
   } catch (e) { console.log("[photos] extract failed:", e.message); }
 };
 slimStoredState();
-const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET,PUT,POST,DELETE,OPTIONS", "Access-Control-Allow-Headers": "Content-Type,If-Match,X-Force,X-Sync-Key" };
+// CORS headers are per request now (the origin is echoed when the caller sends one, see auth.mjs) — every response
+// path computes them from `req` instead of sharing one object.
 // Bandwidth: the state and the sheet dumps are text — gzip them when the client accepts it (Render's plan meters egress).
-const sendJson = (req, res, status, body) => { const txt = typeof body === "string" ? body : JSON.stringify(body); const h = { ...cors, "Content-Type": "application/json", "Cache-Control": "no-store" }; if (txt.length > 1024 && /\bgzip\b/.test(req.headers["accept-encoding"] || "")) { h["Content-Encoding"] = "gzip"; res.writeHead(status, h); res.end(zlib.gzipSync(txt)); } else { res.writeHead(status, h); res.end(txt); } };
+const sendJson = (req, res, status, body) => { const txt = typeof body === "string" ? body : JSON.stringify(body); const h = { ...corsFor(req), "Content-Type": "application/json", "Cache-Control": "no-store" }; if (txt.length > 1024 && /\bgzip\b/.test(req.headers["accept-encoding"] || "")) { h["Content-Encoding"] = "gzip"; res.writeHead(status, h); res.end(zlib.gzipSync(txt)); } else { res.writeHead(status, h); res.end(txt); } };
 // Server-side processing: apply the mapping the Head saved in the app state to every push, so the dashboard is current
 // even when nobody has the app open. Mirrors refreshPushedIntegrations in the front-end.
 const checkDeadlines = (reason) => {
@@ -108,9 +116,28 @@ const BACKUP_DIR = STATE_DIR ? path.join(STATE_DIR, "backups") : new URL("./back
 let lastSnapAt = 0;
 const snapshot = (key, body) => { try { if (key !== STATE_KEY) return; if (store[key] === body || !store[key]) return; if (Date.now() - lastSnapAt < 10 * 60 * 1000) return; if (!fs.existsSync(BACKUP_DIR)) fs.mkdirSync(BACKUP_DIR, { recursive: true }); const name = `state-${new Date().toISOString().replace(/[:.]/g, "-")}.json`; fs.writeFileSync(path.join(BACKUP_DIR, name), store[key]); lastSnapAt = Date.now(); const files = fs.readdirSync(BACKUP_DIR).filter(f => f.startsWith("state-")).sort(); files.slice(0, Math.max(0, files.length - 48)).forEach(f => fs.unlinkSync(path.join(BACKUP_DIR, f))); } catch (e) { console.log("[backup] failed:", e.message); } };
 const listBackups = () => { try { return fs.readdirSync(BACKUP_DIR).filter(f => f.startsWith("state-")).sort().reverse().map(f => { const st = fs.statSync(path.join(BACKUP_DIR, f)); let n = {}; try { const j = JSON.parse(fs.readFileSync(path.join(BACKUP_DIR, f), "utf8")); n = { categories: (j.categories || []).length, products: (j.products || []).length, inspections: (j.inspections || []).length, integrations: (j.integrations || []).length }; } catch {} return { name: f, at: st.mtime.toISOString(), size: st.size, ...n }; }); } catch { return []; } };
+const readBody = (req) => new Promise((resolve) => { const chunks = []; req.on("data", c => chunks.push(c)); req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8"))); req.on("error", () => resolve("")); });
 const handler = async (req, res) => {
+  const cors = corsFor(req);   // shadows nothing — every branch below reads this per-request object
+  const urlPath = req.url.split("?")[0];
+  if (req.method === "OPTIONS") return res.writeHead(204, cors).end();
+  // ── Access key ──────────────────────────────────────────────────────────────────────────────────────────────────
+  // POST /auth/login {key} → cookie. A wrong key waits a moment before answering, so guessing stays slow.
+  if (urlPath === "/auth/login" && req.method === "POST") {
+    let key = ""; try { key = String(JSON.parse(await readBody(req) || "{}").key || ""); } catch {}
+    if (!APP_TOKEN) return sendJson(req, res, 200, { ok: true, open: true });
+    if (!safeEqual(key, APP_TOKEN)) { await new Promise(r => setTimeout(r, 400)); return sendJson(req, res, 401, { ok: false, error: "wrong access key" }); }
+    res.writeHead(200, { ...cors, "Content-Type": "application/json", "Cache-Control": "no-store", "Set-Cookie": cookieHeader(APP_TOKEN, isSecure(req)) });
+    return res.end(JSON.stringify({ ok: true }));
+  }
+  if (urlPath === "/auth/logout" && req.method === "POST") { res.writeHead(200, { ...cors, "Content-Type": "application/json", "Set-Cookie": clearCookieHeader(isSecure(req)) }); return res.end(JSON.stringify({ ok: true })); }
+  if (urlPath === "/auth/status") return sendJson(req, res, isAuthorized(req, APP_TOKEN) ? 200 : 401, { ok: isAuthorized(req, APP_TOKEN), open: !APP_TOKEN });
+  if (!isPublic(urlPath, req.method) && !isAuthorized(req, APP_TOKEN)) {
+    // The sheet's Apps Script has no cookie and no app key; it identifies itself with X-Sync-Key on its POST.
+    const sheetPush = urlPath.startsWith("/sheet/") && req.method === "POST" && SYNC_KEY && (req.headers["x-sync-key"] === SYNC_KEY || req.headers["x-secret"] === SYNC_KEY);
+    if (!sheetPush) return sendJson(req, res, 401, { error: "unauthorized", hint: urlPath.startsWith("/sheet/") && req.method === "POST" ? "send X-Sync-Key matching QC_SYNC_KEY" : "enter the access key in the app, or send Authorization: Bearer <key>" });
+  }
   if (req.url.startsWith("/backups")) {
-    if (req.method === "OPTIONS") return res.writeHead(204, cors).end();
     const m = /^\/backups\/([^/?]+)(\/restore)?/.exec(req.url);
     if (!m) { res.writeHead(200, { ...cors, "Content-Type": "application/json" }); return res.end(JSON.stringify(listBackups())); }
     const file = path.join(BACKUP_DIR, path.basename(m[1])); if (!fs.existsSync(file)) return res.writeHead(404, cors).end();
