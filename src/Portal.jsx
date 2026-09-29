@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, Fragment } from "react";
 import { createSyncer, guardUnload } from "./sync.js";
 import { hasV, specLabel, dayLabel, problemPath, typesOf, typeById, legacyTypeId, inspType, countsAs, listCheck } from "./shared/format.js";
+import { normArticle, isoWeekOf, todayISO, weekLabel, weekRange, shiftWeek, sortSnapshots, latestSnapshot, snapshotTotal, upsertSnapshot, snapshotsOfWeek, previousInWeek, deltaRows, subTypeMix, weekSeries, articleTrend, topArticles, asLegacyMeta, migrateLegacy, rowFor } from "./shared/complaints.js";
 import { activeTempForSpec, applyTempSpec, clearTempSpec, closeExpiredTempSpecs, tempOwnerLabel, tempUntilLabel, upsertTempSpec } from "./shared/tempspec.js";
 import { SpecValue } from "./shared/SpecValue.jsx";
 import { peopleOnFloor, peopleAtDock, floorWhere, floorVerb, doneTodayCount, doneTodayByUser } from "./shared/floor.js";
@@ -1180,19 +1181,31 @@ function Shell({ page, setPage, children, badge, topRight, users, user, setUser,
 // everyone: on this page, on the phones (Menu → Complaints) and as a line on every product profile. Article IDs are
 // matched loosely — "HE10573488-36" (dock sheet), "10573488" (complaints table) and the catalog's article ID all normalise
 // to the same key, so one entry lights up wherever that product appears.
-const normArticle = x => String(x || "").trim().replace(/^HE/i, "").split("-")[0].replace(/\D/g, "").replace(/^0+/, "");
-const complaintsMeta = s => s.complaints || { period: "", updatedAt: null, byUserId: null, rows: [] };
+// (normArticle lives in shared/complaints.js now — same rule, one copy.)
+// Complaints are kept as dated snapshots (shared/complaints.js). Everything that only wants "the current numbers" —
+// chips, product notes, the phone, Complaints vs QC — reads the latest snapshot through this in the old one-list shape.
+const complaintSnapshots = s => Array.isArray(s.complaintSnapshots) ? s.complaintSnapshots : [];
+const complaintsMeta = s => { const snaps = complaintSnapshots(s); return snaps.length ? asLegacyMeta(latestSnapshot(snaps), snaps) : (s.complaints || { period: "", updatedAt: null, byUserId: null, rows: [] }); };
 const complaintsFor = (s, articleId) => { const k = normArticle(articleId); if (!k) return null; return complaintsMeta(s).rows.find(r => normArticle(r.articleId) === k) || null; };
 const productForArticle = (s, articleId) => { const k = normArticle(articleId); return k ? s.products.find(p => normArticle(p.articleId) === k) || null : null; };
 // Parses rows pasted from a spreadsheet: tab / semicolon / comma separated, optional header, optional leading row number.
 // Expects: article id · article name · complaints count · top sub-type ("Spoiled (36)" or plain text).
 const parseComplaintRows = text => { const out = []; String(text || "").split(/\r?\n/).forEach(line => { if (!line.trim()) return; const sep = line.includes("\t") ? "\t" : line.includes(";") ? ";" : ","; let cells = line.split(sep).map(c => c.trim().replace(/^"|"$/g, "")); if (cells.length >= 4 && /^\d{1,4}$/.test(cells[0]) && /^(HE)?\d{5,}/i.test(cells[1])) cells = cells.slice(1); const idIx = cells.findIndex(c => /^(HE)?\d{5,}(-\d+)?$/i.test(c)); if (idIx < 0) return; const articleId = cells[idIx]; const rest = cells.slice(idIx + 1); const countIx = rest.findIndex((c, i) => i > 0 && /^\d+$/.test(c)); const name = rest.slice(0, countIx > 0 ? countIx : 1).join(" ").trim(); const count = countIx > 0 ? Number(rest[countIx]) : Number(rest.find(c => /^\d+$/.test(c)) || 0); const tail = rest.slice(countIx > 0 ? countIx + 1 : 1).join(" ").trim(); const m = tail.match(/^(.*?)\s*\((\d+)\)\s*$/); out.push({ articleId, name, count: isFinite(count) ? count : 0, subType: m ? m[1].trim() : tail, subCount: m ? Number(m[2]) : null }); }); return out; };
-const saveComplaints = (set, user, patch) => set(x => { const next = { ...complaintsMeta(x), ...patch, updatedAt: nowISO(), byUserId: user.id }; let out = { ...x, complaints: next };
-  // Row changes (import, add, edit, remove, clear) tell the whole team; a period-label edit alone stays quiet.
-  if (patch.rows) { const before = complaintsMeta(x).rows, after = patch.rows; const changed = after.filter(r => { const o = before.find(b => normArticle(b.articleId) === normArticle(r.articleId)); return !o || o.count !== r.count || (o.subType || "") !== (r.subType || ""); }); const removed = before.filter(b => !after.some(r => normArticle(r.articleId) === normArticle(b.articleId))).length;
-    const msg = !after.length && before.length ? `${user.name} cleared the complaints list (${before.length} articles)` : changed.length ? `${user.name} updated complaints${next.period ? ` (${next.period})` : ""}: ${changed.slice(0, 3).map(r => `${r.name || r.articleId} ${r.count}`).join(", ")}${changed.length > 3 ? ` +${changed.length - 3} more` : ""}` : removed ? `${user.name} removed ${removed} article${removed === 1 ? "" : "s"} from the complaints list` : null;
-    if (msg) out = { ...out, notifications: [...(out.notifications || []), ...x.users.filter(u => u.active !== false && u.id !== user.id).map(u => ({ id: uid(), userId: u.id, type: "Complaints", message: msg, entityType: "Complaints", entityId: null, createdAt: nowISO(), readAt: null }))] }; }
+// Save one post (a snapshot). Same week + same "as of" day replaces (a correction); otherwise it is added. The latest
+// snapshot is also written through to `complaints`, so phones on an older build keep showing the current numbers.
+// A change in the CURRENT numbers tells the whole team; editing an older post stays quiet.
+const withComplaintsThrough = (x, snaps) => ({ ...x, complaintSnapshots: snaps, complaints: asLegacyMeta(latestSnapshot(snaps), snaps) });
+const saveSnapshot = (set, user, snap) => set(x => {
+  const before = complaintsMeta(x); const snaps = upsertSnapshot(complaintSnapshots(x), { ...snap, importedAt: nowISO(), byUserId: user.id });
+  let out = withComplaintsThrough(x, snaps); const after = complaintsMeta(out);
+  if (after.snapshotId === snap.id || latestSnapshot(snaps)?.id === snap.id) {
+    const changed = after.rows.filter(r => { const o = before.rows.find(b => normArticle(b.articleId) === normArticle(r.articleId)); return !o || o.count !== r.count || (o.subType || "") !== (r.subType || ""); });
+    const removed = before.rows.filter(b => !after.rows.some(r => normArticle(r.articleId) === normArticle(b.articleId))).length;
+    const msg = changed.length ? `${user.name} updated complaints (${after.period}): ${changed.slice(0, 3).map(r => `${r.name || r.articleId} ${r.count}`).join(", ")}${changed.length > 3 ? ` +${changed.length - 3} more` : ""}` : removed ? `${user.name} removed ${removed} article${removed === 1 ? "" : "s"} from the complaints list` : null;
+    if (msg) out = { ...out, notifications: [...(out.notifications || []), ...x.users.filter(u => u.active !== false && u.id !== user.id).map(u => ({ id: uid(), userId: u.id, type: "Complaints", message: msg, entityType: "Complaints", entityId: null, createdAt: nowISO(), readAt: null }))] };
+  }
   return out; });
+const deleteSnapshot = (set, user, id) => set(x => { const snaps = complaintSnapshots(x).filter(z => z.id !== id); const out = withComplaintsThrough(x, snaps); if (!snaps.length) { const b = complaintsMeta(x); if (b.rows.length) out.notifications = [...(out.notifications || []), ...x.users.filter(u => u.active !== false && u.id !== user.id).map(u => ({ id: uid(), userId: u.id, type: "Complaints", message: `${user.name} cleared the complaints list`, entityType: "Complaints", entityId: null, createdAt: nowISO(), readAt: null }))]; } return out; });
 // "New" complaints for the sidebar badge = rows changed since this user last opened the page on this device.
 const complaintsSeenKey = userId => `qcteam-complaints-seen-${userId}`;
 const complaintsNewCount = (s, userId) => { const meta = complaintsMeta(s); if (!meta.rows.length) return 0; let seen = ""; try { seen = localStorage.getItem(complaintsSeenKey(userId)) || ""; } catch {} return meta.rows.filter(r => (r.updatedAt || meta.updatedAt || "") > seen).length; };
@@ -1206,83 +1219,127 @@ function ComplaintsNote({ s, articleId, onOpenList }) {
   return <Note tone="bad"><span className="inline-flex items-center gap-1.5 flex-wrap"><Ic i={ThumbsDown} s={14} mr={0} /><b>{l.count} freshness complaint{l.count === 1 ? "" : "s"}</b>{l.sub && <span>· mostly <b>{l.sub}</b></span>}{l.period && <span style={{ color: C.muted }}>· {l.period}</span>}{onOpenList && <button onClick={onOpenList} className="underline text-xs" style={{ color: C.accent }}>all complaints</button>}</span></Note>;
 }
 function ComplaintsPage({ s, set, user, openProduct }) {
-  const isHead = user.role === "Head"; const meta = complaintsMeta(s);
+  const isHead = user.role === "Head"; const snaps = complaintSnapshots(s);
+  // Which post is on screen: the latest unless the Head picked an older one from the history list.
+  const [selId, setSelId] = useState(null);
+  const sel = (selId && snaps.find(x => x.id === selId)) || latestSnapshot(snaps);
+  const meta = sel ? asLegacyMeta(sel, snaps) : complaintsMeta(s);
+  const isLatest = !sel || latestSnapshot(snaps)?.id === sel.id;
   useEffect(() => { markComplaintsSeen(user.id); }, [meta.updatedAt]);
-  const rows = [...meta.rows].sort((a, b) => (b.count || 0) - (a.count || 0) || (a.name || "").localeCompare(b.name || ""));
+  const prev = sel ? previousInWeek(snaps, sel) : null;
+  const rowsRaw = sel && prev ? deltaRows(prev, sel) : meta.rows.map(r => ({ ...r, delta: undefined }));
+  const rows = [...rowsRaw].sort((a, b) => (b.count || 0) - (a.count || 0) || (a.name || "").localeCompare(b.name || ""));
   const [q, setQ] = useState(""); const qq = q.trim().toLowerCase();
   const shown = qq ? rows.filter(r => `${r.articleId} ${r.name} ${r.subType || ""}`.toLowerCase().includes(qq)) : rows;
+  // New post: the week and the day it is the state of. Default: this week, today — the case 9 times out of 10.
+  const [week, setWeek] = useState(() => isoWeekOf(todayISO())); const [asOf, setAsOf] = useState(() => todayISO());
   const [paste, setPaste] = useState(""); const [pasteOpen, setPasteOpen] = useState(false); const [msg, setMsg] = useState("");
   const [draft, setDraft] = useState({ articleId: "", name: "", count: "", subType: "", subCount: "" });
-  const [editId, setEditId] = useState(null); const [edit, setEdit] = useState(null); const [confirmClear, setConfirmClear] = useState(false);
+  const [editId, setEditId] = useState(null); const [edit, setEdit] = useState(null); const [confirmDel, setConfirmDel] = useState(false);
   const total = rows.reduce((a, r) => a + (r.count || 0), 0); const max = Math.max(1, ...rows.map(r => r.count || 0));
-  const subTotals = {}; rows.forEach(r => { if (r.subType) subTotals[r.subType] = (subTotals[r.subType] || 0) + (r.subCount != null ? r.subCount : 0); }); const topSub = Object.entries(subTotals).sort((a, b) => b[1] - a[1])[0];
+  const prevTotal = prev ? snapshotTotal(prev) : null;
+  const topSub = subTypeMix(sel)[0];
   const matched = rows.filter(r => productForArticle(s, r.articleId)).length;
   const by = meta.byUserId && s.users.find(u => u.id === meta.byUserId);
+  const weekPosts = sel ? snapshotsOfWeek(snaps, sel.week) : []; const range = sel ? weekRange(sel.week) : null;
   const parsed = pasteOpen ? parseComplaintRows(paste) : [];
+  const existingForDay = snaps.find(x => x.week === week && x.asOf === asOf);
+  const fmtDay = iso => { const d = new Date(`${String(iso).slice(0, 10)}T12:00:00`); return isNaN(d) ? String(iso || "") : d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" }); };
   const upsert = (list, incoming) => { const out = [...list]; incoming.forEach(n => { const k = normArticle(n.articleId); const ix = out.findIndex(r => normArticle(r.articleId) === k); const row = { id: ix >= 0 ? out[ix].id : uid(), articleId: n.articleId, name: n.name || productForArticle(s, n.articleId)?.name || out[ix]?.name || "", count: Number(n.count) || 0, subType: n.subType || "", subCount: n.subCount === "" || n.subCount == null ? null : Number(n.subCount) }; const same = ix >= 0 && out[ix].count === row.count && (out[ix].subType || "") === row.subType && (out[ix].subCount ?? null) === row.subCount && (out[ix].name || "") === row.name; row.updatedAt = same ? out[ix].updatedAt : nowISO(); if (ix >= 0) out[ix] = row; else out.push(row); }); return out; };
-  const importRows = replace => { if (!parsed.length) return; saveComplaints(set, user, { rows: replace ? upsert([], parsed) : upsert(meta.rows, parsed) }); setMsg(`${parsed.length} row${parsed.length === 1 ? "" : "s"} ${replace ? "imported — the previous list was replaced" : "merged into the list"}.`); setPaste(""); setPasteOpen(false); };
-  const addDraft = () => { if (!draft.articleId.trim() || draft.count === "") return; saveComplaints(set, user, { rows: upsert(meta.rows, [draft]) }); setDraft({ articleId: "", name: "", count: "", subType: "", subCount: "" }); setMsg("Saved."); };
-  const remove = id => saveComplaints(set, user, { rows: meta.rows.filter(r => r.id !== id) });
-  const commitEdit = () => { if (!edit) return; saveComplaints(set, user, { rows: meta.rows.map(r => r.id === editId ? { ...r, name: edit.name, count: Number(edit.count) || 0, subType: edit.subType, subCount: edit.subCount === "" || edit.subCount == null ? null : Number(edit.subCount), updatedAt: nowISO() } : r) }); setEditId(null); setEdit(null); };
+  const saveRows = (snap, newRows) => saveSnapshot(set, user, { ...snap, rows: newRows });
+  // "Save as post": the pasted table IS the post for that week + day (the Head's screenshot is complete in itself).
+  const savePost = () => { if (!parsed.length) return; const snap = { id: existingForDay ? existingForDay.id : uid(), week, asOf, rows: upsert([], parsed) }; saveSnapshot(set, user, snap); setSelId(snap.id); setMsg(`${parsed.length} row${parsed.length === 1 ? "" : "s"} saved as the ${weekLabel(week)} post for ${fmtDay(asOf)}${existingForDay ? " — the earlier post for that day was replaced" : ""}.`); setPaste(""); setPasteOpen(false); };
+  const mergeIntoSel = () => { if (!parsed.length || !sel) return; saveRows(sel, upsert(sel.rows, parsed)); setMsg(`${parsed.length} row${parsed.length === 1 ? "" : "s"} merged into the post shown.`); setPaste(""); setPasteOpen(false); };
+  const addDraft = () => { if (!draft.articleId.trim() || draft.count === "") return; if (sel) saveRows(sel, upsert(sel.rows, [draft])); else saveSnapshot(set, user, { id: uid(), week, asOf, rows: upsert([], [draft]) }); setDraft({ articleId: "", name: "", count: "", subType: "", subCount: "" }); setMsg("Saved."); };
+  const remove = id => sel && saveRows(sel, sel.rows.filter(r => r.id !== id));
+  const commitEdit = () => { if (!edit || !sel) return; saveRows(sel, sel.rows.map(r => r.id === editId ? { ...r, name: edit.name, count: Number(edit.count) || 0, subType: edit.subType, subCount: edit.subCount === "" || edit.subCount == null ? null : Number(edit.subCount), updatedAt: nowISO() } : r)); setEditId(null); setEdit(null); };
   const onDraftId = v => { const p = productForArticle(s, v); setDraft(d => ({ ...d, articleId: v, name: d.name || (p ? p.name : "") })); };
+  const weeksDesc = [...new Set(snaps.map(x => x.week))].sort().reverse();
   return (
     <div>
       <div className="flex items-center gap-3 mb-1"><h1 className="flex-1">Complaints</h1>
-        {isHead && <button onClick={() => setPasteOpen(o => !o)} className="text-xs px-3 py-1.5 rounded-lg inline-flex items-center gap-1.5" style={{ border: `1px solid ${pasteOpen ? C.accent : C.line}`, background: pasteOpen ? C.accentSoft : C.surface, color: pasteOpen ? C.accent : C.ink }}><Ic i={ClipboardPaste} s={13} mr={0} />Paste from spreadsheet</button>}
-        {isHead && rows.length > 0 && !confirmClear && <button onClick={() => setConfirmClear(true)} className="text-xs px-3 py-1.5 rounded-lg" style={{ border: `1px solid ${C.line}`, color: C.muted }}>Clear list</button>}
-        {isHead && confirmClear && <span className="flex items-center gap-2 text-xs rounded-lg px-3 py-1.5" style={{ background: C.badBg, color: C.bad }}>Remove all {rows.length} articles?<button onClick={() => { saveComplaints(set, user, { rows: [] }); setConfirmClear(false); }} className="px-2.5 py-1 rounded-md font-medium" style={{ background: C.bad, color: C.onDark }}>Yes, clear</button><button onClick={() => setConfirmClear(false)} className="px-2 py-1" style={{ color: C.bad }}>Cancel</button></span>}
+        {isHead && <button onClick={() => setPasteOpen(o => !o)} className="text-xs px-3 py-1.5 rounded-lg inline-flex items-center gap-1.5" style={{ border: `1px solid ${pasteOpen ? C.accent : C.line}`, background: pasteOpen ? C.accentSoft : C.surface, color: pasteOpen ? C.accent : C.ink }}><Ic i={ClipboardPaste} s={13} mr={0} />New post from the BI table</button>}
+        {isHead && sel && !confirmDel && <button onClick={() => setConfirmDel(true)} className="text-xs px-3 py-1.5 rounded-lg" style={{ border: `1px solid ${C.line}`, color: C.muted }}>Delete this post</button>}
+        {isHead && sel && confirmDel && <span className="flex items-center gap-2 text-xs rounded-lg px-3 py-1.5" style={{ background: C.badBg, color: C.bad }}>Delete the {weekLabel(sel.week)} post of {fmtDay(sel.asOf)} ({sel.rows.length} articles)?<button onClick={() => { deleteSnapshot(set, user, sel.id); setSelId(null); setConfirmDel(false); }} className="px-2.5 py-1 rounded-md font-medium" style={{ background: C.bad, color: C.onDark }}>Yes, delete</button><button onClick={() => setConfirmDel(false)} className="px-2 py-1" style={{ color: C.bad }}>Cancel</button></span>}
       </div>
-      <p className="text-sm mb-4" style={{ color: C.muted, maxWidth: 720 }}>Customer freshness complaints per article{isHead ? ", keyed in here by the Head" : ""}. Everyone sees the same numbers — on this page, in the phone app and on every product profile.{meta.updatedAt ? ` Last updated ${fmtTime(meta.updatedAt)}${by ? ` by ${by.name}` : ""}.` : ""}</p>
+      <p className="text-sm mb-4" style={{ color: C.muted, maxWidth: 760 }}>Customer freshness complaints per article, as the Head of Quality posts them — a top list with the <b>week-to-date</b> totals, re-posted most days. Every post is kept, so the week's figure is its latest post and Analytics can follow articles across weeks. Everyone sees the same numbers here, in the phone app and on every product profile.{meta.updatedAt ? ` Post shown: entered ${fmtTime(meta.updatedAt)}${by ? ` by ${by.name}` : ""}.` : ""}</p>
       <div className="grid gap-3 mb-4" style={{ gridTemplateColumns: "repeat(4, 1fr)" }}>
-        {[["Complaints", total, C.bad], ["Articles", rows.length, C.ink], ["Top sub-type", topSub ? topSub[0] : "—", C.warn, topSub ? `${topSub[1]} complaints` : ""], ["Period", meta.period || "—", C.accent, matched < rows.length ? `${rows.length - matched} article${rows.length - matched === 1 ? "" : "s"} not in the catalog` : rows.length ? "all articles matched to products" : ""]].map(([l, v, col, sub]) => (
+        {[["Complaints", total, C.bad, prev ? `${total - prevTotal >= 0 ? "+" : ""}${total - prevTotal} since ${fmtDay(prev.asOf)}` : (sel ? "first post this week" : "")],
+          ["Articles", rows.length, C.ink, matched < rows.length ? `${rows.length - matched} not in the catalog` : rows.length ? "all matched to products" : ""],
+          ["Top sub-type", topSub ? topSub.subType : "—", C.warn, topSub ? `${topSub.count} complaints` : ""],
+          [sel ? weekLabel(sel.week) : "Period", sel ? `as of ${fmtDay(sel.asOf)}` : (meta.period || "—"), C.accent, sel ? `${range ? `${range.from.slice(8)}.${range.from.slice(5, 7)}–${range.to.slice(8)}.${range.to.slice(5, 7)} · ` : ""}${weekPosts.length} post${weekPosts.length === 1 ? "" : "s"} this week${isLatest ? "" : " · older post shown"}` : ""]].map(([l, v, col, sub]) => (
           <div key={l} className="qc-tile rounded-2xl p-4" style={{ background: C.surface, border: `1px solid ${C.line}`, borderLeft: `3px solid ${col}` }}><p className="text-xs" style={{ color: C.muted }}>{l}</p><p className={`${typeof v === "number" ? "text-[26px]" : "text-[17px]"} leading-tight font-semibold mt-0.5 truncate`} title={String(v)}>{v}</p>{sub && <p className="text-[11px] mt-0.5" style={{ color: C.muted }}>{sub}</p>}</div>
         ))}
       </div>
       {isHead && <Card style={{ marginBottom: 12 }}>
-        <div className="flex items-center gap-3 mb-3 flex-wrap">
-          <p className="font-medium text-sm">Period</p>
-          <FastInput value={meta.period || ""} onCommit={v => saveComplaints(set, user, { period: v })} placeholder="e.g. Week 38 · 15–21 Sept" className="text-sm rounded-lg px-2.5 py-1.5 outline-none" style={{ ...inp, width: 260 }} />
-          <span className="text-xs" style={{ color: C.muted }}>Shown next to every number so the floor knows which weeks these complaints cover.</span>
-        </div>
         {pasteOpen && <div className="rounded-xl p-3 mb-3" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
-          <p className="text-xs mb-2" style={{ color: C.muted }}>Copy the rows from the BI table (Article ID · Article · Freshness complaints · Top sub-type) and paste them here. A header row and a leading row number are ignored; “Spoiled (36)” is split into the sub-type and its count.</p>
+          <div className="flex items-center gap-3 mb-2 flex-wrap">
+            <span className="text-xs font-medium">This post is</span>
+            <span className="inline-flex items-center rounded-lg" style={{ border: `1px solid ${C.line}`, background: C.surface }}>
+              <button onClick={() => setWeek(w => shiftWeek(w, -1))} className="px-1.5 py-1" style={{ color: C.muted }} title="previous week"><Ic i={ChevronLeft} s={14} mr={0} /></button>
+              <span className="text-sm font-medium px-1" style={{ minWidth: 72, textAlign: "center" }}>{weekLabel(week)}</span>
+              <button onClick={() => setWeek(w => shiftWeek(w, 1))} className="px-1.5 py-1" style={{ color: C.muted }} title="next week"><Ic i={ChevronRight} s={14} mr={0} /></button>
+            </span>
+            <span className="text-xs" style={{ color: C.muted }}>{(() => { const r = weekRange(week); return r ? `${fmtDay(r.from)} – ${fmtDay(r.to)}` : ""; })()}</span>
+            <span className="text-xs font-medium ml-2">as of</span>
+            <input type="date" value={asOf} onChange={e => { const v = e.target.value; setAsOf(v); if (v) setWeek(isoWeekOf(v)); }} className="text-sm rounded-lg px-2 py-1 outline-none" style={{ ...inp }} />
+            {existingForDay && <span className="text-[11px] px-2 py-0.5 rounded-full" style={{ background: C.warnBg, color: C.warn }}>a post for this day exists — saving replaces it</span>}
+          </div>
+          <p className="text-xs mb-2" style={{ color: C.muted }}>Paste the table (Article ID · Article · Freshness complaints · Top sub-type). A header row and a leading row number are ignored; “Spoiled (36)” is split into the sub-type and its count.</p>
           <textarea value={paste} onChange={e => setPaste(e.target.value)} rows={6} placeholder={"10573488\tMerkloos komkommer (1 st)\t39\tSpoiled (36)\n11539732\tMerkloos kiwibessen (125 gram)\t36\tOverripe (35)"} className="w-full text-xs rounded-lg px-2.5 py-2 outline-none font-mono" style={{ ...inp }} />
           <div className="flex items-center gap-2 mt-2 flex-wrap">
             <span className="text-xs flex-1" style={{ color: parsed.length ? C.ink : C.muted }}>{parsed.length ? `${parsed.length} row${parsed.length === 1 ? "" : "s"} recognised · ${parsed.filter(r => productForArticle(s, r.articleId)).length} matched to catalog products` : "Nothing recognised yet."}</span>
-            <button onClick={() => importRows(false)} disabled={!parsed.length} className="text-xs px-3 py-1.5 rounded-lg font-semibold" style={{ background: parsed.length ? C.accent : C.line, color: parsed.length ? C.onDark : C.muted }}>Merge into list</button>
-            <button onClick={() => importRows(true)} disabled={!parsed.length} className="text-xs px-3 py-1.5 rounded-lg font-semibold" style={{ background: parsed.length ? C.ink : C.line, color: parsed.length ? C.onDark : C.muted }}>Replace list</button>
+            {sel && <button onClick={mergeIntoSel} disabled={!parsed.length} className="text-xs px-3 py-1.5 rounded-lg font-semibold" style={{ background: parsed.length ? C.surface : C.line, color: parsed.length ? C.ink : C.muted, border: `1px solid ${C.line}` }} title="add or update these rows in the post shown below">Merge into the post shown</button>}
+            <button onClick={savePost} disabled={!parsed.length} className="text-xs px-3 py-1.5 rounded-lg font-semibold" style={{ background: parsed.length ? C.accent : C.line, color: parsed.length ? C.onDark : C.muted }}>Save as the {weekLabel(week)} post for {fmtDay(asOf)}</button>
           </div>
         </div>}
-        <p className="font-medium text-sm mb-2">Add or update an article</p>
+        <p className="font-medium text-sm mb-2">Add or update an article{sel ? ` in the ${weekLabel(sel.week)} post of ${fmtDay(sel.asOf)}` : ""}</p>
         <div className="grid gap-2 items-end" style={{ gridTemplateColumns: "150px 1fr 110px 160px 90px auto" }}>
           <label className="text-[11px]" style={{ color: C.muted }}>Article ID<input list="qc-article-ids" value={draft.articleId} onChange={e => onDraftId(e.target.value)} placeholder="10573488" className="w-full text-sm rounded-lg px-2.5 py-1.5 outline-none mt-0.5 font-mono" style={{ ...inp }} /><datalist id="qc-article-ids">{s.products.filter(p => p.articleId).map(p => <option key={p.id} value={p.articleId}>{p.name}</option>)}</datalist></label>
           <label className="text-[11px]" style={{ color: C.muted }}>Article<input value={draft.name} onChange={e => setDraft(d => ({ ...d, name: e.target.value }))} placeholder={productForArticle(s, draft.articleId)?.name || "name as in the complaints table"} className="w-full text-sm rounded-lg px-2.5 py-1.5 outline-none mt-0.5" style={{ ...inp }} /></label>
           <label className="text-[11px]" style={{ color: C.muted }}>Complaints<input type="number" min="0" value={draft.count} onChange={e => setDraft(d => ({ ...d, count: e.target.value }))} className="w-full text-sm rounded-lg px-2.5 py-1.5 outline-none mt-0.5" style={{ ...inp }} /></label>
           <label className="text-[11px]" style={{ color: C.muted }}>Top sub-type<input list="qc-subtypes" value={draft.subType} onChange={e => setDraft(d => ({ ...d, subType: e.target.value }))} placeholder="Spoiled" className="w-full text-sm rounded-lg px-2.5 py-1.5 outline-none mt-0.5" style={{ ...inp }} /><datalist id="qc-subtypes">{["Spoiled", "Overripe", "Underripe", "Mouldy", "Damaged", "Wrong product"].map(x => <option key={x} value={x} />)}</datalist></label>
           <label className="text-[11px]" style={{ color: C.muted }}>Sub-type #<input type="number" min="0" value={draft.subCount} onChange={e => setDraft(d => ({ ...d, subCount: e.target.value }))} className="w-full text-sm rounded-lg px-2.5 py-1.5 outline-none mt-0.5" style={{ ...inp }} /></label>
-          <button onClick={addDraft} disabled={!draft.articleId.trim() || draft.count === ""} className="text-sm px-4 py-1.5 rounded-lg font-semibold" style={{ background: draft.articleId.trim() && draft.count !== "" ? C.accent : C.line, color: draft.articleId.trim() && draft.count !== "" ? C.onDark : C.muted, height: 34 }}>{complaintsFor(s, draft.articleId) ? "Update" : "Add"}</button>
+          <button onClick={addDraft} disabled={!draft.articleId.trim() || draft.count === ""} className="text-sm px-4 py-1.5 rounded-lg font-semibold" style={{ background: draft.articleId.trim() && draft.count !== "" ? C.accent : C.line, color: draft.articleId.trim() && draft.count !== "" ? C.onDark : C.muted, height: 34 }}>{sel && rowFor(sel, draft.articleId) ? "Update" : "Add"}</button>
         </div>
         {msg && <p className="text-xs mt-2" style={{ color: C.accent }}>{msg}</p>}
       </Card>}
-      <Card>
-        <div className="flex items-center gap-3 mb-2"><p className="font-medium text-sm flex-1">Articles · {shown.length}{qq ? ` of ${rows.length}` : ""} · most complaints first</p><SearchBox value={q} onChange={setQ} placeholder="Search article or ID" style={{ width: 260 }} inputClass="rounded-lg" size={13} /></div>
-        {rows.length === 0 ? <Empty icon={ThumbsDown} title="No complaints entered yet" hint={isHead ? "Paste the BI table or add articles one by one above." : "The Head hasn't entered this period's complaints yet."} /> : shown.length === 0 ? <p className="text-xs py-4" style={{ color: C.muted }}>Nothing matches “{q}”.</p> : (
-          <table className="w-full text-sm">
-            <thead><tr className="text-xs text-left" style={{ color: C.muted }}>{["#", "Article ID", "Article", "Complaints", "", "Top sub-type", isHead ? "" : null].filter(h => h !== null).map((h, i) => <th key={i} className="py-1.5 pr-3 font-medium" style={{ borderBottom: `1px solid ${C.line}` }}>{h}</th>)}</tr></thead>
-            <tbody>{shown.map((r, i) => { const p = productForArticle(s, r.articleId); const editing = editId === r.id; return (
-              <tr key={r.id} style={{ borderBottom: `1px solid ${C.line}`, background: editing ? C.accentSoft : "transparent" }}>
-                <td className="py-1.5 pr-3 text-xs" style={{ color: C.muted, width: 28 }}>{rows.indexOf(r) + 1}</td>
-                <td className="py-1.5 pr-3 font-mono text-xs whitespace-nowrap">{r.articleId}</td>
-                <td className="py-1.5 pr-3">{editing ? <input value={edit.name} onChange={e => setEdit(x => ({ ...x, name: e.target.value }))} className="w-full text-sm rounded px-2 py-1 outline-none" style={{ ...inp }} /> : <>{p && openProduct ? <button onClick={() => openProduct(p.id)} className="text-left font-medium" style={{ color: C.ink }}>{r.name || p.name}</button> : <span>{r.name || "—"}</span>}{!p && <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded-full" style={{ background: C.bg, color: C.muted, border: `1px solid ${C.line}` }}>not in catalog</span>}</>}</td>
-                <td className="py-1.5 pr-3 font-semibold" style={{ fontVariantNumeric: "tabular-nums", width: 90 }}>{editing ? <input type="number" min="0" value={edit.count} onChange={e => setEdit(x => ({ ...x, count: e.target.value }))} className="w-20 text-sm rounded px-2 py-1 outline-none" style={{ ...inp }} /> : r.count}</td>
-                <td className="py-1.5 pr-3" style={{ width: 160 }}><div className="h-2 rounded-full" style={{ background: C.bg }}><div className="h-2 rounded-full" style={{ width: `${Math.round((r.count || 0) / max * 100)}%`, background: C.bad, opacity: .85 }} /></div></td>
-                <td className="py-1.5 pr-3 text-xs">{editing ? <span className="inline-flex gap-1"><input value={edit.subType} onChange={e => setEdit(x => ({ ...x, subType: e.target.value }))} placeholder="sub-type" className="w-28 text-sm rounded px-2 py-1 outline-none" style={{ ...inp }} /><input type="number" min="0" value={edit.subCount ?? ""} onChange={e => setEdit(x => ({ ...x, subCount: e.target.value }))} placeholder="#" className="w-16 text-sm rounded px-2 py-1 outline-none" style={{ ...inp }} /></span> : r.subType ? <span className="px-1.5 py-0.5 rounded-full" style={{ background: C.warnBg, color: C.warn }}>{r.subType}{r.subCount != null ? ` (${r.subCount})` : ""}</span> : <span style={{ color: C.muted }}>—</span>}</td>
-                {isHead && <td className="py-1.5 text-right whitespace-nowrap" style={{ width: 120 }}>{editing ? <><button onClick={commitEdit} className="text-xs px-2.5 py-1 rounded-lg font-semibold mr-1" style={{ background: C.accent, color: C.onDark }}>Save</button><button onClick={() => { setEditId(null); setEdit(null); }} className="text-xs" style={{ color: C.muted }}>cancel</button></> : <><button onClick={() => { setEditId(r.id); setEdit({ name: r.name || "", count: r.count || 0, subType: r.subType || "", subCount: r.subCount ?? "" }); }} className="text-xs mr-2" style={{ color: C.accent }}>edit</button><button onClick={() => remove(r.id)} className="text-xs" style={{ color: C.muted }} title="remove"><Ic i={Trash2} s={13} mr={0} /></button></>}</td>}
-              </tr>
-            ); })}</tbody>
-          </table>
-        )}
-      </Card>
+      <div className="grid gap-4" style={{ gridTemplateColumns: snaps.length > 1 ? "1fr 300px" : "1fr" }}>
+        <Card>
+          <div className="flex items-center gap-3 mb-2"><p className="font-medium text-sm flex-1">Articles · {shown.length}{qq ? ` of ${rows.length}` : ""} · most complaints first{prev ? ` · change since ${fmtDay(prev.asOf)}` : ""}</p><SearchBox value={q} onChange={setQ} placeholder="Search article or ID" style={{ width: 260 }} inputClass="rounded-lg" size={13} /></div>
+          {rows.length === 0 ? <Empty icon={ThumbsDown} title="No complaints entered yet" hint={isHead ? "Paste the Head of Quality's table as a new post." : "The Head hasn't entered this week's complaints yet."} /> : shown.length === 0 ? <p className="text-xs py-4" style={{ color: C.muted }}>Nothing matches “{q}”.</p> : (
+            <table className="w-full text-sm">
+              <thead><tr className="text-xs text-left" style={{ color: C.muted }}>{["#", "Article ID", "Article", "Complaints", prev ? "Δ" : null, "", "Top sub-type", isHead ? "" : null].filter(h => h !== null).map((h, i) => <th key={i} className="py-1.5 pr-3 font-medium" style={{ borderBottom: `1px solid ${C.line}` }}>{h}</th>)}</tr></thead>
+              <tbody>{shown.map((r) => { const p = productForArticle(s, r.articleId); const editing = editId === r.id; return (
+                <tr key={r.id} style={{ borderBottom: `1px solid ${C.line}`, background: editing ? C.accentSoft : "transparent" }}>
+                  <td className="py-1.5 pr-3 text-xs" style={{ color: C.muted, width: 28 }}>{rows.indexOf(r) + 1}</td>
+                  <td className="py-1.5 pr-3 font-mono text-xs whitespace-nowrap">{r.articleId}</td>
+                  <td className="py-1.5 pr-3">{editing ? <input value={edit.name} onChange={e => setEdit(x => ({ ...x, name: e.target.value }))} className="w-full text-sm rounded px-2 py-1 outline-none" style={{ ...inp }} /> : <>{p && openProduct ? <button onClick={() => openProduct(p.id)} className="text-left font-medium" style={{ color: C.ink }}>{r.name || p.name}</button> : <span>{r.name || "—"}</span>}{!p && <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded-full" style={{ background: C.bg, color: C.muted, border: `1px solid ${C.line}` }}>not in catalog</span>}</>}</td>
+                  <td className="py-1.5 pr-3 font-semibold" style={{ fontVariantNumeric: "tabular-nums", width: 90 }}>{editing ? <input type="number" min="0" value={edit.count} onChange={e => setEdit(x => ({ ...x, count: e.target.value }))} className="w-20 text-sm rounded px-2 py-1 outline-none" style={{ ...inp }} /> : r.count}</td>
+                  {prev && <td className="py-1.5 pr-3 text-xs whitespace-nowrap" style={{ fontVariantNumeric: "tabular-nums", color: r.delta == null ? C.muted : r.delta > 0 ? C.bad : C.ok, width: 70 }}>{r.delta == null ? "new on list" : r.delta > 0 ? `+${r.delta}` : r.delta}</td>}
+                  <td className="py-1.5 pr-3" style={{ width: 160 }}><div className="h-2 rounded-full" style={{ background: C.bg }}><div className="h-2 rounded-full" style={{ width: `${Math.round((r.count || 0) / max * 100)}%`, background: C.bad, opacity: .85 }} /></div></td>
+                  <td className="py-1.5 pr-3 text-xs">{editing ? <span className="inline-flex gap-1"><input value={edit.subType} onChange={e => setEdit(x => ({ ...x, subType: e.target.value }))} placeholder="sub-type" className="w-28 text-sm rounded px-2 py-1 outline-none" style={{ ...inp }} /><input type="number" min="0" value={edit.subCount ?? ""} onChange={e => setEdit(x => ({ ...x, subCount: e.target.value }))} placeholder="#" className="w-16 text-sm rounded px-2 py-1 outline-none" style={{ ...inp }} /></span> : r.subType ? <span className="px-1.5 py-0.5 rounded-full" style={{ background: C.warnBg, color: C.warn }}>{r.subType}{r.subCount != null ? ` (${r.subCount})` : ""}</span> : <span style={{ color: C.muted }}>—</span>}</td>
+                  {isHead && <td className="py-1.5 text-right whitespace-nowrap" style={{ width: 120 }}>{editing ? <><button onClick={commitEdit} className="text-xs px-2.5 py-1 rounded-lg font-semibold mr-1" style={{ background: C.accent, color: C.onDark }}>Save</button><button onClick={() => { setEditId(null); setEdit(null); }} className="text-xs" style={{ color: C.muted }}>cancel</button></> : <><button onClick={() => { setEditId(r.id); setEdit({ name: r.name || "", count: r.count || 0, subType: r.subType || "", subCount: r.subCount ?? "" }); }} className="text-xs mr-2" style={{ color: C.accent }}>edit</button><button onClick={() => remove(r.id)} className="text-xs" style={{ color: C.muted }}>remove</button></>}</td>}
+                </tr>
+              ); })}</tbody>
+            </table>
+          )}
+        </Card>
+        {snaps.length > 1 && <Card>
+          <p className="font-medium text-sm mb-1">Posts</p>
+          <p className="text-[11px] mb-2" style={{ color: C.muted }}>Every post the Head entered. The last post of a week is the week's figure. Click one to see it.</p>
+          {weeksDesc.map(w => { const posts = snapshotsOfWeek(snaps, w).reverse(); const r = weekRange(w); return (
+            <div key={w} className="mb-2">
+              <p className="text-xs font-medium mt-1" style={{ color: C.ink }}>{weekLabel(w)}<span className="font-normal ml-1.5" style={{ color: C.muted }}>{r ? `${r.from.slice(8)}.${r.from.slice(5, 7)}–${r.to.slice(8)}.${r.to.slice(5, 7)}` : ""} · {posts.length} post{posts.length === 1 ? "" : "s"}</span></p>
+              {posts.map((x, i) => { const on = sel?.id === x.id; const u = s.users.find(z => z.id === x.byUserId); return (
+                <button key={x.id} onClick={() => setSelId(x.id)} className="w-full text-left rounded-lg px-2.5 py-1.5 mt-1 flex items-center gap-2" style={{ background: on ? C.accentSoft : C.bg, border: `1px solid ${on ? C.accent : C.line}` }}>
+                  <span className="flex-1 min-w-0"><span className="block text-xs font-medium">{fmtDay(x.asOf)}{i === 0 && <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded-full" style={{ background: C.okBg, color: C.ok }}>week figure</span>}</span><span className="block text-[11px] truncate" style={{ color: C.muted }}>{snapshotTotal(x)} complaints · {x.rows.length} articles{u ? ` · ${u.name.split(" ")[0]}` : ""}</span></span>
+                </button>
+              ); })}
+            </div>
+          ); })}
+        </Card>}
+      </div>
     </div>
   );
 }
@@ -2253,6 +2310,40 @@ function AnalyticsPage({ s, setPage, openInspection, initial }) {
           <table className="w-full text-sm"><thead><tr className="text-xs" style={{ color: C.muted }}><th className="text-left font-medium pb-2">Controller</th><th className="text-right font-medium pb-2">Full</th><th className="text-right font-medium pb-2">Visual</th><th className="text-right font-medium pb-2">Skips</th><th className="text-right font-medium pb-2">Reject rate</th><th className="text-right font-medium pb-2">Avg. time</th></tr></thead><tbody>{byCtrl.map(r => <tr key={r.name} style={{ borderTop: `1px solid ${C.line}` }}><td className="py-2">{r.name}</td><td className="py-2 text-right">{r.full}</td><td className="py-2 text-right">{r.visual}</td><td className="py-2 text-right" style={{ color: r.skip ? C.warn : C.ink }}>{r.skip}</td><td className="py-2 text-right" style={{ color: r.full && Math.abs(r.rejRate - pct1(rej, full.length)) > 25 ? C.warn : C.ink }}>{r.full ? `${r.rejRate}%` : "—"}</td><td className="py-2 text-right">{r.avg !== null ? `${fmt(r.avg)} min` : "—"}</td></tr>)}</tbody></table>
         </Card>
       </>}
+      {(() => { const series = weekSeries(complaintSnapshots(s)); if (series.length < 1) return null;
+        // Complaints across weeks. Each week's figure is its LATEST post (the totals are week-to-date, not daily), and a
+        // post lists the top articles only — so an article missing from a week is "below the list", shown as "–", never 0.
+        const last = series.slice(-8); const tops = topArticles(last, 8);
+        // The current week is still running: its figure only covers the days posted so far and must not read as a drop.
+        const today = todayISO(); const running = w => !!(w.range && w.range.to >= today);
+        const chart = last.map(w => ({ name: w.label.replace("Week ", "W") + (running(w) ? "*" : ""), total: w.total, articles: w.articles }));
+        const subs = [...new Set(last.flatMap(w => w.subTypes.map(x => x.subType)))].slice(0, 5);
+        return <Card style={{ marginTop: 16 }}>
+          <div className="flex items-center gap-3 mb-1 flex-wrap"><h2 className="flex-1"><Ic i={ThumbsDown} s={16} />Complaints by week</h2><span className="text-xs" style={{ color: C.muted }}>last {last.length} week{last.length === 1 ? "" : "s"} · {series.reduce((a, w) => a + w.posts, 0)} posts kept</span></div>
+          <p className="text-xs mb-3" style={{ color: C.muted }}>Week figures are the Head of Quality's <b>last post of the week</b> (the totals he posts are week-to-date). Posts list the top articles only, so “–” means <i>not on that week's list</i>, not zero.{last.some(running) ? <> A week marked <b>*</b> is still running — its figure covers the days posted so far, so a lower number is not yet a drop.</> : null}</p>
+          <div className="grid gap-4" style={{ gridTemplateColumns: "minmax(0, 1.1fr) minmax(0, 1fr)" }}>
+            <div>
+              <div style={{ height: 180 }}><ResponsiveContainer width="100%" height="100%"><LineChart data={chart} margin={{ top: 8, right: 12, left: -18, bottom: 0 }}><CartesianGrid stroke={C.line} strokeDasharray="3 3" vertical={false} /><XAxis dataKey="name" tick={{ fontSize: 11, fill: C.muted }} axisLine={false} tickLine={false} /><YAxis tick={{ fontSize: 11, fill: C.muted }} axisLine={false} tickLine={false} allowDecimals={false} /><Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: `1px solid ${C.line}`, background: C.surface, color: C.ink }} formatter={(v, k) => [v, k === "total" ? "complaints (top list)" : "articles listed"]} /><Line type="monotone" dataKey="total" stroke={C.bad} strokeWidth={2} dot={{ r: 3 }} isAnimationActive={false} /></LineChart></ResponsiveContainer></div>
+              <table className="w-full text-sm mt-2"><thead><tr className="text-xs text-left" style={{ color: C.muted }}>{["Week", "Posts", "Complaints", "Articles", "Top article", ...subs].map((h, i) => <th key={i} className="py-1 pr-3 font-medium" style={{ borderBottom: `1px solid ${C.line}` }}>{h}</th>)}</tr></thead>
+                <tbody>{[...last].reverse().map(w => <tr key={w.week} style={{ borderBottom: `1px solid ${C.line}` }}>
+                  <td className="py-1.5 pr-3 whitespace-nowrap"><b>{w.label}</b>{running(w) && <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded-full" style={{ background: C.warnBg, color: C.warn }}>still running</span>}<span className="block text-[11px]" style={{ color: C.muted }}>{w.range ? `${w.range.from.slice(8)}.${w.range.from.slice(5, 7)}–${w.range.to.slice(8)}.${w.range.to.slice(5, 7)}` : ""} · as of {w.asOf.slice(8)}.{w.asOf.slice(5, 7)}</span></td>
+                  <td className="py-1.5 pr-3" style={{ fontVariantNumeric: "tabular-nums" }}>{w.posts}</td>
+                  <td className="py-1.5 pr-3 font-semibold" style={{ fontVariantNumeric: "tabular-nums" }}>{w.total}</td>
+                  <td className="py-1.5 pr-3" style={{ fontVariantNumeric: "tabular-nums" }}>{w.articles}</td>
+                  <td className="py-1.5 pr-3 text-xs">{w.top ? `${w.top.name || w.top.articleId} (${w.top.count})` : "—"}</td>
+                  {subs.map(st => { const x = w.subTypes.find(y => y.subType === st); return <td key={st} className="py-1.5 pr-3 text-xs" style={{ fontVariantNumeric: "tabular-nums", color: x ? C.ink : C.muted }}>{x ? x.count : "–"}</td>; })}
+                </tr>)}</tbody></table>
+            </div>
+            <div>
+              <p className="text-xs font-medium mb-1">Articles most often on the list</p>
+              <table className="w-full text-sm"><thead><tr className="text-xs text-left" style={{ color: C.muted }}><th className="py-1 pr-2 font-medium" style={{ borderBottom: `1px solid ${C.line}` }}>Article</th>{last.map(w => <th key={w.week} className="py-1 pr-2 font-medium text-right" style={{ borderBottom: `1px solid ${C.line}` }}>{w.label.replace("Week ", "W")}{running(w) ? "*" : ""}</th>)}</tr></thead>
+                <tbody>{tops.map(a => { const tr = articleTrend(last, a.articleId); const p = productForArticle(s, a.articleId); return <tr key={a.key} style={{ borderBottom: `1px solid ${C.line}` }}>
+                  <td className="py-1.5 pr-2 text-xs"><span className="block truncate" style={{ maxWidth: 200 }} title={a.name || a.articleId}>{p && setPage ? <button onClick={() => setPage("products")} className="text-left font-medium" style={{ color: C.ink }}>{a.name || p.name}</button> : (a.name || a.articleId)}</span><span className="block text-[10px] font-mono" style={{ color: C.muted }}>{a.articleId} · {a.weeks}/{last.length} wk</span></td>
+                  {tr.map((t, i) => { const prevC = i > 0 ? tr[i - 1].count : null; const up = t.count != null && prevC != null ? t.count - prevC : null; return <td key={t.week} className="py-1.5 pr-2 text-right text-xs" style={{ fontVariantNumeric: "tabular-nums", color: t.count == null ? C.muted : C.ink }}>{t.count == null ? "–" : <><b>{t.count}</b>{up != null && up !== 0 && <span className="ml-1 text-[10px]" style={{ color: up > 0 ? C.bad : C.ok }}>{up > 0 ? `+${up}` : up}</span>}</>}</td>; })}
+                </tr>; })}</tbody></table>
+            </div>
+          </div>
+        </Card>; })()}
       {(() => { const meta = complaintsMeta(s); if (!meta.rows.length) return null;
         // Complaints vs QC: where customers complain but QC in this period let the article through (or never saw it).
         const rows = [...meta.rows].sort((a, b) => (b.count || 0) - (a.count || 0)).map(r => { const p = productForArticle(s, r.articleId); const ins = p ? s.inspections.filter(i => i.status === "Completed" && i.productId === p.id && isVerdictType(s, i) && countsAs(s, i) && new Date(i.completedAt || i.startedAt) >= since) : []; const rej = ins.filter(i => i.result === "Rejected").length; const rate = ins.length ? Math.round(rej / ins.length * 100) : null;
@@ -4634,6 +4725,9 @@ const normalize = raw => {
   s.users = Array.isArray(s.users) && s.users.length ? s.users : SEED_USERS();
   s.inspections = (Array.isArray(s.inspections) ? s.inspections : []).map(i => ({ ...i, type: i.type || "Full", photos: Object.fromEntries(Object.entries(i.photos || {}).map(([k, v]) => [k, asPhotoList(v)])), remarks: (i.remarks || []).map(r => ({ ...r, photos: asPhotoList(r.photos) })) }));
   s.flags = Array.isArray(s.flags) ? s.flags : [];
+  // Complaints: the old single list becomes the first dated snapshot; `complaints` stays as the latest snapshot's copy.
+  s.complaintSnapshots = Array.isArray(s.complaintSnapshots) && s.complaintSnapshots.length ? sortSnapshots(s.complaintSnapshots) : migrateLegacy(s.complaints, uid);
+  if (s.complaintSnapshots.length) s.complaints = asLegacyMeta(latestSnapshot(s.complaintSnapshots), s.complaintSnapshots);
   s.notifications = Array.isArray(s.notifications) ? s.notifications : [];
   s.announcements = (Array.isArray(s.announcements) ? s.announcements : []).map(a => a.type ? (({ type, ...r }) => ({ ...r, isBlocking: type === "Blocking", showOnDashboard: type === "General", productId: type === "Product" ? r.productId : null }))(a) : a);
   s.conversations = Array.isArray(s.conversations) ? s.conversations : [];
