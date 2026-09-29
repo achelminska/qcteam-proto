@@ -1811,7 +1811,7 @@ function SpecForm({ specs, inherited, onAdd, onRemove, hint, excluded, onExclude
     const open = edit && edit.spec.id === q.id && edit.inherited === !!inheritedRow;
     return (
       <div style={{ borderTop: `1px solid ${C.line}` }}>
-        <div className="flex items-center gap-2 text-sm py-1.5" style={{ opacity: inheritedRow && !t ? 0.65 : 1 }}>
+        <div className="flex items-baseline gap-2 text-sm py-1.5" style={{ opacity: inheritedRow && !t ? 0.65 : 1 }}>
           <span className="flex-1 min-w-0">{q.name}</span>
           <SpecValue spec={q} temp={t} colors={C} extra={<span style={{ color: C.muted }}>{basisTag(q)}{inheritedRow && q.source ? ` · ${q.source}` : ""}</span>} />
           {canTemp && <button type="button" onClick={() => setEdit(open ? null : { spec: q, inherited: !!inheritedRow })} className="text-xs px-1.5" style={{ color: t ? C.warn : C.accent }}>{t ? "edit temp" : "temp"}</button>}
