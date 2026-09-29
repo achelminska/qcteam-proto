@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef, Fragment } from "react";
 import { createSyncer, guardUnload } from "./sync.js";
 import { hasV, specLabel, dayLabel, problemPath, typesOf, typeById, legacyTypeId, inspType, countsAs, listCheck } from "./shared/format.js";
+import { activeTempForSpec, applyTempSpec, clearTempSpec, closeExpiredTempSpecs, tempOwnerLabel, tempUntilLabel, upsertTempSpec } from "./shared/tempspec.js";
+import { SpecValue } from "./shared/SpecValue.jsx";
 import { peopleOnFloor, peopleAtDock, floorWhere, floorVerb, doneTodayCount, doneTodayByUser } from "./shared/floor.js";
 import { readAsDataUrl, keepPhoto } from "./shared/report-images.js";
 import { drawReportPdf } from "./shared/report-pdf.js";
@@ -61,7 +63,7 @@ const notifLook = t => { const [I, tone] = NOTIF[t] || [Bell, "info"]; const fg 
 const cleanMsg = m => String(m || "").replace(/^[\p{Extended_Pictographic}\uFE0F\s]+/u, "");
 const NotifIcon = ({ type, size = 32 }) => { const { I, fg, bg } = notifLook(type); return <span className="rounded-full flex items-center justify-center flex-shrink-0" style={{ width: size, height: size, background: bg, color: fg }}><I size={Math.round(size * 0.5)} strokeWidth={2} /></span>; };
 const Dot = ({ on }) => <span className="inline-block rounded-full ml-2 align-middle" style={{ width: 7, height: 7, background: on ? C.ok : C.line }} />;
-const NAV_ICON = { blocked: LockIcon, lost: Search, unreported: ShieldAlert, integrations: Link2, lists: ListIcon, analytics: BarChart3, settings: SlidersHorizontal, dashboard: LayoutDashboard, inspections: ClipboardList, flags: Flag, notifications: Bell, categories: FolderTree, problems: ListTree, products: Package, forms: LayoutTemplate, suppliers: Truck, countries: Globe, announcements: Megaphone, messages: MessageSquare, users: Users, catalog: Package, home: Home, chat: MessageSquare, menu: MenuIcon, docks: Warehouse, complaints: ThumbsDown };
+const NAV_ICON = { blocked: LockIcon, lost: Search, unreported: ShieldAlert, integrations: Link2, lists: ListIcon, analytics: BarChart3, settings: SlidersHorizontal, dashboard: LayoutDashboard, inspections: ClipboardList, flags: Flag, notifications: Bell, categories: FolderTree, problems: ListTree, products: Package, forms: LayoutTemplate, suppliers: Truck, countries: Globe, announcements: Megaphone, messages: MessageSquare, users: Users, catalog: Package, home: Home, chat: MessageSquare, menu: MenuIcon, docks: Warehouse, complaints: ThumbsDown, tempspecs: Clock };
 const EMPTY_ICON = { "📁": FolderTree, "🌳": ListTree, "📦": Package, "🧩": LayoutTemplate, "📖": BookOpen, "📏": Ruler, "📋": ClipboardList, "🚩": Flag, "🔔": Bell, "📣": Megaphone, "💬": MessageSquare, "🔒": LockIcon };
 
 
@@ -159,7 +161,7 @@ const tone = s => s === "exceeded" ? [C.bad, C.badBg] : s === "flagged" ? [C.war
 // ProductSpecification: MinValue / MaxValue (at least one). The "bad when" direction follows from what is set.
 const basisTag = q => q?.basis === "cu" ? " /CU" : "";
 // Specification cascade by name: product → category → parent category
-const effectiveSpecs = (s, product) => {
+const effectiveSpecs = (s, product, opts) => {
   if (!product) return [];
   const out = (product.specs || []).map(q => ({ ...q, source: "product" }));
   const key = q => `${(q.name || "").trim().toLowerCase()}|${specBasis(q)}`;
@@ -170,7 +172,8 @@ const effectiveSpecs = (s, product) => {
     (cat.specs || []).forEach(q => { const k = key(q); if (!seen.has(k)) { seen.add(k); if (!excluded.has((q.name || "").trim().toLowerCase())) out.push({ ...q, source: `category ${cat.name}` }); } });
     cat = cat.parentId ? s.categories.find(c => c.id === cat.parentId) : null;
   }
-  return out;
+  if (opts?.applyTemp === false) return out;
+  return out.map(q => applyTempSpec(q, activeTempForSpec(s.tempSpecs, q.id, product.id)));
 };
 // Problem nodes have a scope: none (global), categoryId or productId. Effective tree = global + category chain + product, minus hidden, no orphans.
 const categoryChainIds = (s, categoryId) => { const out = []; let c = s.categories.find(x => x.id === categoryId); while (c) { out.push(c.id); c = c.parentId ? s.categories.find(x => x.id === c.parentId) : null; } return out; };
@@ -1102,7 +1105,7 @@ function SearchSelect({ value, onChange, options, empty = "—", placeholder = "
 // ═══════════════════ SHELL: top bar + sidebar ═══════════════════
 const NAV_HEAD = [
   { group: null, items: [["dashboard", "🏠", "Dashboard"], ["docks", "🏭", "Dock map"], ["inspections", "📋", "Inspections"], ["complaints", "👎", "Complaints"], ["blocked", "🔒", "Blocked pallets"], ["lost", "🔍", "Lost pallets"], ["unreported", "🛡️", "Unreported pallets"], ["analytics", "📊", "Analytics"], ["flags", "🚩", "Flags"], ["notifications", "🔔", "Notifications"]] },
-  { group: "Catalog", items: [["categories", "📁", "Categories"], ["problems", "🌳", "Problem types"], ["products", "📦", "Products"], ["forms", "🧩", "Forms"]] },
+  { group: "Catalog", items: [["categories", "📁", "Categories"], ["problems", "🌳", "Problem types"], ["products", "📦", "Products"], ["tempspecs", "⏱️", "Temporary specs"], ["forms", "🧩", "Forms"]] },
   { group: "Dictionaries", items: [["suppliers", "🚚", "Suppliers"], ["lists", "📋", "Lists"]] },
   { group: "Communication", items: [["announcements", "📣", "Announcements"], ["messages", "💬", "Messages"]] },
   { group: "Administration", items: [["integrations", "🔗", "Integrations"], ["settings", "⚙️", "Settings"], ["users", "👤", "Users"]] },
@@ -1733,12 +1736,93 @@ function Dashboard({ s, setPage, seed, user, openPallet, onAssign, set, openToda
     </div>
   );
 }
-function SpecForm({ specs, inherited, onAdd, onRemove, hint, excluded, onExclude, onRestore, sctx }) {
+function TempSpecEditor({ spec, ownerKind, ownerId, existing, s, set, user, onClose }) {
+  const [d, setD] = useState({
+    min: existing?.min ?? spec.min ?? "",
+    max: existing?.max ?? spec.max ?? "",
+    unit: existing?.unit || spec.unit || "",
+    note: existing?.note || "",
+    mode: existing?.expiresAt ? "until" : "open",
+    expiresAt: existing?.expiresAt || "",
+  });
+  const save = () => {
+    if (d.mode === "until" && !d.expiresAt) return;
+    if (!hasV(d.min) && !hasV(d.max) && !d.note.trim()) return;
+    const row = {
+      id: existing?.id || uid(),
+      specId: spec.id,
+      specName: spec.name,
+      ownerKind,
+      ownerId,
+      min: hasV(d.min) ? d.min : null,
+      max: hasV(d.max) ? d.max : null,
+      unit: (d.unit || "").trim(),
+      note: d.note.trim(),
+      expiresAt: d.mode === "until" ? d.expiresAt : null,
+      createdAt: existing?.createdAt || nowISO(),
+      createdBy: user.id,
+      endedAt: null,
+      endedHow: null,
+      endedBy: null,
+    };
+    set(x => ({ ...x, tempSpecs: upsertTempSpec(x.tempSpecs, row) }));
+    onClose();
+  };
+  const clear = () => {
+    if (existing) set(x => ({ ...x, tempSpecs: clearTempSpec(x.tempSpecs, existing.id, user.id) }));
+    onClose();
+  };
+  return (
+    <div className="mt-2 mb-1 rounded-xl px-3 py-2.5" style={{ background: C.warnBg, border: `1px solid ${C.line}` }}>
+      <p className="text-[11px] font-semibold mb-2" style={{ color: C.warn }}>Temporary spec · {spec.name}</p>
+      <p className="text-[11px] mb-2" style={{ color: C.muted }}>Permanent stays {specLabel(spec)}. Controllers see the temporary limits{d.note.trim() ? " and the note" : ""} until it ends.</p>
+      <div className="flex gap-1.5 mb-2 flex-wrap items-center">
+        <input type="number" value={d.min} onChange={e => setD(x => ({ ...x, min: e.target.value }))} placeholder="min" className="w-16 text-sm rounded px-2 py-1.5 outline-none" style={{ ...inp }} />
+        <span className="text-xs" style={{ color: C.muted }}>–</span>
+        <input type="number" value={d.max} onChange={e => setD(x => ({ ...x, max: e.target.value }))} placeholder="max" className="w-16 text-sm rounded px-2 py-1.5 outline-none" style={{ ...inp }} />
+        <input value={d.unit} onChange={e => setD(x => ({ ...x, unit: e.target.value }))} placeholder="unit" className="w-16 text-sm rounded px-2 py-1.5 outline-none" style={{ ...inp }} />
+      </div>
+      <textarea value={d.note} onChange={e => setD(x => ({ ...x, note: e.target.value }))} rows={3} placeholder="What changed, and what not to reject on…" className="w-full text-sm mb-2" style={{ resize: "vertical" }} />
+      <div className="flex gap-1.5 mb-2 flex-wrap items-center">
+        {[["open", "Until I change it"], ["until", "Until a date"]].map(([k, l]) => <button key={k} type="button" onClick={() => setD(x => ({ ...x, mode: k }))} className="text-xs px-2.5 py-1.5 rounded-lg" style={{ background: d.mode === k ? C.ink : C.surface, color: d.mode === k ? C.onDark : C.ink, border: `1px solid ${C.line}` }}>{l}</button>)}
+        {d.mode === "until" && <input type="date" value={d.expiresAt} onChange={e => setD(x => ({ ...x, expiresAt: e.target.value }))} className="text-sm" />}
+      </div>
+      <div className="flex gap-2 flex-wrap">
+        <Primary small onClick={save}>{existing ? "Update" : "Save temporary"}</Primary>
+        {existing && <Ghost onClick={clear}>End it now</Ghost>}
+        <button type="button" onClick={onClose} className="text-xs" style={{ color: C.muted }}>Cancel</button>
+      </div>
+    </div>
+  );
+}
+
+function SpecForm({ specs, inherited, onAdd, onRemove, hint, excluded, onExclude, onRestore, sctx, set, user, ownerKind, ownerId }) {
   const [sp, setSp] = useState({ name: "", unit: "", kind: "min", min: "", max: "", basis: "piece" });
+  const [edit, setEdit] = useState(null);
   const reg = sctx ? specRegistry(sctx) : []; const near = sctx ? nearSpecName(sctx, sp.name) : null;
   const knownNames = new Set([...(specs || []), ...(inherited || [])].map(q => `${(q.name || "").toLowerCase()}|${specBasis(q)}`));
   const suggestions = reg.filter(e => !knownNames.has(`${e.name.toLowerCase()}|${sp.basis}`) && (!sp.name.trim() || e.name.toLowerCase().includes(sp.name.trim().toLowerCase()))).slice(0, 8);
   const add = () => { if (!sp.name.trim()) return; const min = sp.kind === "max" ? null : sp.min, max = sp.kind === "min" ? null : sp.max; if (!hasV(min) && !hasV(max)) return; onAdd({ id: uid(), basis: sp.basis, name: sctx ? canonicalSpecName(sctx, sp.name) : sp.name.trim(), unit: sp.unit.trim(), min: hasV(min) ? min : null, max: hasV(max) ? max : null }); setSp({ name: "", unit: "", kind: "min", min: "", max: "" }); };
+  const productId = ownerKind === "product" ? ownerId : null;
+  const tempOf = q => sctx ? activeTempForSpec(sctx.tempSpecs, q.id, productId) : null;
+  const canTemp = !!(set && user && ownerKind && ownerId);
+  const Row = ({ q, inheritedRow }) => {
+    const t = tempOf(q);
+    const open = edit && edit.spec.id === q.id && edit.inherited === !!inheritedRow;
+    return (
+      <div style={{ borderTop: `1px solid ${C.line}` }}>
+        <div className="flex items-baseline gap-2 text-sm py-1.5" style={{ opacity: inheritedRow && !t ? 0.65 : 1 }}>
+          <span className="flex-1 min-w-0">{q.name}</span>
+          <SpecValue spec={q} temp={t} colors={C} extra={<span style={{ color: C.muted }}>{basisTag(q)}{inheritedRow && q.source ? ` · ${q.source}` : ""}</span>} />
+          {canTemp && <button type="button" onClick={() => setEdit(open ? null : { spec: q, inherited: !!inheritedRow })} className="text-xs px-1.5" style={{ color: t ? C.warn : C.accent }}>{t ? "edit temp" : "temp"}</button>}
+          {inheritedRow && onExclude && <button type="button" onClick={() => onExclude(q.name)} className="text-xs px-1" style={{ color: C.muted }} title="don't inherit this specification on this product">exclude</button>}
+          {!inheritedRow && <button type="button" onClick={() => onRemove(q.id)} className="text-xs px-1" style={{ color: C.muted }}>×</button>}
+        </div>
+        {t && t.note && !open && <p className="text-[11px] pb-1.5 pl-0" style={{ color: C.bad }}>{t.note}</p>}
+        {open && <TempSpecEditor spec={q} ownerKind={inheritedRow && ownerKind === "product" ? "product" : ownerKind} ownerId={ownerId} existing={t && t.ownerKind === (inheritedRow && ownerKind === "product" ? "product" : ownerKind) && t.ownerId === ownerId ? t : (inheritedRow ? null : t)} s={sctx} set={set} user={user} onClose={() => setEdit(null)} />}
+      </div>
+    );
+  };
   return (
     <>
       {hint && <p className="text-xs mb-3" style={{ color: C.muted }}>{hint}</p>}
@@ -1758,12 +1842,63 @@ function SpecForm({ specs, inherited, onAdd, onRemove, hint, excluded, onExclude
       </div>
       {specs.length === 0 && (!inherited || inherited.length === 0) && <p className="text-xs" style={{ color: C.muted }}>No specifications.</p>}
       {excluded && excluded.length > 0 && <div className="mt-2"><p className="label-sm mb-1">not inherited on this product</p>{excluded.map(n => <div key={n} className="flex items-center gap-2 text-xs py-1" style={{ color: C.muted }}><span className="flex-1 line-through">{n}</span><button onClick={() => onRestore(n)} className="text-xs" style={{ color: C.accent }}>restore</button></div>)}</div>}
-      {specs.map(q => <div key={q.id} className="flex items-center gap-2 text-sm py-1.5" style={{ borderTop: `1px solid ${C.line}` }}><span className="flex-1">{q.name}</span><span style={{ color: C.muted }}>{specLabel(q)}{basisTag(q)}</span><button onClick={() => onRemove(q.id)} className="text-xs px-1" style={{ color: C.muted }}>×</button></div>)}
+      {specs.map(q => <Row key={q.id} q={q} />)}
       {inherited && inherited.length > 0 && <>
         <p className="label-sm mt-3 mb-1" style={{ color: C.muted }}>inherited</p>
-        {inherited.map(q => <div key={q.id} className="flex items-center gap-2 text-sm py-1.5" style={{ borderTop: `1px solid ${C.line}`, opacity: 0.65 }}><span className="flex-1">{q.name}</span><span style={{ color: C.muted }}>{specLabel(q)}{basisTag(q)} · {q.source}</span>{onExclude && <button onClick={() => onExclude(q.name)} className="text-xs px-1" style={{ color: C.muted }} title="don't inherit this specification on this product">exclude</button>}</div>)}
+        {inherited.map(q => <Row key={q.id} q={q} inheritedRow />)}
       </>}
     </>
+  );
+}
+
+function TempSpecsPage({ s, set, user, openProduct, openCategory }) {
+  const [tab, setTab] = useState("active");
+  useEffect(() => {
+    const cur = s.tempSpecs || [];
+    const next = closeExpiredTempSpecs(cur);
+    if (next !== cur) set(x => ({ ...x, tempSpecs: closeExpiredTempSpecs(x.tempSpecs || []) }));
+  }, [s.tempSpecs]);
+  const list = s.tempSpecs || [];
+  const active = list.filter(t => !t.endedAt).sort((a, b) => (a.expiresAt || "9999").localeCompare(b.expiresAt || "9999") || (b.createdAt || "").localeCompare(a.createdAt || ""));
+  const ended = list.filter(t => t.endedAt).sort((a, b) => (b.endedAt || "").localeCompare(a.endedAt || ""));
+  const rows = tab === "active" ? active : ended;
+  const who = id => s.users.find(u => u.id === id)?.name.split(" ")[0];
+  const openOwner = t => {
+    if (t.ownerKind === "product" && openProduct) openProduct(t.ownerId);
+    if (t.ownerKind === "category" && openCategory) openCategory(t.ownerId);
+  };
+  const endHow = t => t.endedHow === "expired" ? "expired on its date" : t.endedHow === "replaced" ? "replaced" : t.endedHow === "cleared" ? `ended${who(t.endedBy) ? ` by ${who(t.endedBy)}` : ""}` : "ended";
+  return (
+    <div>
+      <h1 className="mb-1">Temporary specs</h1>
+      <p className="text-sm mb-4" style={{ color: C.muted, maxWidth: 640 }}>Overrides the Head pins on a specification — a different min/max and a note. Dated ones drop off the floor by themselves; open-ended ones stay until someone ends them here or on the spec.</p>
+      <div className="inline-flex rounded-xl overflow-hidden mb-4" style={{ border: `1px solid ${C.line}` }}>
+        {[["active", "Active", active.length], ["ended", "Expired", ended.length]].map(([id, label, n]) => (
+          <button key={id} onClick={() => setTab(id)} className="text-sm px-3.5 py-1.5" style={{ background: tab === id ? C.ink : "transparent", color: tab === id ? C.onDark : C.ink }}>{label}{n ? ` · ${n}` : ""}</button>
+        ))}
+      </div>
+      {rows.length === 0 ? <Card><Empty icon="📏" title={tab === "active" ? "No active temporary specs" : "Nothing has expired yet"} hint={tab === "active" ? "Add one from a product or category specification — the temp button on the row." : "Dated overrides land here after their day, and anything ended by hand stays here too."} /></Card> : (
+        <Card>
+          {rows.map(t => (
+            <div key={t.id} className="py-3" style={{ borderTop: `1px solid ${C.line}` }}>
+              <div className="flex items-start gap-3">
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium">{t.specName || "Specification"} · {specLabel(t)}</p>
+                  <p className="text-[12px] mt-0.5" style={{ color: C.muted }}>
+                    <button type="button" onClick={() => openOwner(t)} className="underline" style={{ color: C.accent }}>{tempOwnerLabel(s, t)}</button>
+                    {t.ownerKind === "category" ? " · whole category" : " · this product only"}
+                    {" · "}{tab === "active" ? tempUntilLabel(t) : endHow(t)}
+                    {who(t.createdBy) ? ` · set by ${who(t.createdBy)}` : ""}
+                  </p>
+                  {t.note && <p className="text-[13px] mt-1.5" style={{ color: C.ink, whiteSpace: "pre-wrap" }}>{t.note}</p>}
+                </div>
+                {tab === "active" && <Ghost onClick={() => set(x => ({ ...x, tempSpecs: clearTempSpec(x.tempSpecs, t.id, user.id) }))}>End it</Ghost>}
+              </div>
+            </div>
+          ))}
+        </Card>
+      )}
+    </div>
   );
 }
 
@@ -1920,8 +2055,8 @@ function CategoriesPage({ s, set, onMessage, onOpenProduct, presetSel, clearPres
       {cat && (
         <Card style={{ marginTop: 16 }}>
           <p className="font-medium text-sm mb-1">Category specifications: {cat.name}</p>
-          <SpecForm sctx={s} specs={cat.specs || []} inherited={parentSpecs} onAdd={q => { patchCat({ specs: [...(cat.specs || []), q] }); const kids = productsUnder(cat.id); if (kids.length) setApplyAsk({ spec: q, kids, chosen: new Set(kids.map(p => p.id)), choosing: false }); }} onRemove={id => patchCat({ specs: (cat.specs || []).filter(q => q.id !== id) })}
-            hint="Inherited by all products in this category (by name). A product can override with its own spec of the same name. Set e.g. Brix or Firmness once for the whole category here." />
+          <SpecForm sctx={s} set={set} user={s.users.find(u => u.role === "Head")} ownerKind="category" ownerId={cat.id} specs={cat.specs || []} inherited={parentSpecs} onAdd={q => { patchCat({ specs: [...(cat.specs || []), q] }); const kids = productsUnder(cat.id); if (kids.length) setApplyAsk({ spec: q, kids, chosen: new Set(kids.map(p => p.id)), choosing: false }); }} onRemove={id => patchCat({ specs: (cat.specs || []).filter(q => q.id !== id) })}
+            hint="Inherited by all products in this category (by name). A product can override with its own spec of the same name. Set e.g. Brix or Firmness once for the whole category here. Temp on a row applies to every product that inherits it." />
         </Card>
       )}
 
@@ -2772,7 +2907,7 @@ function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset, onMessag
                   <PhotoStrip photos={product.photos} onAdd={got => patchP({ photos: [...asPhotoList(product.photos), ...got] })} onRemove={id => patchP({ photos: asPhotoList(product.photos).filter(x => x.id !== id) })} />
                 </div>}
                 {tab === "specs" && <div style={{ maxWidth: 720 }}>
-                  <SpecForm sctx={s} specs={product.specs} inherited={effectiveSpecs(s, product).filter(q => q.source !== "product")} onAdd={q => patchP({ specs: [...product.specs, q] })} onRemove={removeSpec} excluded={product.excludedSpecNames || []} onExclude={n => patchP({ excludedSpecNames: [...(product.excludedSpecNames || []), n] })} onRestore={n => patchP({ excludedSpecNames: (product.excludedSpecNames || []).filter(x => x !== n) })} hint="Own specifications override inherited ones of the same name. Most belong on the category — only exceptions here." />
+                  <SpecForm sctx={s} set={set} user={s.users.find(u => u.role === "Head")} ownerKind="product" ownerId={product.id} specs={product.specs} inherited={effectiveSpecs(s, product, { applyTemp: false }).filter(q => q.source !== "product")} onAdd={q => patchP({ specs: [...product.specs, q] })} onRemove={removeSpec} excluded={product.excludedSpecNames || []} onExclude={n => patchP({ excludedSpecNames: [...(product.excludedSpecNames || []), n] })} onRestore={n => patchP({ excludedSpecNames: (product.excludedSpecNames || []).filter(x => x !== n) })} hint="Own specifications override inherited ones of the same name. Most belong on the category — only exceptions here. Temp on a row is for this product only." />
                 </div>}
                 {tab === "attrs" && <div style={{ maxWidth: 720 }}>
                   <AttributeForm s={s} own={product.attributes || []} inherited={effectiveAttributes(s, product).filter(a => a.source !== "product")} onSet={a => patchP({ attributes: [...(product.attributes || []).filter(x => x.dictionaryId !== a.dictionaryId), a] })} onRemove={did => patchP({ attributes: (product.attributes || []).filter(x => x.dictionaryId !== did) })} hint="Values from Lists. Own values override the category's; they pre-fill form fields bound to the same list. An answer that differs is flagged on the form." />
@@ -3312,6 +3447,7 @@ function NumberInput({ f, problems, allProblems, overrides, specs, totals, value
         ? <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${Math.min(n, 3)}, minmax(0,1fr))` }}>{ms.map((m, i) => <SearchSelect key={i} value={m === "" ? "" : String(m)} onChange={v => setM(i, v)} options={choiceOptions} empty={n > 1 ? `reading ${i + 1}` : "— choose —"} placeholder="Search values…" searchFrom={11} />)}</div>
         : <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${n}, minmax(0,1fr))` }}>{ms.map((m, i) => <input key={i} type="number" value={m} onChange={e => setM(i, e.target.value)} placeholder={`reading ${i + 1}`} className="text-sm rounded px-2 py-1.5 outline-none" style={{ ...inp }} />)}</div>}
       {lim.note && <p className="text-[11px] mt-1" style={{ color: C.muted }}>{lim.note}</p>}
+      {spec?.temp && <p className="text-[11px] mt-1" style={{ color: C.warn }}>Temporary spec {tempUntilLabel(spec.temp)}{spec.temp.note ? ` — ${spec.temp.note}` : ""}</p>}
       {avg !== null && <p className="text-xs mt-1.5" style={{ color: C.muted }}>average <b style={{ color: C.ink }}>{fmt(avg)}</b>{ref ? ` · reference ${ref}${byName ? ` (by name “${spec.name}"${spec.source !== "product" ? ", " + spec.source : ""})` : ""}` : (f.problemBelowId || f.problemAboveId) ? <span style={{ color: C.warn }}> · no reference — the product has no specification “{(f.specName || "").trim() || f.label}“ and the field has no min/max</span> : ""}</p>}
       {bad && !lp && <div className="rounded-lg px-3 py-1.5 mt-1.5 text-xs" style={{ background: C.warnBg, color: C.warn }}>Out of spec — warning only.</div>}
       {bad && lp && !raised && <RaiseForm problems={problems} overrides={overrides} linkedId={linkedId} totals={totals} onRaise={onRaise} intro="Out of spec" />}
@@ -3805,7 +3941,7 @@ function ProductPeek({ s, product, onClose }) {
             </>}
             {reference && <><H>Reference inspection</H><p className="text-sm"><Ic i={Star} s={13} mr={4} />{s.users.find(u => u.id === reference.controllerId)?.name} · {fmtTime(reference.completedAt)} · {reference.result || "—"}</p></>}
           </div>}
-          {tab === "specs" && <div className="mt-3">{specs.length === 0 ? <Empty icon="📏" title="No specifications" hint="Nothing set on the product or its categories." /> : specs.map((q, i) => <div key={q.id || i} className="flex justify-between gap-3 py-2 text-sm" style={{ borderBottom: `1px solid ${C.line}` }}><div><span className="font-medium">{q.name}</span>{q.source !== "product" && <span className="text-[10px] ml-2" style={{ color: C.muted }}>{q.source}</span>}</div><span className="font-mono whitespace-nowrap">{specLabel(q)}</span></div>)}</div>}
+          {tab === "specs" && <div className="mt-3">{specs.length === 0 ? <Empty icon="📏" title="No specifications" hint="Nothing set on the product or its categories." /> : specs.map((q, i) => <div key={q.id || i} className="py-2 text-sm" style={{ borderBottom: `1px solid ${C.line}` }}><div className="flex justify-between gap-3 items-baseline"><div><span className="font-medium">{q.name}</span>{q.source !== "product" && <span className="text-[10px] ml-2" style={{ color: C.muted }}>{q.source}</span>}</div><SpecValue spec={q} colors={C} /></div>{q.temp?.note && <p className="text-[12px] mt-1" style={{ color: C.bad }}>{q.temp.note}</p>}</div>)}</div>}
           {tab === "attrs" && <div className="mt-3">{attrs.length === 0 ? <Empty icon="🏷️" title="No properties" hint="Nothing set on the product or its categories." /> : attrs.map(a => <div key={a.dictionaryId} className="flex justify-between gap-3 py-2 text-sm" style={{ borderBottom: `1px solid ${C.line}` }}><div><span style={{ color: C.muted }}>{a.list}</span>{a.source !== "product" && <span className="text-[10px] ml-2" style={{ color: C.muted }}>{a.source}</span>}</div><span className="font-medium text-right">{a.value}</span></div>)}</div>}
           {tab === "guide" && <div className="mt-3">{guide.length === 0 ? <Empty icon="📖" title="Encyclopedia is empty" hint="Fill it in on the product page (Products → Encyclopedia)." /> : guide.map(g => <FoldNote key={g.id} title={g.title || "Untitled entry"} chip={g.inherited ? <InheritChip label={g.source} /> : null}>{g.body && <p className="text-sm whitespace-pre-wrap mb-2" style={{ color: C.ink }}>{g.body}</p>}<Photos list={asPhotoList(g.photos)} /></FoldNote>)}</div>}
           {tab === "reference" && <div className="mt-3">{notes.length === 0 ? <Empty icon="🧭" title="No reference notes" hint="Notes and photos per defect are filled in on the product page." /> : notes.map(n => <FoldNote key={n.id} title={problemPath(s.problems, n.problemId) || "Defect"} chip={n.inherited ? <InheritChip label={n.source} /> : null}>{n.description && <p className="text-sm whitespace-pre-wrap mb-2">{n.description}</p>}<Photos list={asPhotoList(n.photos)} /></FoldNote>)}</div>}
@@ -3900,7 +4036,7 @@ function CatalogPage({ s, set, user, notify, onStartInspection }) {
               {(() => { const ref = s.inspections.find(i => i.productId === product.id && i.isReference); return ref ? <div className="rounded-lg p-2 mb-3 flex items-center gap-2" style={{ background: C.okBg }}><span className="text-sm inline-flex items-center" style={{ color: C.ok }}><Ic i={Star} s={14} />This product has a reference inspection</span><div className="flex-1" /><Ghost onClick={() => setShowRef(r => r ? null : ref.id)}>{showRef ? "hide" : "see how it should look"}</Ghost></div> : null; })()}
               {showRef && (() => { const ref = s.inspections.find(i => i.id === showRef); return ref ? <div className="rounded-lg p-3 mb-3" style={{ border: `1px solid ${C.ok}` }}><ReportView insp={ref} s={s} user={user} onEdit={() => {}} onAnswer={() => {}} /></div> : null; })()}
               <p className="label-sm mb-1" style={{ color: C.muted }}>Specs (specifications)</p>
-              {specs.length === 0 ? <p className="text-xs mb-3" style={{ color: C.muted }}>None.</p> : specs.map(sp => <div key={sp.id} className="flex items-center gap-2 text-sm py-1" style={{ borderTop: `1px solid ${C.line}` }}><span className="flex-1">{sp.name}</span><span style={{ color: C.ink, fontWeight: 500 }}>{specLabel(sp)}</span><span className="text-[10px]" style={{ color: C.muted }}>{sp.source}</span></div>)}
+              {specs.length === 0 ? <p className="text-xs mb-3" style={{ color: C.muted }}>None.</p> : specs.map(sp => <div key={sp.id} className="flex items-center gap-2 text-sm py-1" style={{ borderTop: `1px solid ${C.line}` }}><span className="flex-1">{sp.name}</span><SpecValue spec={sp} colors={C} />{sp.source !== "product" && <span className="text-[10px]" style={{ color: C.muted }}>{sp.source}</span>}</div>)}
               <div className="grid grid-cols-2 gap-3 mt-3">
                 <div><p className="label-sm mb-1" style={{ color: C.muted }}>Dostawcy{assigned.length === 0 && suppliers.length > 0 && " (all)"}</p><div className="flex flex-wrap gap-1">{suppliers.length ? suppliers.map(x => <span key={x.id} className="text-xs px-2 py-0.5 rounded-full" style={{ background: C.accentSoft, color: C.accent }}>{x.name}</span>) : <span className="text-xs" style={{ color: C.muted }}>none</span>}</div></div>
                 <div><p className="label-sm mb-1" style={{ color: C.muted }}>Varieties</p><div className="flex flex-wrap gap-1">{effectiveVarieties(s, product).length ? effectiveVarieties(s, product).map(v => <span key={v.id} className="text-xs px-2 py-0.5 rounded-full" style={{ background: C.bg, border: `1px solid ${C.line}` }} title={v.source}>{v.name}</span>) : <span className="text-xs" style={{ color: C.muted }}>none</span>}</div></div>
@@ -4467,7 +4603,7 @@ function UsersPage({ s, set }) {
 
 // ═══════════════════ APLIKACJA ═══════════════════
 const SEED_USERS = () => [{ id: "u-head", name: "Aleksandra Chełmińska", firstName: "Aleksandra", lastName: "Chełmińska", email: "aleksandra.chelminska@qc.local", role: "Head", active: true }, { id: "u-anna", name: "Damian Mrówka", firstName: "Damian", lastName: "Mrówka", email: "damian.mrowka@qc.local", role: "Controller", active: true }, { id: "u-jakub", name: "Snizhana Myshkina", firstName: "Snizhana", lastName: "Myshkina", email: "snizhana.myshkina@qc.local", role: "Controller", active: true }];
-const EMPTY = { categories: [], problems: [], problemNotes: [], products: [], templates: [], suppliers: [], countries: [], users: SEED_USERS(), inspections: [], flags: [], notifications: [], announcements: [], conversations: [], dictionaries: [], inspectionTypes: SEED_TYPES(), settings: { defaultPolicy: "Visual", skipReasonRequired: false } };
+const EMPTY = { categories: [], problems: [], problemNotes: [], products: [], templates: [], suppliers: [], countries: [], users: SEED_USERS(), inspections: [], flags: [], notifications: [], announcements: [], conversations: [], dictionaries: [], inspectionTypes: SEED_TYPES(), tempSpecs: [], settings: { defaultPolicy: "Visual", skipReasonRequired: false } };
 
 // Migration of older exports: product.suppliers as names → global list + supplierIds
 const normalize = raw => {
@@ -4501,6 +4637,7 @@ const normalize = raw => {
   s.categories = s.categories.map(c => ({ ...c, hiddenProblemIds: c.hiddenProblemIds || [], guide: Array.isArray(c.guide) ? c.guide.map(e => ({ ...e, photos: asPhotoList(e.photos) })) : [], hiddenGuideIds: Array.isArray(c.hiddenGuideIds) ? c.hiddenGuideIds : [] }));
   // Reference guide: per-product notes (description + photos) on a problem type, written by the Head, shown to controllers.
   s.problemNotes = (Array.isArray(s.problemNotes) ? s.problemNotes : []).map(n => ({ ...n, photos: asPhotoList(n.photos), description: n.description || "" }));
+  s.tempSpecs = closeExpiredTempSpecs(Array.isArray(s.tempSpecs) ? s.tempSpecs : []);
   s.countries = Array.isArray(s.countries) ? s.countries : [];
   s.dictionaries = Array.isArray(s.dictionaries) ? s.dictionaries : [];
   if (!s.dictionaries.length && s.countries.length) s.dictionaries = [{ id: "dict-countries", name: "Countries", items: s.countries.map(c => ({ id: c.id, value: c.name })), isActive: true }];
@@ -4528,7 +4665,7 @@ const seedState = () => {
   const mPal = uid(), mPar = uid(), mQ = uid(), mG = uid();
   const supE = uid(), supG = uid(), supN = uid(), cES = uid(), cMA = uid(), cNL = uid();
   const seed = {
-    users: SEED_USERS(), inspections: [], flags: [], notifications: [], announcements: [], conversations: [],
+    users: SEED_USERS(), inspections: [], flags: [], notifications: [], announcements: [], conversations: [], tempSpecs: [],
     categories: [{ id: jab, name: "Apples", parentId: null, specs: [{ id: uid(), name: "Firmness", unit: "Lb", min: 5, max: 8 }], varieties: [{ id: uid(), name: "Elstar" }, { id: uid(), name: "Gala" }] }, { id: tom, name: "Tomatoes", parentId: null, specs: [], varieties: [] }],
     suppliers: [{ id: supE, name: "El Ciruelo" }, { id: supG, name: "Gartenfrisch" }, { id: supN, name: "Nature's Pride" }],
     countries: [{ id: cES, name: "Spain" }, { id: cMA, name: "Morocco" }, { id: cNL, name: "Netherlands" }],
@@ -4780,7 +4917,7 @@ export default function App() {
   const guard = key => user.role === "Head" || NAV_CONTROLLER.some(g => g.items.some(([k]) => k === key));
   const safePage = guard(page) ? page : "dashboard";
   return (
-    <Shell onSearch={q => { setSelPallet(null); setProductsQuery(q); setPage("products"); }} onLogout={() => { writeSession(null); setUserId(null); }} page={safePage} setPage={p => { setSelPallet(null); setPage(p); }} badge={{ ...badge, complaints: complaintsNewCount(s, user.id), messages: unreadMsgs, notifications: unread, flags: user.role === "Head" ? s.flags.filter(f => f.status === "Open").length : 0, inspections: user.role === "Head" ? s.inspections.filter(i => i.status === "PendingReview").length : 0 }} topRight={dataButton} users={s.users} user={user} setUser={id => { setUserId(id); setSelPallet(null); setPage("dashboard"); setOpenInspId(null); }} unread={unread} onBell={() => { setSelPallet(null); setPage("notifications"); }}>
+    <Shell onSearch={q => { setSelPallet(null); setProductsQuery(q); setPage("products"); }} onLogout={() => { writeSession(null); setUserId(null); }} page={safePage} setPage={p => { setSelPallet(null); setPage(p); }} badge={{ ...badge, complaints: complaintsNewCount(s, user.id), messages: unreadMsgs, notifications: unread, flags: user.role === "Head" ? s.flags.filter(f => f.status === "Open").length : 0, inspections: user.role === "Head" ? s.inspections.filter(i => i.status === "PendingReview").length : 0, tempspecs: user.role === "Head" ? (s.tempSpecs || []).filter(t => !t.endedAt).length : 0 }} topRight={dataButton} users={s.users} user={user} setUser={id => { setUserId(id); setSelPallet(null); setPage("dashboard"); setOpenInspId(null); }} unread={unread} onBell={() => { setSelPallet(null); setPage("notifications"); }}>
       <BlockingOverlay s={s} set={set} user={user} />
       {dataOpen && <DataPanel s={s} set={set} onClose={() => setDataOpen(false)} />}
       {toastMsg && <div className="fixed left-1/2 -translate-x-1/2 text-sm px-4 py-2 rounded-xl" style={{ top: 12, zIndex: 90, background: C.ink, color: C.onDark, boxShadow: "0 8px 20px rgba(0,0,0,.25)" }}>{toastMsg}</div>}
@@ -4790,6 +4927,7 @@ export default function App() {
       {!selPallet && safePage === "categories" && <CategoriesPage s={s} set={set} onMessage={ctx => { setPendingChatContext(ctx); setPage("messages"); }} onOpenProduct={id => { setSelProduct(id); setPage("products"); }} presetSel={presetCategory} clearPresetSel={() => setPresetCategory(null)} />}
       {!selPallet && safePage === "problems" && <ProblemsPage s={s} set={set} />}
       {!selPallet && safePage === "products" && <ProductsPage s={s} set={set} sel={selProduct} setSel={setSelProduct} presetFilter={productsQuery} clearPreset={() => setProductsQuery("")} onMessage={ctx => { setPendingChatContext(ctx); setPage("messages"); }} onOpenInspection={id => { setOpenInspId(id); setPage("inspections"); }} onOpenCategory={id => { setPresetCategory(id); setPage("categories"); }} />}
+      {!selPallet && safePage === "tempspecs" && <TempSpecsPage s={s} set={set} user={user} openProduct={id => { setSelProduct(id); setPage("products"); }} openCategory={id => { setPresetCategory(id); setPage("categories"); }} />}
       {!selPallet && safePage === "forms" && <FormsPage s={s} set={set} />}
       {!selPallet && safePage === "suppliers" && <DictionaryPage s={s} set={set} listKey="suppliers" title="Suppliers" hint="One global list of all suppliers (Suppliers). Assign to products in Products." placeholder="e.g. El Ciruelo" usageOf={id => s.products.filter(p => (p.supplierIds || []).includes(id)).length} />}
       {!selPallet && safePage === "lists" && <ListsPage s={s} set={set} />}
