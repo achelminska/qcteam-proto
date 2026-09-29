@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, Fragment } from "react";
 import { createSyncer, guardUnload } from "./sync.js";
 import { hasV, specLabel, dayLabel, problemPath, typesOf, typeById, legacyTypeId, inspType, countsAs, listCheck } from "./shared/format.js";
+import { matchesText } from "./shared/search.js";
 import { peopleOnFloor, peopleAtDock, floorWhere, floorVerb, doneTodayCount, doneTodayByUser } from "./shared/floor.js";
 import { readAsDataUrl, keepPhoto } from "./shared/report-images.js";
 import { drawReportPdf } from "./shared/report-pdf.js";
@@ -956,10 +957,10 @@ function ComposerExtras({ s, user, pending, setPending, compact, bar }) {
   const add = ctx => { setPending(p => { const cur = p.contexts || []; const exists = cur.some(c => c.kind === ctx.kind && c.id === ctx.id); return { ...p, contexts: exists ? cur.filter(c => !(c.kind === ctx.kind && c.id === ctx.id)) : [...cur, ctx] }; }); };
   const [busy, setBusy] = useState(false);
   const addFiles = async () => { setBusy(true); try { const got = await pickFiles(); if (got.length) setPending(p => ({ ...p, attachments: [...(p.attachments || []), ...got] })); } finally { setBusy(false); } };
-  const products = s.products.filter(p => p.isActive !== false && (!qq || (p.name + " " + (p.articleId || "")).toLowerCase().includes(qq))).slice(0, 8);
-  const inspections = s.inspections.filter(i => i.status !== "Cancelled").sort((a, b) => (b.startedAt || "").localeCompare(a.startedAt || "")).filter(i => { const p = s.products.find(x => x.id === i.productId); return !qq || (p?.name || "").toLowerCase().includes(qq) || (i.pallets || []).some(h => String(h).includes(qq)); }).slice(0, 8);
+  const products = s.products.filter(p => p.isActive !== false && (!qq || matchesText(`${p.name} ${p.articleId || ""}`, qq))).slice(0, 8);
+  const inspections = s.inspections.filter(i => i.status !== "Cancelled").sort((a, b) => (b.startedAt || "").localeCompare(a.startedAt || "")).filter(i => { const p = s.products.find(x => x.id === i.productId); return !qq || matchesText(p?.name || "", qq) || (i.pallets || []).some(h => String(h).includes(qq)); }).slice(0, 8);
   const urgentKeys = new Set(computeDeadlineAlerts(s).map(al => al.hu.replace(/\D/g, "").replace(/^0+/, "")));
-  const pallets = dockRowsLive(s).filter(r => !qq || r.hu.includes(qq) || (r.name || "").toLowerCase().includes(qq)).sort((x, y) => (urgentKeys.has(y.hu.replace(/\D/g, "").replace(/^0+/, "")) ? 1 : 0) - (urgentKeys.has(x.hu.replace(/\D/g, "").replace(/^0+/, "")) ? 1 : 0)).slice(0, 8);
+  const pallets = dockRowsLive(s).filter(r => !qq || r.hu.includes(qq) || matchesText(r.name || "", qq)).sort((x, y) => (urgentKeys.has(y.hu.replace(/\D/g, "").replace(/^0+/, "")) ? 1 : 0) - (urgentKeys.has(x.hu.replace(/\D/g, "").replace(/^0+/, "")) ? 1 : 0)).slice(0, 8);
   const flags = s.flags.filter(f => f.status === "Open").filter(f => !qq || (f.description || "").toLowerCase().includes(qq)).slice(0, 8);
   const Row = ({ onClick, icon, main, sub, on }) => <button onClick={onClick} className="w-full text-left flex items-center gap-2 px-2 py-1.5 rounded-lg row" style={{ borderTop: `1px solid ${C.line}`, background: on ? C.accentSoft : "transparent" }}><Ic i={icon} s={13} mr={0} /><span className="min-w-0 flex-1"><span className="block text-sm truncate" style={{ color: on ? C.accent : C.ink }}>{main}</span>{sub && <span className="block text-[11px] truncate" style={{ color: C.muted }}>{sub}</span>}</span>{on && <Ic i={Check} s={13} mr={0} />}</button>;
   return (
@@ -2658,7 +2659,7 @@ function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset, onMessag
     const cur = s.categories.find(c => c.id === catSel);
     if (cur) catFilterOptions.push({ value: cur.id, label: `${cur.name} · ${countIn(cur.id)}` });
   }
-  const visible = s.products.filter(p => (showInactive || p.isActive !== false) && inCat(p, catSel) && (!onlyBio || p.isBio) && (!filter || (p.name + " " + (p.articleId || "")).toLowerCase().includes(filter.toLowerCase())))
+  const visible = s.products.filter(p => (showInactive || p.isActive !== false) && inCat(p, catSel) && (!onlyBio || p.isBio) && (!filter || matchesText(`${p.name} ${p.articleId || ""}`, filter)))
     .sort((a, b) => sortBy === "az" ? a.name.localeCompare(b.name) : sortBy === "id" ? String(a.articleId || "").localeCompare(String(b.articleId || "")) : sortBy === "cat" ? catPath(a.categoryId).localeCompare(catPath(b.categoryId)) || a.name.localeCompare(b.name) : 0);
   const [bulkCat, setBulkCat] = useState("");
   const visibleUnassigned = visible.filter(p => !p.categoryId);
@@ -3843,7 +3844,7 @@ function CatalogPage({ s, set, user, notify, onStartInspection }) {
   const lastInsp = pid => s.inspections.filter(i => i.productId === pid && i.status === "Completed").sort((a, b) => (b.completedAt || "").localeCompare(a.completedAt || ""))[0];
   const haystack = p => [p.name, p.articleId, p.barcodeCu, p.barcodeTu, ...catChain(p.categoryId).map(c => c.name), ...(p.supplierIds || []).map(id => (s.suppliers || []).find(x => x.id === id)?.name || ""), ...effectiveVarieties(s, p).map(v => v.name)].join(" ").toLowerCase();
   const qq = q.trim().toLowerCase();
-  const visible = s.products.filter(p => p.isActive !== false).filter(p => (!cat || catChain(p.categoryId).some(c => c.id === cat)) && (!f.bio || (f.bio === "bio" ? p.isBio : !p.isBio)) && (!f.supplier || (p.supplierIds || []).includes(f.supplier)) && (!f.flagged || s.flags.some(x => x.productId === p.id && x.status === "Open")) && (!qq || haystack(p).includes(qq)))
+  const visible = s.products.filter(p => p.isActive !== false).filter(p => (!cat || catChain(p.categoryId).some(c => c.id === cat)) && (!f.bio || (f.bio === "bio" ? p.isBio : !p.isBio)) && (!f.supplier || (p.supplierIds || []).includes(f.supplier)) && (!f.flagged || s.flags.some(x => x.productId === p.id && x.status === "Open")) && (!qq || matchesText(haystack(p), qq)))
     .sort((a, b) => f.sort === "recent" ? ((lastInsp(b.id)?.completedAt || "").localeCompare(lastInsp(a.id)?.completedAt || "")) : a.name.localeCompare(b.name, "en"));
   const topCats = s.categories.filter(c => !c.parentId);
   const countIn = cid => s.products.filter(p => catChain(p.categoryId).some(c => c.id === cid)).length;
@@ -3931,7 +3932,7 @@ function ProductPicker({ products, value, onChange, placeholder = "Search produc
   const [q, setQ] = useState(""); const [open, setOpen] = useState(false);
   const selected = products.find(p => p.id === value);
   const qq = q.trim().toLowerCase();
-  const results = (qq ? products.filter(p => (p.name + " " + (p.articleId || "")).toLowerCase().includes(qq)) : products).slice(0, 8);
+  const results = (qq ? products.filter(p => matchesText(`${p.name} ${p.articleId || ""}`, qq)) : products).slice(0, 8);
   if (selected && !open) return (
     <div className="flex items-center gap-2 rounded-md px-2" style={{ ...inp, height: 32 }}>
       <span className="flex-1 min-w-0 truncate text-[13px]">{selected.name}</span>

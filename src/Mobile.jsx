@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, Fragment } from "react";
 import { createSyncer, guardUnload } from "./sync.js";
 import { hasV, specLabel, dayLabel, typesOf, typeById, legacyTypeId, inspType, countsAs, listCheck } from "./shared/format.js";
+import { matchesText } from "./shared/search.js";
 import { peopleOnFloor, peopleAtDock, floorWhere, floorVerb, doneTodayCount } from "./shared/floor.js";
 import { readAsDataUrl, keepPhoto } from "./shared/report-images.js";
 import { drawReportPdf } from "./shared/report-pdf.js";
@@ -83,7 +84,7 @@ const MProductPicker = ({ products, value, onChange, placeholder = "Search produ
   const [q, setQ] = useState(""); const [open, setOpen] = useState(false);
   const selected = products.find(p => p.id === value);
   const qq = q.trim().toLowerCase();
-  const results = (qq ? products.filter(p => (p.name + " " + (p.articleId || "")).toLowerCase().includes(qq)) : products).slice(0, 8);
+  const results = (qq ? products.filter(p => matchesText(`${p.name} ${p.articleId || ""}`, qq)) : products).slice(0, 8);
   if (selected && !open) return (
     <div className="flex items-center justify-between rounded-xl px-3 py-2.5" style={{ border: `1px solid ${C.line}` }}>
       <span className="text-sm truncate flex-1 min-w-0">{selected.name}</span>
@@ -972,10 +973,10 @@ function ComposerExtras({ s, user, pending, setPending, compact, bar }) {
   const add = ctx => { setPending(p => { const cur = p.contexts || []; const exists = cur.some(c => c.kind === ctx.kind && c.id === ctx.id); return { ...p, contexts: exists ? cur.filter(c => !(c.kind === ctx.kind && c.id === ctx.id)) : [...cur, ctx] }; }); };
   const [busy, setBusy] = useState(false);
   const addFiles = async () => { setBusy(true); try { const got = await pickFiles(); if (got.length) setPending(p => ({ ...p, attachments: [...(p.attachments || []), ...got] })); } finally { setBusy(false); } };
-  const products = s.products.filter(p => p.isActive !== false && (!qq || (p.name + " " + (p.articleId || "")).toLowerCase().includes(qq))).slice(0, 8);
-  const inspections = s.inspections.filter(i => i.status !== "Cancelled").sort((a, b) => (b.startedAt || "").localeCompare(a.startedAt || "")).filter(i => { const p = s.products.find(x => x.id === i.productId); return !qq || (p?.name || "").toLowerCase().includes(qq) || (i.pallets || []).some(h => String(h).includes(qq)); }).slice(0, 8);
+  const products = s.products.filter(p => p.isActive !== false && (!qq || matchesText(`${p.name} ${p.articleId || ""}`, qq))).slice(0, 8);
+  const inspections = s.inspections.filter(i => i.status !== "Cancelled").sort((a, b) => (b.startedAt || "").localeCompare(a.startedAt || "")).filter(i => { const p = s.products.find(x => x.id === i.productId); return !qq || matchesText(p?.name || "", qq) || (i.pallets || []).some(h => String(h).includes(qq)); }).slice(0, 8);
   const urgentKeys = new Set(computeDeadlineAlerts(s).map(al => al.hu.replace(/\D/g, "").replace(/^0+/, "")));
-  const pallets = dockRowsLive(s).filter(r => !qq || r.hu.includes(qq) || (r.name || "").toLowerCase().includes(qq)).sort((x, y) => (urgentKeys.has(y.hu.replace(/\D/g, "").replace(/^0+/, "")) ? 1 : 0) - (urgentKeys.has(x.hu.replace(/\D/g, "").replace(/^0+/, "")) ? 1 : 0)).slice(0, 8);
+  const pallets = dockRowsLive(s).filter(r => !qq || r.hu.includes(qq) || matchesText(r.name || "", qq)).sort((x, y) => (urgentKeys.has(y.hu.replace(/\D/g, "").replace(/^0+/, "")) ? 1 : 0) - (urgentKeys.has(x.hu.replace(/\D/g, "").replace(/^0+/, "")) ? 1 : 0)).slice(0, 8);
   const flags = s.flags.filter(f => f.status === "Open").filter(f => !qq || (f.description || "").toLowerCase().includes(qq)).slice(0, 8);
   const Row = ({ onClick, icon, main, sub, on }) => <button onClick={onClick} className="w-full text-left flex items-center gap-2 px-2 py-1.5 rounded-lg row" style={{ borderTop: `1px solid ${C.line}`, background: on ? C.accentSoft : "transparent" }}><Ic i={icon} s={13} mr={0} /><span className="min-w-0 flex-1"><span className="block text-sm truncate" style={{ color: on ? C.accent : C.ink }}>{main}</span>{sub && <span className="block text-[11px] truncate" style={{ color: C.muted }}>{sub}</span>}</span>{on && <Ic i={Check} s={13} mr={0} />}</button>;
   return (
@@ -1884,7 +1885,7 @@ function StartModal({ open, kind, s, pallet, presetProductId, onClose, onConfirm
   useEffect(() => { setPid(presetProductId || null); setQ(""); setDate(""); setNote(""); setHu(pallet || ""); setReason(""); }, [open, presetProductId, pallet]);
   if (!open) return null;
   const qq = q.trim().toLowerCase();
-  const list = s.products.filter(p => p.isActive !== false && (!qq || (p.name + " " + (p.articleId || "") + " " + (p.barcodeCu || "") + " " + (p.barcodeTu || "")).toLowerCase().includes(qq))).slice(0, 8);
+  const list = s.products.filter(p => p.isActive !== false && (!qq || matchesText(`${p.name} ${p.articleId || ""} ${p.barcodeCu || ""} ${p.barcodeTu || ""}`, qq))).slice(0, 8);
   const chosen = s.products.find(p => p.id === pid);
   const isVisual = false, isSkip = false;
   const pol = chosen ? effectivePolicy(s, chosen) : null;
@@ -2415,7 +2416,7 @@ function useBackSel(key, initial) {
 // ── Wyszukiwarka produktu → karta → start ──
 function MSearch({ s, user, go, onStart, setState, notify, onVisual }) {
   const [q, setQ] = useState(""); const [sel, setSel] = useBackSel("searchSel", null);
-  const list = s.products.filter(p => p.isActive !== false && (!q || (p.name + " " + (p.articleId || "") + " " + (p.barcodeCu || "") + " " + (p.barcodeTu || "")).toLowerCase().includes(q.toLowerCase())));
+  const list = s.products.filter(p => p.isActive !== false && (!q || matchesText(`${p.name} ${p.articleId || ""} ${p.barcodeCu || ""} ${p.barcodeTu || ""}`, q)));
   const product = s.products.find(p => p.id === sel);
   if (product) return <MProductCard s={s} user={user} product={product} onBack={() => setSel(null)} onStart={typeId => onStart(product.id, null, typeId)} go={go} setState={setState} notify={notify} onVisual={onVisual} />;
   return (
@@ -2877,7 +2878,7 @@ function MHistory({ s, user, go }) {
   const [f, setF] = useState({ range: "7", result: "", status: "", supplier: "", controller: "", category: "", from: "", to: "", code: "", packFrom: "", packTo: "", type: "" });
   const [q, setQ] = useState("");
   const matchCode = i => { if (f.code.trim() && dateCode(i.dateISO) !== f.code.trim()) return false; if (f.packFrom && (!i.dateISO || i.dateISO < f.packFrom)) return false; if (f.packTo && (!i.dateISO || i.dateISO > f.packTo)) return false; return true; };
-  const matchQ = i => { if (!q.trim()) return true; const p = s.products.find(x => x.id === i.productId); return ((p?.name || "") + " " + (p?.articleId || "")).toLowerCase().includes(q.trim().toLowerCase()); };
+  const matchQ = i => { if (!q.trim()) return true; const p = s.products.find(x => x.id === i.productId); return matchesText(`${p?.name || ""} ${p?.articleId || ""}`, q); };
   const today = new Date(); const since = f.range === "custom" ? null : new Date(today.getFullYear(), today.getMonth(), today.getDate() - (f.range === "0" ? 0 : Number(f.range) - 1));
   const list = s.inspections.filter(i => i.status !== "Cancelled").filter(i => !f.type || (i.typeId || legacyTypeId(i.type)) === f.type).filter(matchQ).filter(matchCode).filter(i => { const d = new Date(i.completedAt || i.startedAt); if (since && d < since) return false; if (f.range === "custom") { if (f.from && (i.completedAt || i.startedAt).slice(0, 10) < f.from) return false; if (f.to && (i.completedAt || i.startedAt).slice(0, 10) > f.to) return false; } if (f.result && i.result !== f.result) return false; if (f.status && i.status !== f.status) return false; if (f.supplier && i.supplier !== f.supplier) return false; if (f.controller && i.controllerId !== f.controller) return false; if (f.category && s.products.find(p => p.id === i.productId)?.categoryId !== f.category) return false; return true; }).sort((a, b) => (b.completedAt || b.startedAt || "").localeCompare(a.completedAt || a.startedAt || ""));
   const groups = []; list.forEach(i => { const k = dayLabel(i.completedAt || i.startedAt); let g = groups.find(x => x.k === k); if (!g) { g = { k, items: [] }; groups.push(g); } g.items.push(i); });
@@ -3007,7 +3008,7 @@ function MCatalog({ s, user, go, onStart, setState, notify, onVisual, preset }) 
   const inCat = p => !cat || catChain(p.categoryId).some(c => c.id === cat);
   const passF = p => (!f.bio || (f.bio === "bio" ? p.isBio : !p.isBio)) && (!f.supplier || (p.supplierIds || []).includes(f.supplier) || (p.supplierIds || []).length === 0 && false) && (!f.flagged || s.flags.some(x => x.productId === p.id && x.status === "Open")) && (!f.reference || s.inspections.some(i => i.productId === p.id && i.isReference));
   const sortP = arr => [...arr].sort((a, b) => f.sort === "recent" ? ((lastInsp(b.id)?.completedAt || "").localeCompare(lastInsp(a.id)?.completedAt || "")) : f.sort === "rejected" ? ((lastInsp(b.id)?.result === "Rejected") - (lastInsp(a.id)?.result === "Rejected")) : a.name.localeCompare(b.name, "en"));
-  const products = sortP(s.products.filter(p => p.isActive !== false && inCat(p) && passF(p) && (!qq || haystack(p).includes(qq))));
+  const products = sortP(s.products.filter(p => p.isActive !== false && inCat(p) && passF(p) && (!qq || matchesText(haystack(p), qq))));
   const matchingCats = qq ? s.categories.filter(c => c.name.toLowerCase().includes(qq)) : [];
   const recentIds = [...new Set(s.inspections.filter(i => i.controllerId === user.id && i.status === "Completed").sort((a, b) => (b.completedAt || "").localeCompare(a.completedAt || "")).map(i => i.productId))].slice(0, 6);
   const recent = recentIds.map(id => s.products.find(p => p.id === id)).filter(Boolean);
