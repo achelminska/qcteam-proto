@@ -6,6 +6,7 @@ import { targetsFor, suggestMappings, adoptNewColumns, applyMapping, detectTable
 import { applyDeadlineAlerts } from "./alertlogic.mjs";
 import { computeMissingPalletUpdate } from "./misslogic.mjs";
 import { retainInspections } from "./retain.mjs";
+import { applySpecSheet } from "../src/shared/specsync.js";
 import { slimStateJson } from "./blobs.mjs";
 import { isPublic, isAuthorized, isSecure, safeEqual, cookieHeader, clearCookieHeader, corsFor } from "./auth.mjs";
 const STATE_KEY = "qcteam-portal-state-v2-clean";
@@ -83,9 +84,10 @@ const checkMissingPallets = (prevDockRows, pushAt) => {
 const applyPushToState = (purpose, sheet) => {
   try {
     const raw = store[STATE_KEY]; if (!raw) return " (no app state yet)";
-    const st = JSON.parse(raw); const P = purpose === "dock" ? "Dock" : purpose === "blocked" ? "Blocked" : "Products";
+    const st = JSON.parse(raw); const P = purpose === "dock" ? "Dock" : purpose === "blocked" ? "Blocked" : purpose === "specs" ? "Specs" : "Products";
     const targets = (st.integrations || []).filter(i => i.purpose === P && i.pushMode); if (!targets.length) return ` (no ${P} integration in push mode)`;
     const tg = targetsFor(P); let j = detectTable({ header: sheet.header, rows: sheet.rows }); let note = "";
+    let specReport = null;
     st.integrations = st.integrations.map(i => { if (!targets.some(t => t.id === i.id)) return i;
       const needed = (i.mappings || []).filter(m => m.target && m.target !== "ignore").map(m => m.source);
       let missing = needed.filter(c => !j.header.includes(c));
@@ -101,10 +103,15 @@ const applyPushToState = (purpose, sheet) => {
       // (a formula column blank for a moment) — not the truth. Keep the last good rows; the next push will be clean again.
       const bad = rows.filter(r => r._errors?.length).length, prev = i.rows || [], prevBad = prev.filter(r => r._errors?.length).length;
       if (rows.length >= 5 && bad / rows.length >= 0.5 && prev.length >= 5 && prevBad / prev.length < 0.2) { const top = {}; rows.forEach(r => (r._errors || []).forEach(e => { top[e] = (top[e] || 0) + 1; })); const why = Object.entries(top).sort((a, b) => b[1] - a[1]).slice(0, 2).map(([e, n]) => `${e} ×${n}`).join(", "); note += ` (kept last good data: ${bad}/${rows.length} rows unusable — ${why})`; return { ...i, rawHeader: sheet.header, rawRows: sheet.rows, lastPushAt: sheet.receivedAt, liveStatus: `Push at ${new Date(sheet.receivedAt).toLocaleTimeString("en-GB")}: ${bad} of ${rows.length} rows had no usable value (${why}) — the sheet was probably recalculating. Keeping the last good data from ${i.lastSyncAt ? new Date(i.lastSyncAt).toLocaleTimeString("en-GB") : "before"}.` }; }
-      return { ...i, header: j.header, sample: j.rows, rawHeader: sheet.header, rawRows: sheet.rows, mappings, needsRemap: false, rows: P !== "Products" ? rows : i.rows, summary: P !== "Products" ? extractSummary(sheet.header, sheet.rows) : i.summary, lastSyncAt: new Date().toISOString(), lastPushAt: sheet.receivedAt, liveStatus: `OK — ${j.rows.length} rows, pushed by the sheet at ${new Date(sheet.receivedAt).toLocaleTimeString("en-GB")} (applied on the server)` }; });
+      // The commercial spec sheet: apply to the catalog here, every push (the Head's own specs are never overwritten —
+      // conflicts, placeholders and newly created products come back in the report the portal shows).
+      if (P === "Specs") { const res = applySpecSheet(st.products || [], rows, { createMissing: i.createMissing === true, now: new Date().toISOString(), uid: () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36) }); st.products = res.products; specReport = res.report; note += ` (specs: ${res.report.updated} updated, ${res.report.created} created, ${res.report.conflicts} conflicts, ${res.report.placeholders} placeholders)`; }
+      return { ...i, header: j.header, sample: j.rows, rawHeader: sheet.header, rawRows: sheet.rows, mappings, needsRemap: false, rows: P !== "Products" ? rows : i.rows, ...(specReport ? { lastSpecSync: { ...specReport, issues: specReport.issues.slice(0, 400) } } : {}), summary: P !== "Products" ? extractSummary(sheet.header, sheet.rows) : i.summary, lastSyncAt: new Date().toISOString(), lastPushAt: sheet.receivedAt, liveStatus: `OK — ${j.rows.length} rows, pushed by the sheet at ${new Date(sheet.receivedAt).toLocaleTimeString("en-GB")} (applied on the server)` }; });
     // Same rows, same summary as before → nothing for the phones to re-download. Freshness travels via /meta instead.
     const gist = it => JSON.stringify([it.rows, it.summary, it.header, it.mappings, it.needsRemap]);
-    const before = JSON.parse(raw).integrations, unchanged = st.integrations.every((it, k) => !targets.some(t => t.id === it.id) || gist(it) === gist(before[k]));
+    const before = JSON.parse(raw).integrations, unchanged = st.integrations.every((it, k) => !targets.some(t => t.id === it.id) || gist(it) === gist(before[k])) && !(specReport && (specReport.updated || specReport.created));
+    // Alert the Head: something in the catalog changed, or the sheet disagrees with a spec of theirs.
+    if (specReport && (specReport.created || specReport.conflicts || specReport.updated)) { const heads = (st.users || []).filter(u => u.role === "Head" && u.active !== false); const msg = `Spec sheet push: ${specReport.updated} product${specReport.updated === 1 ? "" : "s"} updated, ${specReport.created} added to the catalog, ${specReport.conflicts} conflict${specReport.conflicts === 1 ? "" : "s"} with your own specs, ${specReport.placeholders} cell${specReport.placeholders === 1 ? "" : "s"} still to be filled in`; st.notifications = [...(st.notifications || []), ...heads.map(u => ({ id: Math.random().toString(36).slice(2, 10), userId: u.id, type: "Specs", message: msg, entityType: "Integrations", entityId: null, createdAt: new Date().toISOString(), readAt: null }))]; }
     if (unchanged) { note += " (no change)"; } else { store[STATE_KEY] = JSON.stringify(st); (store.__meta = store.__meta || {})[STATE_KEY] = Math.max(Date.now(), (store.__meta?.[STATE_KEY] || 0) + 1); }
     // Push log: enough to explain "the tiles vanished at 03:12" after the fact. /sheet/<purpose>/log returns the last 60 entries.
     try { const it = st.integrations.find(i => targets.some(t => t.id === i.id)); const hist = {}; (it?.rows || []).forEach(r => { const k = r.priority || (r.status ? `status:${r.status}` : "—"); hist[k] = (hist[k] || 0) + 1; }); const errs = (it?.rows || []).filter(r => r._errors?.length).length; (store.__pushlog = store.__pushlog || {})[purpose] = [...(store.__pushlog[purpose] || []).slice(-59), { at: sheet.receivedAt, raw: sheet.rows.length, table: j.rows.length, header: j.header.slice(0, 14), errors: errs, hist, note: note.trim() }]; } catch {}

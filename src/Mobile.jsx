@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, Fragment } from "react";
 import { createSyncer, guardUnload } from "./sync.js";
 import { hasV, specLabel, dayLabel, typesOf, typeById, legacyTypeId, inspType, countsAs, listCheck, matchFieldSpec, numberSpecCheck, reportStatusFields, toleranceDisplay, matchesInspSearch } from "./shared/format.js";
+import { SPEC_TARGETS, SPEC_ALIASES } from "./shared/specsync.js";
 import { activeTempForSpec, applyTempSpec, closeExpiredTempSpecs, tempUntilLabel } from "./shared/tempspec.js";
 import { SpecValue } from "./shared/SpecValue.jsx";
 import { peopleOnFloor, peopleAtDock, floorWhere, floorVerb, doneTodayCount } from "./shared/floor.js";
@@ -778,7 +779,7 @@ const DOCK_TARGETS = [
   ["cusPerTu", "CU per TU", false], ["quantity", "Quantity (TU on the pallet)", false], ["sortable", "Sortable", false], ["ignore", "— ignore —", false],
 ];
 const BLOCKED_TARGETS = [["article", "Article ID (from batch / UOM)", true], ["name", "Product name", false], ["hu", "Pallet SSCC", false], ["location", "Dock location", false], ["zone", "Reach zone", false], ["pickLocation", "Pick location", false], ["deadline", "Departure deadline", false], ["wmsStatus", "WMS status", false], ["status", "QC status (Not started / Started / Completed)", false], ["date", "Date", false], ["time", "Time", false], ["ignore", "— ignore —", false]];
-const targetsFor = purpose => purpose === "Products" ? PRODUCT_TARGETS : purpose === "Blocked" ? BLOCKED_TARGETS : DOCK_TARGETS;
+const targetsFor = purpose => purpose === "Products" ? PRODUCT_TARGETS : purpose === "Blocked" ? BLOCKED_TARGETS : purpose === "Specs" ? SPEC_TARGETS : DOCK_TARGETS;
 const PRODUCT_TARGETS = [["articleId", "Article ID", true], ["name", "Product name", true], ["barcodeCu", "Barcode CU (consumer pack EAN)", false], ["barcodeTu", "Barcode TU (box / case)", false], ["cusPerTu", "CU per TU", false], ["piecesPerCu", "Pieces per CU", false], ["weightPerCu", "Weight per CU (g)", false], ["category", "Category name", false], ["ignore", "— ignore —", false]];
 const TRANSFORMS = [
   ["none", "as is", v => v],
@@ -793,7 +794,8 @@ const TRANSFORMS = [
   ["status", "status → Not started / Started / Completed", v => { const t = String(v).trim().toLowerCase(); return t.startsWith("not") ? "Not started" : t.startsWith("start") ? "Started" : t.startsWith("compl") || t.startsWith("done") ? "Completed" : String(v).trim(); }],
 ];
 const transformOf = k => TRANSFORMS.find(t => t[0] === k)?.[2] || (v => v);
-const ALIASES = { hu: ["handlingunit", "hu", "sscc", "pallet", "palletid"], article: ["uomid", "uom", "articleid", "article", "sku", "artikel", "batch"], articleId: ["uomid", "uom", "articleid", "article", "sku", "artikel"], name: ["itemname", "productname", "name", "product", "omschrijving", "item"], location: ["location", "locatie", "stock", "dock"], priority: ["priorityitem", "priority", "prioriteit"], blocking: ["neededtoday", "urgent"], skippable: ["skippable", "skip"], arrived: ["arrivaldate", "arrival", "date", "datum"], arrivedTime: ["arrivaltime", "time", "tijd"], transporter: ["transporter", "carrier", "vervoerder"], po: ["poid", "po", "order", "ponumber"], cusPerTu: ["cupertu", "cus", "cu"], sortable: ["sortable", "sorteerbaar"], barcodeCu: ["barcodecu", "cubarcode", "eancu", "cuean", "consumerbarcode", "barcode", "ean", "gtin"], barcodeTu: ["barcodetu", "tubarcode", "eantu", "tuean", "boxbarcode", "casebarcode", "itf14", "itf", "gtin14", "tradeunitbarcode"], piecesPerCu: ["piecespercu", "pieces", "stuks"], weightPerCu: ["weightpercu", "weight", "gewicht"], category: ["category", "categorie"], status: ["qcstatus", "status", "state"], date: ["date", "datum"], time: ["time", "tijd"], zone: ["reachzone", "zone"], pickLocation: ["picklocation", "pick"], deadline: ["departuredeadline", "deadline", "departure"], wmsStatus: ["wmsstatus", "status"], quantity: ["quantity", "qty", "aantal", "tuonpallet", "tusonpallet", "units", "colli"] };
+const ALIASES = { hu: ["handlingunit", "hu", "sscc", "pallet", "palletid"], article: ["uomid", "uom", "articleid", "article", "sku", "artikel", "batch"], articleId: ["uomid", "uom", "articleid", "article", "sku", "artikel"], name: ["itemname", "productname", "name", "product", "omschrijving", "item"], location: ["location", "locatie", "stock", "dock"], priority: ["priorityitem", "priority", "prioriteit"], blocking: ["neededtoday", "urgent"], skippable: ["skippable", "skip"], arrived: ["arrivaldate", "arrival", "date", "datum"], arrivedTime: ["arrivaltime", "time", "tijd"], transporter: ["transporter", "carrier", "vervoerder"], po: ["poid", "po", "order", "ponumber"], cusPerTu: ["cupertu", "cus", "cu"], sortable: ["sortable", "sorteerbaar"], barcodeCu: ["barcodecu", "cubarcode", "eancu", "cuean", "consumerbarcode", "barcode", "ean", "gtin"], barcodeTu: ["barcodetu", "tubarcode", "eantu", "tuean", "boxbarcode", "casebarcode", "itf14", "itf", "gtin14", "tradeunitbarcode"], piecesPerCu: ["piecespercu", "pieces", "stuks"], weightPerCu: ["weightpercu", "weight", "gewicht"], category: ["category", "categorie"], status: ["qcstatus", "status", "state"], date: ["date", "datum"], time: ["time", "tijd"], zone: ["reachzone", "zone"], pickLocation: ["picklocation", "pick"], deadline: ["departuredeadline", "deadline", "departure"], wmsStatus: ["wmsstatus", "status"], quantity: ["quantity", "qty", "aantal", "tuonpallet", "tusonpallet", "units", "colli"] }
+Object.assign(ALIASES, SPEC_ALIASES);
 // Two passes over the whole header: exact alias matches first (so "Priority item" beats "Priority score"), then loose matches on targets still free.
 const suggestMappings = (header, rows, targets) => {
   const norm = h => h.toLowerCase().replace(/[^a-z0-9]/g, ""); const free = new Set(targets.map(t => t[0]).filter(k => k !== "ignore")); const out = header.map(h => ({ source: h, target: "ignore", transform: "none", required: false }));
@@ -801,6 +803,10 @@ const suggestMappings = (header, rows, targets) => {
   header.forEach((h, i) => { const c = norm(h); for (const k of free) if ((ALIASES[k] || []).some(a => a === c)) { assign(i, k); break; } });
   header.forEach((h, i) => { if (out[i].target !== "ignore") return; const c = norm(h); if (!c) return; for (const k of free) if ((ALIASES[k] || []).some(a => a.length > 2 && c.includes(a))) { assign(i, k); break; } });
   out.forEach((m, i) => { if (m.target === "status" && free.has("wmsStatus")) { const v = String(rows[0]?.[i] || ""); if (/^[A-Z0-9_]{6,}$/.test(v)) { out[i] = { ...m, target: "wmsStatus", transform: "none", required: false }; free.delete("wmsStatus"); free.add("status"); } } });
+  // A required article column with a blank header ("col1") cannot match by name — take the first unmapped column whose
+  // values look like article IDs (the commercial spec sheet has exactly that).
+  const artKey = free.has("articleId") ? "articleId" : free.has("article") ? "article" : null;
+  if (artKey) { const looks = v => /^(HE)?\d{7,9}(-\d+)?$/i.test(String(v || "").trim()); const i = out.findIndex((m, ix) => m.target === "ignore" && rows.slice(0, 5).filter(r => r[ix] != null && String(r[ix]).trim()).length > 0 && rows.slice(0, 5).every(r => !String(r[ix] ?? "").trim() || looks(r[ix]))); if (i >= 0) assign(i, artKey); }
   return out;
 };
 // The sheet grew a column (Quantity arrived this way). Keep every mapping the Head made to a real target and, for header
@@ -820,8 +826,8 @@ const suggestTransform = (target, sample) => target === "deadline" ? "date_iso" 
 const detectTable = ({ header, rows }) => {
   const all = [header, ...rows];
   let best = 0, bestScore = -1;
-  all.slice(0, 10).forEach((r, i) => { const cells = r.map(c => String(c).trim()); const filled = cells.filter(Boolean).length; const bonus = cells.some(c => /handling unit|uom|item name|article|sku|ean/i.test(c) && !/:\s*$/.test(c)) ? 100 : 0; /* side-panel labels ("SKU on dock:") must not make a data row look like the header */ const score = filled + bonus; if (score > bestScore) { bestScore = score; best = i; } });
-  const h = all[best].map(c => String(c).trim()); let width = h.findIndex(c => !c); if (width < 0) width = h.length; // the data table is the contiguous run of header cells from the left; side panels come after a gap
+  all.slice(0, 10).forEach((r, i) => { const cells = r.map(c => String(c).trim()); const filled = cells.filter(Boolean).length; const bonus = cells.some(c => /handling unit|uom|item name|article|sku|ean|cuname|sortable/i.test(c) && !/:\s*$/.test(c)) ? 100 : 0; /* side-panel labels ("SKU on dock:") must not make a data row look like the header */ const score = filled + bonus; if (score > bestScore) { bestScore = score; best = i; } });
+  const h = all[best].map(c => String(c).trim()); const first = Math.max(0, h.findIndex(c => !!c)); let width = h.findIndex((c, i) => i > first && !c); if (width < 0) width = h.length; // a blank cell BEFORE the first label (the spec sheet's unnamed ID column) is part of the table // the data table is the contiguous run of header cells from the left; side panels come after a gap
   const hdr = h.slice(0, width).map((c, i) => c || `col${i + 1}`);
   const body = all.slice(best + 1).map(r => r.slice(0, width).map(c => String(c ?? "").trim())).filter(r => r.some(Boolean));
   return { header: hdr, rows: body };
@@ -933,7 +939,7 @@ const dockRowsLive = s => { const it = (s.integrations || []).find(i => i.purpos
 // Used by the portal (every 60 s on any page) and by the phone (on open / Sync now), so no device depends on the other.
 const refreshPushedIntegrations = async (getState, set, force = false) => {
   if (!window.__qcServer) return;
-  const s = getState(); const targets = (s.integrations || []).filter(i => i.pushMode);
+  const s = getState(); const targets = (s.integrations || []).filter(i => i.pushMode && i.purpose !== "Specs");
   for (const target of targets) {
     try {
       const r = await fetch(`${window.__qcServer}/sheet/${target.purpose.toLowerCase()}`, { cache: "no-store" }); if (r.status !== 200) continue;
@@ -2255,7 +2261,7 @@ function MProductHeader({ s, product, article, name, go }) {
         <div className="min-w-0 flex-1">
           <p className="font-semibold leading-tight">{product.name}</p>
           <p className="text-xs mt-1" style={{ color: C.muted }}>ID {product.articleId || "—"} · {catPath(product.categoryId)}{product.isBio && " · bio"}</p>
-          <p className="text-xs" style={{ color: C.muted }}>{product.cusPerTu || "?"} CU/TU · {product.weightPerCu || "?"} g/CU</p>
+          <p className="text-xs" style={{ color: C.muted }}>{product.cusPerTu || "?"} CU/TU · {product.weightPerCu || "?"} g/CU{product.sortable ? <span className="ml-1.5 px-1.5 py-0.5 rounded-full text-[10px]" style={{ background: product.sortable.value ? C.okBg : C.bg, color: product.sortable.value ? C.ok : C.muted, border: product.sortable.value ? "none" : `1px solid ${C.line}` }}>{product.sortable.value ? "sortable" : "not sortable"}</span> : null}</p>
           <p className="text-xs mt-1 underline" style={{ color: C.accent }}>Open product profile</p>
         </div>
       </div>
