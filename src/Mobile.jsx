@@ -6,6 +6,7 @@ import { SpecValue } from "./shared/SpecValue.jsx";
 import { peopleOnFloor, peopleAtDock, floorWhere, floorVerb, doneTodayCount } from "./shared/floor.js";
 import { readAsDataUrl, keepPhoto, shrinkPhoto, memoPdfPhoto, fetchPdfPhotoSrc } from "./shared/report-images.js";
 import { attachRemarkPhotos } from "./shared/photos.js";
+import { CameraSheet } from "./shared/CameraSheet.jsx";
 import { drawReportPdf } from "./shared/report-pdf.js";
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceArea, ReferenceLine, Legend } from "recharts";
 import { Clock, MapPin, MessageCircle, Link2, List as ListIcon, BarChart3, Printer, SlidersHorizontal, SkipForward, LayoutDashboard, ClipboardList, Flag, Bell, FolderTree, ListTree, Package, LayoutTemplate, Truck, Globe, Megaphone, MessageSquare, Users, Search, Sun, Moon, Database, Home, Menu as MenuIcon, ScanLine, Plus, ChevronLeft, ChevronRight, ChevronDown, User, Camera, Image as ImageIcon, Paperclip, Send, Star, Pencil, Sparkles, HelpCircle, Download, Lock as LockIcon, AlertTriangle, Inbox, FileText, ShieldAlert, Tag, Layers, BookOpen, Filter, Check, X, Ruler, Boxes, Warehouse, Snowflake, Thermometer, ThumbsDown, ExternalLink } from "lucide-react";
@@ -493,9 +494,19 @@ const photoSrc = ph => (ph && (ph.path || ph.dataUrl)) || "";
 const photoData = memoPdfPhoto(fetchPdfPhotoSrc);
 function PhotoStrip({ photos, onAdd, onRemove, size = 64, addLabel = "Add photo" }) {
   const [view, setView] = useState(null); const [busy, setBusy] = useState(false);
+  const [cam, setCam] = useState(false);
   const list = asPhotoList(photos);
   const [err, setErr] = useState("");
-  const add = async (capture) => { setBusy(true); setErr(""); try { const { out, failed } = await pickPhotos({ capture }); if (out.length) onAdd(out); if (failed.length) setErr(`Could not load: ${failed.join(", ")} — too large or unsupported format.`); } finally { setBusy(false); } };
+  const add = async (capture) => {
+    if (capture && navigator.mediaDevices?.getUserMedia) { setCam(true); return; }
+    setBusy(true); setErr("");
+    try { const { out, failed } = await pickPhotos({ capture: false }); if (out.length) onAdd(out); if (failed.length) setErr(`Could not load: ${failed.join(", ")} — too large or unsupported format.`); }
+    finally { setBusy(false); }
+  };
+  const shot = async dataUrl => {
+    const ph = await persistPicked(dataUrl, "photo.jpg");
+    if (ph) onAdd([ph]);
+  };
   const touch = typeof navigator !== "undefined" && navigator.maxTouchPoints > 0;
   return (
     <div className="flex flex-wrap gap-2 items-center">
@@ -511,6 +522,7 @@ function PhotoStrip({ photos, onAdd, onRemove, size = 64, addLabel = "Add photo"
       {err && <span className="text-xs w-full" style={{ color: C.bad }}>{err}</span>}
       {/* Same viewer as the product profile: counter, arrows, dots and swipe between the photos of this strip. */}
       {view != null && <MPhotoViewer photos={list} index={view} onIndex={setView} onClose={() => setView(null)} />}
+      {cam && <CameraSheet onShot={shot} onClose={() => setCam(false)} onLibrary={() => { setCam(false); add(false); }} />}
     </div>
   );
 }
