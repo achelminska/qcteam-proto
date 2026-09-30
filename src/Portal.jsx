@@ -5,9 +5,10 @@ import { normArticle, isoWeekOf, todayISO, weekLabel, weekRange, shiftWeek, sort
 import { activeTempForSpec, applyTempSpec, clearTempSpec, closeExpiredTempSpecs, tempOwnerLabel, tempUntilLabel, upsertTempSpec } from "./shared/tempspec.js";
 import { SpecValue } from "./shared/SpecValue.jsx";
 import { peopleOnFloor, peopleAtDock, floorWhere, floorVerb, doneTodayCount, doneTodayByUser } from "./shared/floor.js";
-import { readAsDataUrl, keepPhoto, shrinkPhoto, memoPdfPhoto, fetchPdfPhotoSrc } from "./shared/report-images.js";
-import { attachRemarkPhotos } from "./shared/photos.js";
+import { readAsDataUrl, keepPhoto, shrinkPhoto, memoPdfPhoto, fetchPdfPhotoSrc, rotateImage } from "./shared/report-images.js";
+import { attachRemarkPhotos, replacePhoto, replaceRemarkPhoto } from "./shared/photos.js";
 import { CameraSheet } from "./shared/CameraSheet.jsx";
+import { PhotoReview } from "./shared/PhotoReview.jsx";
 import { drawReportPdf } from "./shared/report-pdf.js";
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceArea, ReferenceLine, Legend } from "recharts";
 import { Clock, MessageCircle, Link2, List as ListIcon, BarChart3, Printer, SlidersHorizontal, SkipForward, LayoutDashboard, ClipboardList, Flag, Bell, FolderTree, ListTree, Package, LayoutTemplate, Truck, Globe, Megaphone, MessageSquare, Users, Search, Sun, Moon, Database, Home, Menu as MenuIcon, ScanLine, Plus, ChevronLeft, ChevronDown, ChevronRight, User, Camera, Image as ImageIcon, Paperclip, Send, Star, Pencil, Sparkles, HelpCircle, Download, Lock as LockIcon, AlertTriangle, Inbox, FileText, ShieldAlert, Tag, Layers, BookOpen, Filter, Check, X, Ruler, Boxes, Warehouse, Snowflake, Thermometer, ThumbsDown, ClipboardPaste, Trash2, Eye } from "lucide-react";
@@ -430,7 +431,7 @@ const pickPhotos = (opts = {}) => new Promise(res => {
 const asPhotoList = v => Array.isArray(v) ? v : [];
 const photoSrc = ph => (ph && (ph.path || ph.dataUrl)) || "";
 const photoData = memoPdfPhoto(fetchPdfPhotoSrc);
-function PhotoStrip({ photos, onAdd, onRemove, size = 64, addLabel = "Add photo" }) {
+function PhotoStrip({ photos, onAdd, onRemove, onReplace, size = 64, addLabel = "Add photo" }) {
   const [view, setView] = useState(null); const [busy, setBusy] = useState(false);
   const [cam, setCam] = useState(false);
   const list = asPhotoList(photos);
@@ -444,18 +445,29 @@ function PhotoStrip({ photos, onAdd, onRemove, size = 64, addLabel = "Add photo"
   const shot = async dataUrl => {
     const ph = await persistPicked(dataUrl, "photo.jpg");
     if (ph) onAdd([ph]);
+    return ph;
+  };
+  const replace = async (id, dataUrl) => {
+    const ph = await persistPicked(dataUrl, "photo.jpg");
+    if (ph && onReplace) onReplace(id, ph);
+    return ph;
+  };
+  const rotateView = async (turns) => {
+    const ph = list[view]; if (!ph || !onReplace) return;
+    const next = await rotateImage(photoSrc(ph), turns);
+    await replace(ph.id, next);
   };
   const touch = typeof navigator !== "undefined" && navigator.maxTouchPoints > 0;
   return (
     <div className="flex flex-wrap gap-2 items-center">
-      {list.map(ph => <div key={ph.id} className="relative"><img src={ph.path || photoSrc(ph)} alt="" onClick={() => setView(ph)} className="object-cover rounded-lg cursor-pointer" style={{ width: size, height: size, border: `1px solid ${C.line}` }} />{onRemove && <button onClick={() => onRemove(ph.id)} className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full text-[10px] leading-none" style={{ background: C.bad, color: C.onDark }} title="delete">×</button>}</div>)}
+      {list.map(ph => <div key={ph.id} className="relative"><img src={ph.path || photoSrc(ph)} alt="" onClick={() => setView(list.indexOf(ph))} className="object-cover rounded-lg cursor-pointer" style={{ width: size, height: size, border: `1px solid ${C.line}` }} />{onRemove && <button onClick={() => onRemove(ph.id)} className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full text-[10px] leading-none" style={{ background: C.bad, color: C.onDark }} title="delete">×</button>}</div>)}
       {busy && <div className="rounded-lg flex items-center justify-center text-[10px]" style={{ width: size, height: size, background: C.bg, color: C.muted, border: `1px solid ${C.line}` }}>uploading…</div>}
       {onAdd && touch && <button onClick={() => add(true)} disabled={busy} className="rounded-lg flex flex-col items-center justify-center text-xs" style={{ width: size, height: size, border: `1px solid ${C.accent}`, color: C.onDark, background: C.accent, gap: 2 }}><Ic i={Camera} s={size >= 56 ? 18 : 14} mr={0} />{size >= 56 && <span className="text-[10px] leading-tight">Take photo</span>}</button>}
       {onAdd && <button onClick={() => add(false)} disabled={busy} className="rounded-lg flex flex-col items-center justify-center text-xs" style={{ width: size, height: size, border: `1px dashed ${C.line}`, color: C.accent, background: C.accentSoft, gap: 2 }}><Ic i={ImageIcon} s={size >= 56 ? 18 : 14} mr={0} />{size >= 56 && <span className="text-[10px] leading-tight">{touch ? "From library" : addLabel}</span>}</button>}
       {!onAdd && list.length === 0 && <span className="text-xs" style={{ color: C.muted }}>no photos</span>}
       {err && <span className="text-xs w-full" style={{ color: C.bad }}>{err}</span>}
-      {view && <div className="fixed inset-0 flex items-center justify-center p-6" style={{ background: "rgba(0,0,0,.85)", zIndex: 60 }} onClick={() => setView(null)}><img src={view.path || view.dataUrl} alt="" className="max-w-full max-h-full rounded-xl" /><button className="absolute top-4 right-5 text-2xl" style={{ color: "#fff" }}>×</button></div>}
-      {cam && <CameraSheet onShot={shot} onClose={() => setCam(false)} onLibrary={() => { setCam(false); add(false); }} />}
+      {view != null && <PhotoReview title="Photos" photos={list} index={view} onIndex={setView} onClose={() => setView(null)} onRotate={onReplace ? rotateView : undefined} onDelete={onRemove ? () => { const ph = list[view]; if (!ph) return; onRemove(ph.id); if (list.length <= 1) setView(null); else setView(Math.min(view, list.length - 2)); } : undefined} />}
+      {cam && <CameraSheet onShot={shot} onReplace={onReplace ? replace : undefined} onClose={() => setCam(false)} onLibrary={() => { setCam(false); add(false); }} />}
     </div>
   );
 }
@@ -2747,7 +2759,7 @@ function ReferenceGuideEditor({ s, set, kind, owner, onOpenCategory }) {
                 <p className="label-sm mb-1" style={{ color: C.muted }}>{selInh && !hasNoteContent(selOwn) ? `Override for ${here} (optional)` : `How to recognise it on ${here}`}</p>
                 <FastTextarea key={selLeaf.id} value={selOwn?.description || ""} onCommit={v => patchNote(selLeaf.id, { description: v })} rows={5} placeholder="What it looks like, where it usually appears, how to tell it from something harmless, when it is serious enough to reject…" className="mb-4" style={{ resize: "vertical" }} />
                 <p className="label-sm mb-1" style={{ color: C.muted }}>Reference photos {asPhotoList(selOwn?.photos).length > 0 && `· ${asPhotoList(selOwn?.photos).length}`}</p>
-                <PhotoStrip photos={selOwn?.photos} onAdd={got => patchNote(selLeaf.id, { photos: [...asPhotoList(selOwn?.photos), ...got] })} onRemove={id => patchNote(selLeaf.id, { photos: asPhotoList(selOwn?.photos).filter(x => x.id !== id) })} size={96} />
+                <PhotoStrip photos={selOwn?.photos} onAdd={got => patchNote(selLeaf.id, { photos: [...asPhotoList(selOwn?.photos), ...got] })} onRemove={id => patchNote(selLeaf.id, { photos: asPhotoList(selOwn?.photos).filter(x => x.id !== id) })} onReplace={(id, next) => patchNote(selLeaf.id, { photos: replacePhoto(selOwn?.photos, id, next) })} size={96} />
                 <div className="flex items-center gap-2 mt-4 pt-3" style={{ borderTop: `1px solid ${C.line}` }}>
                   <button onClick={() => prev && setPick(prev.id)} disabled={!prev} className="text-xs px-3 py-1.5 rounded-lg" style={{ border: `1px solid ${C.line}`, color: prev ? C.ink : C.line }}>← {prev ? prev.name : "previous"}</button>
                   <button onClick={() => next && setPick(next.id)} disabled={!next} className="text-xs px-3 py-1.5 rounded-lg" style={{ border: `1px solid ${C.line}`, color: next ? C.ink : C.line }}>{next ? next.name : "next"} →</button>
@@ -2852,7 +2864,7 @@ function EncyclopediaEditor({ s, set, kind, owner, onOpenCategory }) {
                 <p className="label-sm mb-1" style={{ color: C.muted }}>Description</p>
                 <FastTextarea key={sel.id + ":b"} value={sel.body || ""} onCommit={v => patchEntry(sel.id, { body: v })} rows={7} placeholder="What to look for, how to judge it, what is normal and what is not…" className="mb-4" style={{ resize: "vertical" }} />
                 <p className="label-sm mb-1" style={{ color: C.muted }}>Photos {asPhotoList(sel.photos).length > 0 && `· ${asPhotoList(sel.photos).length}`}</p>
-                <PhotoStrip photos={sel.photos} onAdd={got => patchEntry(sel.id, { photos: [...asPhotoList(sel.photos), ...got] })} onRemove={pid => patchEntry(sel.id, { photos: asPhotoList(sel.photos).filter(x => x.id !== pid) })} size={96} />
+                <PhotoStrip photos={sel.photos} onAdd={got => patchEntry(sel.id, { photos: [...asPhotoList(sel.photos), ...got] })} onRemove={pid => patchEntry(sel.id, { photos: asPhotoList(sel.photos).filter(x => x.id !== pid) })} onReplace={(id, next) => patchEntry(sel.id, { photos: replacePhoto(sel.photos, id, next) })} size={96} />
                 <div className="flex items-center gap-2 mt-4 pt-3" style={{ borderTop: `1px solid ${C.line}` }}>
                   <button onClick={() => prev && setPick(prev.id)} disabled={!prev} className="text-xs px-3 py-1.5 rounded-lg truncate" style={{ border: `1px solid ${C.line}`, color: prev ? C.ink : C.line, maxWidth: 200 }}>← {prev ? (prev.title || "Untitled") : "previous"}</button>
                   <button onClick={() => next && setPick(next.id)} disabled={!next} className="text-xs px-3 py-1.5 rounded-lg truncate" style={{ border: `1px solid ${C.line}`, color: next ? C.ink : C.line, maxWidth: 200 }}>{next ? (next.title || "Untitled") : "next"} →</button>
@@ -3035,7 +3047,7 @@ function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset, onMessag
                 </div>}
                 {tab === "photos" && <div style={{ maxWidth: 720 }}>
                   <p className="text-xs mb-3" style={{ color: C.muted }}>The first photo is the product's picture on the phone. Controllers compare the pallet to it.</p>
-                  <PhotoStrip photos={product.photos} onAdd={got => patchP({ photos: [...asPhotoList(product.photos), ...got] })} onRemove={id => patchP({ photos: asPhotoList(product.photos).filter(x => x.id !== id) })} />
+                  <PhotoStrip photos={product.photos} onAdd={got => patchP({ photos: [...asPhotoList(product.photos), ...got] })} onRemove={id => patchP({ photos: asPhotoList(product.photos).filter(x => x.id !== id) })} onReplace={(id, next) => patchP({ photos: replacePhoto(product.photos, id, next) })} />
                 </div>}
                 {tab === "specs" && <div style={{ maxWidth: 720 }}>
                   <SpecForm sctx={s} set={set} user={s.users.find(u => u.role === "Head")} ownerKind="product" ownerId={product.id} specs={product.specs} inherited={effectiveSpecs(s, product, { applyTemp: false }).filter(q => q.source !== "product")} onAdd={q => patchP({ specs: [...product.specs, q] })} onRemove={removeSpec} excluded={product.excludedSpecNames || []} onExclude={n => patchP({ excludedSpecNames: [...(product.excludedSpecNames || []), n] })} onRestore={n => patchP({ excludedSpecNames: (product.excludedSpecNames || []).filter(x => x !== n) })} hint="Own specifications override inherited ones of the same name. Most belong on the category — only exceptions here. Temp on a row is for this product only." />
@@ -3586,7 +3598,7 @@ function NumberInput({ f, problems, allProblems, overrides, specs, totals, value
     </div>
   );
 }
-function ProblemTreeView({ root, problems, overrides, remarks, onReport, onDelete, onPhoto, onRemovePhoto, totals, disabled, notes }) {
+function ProblemTreeView({ root, problems, overrides, remarks, onReport, onDelete, onPhoto, onRemovePhoto, onReplacePhoto, totals, disabled, notes }) {
   const [open, setOpen] = useState(null);
   const [refOpen, setRefOpen] = useState(null);
   const [mode, setMode] = useState(totals.pieces > 0 ? "PieceCount" : totals.weight > 0 ? "DirectWeight" : "WholeUnitCount");
@@ -3622,7 +3634,7 @@ function ProblemTreeView({ root, problems, overrides, remarks, onReport, onDelet
               {r.mode !== "Presence" && <span className="font-medium" style={{ color: C.ink }}>{fmt(pct(r, totals))}%</span>}
               <button onClick={() => onDelete(r.id)} className="px-1" style={{ color: C.bad }} title="delete report">×</button>
             </div>
-            <PhotoStrip photos={r.photos} onAdd={got => onPhoto && onPhoto(r.id, got)} onRemove={onRemovePhoto ? pid => onRemovePhoto(r.id, pid) : null} size={44} addLabel="Photo" />
+            <PhotoStrip photos={r.photos} onAdd={got => onPhoto && onPhoto(r.id, got)} onRemove={onRemovePhoto ? pid => onRemovePhoto(r.id, pid) : null} onReplace={onReplacePhoto ? (pid, next) => onReplacePhoto(r.id, pid, next) : null} size={44} addLabel="Photo" />
           </div>
         ))}
         {leaf && isOpen && (
@@ -3732,6 +3744,7 @@ function InspectionRunner({ insp, patch, t, problems, product, suppliers, dictio
   const setPhotos = fn => patch(prev => ({ ...prev, photos: fn(prev.photos || {}) }));
   const addPhotos = (key, got) => setPhotos(p => ({ ...p, [key]: [...asPhotoList(p[key]), ...got] }));
   const removePhoto = (key, id) => setPhotos(p => ({ ...p, [key]: asPhotoList(p[key]).filter(x => x.id !== id) }));
+  const replaceFieldPhoto = (key, id, next) => setPhotos(p => ({ ...p, [key]: replacePhoto(p[key], id, next) }));
   const setPallets = fn => patch(prev => ({ ...prev, pallets: fn(prev.pallets || [""]) }));
   const setSample = fn => patch(prev => ({ ...prev, sample: typeof fn === "function" ? fn(prev.sample) : fn }));
   const assigned = (product.supplierIds || []).map(id => suppliers.find(x => x.id === id)).filter(Boolean);
@@ -3813,7 +3826,7 @@ function InspectionRunner({ insp, patch, t, problems, product, suppliers, dictio
               {f.type === "Pallet" && <div>{pallets.map((p, i) => <div key={i} className="flex gap-1.5 mb-1.5"><input value={p} onChange={e => setPallets(ps => ps.map((x, j) => j === i ? e.target.value : x))} placeholder={`pallet ${i + 1}`} className="flex-1 text-sm rounded px-2 py-1.5 outline-none" style={{ ...inp }} /><button className="text-xs px-2 rounded" style={{ background: C.line, color: C.muted }} title="camera scanning is only available in the phone app" disabled><Ic i={ScanLine} s={13} mr={0} /></button>{pallets.length > 1 && <button onClick={() => setPallets(ps => ps.filter((_, j) => j !== i))} className="text-xs px-1" style={{ color: C.muted }}>×</button>}</div>)}<button onClick={() => setPallets(ps => [...ps, ""])} className="text-xs" style={{ color: C.accent }}>+ another pallet</button><DeliveryPallets product={product} insp={insp} onAdd={hus => setPallets(ps => [...ps.filter(Boolean), ...hus.filter(h => !ps.includes(h))])} /></div>}
               {f.type === "DateCode" && <div><input type="date" value={insp.dateISO || ""} onChange={e => set({ dateISO: e.target.value })} className="w-full text-sm rounded px-2 py-1.5 outline-none" style={{ ...inp }} />{insp.dateISO && <p className="text-xs mt-1.5" style={{ color: C.muted }}>saved as date code: <b style={{ color: C.ink, fontVariantNumeric: "tabular-nums" }}>{dateCode(insp.dateISO)}</b> (week {dateCode(insp.dateISO).slice(0, -1)}, day {dateCode(insp.dateISO).slice(-1)})</p>}</div>}
               {f.type === "SampleSize" && <SampleBlock sample={sample} setSample={setSample} totals={totals} />}
-              {f.type === "Photos" && <PhotoStrip photos={photos[f.id]} onAdd={got => addPhotos(f.id, got)} onRemove={id => removePhoto(f.id, id)} />}
+              {f.type === "Photos" && <PhotoStrip photos={photos[f.id]} onAdd={got => addPhotos(f.id, got)} onRemove={id => removePhoto(f.id, id)} onReplace={(id, next) => replaceFieldPhoto(f.id, id, next)} />}
               {f.type === "Escalate" && (escalated ? <p className="text-xs" style={{ color: C.warn }}>⏸ Already paused.</p> : <div className="flex gap-1.5"><input value={question} onChange={e => setQuestion(e.target.value)} placeholder="what to you want to ask the Head?" className="flex-1 text-sm rounded px-2 py-1.5 outline-none" style={{ ...inp }} /><button onClick={() => { if (question.trim()) { onEscalate(question.trim()); setQuestion(""); } }} className="text-sm px-3 py-2 rounded-lg" style={{ background: C.warnBg, color: C.warn, border: `1px solid ${C.warn}` }}><Ic i={HelpCircle} />Ask the Head</button></div>)}
               {f.type === "Text" && <input value={values[f.id] || ""} onChange={e => setV(f.id, e.target.value)} className="w-full text-sm rounded px-2 py-1.5 outline-none" style={{ ...inp }} />}
               {f.type === "Date" && <input type="date" value={values[f.id] || ""} onChange={e => setV(f.id, e.target.value)} className="w-full text-sm rounded px-2 py-1.5 outline-none" style={{ ...inp }} />}
@@ -3821,11 +3834,11 @@ function InspectionRunner({ insp, patch, t, problems, product, suppliers, dictio
               {f.type === "MultiChoice" && <div className="flex flex-col gap-1">{(f.options || []).map(o => { const on = (values[f.id] || []).includes(o.value); return <label key={o.value} className="flex items-center gap-2 text-sm cursor-pointer"><input type="checkbox" checked={on} onChange={e => setV(f.id, e.target.checked ? [...(values[f.id] || []), o.value] : (values[f.id] || []).filter(x => x !== o.value))} />{o.value}{o.trigger && " 🚩"}</label>; })}</div>}
               {f.type === "Scale" && <div className="flex gap-1">{Array.from({ length: f.scaleMax || 5 }, (_, i) => i + 1).map(k => <button key={k} onClick={() => setV(f.id, k)} className="w-8 h-8 rounded-lg text-sm" style={{ background: values[f.id] === k ? C.accent : C.accentSoft, color: values[f.id] === k ? C.onDark : C.accent }}>{k}</button>)}</div>}
               {f.type === "Number" && <NumberInput piecesPerCu={insp.sample?.piecesPerCu || product?.piecesPerCu} f={f} problems={problems} allProblems={sctx?.problems} overrides={t.overrides} specs={specs} totals={totals} value={values[f.id]} onChange={v => setV(f.id, v)} onRaise={(leafId, mode, raw) => setRemarks(r => [...r, { id: uid(), leafId, mode, raw, auto: true, fieldId: f.id }])} raised={remarks.some(r => r.auto && r.fieldId === f.id)} />}
-              {f.allowPhotos && !isSystem(f.type) && <div className="mt-1.5"><PhotoStrip photos={photos[f.id]} onAdd={got => addPhotos(f.id, got)} onRemove={id => removePhoto(f.id, id)} size={48} /></div>}
+              {f.allowPhotos && !isSystem(f.type) && <div className="mt-1.5"><PhotoStrip photos={photos[f.id]} onAdd={got => addPhotos(f.id, got)} onRemove={id => removePhoto(f.id, id)} onReplace={(id, next) => replaceFieldPhoto(f.id, id, next)} size={48} /></div>}
             </div>
           ))}
           {t.problemRefs.filter(r => r.moduleId === m.id).length > 0 && !sampleReady && <Note tone="bad">{hasSampleBlock ? "Sample size gives 0 CU — fill in the “Sample size” block to compute percentages." : "This template has no “Sample size” block — the Head must add it."}</Note>}
-          {t.problemRefs.filter(r => r.moduleId === m.id).sort(bySort).map(r => pm[r.problemTypeId] && <ProblemTreeView key={r.id} root={pm[r.problemTypeId]} problems={problems} overrides={t.overrides} remarks={remarks} totals={totals} disabled={!sampleReady} notes={effectiveNotesFor(sctx, product)} onReport={rem => setRemarks(x => [...x, { id: uid(), ...rem }])} onDelete={id => setRemarks(x => x.filter(q => q.id !== id))} onPhoto={(id, got) => setRemarks(x => attachRemarkPhotos(x, id, got))} onRemovePhoto={(id, pid) => setRemarks(x => x.map(q => q.id === id ? { ...q, photos: asPhotoList(q.photos).filter(ph => ph.id !== pid) } : q))} />)}
+          {t.problemRefs.filter(r => r.moduleId === m.id).sort(bySort).map(r => pm[r.problemTypeId] && <ProblemTreeView key={r.id} root={pm[r.problemTypeId]} problems={problems} overrides={t.overrides} remarks={remarks} totals={totals} disabled={!sampleReady} notes={effectiveNotesFor(sctx, product)} onReport={rem => setRemarks(x => [...x, { id: uid(), ...rem }])} onDelete={id => setRemarks(x => x.filter(q => q.id !== id))} onPhoto={(id, got) => setRemarks(x => attachRemarkPhotos(x, id, got))} onRemovePhoto={(id, pid) => setRemarks(x => x.map(q => q.id === id ? { ...q, photos: asPhotoList(q.photos).filter(ph => ph.id !== pid) } : q))} onReplacePhoto={(id, pid, next) => setRemarks(x => replaceRemarkPhoto(x, id, pid, next))} />)}
           {t.fields.filter(f => f.moduleId === m.id).length + t.problemRefs.filter(r => r.moduleId === m.id).length === 0 && <p className="text-sm" style={{ color: C.muted }}>Empty module.</p>}
           {isLastModule && <div className="mt-5 pt-4" style={{ borderTop: `1px solid ${C.line}` }}>
             <Note tone={escalated ? "warn" : anyExceeded || generalFlag ? "bad" : remarks.length ? "warn" : "ok"}>{escalated ? "Paused — awaiting the Head." : anyExceeded ? "Tolerance exceeded — the system suggests rejection." : generalFlag ? "General problem flagged — the system suggests rejection." : remarks.length ? `${remarks.length} remark${remarks.length === 1 ? "" : "s"} within tolerance.` : "No problems."}</Note>

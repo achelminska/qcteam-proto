@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { X, Zap, Image as ImageIcon } from "lucide-react";
 import { grabFrame, setTorch, stopStream, torchCapable } from "./camera.js";
+import { PhotoReview } from "./PhotoReview.jsx";
+import { rotateImage } from "./report-images.js";
 
 // In-app camera: the native <input capture> closes after every shot and asks
 // "Use this photo?". This sheet keeps the preview up; shots land as thumbs on
 // the bottom left; X is when the controller is done.
-export function CameraSheet({ onShot, onClose, onLibrary }) {
+export function CameraSheet({ onShot, onClose, onLibrary, onReplace }) {
   const videoRef = useRef(null);
   const streamRef = useRef(null);
   const [shots, setShots] = useState([]);
@@ -14,6 +16,7 @@ export function CameraSheet({ onShot, onClose, onLibrary }) {
   const [flash, setFlash] = useState(false);
   const [hasTorch, setHasTorch] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [preview, setPreview] = useState(null);
 
   useEffect(() => {
     let dead = false;
@@ -57,8 +60,22 @@ export function CameraSheet({ onShot, onClose, onLibrary }) {
     const d = grabFrame(videoRef.current);
     if (!d) return;
     setBusy(true);
-    setShots(s => [...s, d]);
-    try { onShot?.(d); } finally { setTimeout(() => setBusy(false), 180); }
+    const key = `s${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+    setShots(s => [...s, { key, dataUrl: d, persistId: null }]);
+    Promise.resolve(onShot?.(d)).then(async ph => {
+      if (!ph?.id) return;
+      let latest;
+      setShots(s => {
+        latest = (s.find(x => x.key === key) || {}).dataUrl;
+        const keep = latest && latest !== d;
+        return s.map(x => x.key === key ? { ...x, persistId: ph.id, dataUrl: keep ? latest : (ph.path || ph.dataUrl || d) } : x);
+      });
+      // Shot may have been rotated in the preview before persist finished.
+      if (latest && latest !== d && onReplace) {
+        const rep = await onReplace(ph.id, latest);
+        if (rep?.id) setShots(s => s.map(x => x.key === key ? { ...x, persistId: rep.id, dataUrl: x.dataUrl === latest ? (rep.path || rep.dataUrl || latest) : x.dataUrl } : x));
+      }
+    }).finally(() => setTimeout(() => setBusy(false), 180));
   };
 
   const toggleFlash = async () => {
@@ -68,6 +85,16 @@ export function CameraSheet({ onShot, onClose, onLibrary }) {
   };
 
   const last = shots[shots.length - 1];
+  const rotate = async (turns) => {
+    if (preview == null || !shots[preview]) return;
+    const cur = shots[preview];
+    const next = await rotateImage(cur.dataUrl, turns);
+    setShots(s => s.map((x, i) => i === preview ? { ...x, dataUrl: next } : x));
+    if (cur.persistId && onReplace) {
+      const ph = await onReplace(cur.persistId, next);
+      if (ph?.id) setShots(s => s.map((x, i) => i === preview ? { ...x, persistId: ph.id, dataUrl: ph.path || ph.dataUrl || next } : x));
+    }
+  };
 
   return (
     <div className="fixed inset-0 flex flex-col" style={{ background: "#000", zIndex: 80, color: "#fff" }}>
@@ -92,10 +119,10 @@ export function CameraSheet({ onShot, onClose, onLibrary }) {
       <div className="relative z-10 mt-auto flex items-end justify-between px-5" style={{ paddingBottom: "max(18px, env(safe-area-inset-bottom))" }}>
         <div className="w-16 h-16 flex items-end">
           {last ? (
-            <div className="relative">
-              <img src={last} alt="" className="w-14 h-14 rounded-full object-cover" style={{ border: "2px solid #fff", boxShadow: "0 2px 10px rgba(0,0,0,.4)" }} />
+            <button type="button" onClick={() => setPreview(shots.length - 1)} className="relative" aria-label="Review photos">
+              <img src={last.dataUrl} alt="" className="w-14 h-14 rounded-full object-cover" style={{ border: "2px solid #fff", boxShadow: "0 2px 10px rgba(0,0,0,.4)" }} />
               {shots.length > 1 && <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-semibold flex items-center justify-center" style={{ background: "#fff", color: "#111" }}>{shots.length}</span>}
-            </div>
+            </button>
           ) : <span className="w-14 h-14" />}
         </div>
         <button type="button" onClick={shoot} disabled={!ready || !!err} className="w-[72px] h-[72px] rounded-full flex items-center justify-center" style={{ border: "4px solid #fff", background: "transparent", opacity: ready && !err ? 1 : .4 }} aria-label="Shutter">
@@ -105,6 +132,16 @@ export function CameraSheet({ onShot, onClose, onLibrary }) {
           {onLibrary && <button type="button" onClick={onLibrary} className="w-12 h-12 rounded-full flex items-center justify-center" style={{ background: "rgba(0,0,0,.28)" }} aria-label="From library"><ImageIcon size={22} strokeWidth={2} /></button>}
         </div>
       </div>
+      {preview != null && (
+        <PhotoReview
+          title="Photos"
+          photos={shots}
+          index={preview}
+          onIndex={setPreview}
+          onClose={() => setPreview(null)}
+          onRotate={rotate}
+        />
+      )}
     </div>
   );
 }
