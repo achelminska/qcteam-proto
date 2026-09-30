@@ -3661,17 +3661,17 @@ function MBriefing({ s, user, go }) {
   const Cta = ({ children, onClick, ghost }) => <button data-story-cta onClick={onClick} className="w-full py-2.5 rounded-2xl text-sm font-semibold inline-flex items-center justify-center gap-1" style={ghost ? { background: "transparent", color: C.ink, border: `1px solid ${C.line}` } : { background: C.ink, color: C.onDark }}>{children}</button>;
   const edge = c => c.kind === "rej" ? C.bad : c.kind === "complaint" ? C.bad : c.kind === "ann" && c.a.isBlocking ? C.bad : C.accent;
   const trans = anim && !dragging.current ? "transform .32s cubic-bezier(.2,.8,.2,1), opacity .28s ease" : "none";
-  const SIDE = 48;
+  const PAD = 10;
   const face = pos => {
-    const box = { top: 28, bottom: 28, left: SIDE, right: SIDE, overflow: "hidden" };
-    if (pos < 0) return { ...box, top: 44, bottom: 44, zIndex: 1, opacity: .5, transform: `translateX(${-SIDE + 10 + Math.max(0, dx) * .14}px) scale(.96)`, transformOrigin: "center", transition: trans, pointerEvents: "none" };
-    if (pos > 0) return { ...box, top: 44, bottom: 44, zIndex: 1, opacity: .5, transform: `translateX(${SIDE - 10 + Math.min(0, dx) * .14}px) scale(.96)`, transformOrigin: "center", transition: trans, pointerEvents: "none" };
-    return { ...box, top: 20, bottom: 20, zIndex: 4, transform: `translateX(${dx}px)`, opacity: Math.abs(dx) > 8 ? Math.max(.45, 1 - Math.abs(dx) / 280) : 1, transition: trans, pointerEvents: "auto" };
+    const box = { top: PAD, bottom: PAD, left: PAD, right: PAD, overflow: "hidden" };
+    if (pos < 0) return { ...box, zIndex: 1, transform: `translateX(calc(-100% - ${PAD}px + ${Math.max(0, dx)}px))`, transition: trans, pointerEvents: "none" };
+    if (pos > 0) return { ...box, zIndex: 1, transform: `translateX(calc(100% + ${PAD}px + ${Math.min(0, dx)}px))`, transition: trans, pointerEvents: "none" };
+    return { ...box, zIndex: 4, transform: `translateX(${dx}px)`, opacity: Math.abs(dx) > 8 ? Math.max(.45, 1 - Math.abs(dx) / 280) : 1, transition: trans, pointerEvents: "auto" };
   };
   const Hero = ({ product, name }) => {
     const photo = product && asPhotoList(product.photos)[0];
     return (
-      <div className="relative flex-shrink-0 overflow-hidden flex items-center justify-center" style={{ height: 148, background: PHOTO_BG }}>
+      <div className="relative flex-shrink-0 overflow-hidden flex items-center justify-center" style={{ height: 196, background: PHOTO_BG }}>
         {photo && <img src={photoSrc(photo)} alt="" className="absolute inset-0 w-full h-full object-contain p-4" onError={e => { e.currentTarget.style.display = "none"; const el = e.currentTarget.parentElement?.querySelector("[data-letter]"); if (el) el.style.opacity = "1"; }} />}
         <span data-letter className="text-[56px] font-semibold leading-none" style={{ color: "#8A9278", opacity: photo ? 0 : .55 }}>{(name || "?")[0]}</span>
       </div>
@@ -3708,7 +3708,6 @@ function MBriefing({ s, user, go }) {
     } else if (c.kind === "rej") {
       const insp = c.i, prod = s.products.find(p => p.id === insp.productId);
       const remarks = (insp.remarks || []).map(r => briefingRemark(s, r)).filter(Boolean);
-      const more = briefingRejections(s).filter(x => x.productId === insp.productId && x.id !== insp.id).length;
       hero = <Hero product={prod} name={prod?.name} />;
       body = <>
         <p className="text-[11px] font-semibold uppercase tracking-[0.16em]" style={{ color: C.bad }}>Rejected · {dayLabel(insp.completedAt)}, {hhmm(insp.completedAt)}</p>
@@ -3723,10 +3722,8 @@ function MBriefing({ s, user, go }) {
           </div>
         )}
         {insp.comment && <p className="text-[13px] mt-2 leading-relaxed" style={{ color: C.muted }}>{insp.comment}</p>}
-        <div className="mt-auto pt-3 space-y-2">
+        <div className="mt-auto pt-3">
           <Cta onClick={() => go("inspection", insp.id)}>Open this rejection<Ic i={ChevronRight} s={15} mr={0} /></Cta>
-          {prod && <Cta ghost onClick={() => go("productHistory", { id: prod.id, result: "Rejected" })}>More rejections{more ? ` · ${more}` : ""}<Ic i={ChevronRight} s={15} mr={0} /></Cta>}
-          {prod && <button data-story-cta onClick={() => go("catalog", prod.id)} className="w-full text-sm font-medium py-1 inline-flex items-center justify-center" style={{ color: C.accent }}>Product profile<Ic i={ChevronRight} s={14} mr={0} style={{ marginLeft: 2 }} /></button>}
         </div>
       </>;
     } else {
@@ -3780,16 +3777,11 @@ function MBriefing({ s, user, go }) {
               <span className="block h-full rounded-full" style={{ width: `${Math.round((ix + 1) / n * 100)}%`, background: C.ink }} />
             </div>
           </div>
-          <div ref={stage} className="relative flex-1 min-h-0 mx-1 mb-1 overflow-hidden" style={{ touchAction: "none" }}
+          <div ref={stage} className="relative flex-1 min-h-0 mx-1 mb-2 overflow-hidden" style={{ touchAction: "none" }}
             onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp} onWheel={onWheel}>
             {renderCard(cards[ix - 1], -1)}
             {renderCard(cards[ix + 1], 1)}
             {renderCard(cards[ix], 0)}
-          </div>
-          <div className="flex items-center justify-center gap-8 pb-2">
-            <button data-story-cta onClick={() => goTo(ix - 1)} disabled={ix === 0} className="w-10 h-10 rounded-full flex items-center justify-center" style={{ border: `1px solid ${C.line}`, color: ix === 0 ? C.line : C.ink }}><Ic i={ChevronLeft} s={18} mr={0} /></button>
-            <p className="text-[11px]" style={{ color: C.muted }}>{ix === n - 1 ? "that's all" : "swipe"}</p>
-            <button data-story-cta onClick={() => goTo(ix + 1)} disabled={ix === n - 1} className="w-10 h-10 rounded-full flex items-center justify-center" style={{ border: `1px solid ${C.line}`, color: ix === n - 1 ? C.line : C.ink }}><Ic i={ChevronRight} s={18} mr={0} /></button>
           </div>
         </>
       )}
