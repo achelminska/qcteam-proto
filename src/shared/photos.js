@@ -40,31 +40,44 @@ export function attachRemarkPhotos(remarks, remarkId, photos) {
   return (remarks || []).map(q => q.id === remarkId ? { ...q, photos: [...asPhotoList(q.photos), ...add] } : q);
 }
 
-const byModuleSort = (a, b) => (Number(a?.sort) - Number(b?.sort)) || String(a?.id || "").localeCompare(String(b?.id || ""));
+// Same comparator as the inspection tabs (`bySort` in Mobile/Portal).
+export const byFormSort = (a, b) => (a.sort - b.sort) || ((a.level ?? 0) - (b.level ?? 0)) || String(a?.id || "").localeCompare(String(b?.id || ""));
 
-// Same walk as the form: module 1 fields + remarks, then module 2, …
+// Same walk as the form: module 1 (Unit data) fields + remarks, then module 2 (Parameters), …
 export function photoGroupsByModule({ modules = [], fields = [], photos = {}, remarks = [], remarkModuleId, labelField, labelRemark }) {
   const groups = [];
   const usedFields = new Set(), usedRemarks = new Set();
-  const pushField = f => {
-    if (usedFields.has(f.id)) return;
+  const mods = [...modules].sort(byFormSort);
+  const modOf = id => mods.find(m => m.id === id);
+  const pushField = (f, m) => {
+    if (!f || usedFields.has(f.id)) return;
     const ph = flattenPhotos(photos[f.id]);
     if (!ph.length) return;
     usedFields.add(f.id);
-    groups.push({ key: f.id, label: labelField(f), photos: ph });
+    groups.push({ key: f.id, label: labelField(f), module: (m || modOf(f.moduleId) || {}).name || "", photos: ph });
   };
-  const pushRemark = r => {
+  const pushRemark = (r, m) => {
     if (!r || usedRemarks.has(r.id)) return;
     const ph = flattenPhotos(r.photos);
     if (!ph.length) return;
     usedRemarks.add(r.id);
-    groups.push({ key: r.id, label: labelRemark(r), photos: ph });
+    groups.push({ key: r.id, label: labelRemark(r), module: (m || {}).name || "", photos: ph });
   };
-  for (const m of [...modules].sort(byModuleSort)) {
-    [...fields].filter(f => f.moduleId === m.id).sort(byModuleSort).forEach(pushField);
-    (remarks || []).filter(r => remarkModuleId?.(r) === m.id).forEach(pushRemark);
+  for (const m of mods) {
+    [...fields].filter(f => f.moduleId === m.id).sort(byFormSort).forEach(f => pushField(f, m));
+    (remarks || []).filter(r => remarkModuleId?.(r) === m.id).forEach(r => pushRemark(r, m));
   }
-  [...fields].sort(byModuleSort).forEach(pushField);
-  (remarks || []).forEach(pushRemark);
+  [...fields]
+    .filter(f => !usedFields.has(f.id))
+    .sort((a, b) => byFormSort(modOf(a.moduleId) || { sort: 999, id: "" }, modOf(b.moduleId) || { sort: 999, id: "" }) || byFormSort(a, b))
+    .forEach(f => pushField(f, modOf(f.moduleId)));
+  (remarks || []).forEach(r => pushRemark(r, modOf(remarkModuleId?.(r))));
+  for (const [k, v] of Object.entries(photos || {})) {
+    if (usedFields.has(k)) continue;
+    const ph = flattenPhotos(v);
+    if (!ph.length) continue;
+    usedFields.add(k);
+    groups.push({ key: k, label: "Photos", module: "", photos: ph });
+  }
   return groups;
 }

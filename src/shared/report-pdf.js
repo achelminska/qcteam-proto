@@ -218,8 +218,13 @@ export async function drawReportPdf(doc, model, photoData) {
   }
   if (model.photoGroups.length) {
     section("Photos", `${photoCount} photo${photoCount === 1 ? "" : "s"}`, 70);
+    let lastMod = "";
     for (const g of model.photoGroups) {
-      ensure(64);
+      ensure(70);
+      if (g.module && g.module !== lastMod) {
+        lastMod = g.module;
+        font("bold", 9.5, INK); doc.text(g.module, L, y + 4); y += 7;
+      }
       label(g.label, L, y + 3); y += 6;
       y = await drawPhotoGroup(doc, { photos: g.photos, photoData, x0: L, y0: y, right: R, maxW: 56, maxH: 56, gap: 4, pageBreak: BOTTOM - 4, newPage: () => { doc.addPage(); runningHeader(); } });
       y += 7;

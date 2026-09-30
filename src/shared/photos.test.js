@@ -32,22 +32,34 @@ describe("flattenPhotos", () => {
 });
 
 describe("photoGroupsByModule", () => {
-  it("walks module 1 then module 2, fields before remarks in each", () => {
-    const modules = [{ id: "m2", sort: 2 }, { id: "m1", sort: 1 }];
-    const fields = [
-      { id: "unit", moduleId: "m2", sort: 0, label: "Unit data" },
-      { id: "weight", moduleId: "m1", sort: 0, label: "Weight" },
+  it("follows the form tabs: Unit data first, then Parameters (Weight, Firmness)", () => {
+    // Live Full template: tab 1 = Unit data, tab 2 = Parameters. Fields are stored
+    // with Weight before the Unit data Photos block — that used to print Weight first.
+    const modules = [
+      { id: "unit", name: "Unit data", sort: 0, level: 0 },
+      { id: "par", name: "Parameters", sort: 1, level: 0 },
+      { id: "qual", name: "Quality Problems", sort: 3, level: 0 },
     ];
-    const photos = { unit: [shot("u")], weight: [shot("w")] };
+    const fields = [
+      { id: "weight", moduleId: "par", sort: 4, type: "Number", label: "Weight" },
+      { id: "firm", moduleId: "par", sort: 11, type: "Number", label: "Firmness" },
+      { id: "pack", moduleId: "unit", sort: 10, type: "Photos", label: "Module photos" },
+    ];
+    const photos = { weight: [shot("w")], firm: [shot("f")], pack: [shot("p")] };
     const remarks = [{ id: "r1", leafId: "browning", photos: [shot("r")] }];
     const groups = photoGroupsByModule({
       modules, fields, photos, remarks,
-      remarkModuleId: r => r.leafId === "browning" ? "m2" : null,
-      labelField: f => f.label,
+      remarkModuleId: r => r.leafId === "browning" ? "qual" : null,
+      labelField: f => f.type === "Photos" ? "Module photos: Unit data" : f.label,
       labelRemark: r => "Problem: " + r.leafId,
     });
-    expect(groups.map(g => g.label)).toEqual(["Weight", "Unit data", "Problem: browning"]);
-    expect(groups[0].photos).toEqual([shot("w")]);
+    expect(groups.map(g => g.label)).toEqual([
+      "Module photos: Unit data",
+      "Weight",
+      "Firmness",
+      "Problem: browning",
+    ]);
+    expect(groups.map(g => g.module)).toEqual(["Unit data", "Parameters", "Parameters", "Quality Problems"]);
   });
 });
 
