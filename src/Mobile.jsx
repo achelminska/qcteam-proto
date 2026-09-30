@@ -6,6 +6,7 @@ import { SpecValue } from "./shared/SpecValue.jsx";
 import { peopleOnFloor, peopleAtDock, floorWhere, floorVerb, doneTodayCount } from "./shared/floor.js";
 import { readAsDataUrl, keepPhoto, shrinkPhoto } from "./shared/report-images.js";
 import { attachRemarkPhotos } from "./shared/photos.js";
+import { sheetFreshness, useSheetFresh } from "./shared/sheets.js";
 import { drawReportPdf } from "./shared/report-pdf.js";
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceArea, ReferenceLine, Legend } from "recharts";
 import { Clock, MapPin, MessageCircle, Link2, List as ListIcon, BarChart3, Printer, SlidersHorizontal, SkipForward, LayoutDashboard, ClipboardList, Flag, Bell, FolderTree, ListTree, Package, LayoutTemplate, Truck, Globe, Megaphone, MessageSquare, Users, Search, Sun, Moon, Database, Home, Menu as MenuIcon, ScanLine, Plus, ChevronLeft, ChevronRight, ChevronDown, User, Camera, Image as ImageIcon, Paperclip, Send, Star, Pencil, Sparkles, HelpCircle, Download, Lock as LockIcon, AlertTriangle, Inbox, FileText, ShieldAlert, Tag, Layers, BookOpen, Filter, Check, X, Ruler, Boxes, Warehouse, Snowflake, Thermometer, ThumbsDown, ExternalLink } from "lucide-react";
@@ -769,8 +770,6 @@ const recentProblemsFor = (s, productId, nowMs = Date.now(), days = 14) => {
   const lastAt = insps.length ? insps.map(i => i.completedAt).sort().slice(-1)[0] : null;
   return { count: insps.length, problems, lastAt };
 };
-// "How fresh is this?" — the sheet's own last-push time (not when this device last synced), so a stalled trigger shows up.
-const sheetFreshness = s => { const live = (typeof window !== "undefined" && window.__qcSheetFresh) || {}; return (s.integrations || []).filter(i => (i.purpose === "Dock" || i.purpose === "Blocked") && (i.lastPushAt || live[i.purpose.toLowerCase()])).map(i => { const a = i.lastPushAt || "", b = live[i.purpose.toLowerCase()] || ""; return { purpose: i.purpose, at: a > b ? a : b }; }); };
 const dockSummary = s => { const it = (s.integrations || []).find(i => i.purpose === "Dock" && i.rows?.length); return it?.summary || null; };
 const blockedRowsLive = s => { const it = (s.integrations || []).find(i => i.purpose === "Blocked" && i.rows?.length); if (!it) return []; const seen = new Set(); return it.rows.filter(r => !r._errors?.length).map(r => ({ article: String(r.article || ""), name: r.name || "", hu: String(r.hu || "").replace(/\D/g, ""), location: r.location || "", zone: r.zone || "", pickLocation: r.pickLocation || "", deadline: r.deadline || "", wmsStatus: r.wmsStatus || "", status: r.status || "", date: r.date || "", time: r.time || "" })).filter(r => { const k = r.hu || `${r.article}|${r.location}`; if (seen.has(k)) return false; seen.add(k); return true; }); };
 const blockedSummary = s => { const it = (s.integrations || []).find(i => i.purpose === "Blocked" && i.rows?.length); return it?.summary || null; };
@@ -877,7 +876,7 @@ function IntegrationsPage({ s, set }) {
                 <p className="text-xs mb-2" style={{ color: C.muted }}>The sheet's own script sends its rows to your server on a timer — this works even when the organisation blocks public Apps Script pages (outbound requests are allowed). Your server needs a public address for Google to reach it: run <span className="font-mono">cloudflared tunnel --url http://localhost:3001</span> (free, no account) and put the printed https://… address into the script.</p>
                 <div className="flex items-center gap-2 mb-2"><button onClick={() => fetchLive(it)} className="text-xs px-3 py-1.5 rounded-lg font-semibold" style={{ background: C.accent, color: C.onDark }}>Read pushed data</button><label className="text-xs flex items-center gap-1" style={{ color: C.muted }}><input type="checkbox" checked={!!it.autoRefresh} onChange={e => patchIt({ autoRefresh: e.target.checked })} />re-read every 60 s</label>{it.liveStatus && <span className="text-xs" style={{ color: it.liveStatus.startsWith("OK") ? C.ok : C.warn }}>{it.liveStatus}</span>}</div>
                 <details><summary className="text-xs cursor-pointer" style={{ color: C.accent }}>Apps Script to paste into the sheet (Extensions → Apps Script), then Triggers → time-driven → every 5 minutes → pushToQCteam</summary><pre className="text-[11px] rounded-lg p-2 mt-1 overflow-x-auto" style={{ background: C.surface }}>{`const QC_URL = "https://YOUR-TUNNEL.trycloudflare.com/sheet/${it.purpose.toLowerCase()}";
-const QC_KEY = ""; // optional: same value as QC_SYNC_KEY on the server
+const QC_KEY = ""; // required on the hosted app — same value as QC_SYNC_KEY. Without it POST returns 401 and the dashboard clock freezes.
 
 function pushToQCteam() {
   const sh = SpreadsheetApp.getActiveSpreadsheet().getSheets()[0];
@@ -2303,6 +2302,7 @@ function MAnnouncementModal({ a, onClose }) {
   );
 }
 function MDashboard({ s, set, user, go, dismissed, setDismissed, onAssign }) {
+  const liveSheets = useSheetFresh();
   const [now, setNow] = useState(Date.now()); useEffect(() => { const id = setInterval(() => setNow(Date.now()), 30000); return () => clearInterval(id); }, []);
   const [annOpen, setAnnOpen] = useState(null);
   const [blockedView, setBlockedView] = useState("open");
@@ -2322,7 +2322,7 @@ function MDashboard({ s, set, user, go, dismissed, setDismissed, onAssign }) {
         <div><p className="text-xs" style={{ color: C.muted }}>{new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "short" })}</p><p className="text-lg font-semibold">Hi, {user.name.split(" ")[0]}</p></div>
         <div className="flex items-center gap-3">{(() => { const n = complaintsNewCount(s, user.id); return <button onClick={() => go("complaints")} className="relative flex" title="Complaints"><Ic i={ThumbsDown} s={22} mr={0} />{n > 0 && <span className="absolute -top-1 -right-2 text-[9px] px-1 rounded-full" style={{ background: C.bad, color: C.onDark }}>{n}</span>}</button>; })()}<button onClick={() => go("notifications")} className="relative flex"><Ic i={Bell} s={22} mr={0} />{unread > 0 && <span className="absolute -top-1 -right-2 text-[9px] px-1 rounded-full" style={{ background: C.bad, color: C.onDark }}>{unread}</span>}</button><button onClick={() => go("profile")} className="flex"><Avatar user={user} size={36} /></button></div>
       </div>
-      {(() => { const fr = sheetFreshness(s); if (!fr.length) return null; const now = Date.now(); const ago = t => { const m = Math.round((now - new Date(t).getTime()) / 60000); return m < 1 ? "just now" : m < 60 ? `${m} min ago` : `${Math.round(m / 60)} h ago`; }; return (
+      {(() => { const fr = sheetFreshness(s, liveSheets); if (!fr.length) return null; const now = Date.now(); const ago = t => { const m = Math.round((now - new Date(t).getTime()) / 60000); return m < 1 ? "just now" : m < 60 ? `${m} min ago` : `${Math.round(m / 60)} h ago`; }; return (
         <div className="px-5 pb-2 flex items-center gap-3 flex-wrap">
           {fr.map(f => { const stale = now - new Date(f.at).getTime() > 10 * 60000; return <span key={f.purpose} className="text-[11px] flex items-center gap-1" style={{ color: stale ? C.warn : C.muted }}><Ic i={stale ? AlertTriangle : Clock} s={11} mr={0} />{f.purpose === "Dock" ? "Dock data" : "Blocked pallets"} · {ago(f.at)}</span>; })}
         </div>
