@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, Fragment } from "react";
 import { createSyncer, guardUnload } from "./sync.js";
-import { hasV, specLabel, dayLabel, typesOf, typeById, legacyTypeId, inspType, countsAs, listCheck, matchFieldSpec, numberSpecCheck } from "./shared/format.js";
+import { hasV, specLabel, dayLabel, typesOf, typeById, legacyTypeId, inspType, countsAs, listCheck, matchFieldSpec, numberSpecCheck, reportStatusFields, toleranceDisplay } from "./shared/format.js";
 import { activeTempForSpec, applyTempSpec, closeExpiredTempSpecs, tempUntilLabel } from "./shared/tempspec.js";
 import { SpecValue } from "./shared/SpecValue.jsx";
 import { peopleOnFloor, peopleAtDock, floorWhere, floorVerb, doneTodayCount } from "./shared/floor.js";
@@ -274,6 +274,19 @@ const effTol = (problems, overrides, id) => {
     n = m[n.parentId];
   }
   return null;
+};
+// Own/override tolerance on nodes under a group, plus the effective tol of each remark found there.
+const tolsUnder = (problems, overrides, remarks, id) => {
+  const sub = subtree(problems, id);
+  const ov = Object.fromEntries((overrides || []).map(o => [o.problemTypeId, o.tolerance]));
+  const tols = [];
+  (remarks || []).forEach(r => { if (sub.has(r.leafId)) tols.push(effTol(problems, overrides, r.leafId)); });
+  problems.forEach(p => {
+    if (p.id === id || !sub.has(p.id)) return;
+    if (ov[p.id] !== undefined && ov[p.id] !== null && ov[p.id] !== "") tols.push(Number(ov[p.id]));
+    else if (p.tolerance !== null && p.tolerance !== undefined && p.tolerance !== "") tols.push(Number(p.tolerance));
+  });
+  return tols;
 };
 const presenceIn = (problems, remarks, id) => { const sub = subtree(problems, id); return remarks.some(r => r.mode === "Presence" && sub.has(r.leafId)); };
 const pct = (r, totals) => { if (r.mode === "Presence") return 0; const raw = Number(r.raw) || 0; const base = r.mode === "PieceCount" ? totals.pieces : r.mode === "DirectWeight" ? totals.weight : totals.cu; return base ? raw / base * 100 : 0; };
@@ -596,9 +609,9 @@ async function buildReportPdf(insp, s) {
   const extra = []; (insp.remarks || []).forEach(r => { if (!covered.has(r.leafId) && pm[r.leafId] && !extra.includes(r.leafId)) extra.push(r.leafId); });
   const status = [...refs, ...extra.map(i => pm[i])].map(n => {
     const tol = effTol(problems, t.overrides || [], n.id), agg = aggregate(problems, insp.remarks || [], n.id, totals), pr = presenceIn(problems, insp.remarks || [], n.id), st = statusOf(problems, t.overrides || [], insp.remarks || [], n.id, totals);
-    return { name: n.name, found: tol === 0 ? (pr ? "present" : "—") : `${fmt(agg)}%`, tolerance: tol === null ? "—" : `${tol}%`, state: st, ratio: tol > 0 ? agg / tol : null };
+    return reportStatusFields({ name: n.name, agg, ownTol: tol, present: pr, state: st, remarkTols: tolsUnder(problems, t.overrides || [], insp.remarks || [], n.id) });
   });
-  const remarks = (insp.remarks || []).map(r => { const unit = { PieceCount: "pcs", DirectWeight: "g", WholeUnitCount: "CU" }[r.mode] || ""; const p = r.mode === "Presence" ? null : pct(r, totals); return { problem: pathOf(problems, r.leafId), quantity: r.mode === "Presence" ? "present" : `${r.raw} ${unit}`, pct: p === null ? "—" : `${fmt(p)}%`, source: r.auto ? "measurement" : "reported" }; });
+  const remarks = (insp.remarks || []).map(r => { const unit = { PieceCount: "pcs", DirectWeight: "g", WholeUnitCount: "CU" }[r.mode] || ""; const p = r.mode === "Presence" ? null : pct(r, totals); return { problem: pathOf(problems, r.leafId), quantity: r.mode === "Presence" ? "present" : `${r.raw} ${unit}`, pct: p === null ? "—" : `${fmt(p)}%`, tolerance: toleranceDisplay(effTol(problems, t.overrides || [], r.leafId)), source: r.auto ? "measurement" : "reported" }; });
   const answered = (t.fields || []).filter(f => !isSystem(f.type) && insp.values?.[f.id] !== undefined && insp.values?.[f.id] !== "").sort(bySort);
   const parameters = answered.map(f => parameterRow(f, insp.values[f.id], s, product, insp.sample?.piecesPerCu));
   const photoGroups = photoGroupsOf(t, insp, problems);
@@ -1466,13 +1479,13 @@ function ProblemOverview({ t, problems, remarks, totals }) {
   const rows = [...refs, ...extra];
   if (!rows.length) return null;
   const Bar = ({ node }) => {
-    const tol = effTol(problems, t.overrides, node.id), agg = aggregate(problems, remarks, node.id, totals), pr = presenceIn(problems, remarks, node.id);
-    const st = statusOf(problems, t.overrides, remarks, node.id, totals), [fg, bg] = tone(st);
-    const width = tol === 0 ? (pr ? 100 : 0) : tol ? Math.min(100, agg / tol * 100) : agg > 0 ? 100 : 0;
-    const label = tol === 0 ? (pr ? "present" : "none") : `${fmt(agg)}%${tol !== null ? ` / ${tol}%` : ""}`;
+    const row = reportStatusFields({ name: node.name, agg: aggregate(problems, remarks, node.id, totals), ownTol: effTol(problems, t.overrides, node.id), present: presenceIn(problems, remarks, node.id), state: statusOf(problems, t.overrides, remarks, node.id, totals), remarkTols: tolsUnder(problems, t.overrides, remarks, node.id) });
+    const [fg, bg] = tone(row.state);
+    const width = row.found === "present" ? 100 : row.ratio === null ? 0 : Math.min(100, row.ratio * 100);
+    const label = `${row.found} / ${row.tolerance}`;
     return (
       <div className="mb-2">
-        <div className="flex items-center justify-between text-xs mb-1"><span className="font-medium">{node.name}</span><span style={{ color: fg, fontWeight: 500 }}>{label}{tol === 0 && " ⚡"}</span></div>
+        <div className="flex items-center justify-between text-xs mb-1"><span className="font-medium">{node.name}</span><span style={{ color: fg, fontWeight: 500 }}>{label}{row.tolerance === "0%" && " ⚡"}</span></div>
         <div className="h-2 rounded-full overflow-hidden" style={{ background: C.line }}><div className="h-full rounded-full" style={{ width: `${width}%`, background: fg, transition: "width .2s" }} /></div>
       </div>
     );
