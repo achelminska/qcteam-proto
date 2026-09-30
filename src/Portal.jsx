@@ -175,18 +175,11 @@ const effTol = (problems, overrides, id) => {
   }
   return null;
 };
-// Own/override tolerance on nodes under a group, plus the effective tol of each remark found there.
+// Effective tolerance of remarks that were actually found under the group — not unused siblings
+// (decay at 1% must not also print Minor remarks' 10% just because that node exists in the catalog).
 const tolsUnder = (problems, overrides, remarks, id) => {
   const sub = subtree(problems, id);
-  const ov = Object.fromEntries((overrides || []).map(o => [o.problemTypeId, o.tolerance]));
-  const tols = [];
-  (remarks || []).forEach(r => { if (sub.has(r.leafId)) tols.push(effTol(problems, overrides, r.leafId)); });
-  problems.forEach(p => {
-    if (p.id === id || !sub.has(p.id)) return;
-    if (ov[p.id] !== undefined && ov[p.id] !== null && ov[p.id] !== "") tols.push(Number(ov[p.id]));
-    else if (p.tolerance !== null && p.tolerance !== undefined && p.tolerance !== "") tols.push(Number(p.tolerance));
-  });
-  return tols;
+  return (remarks || []).filter(r => sub.has(r.leafId)).map(r => effTol(problems, overrides, r.leafId));
 };
 const presenceIn = (problems, remarks, id) => { const sub = subtree(problems, id); return remarks.some(r => r.mode === "Presence" && sub.has(r.leafId)); };
 const pct = (r, totals) => { if (r.mode === "Presence") return 0; const raw = Number(r.raw) || 0; const base = r.mode === "PieceCount" ? totals.pieces : r.mode === "DirectWeight" ? totals.weight : totals.cu; return base ? raw / base * 100 : 0; };

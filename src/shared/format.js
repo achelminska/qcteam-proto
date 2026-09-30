@@ -43,8 +43,8 @@ export function foundDisplay(agg, { zeroTol = false, present = false } = {}) {
   return pctText(Number(agg) || 0);
 }
 
-// Group tolerance, or the distinct tolerances of remarks under it when the group itself has none
-// (Quality problems is often just a sum of Major / Minor leaves).
+// Group tolerance, or the distinct tolerances of remarks that were found under it
+// (Quality problems often has no number of its own — print decay's 1%, not unused Minor 10%).
 export function toleranceDisplay(ownTol, remarkTols = []) {
   if (hasV(ownTol) || ownTol === 0) return pctText(Number(ownTol));
   const seen = [];
