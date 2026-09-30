@@ -34,6 +34,46 @@ export const listCheck = (expected, value) => {
   return { expected: String(exp), ok: String(value) === String(exp) };
 };
 
+const pctText = n => `${Number(n).toLocaleString("en-GB", { maximumFractionDigits: 2 })}%`;
+
+// Quality-status "Found": a zero-tolerance group is presence-only; everything else is a %.
+// Nothing found used to print "—" — the report should say 0%.
+export function foundDisplay(agg, { zeroTol = false, present = false } = {}) {
+  if (zeroTol) return present ? "present" : "0%";
+  return pctText(Number(agg) || 0);
+}
+
+// Group tolerance, or the distinct tolerances of remarks under it when the group itself has none
+// (Quality problems is often just a sum of Major / Minor leaves).
+export function toleranceDisplay(ownTol, remarkTols = []) {
+  if (hasV(ownTol) || ownTol === 0) return pctText(Number(ownTol));
+  const seen = [];
+  for (const t of remarkTols) {
+    if (!hasV(t) && t !== 0) continue;
+    const s = pctText(Number(t));
+    if (!seen.includes(s)) seen.push(s);
+  }
+  return seen.length ? seen.join(" · ") : "—";
+}
+
+// Bar fill for Quality status: own tolerance, else the strictest remark/group tolerance under it.
+export function statusBarRatio(agg, ownTol, remarkTols = []) {
+  if (Number(ownTol) > 0) return Number(agg) / Number(ownTol);
+  const nums = remarkTols.map(Number).filter(t => t > 0);
+  if (!nums.length) return null;
+  return (Number(agg) || 0) / Math.min(...nums);
+}
+
+export function reportStatusFields({ name, agg, ownTol, present, state, remarkTols = [] }) {
+  return {
+    name,
+    found: foundDisplay(agg, { zeroTol: ownTol === 0, present }),
+    tolerance: toleranceDisplay(ownTol, remarkTols),
+    state,
+    ratio: statusBarRatio(agg, ownTol, remarkTols),
+  };
+}
+
 // Number field vs a product/category spec (by specId, or by the field's specName / label).
 export function matchFieldSpec(specs, f) {
   const list = specs || [];

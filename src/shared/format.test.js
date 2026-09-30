@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { countsAs, dayLabel, hasV, legacyTypeId, listCheck, matchFieldSpec, numberSpecCheck, problemPath, specLabel } from "./format.js";
+import { countsAs, dayLabel, foundDisplay, hasV, legacyTypeId, listCheck, matchFieldSpec, numberSpecCheck, problemPath, reportStatusFields, specLabel, statusBarRatio, toleranceDisplay } from "./format.js";
 
 describe("specLabel", () => {
   it("renders a range, a one-sided limit, or an em dash", () => {
@@ -58,6 +58,41 @@ describe("numberSpecCheck", () => {
     expect(numberSpecCheck({ min: "7", max: "14", unit: "%" }, [10.1, 9.6])).toEqual({ expected: "7–14 %", ok: true });
     expect(numberSpecCheck({ min: "", max: "" }, [10])).toBe(null);
     expect(numberSpecCheck({ min: "250", unit: "g" }, [])).toBe(null);
+  });
+});
+
+describe("foundDisplay", () => {
+  it("prints 0% when nothing was found, not a dash", () => {
+    expect(foundDisplay(0)).toBe("0%");
+    expect(foundDisplay(0, { zeroTol: true, present: false })).toBe("0%");
+    expect(foundDisplay(0, { zeroTol: true, present: true })).toBe("present");
+    expect(foundDisplay(13.89)).toBe("13.89%");
+  });
+});
+
+describe("toleranceDisplay", () => {
+  it("uses the group's own tolerance, else each remark's", () => {
+    expect(toleranceDisplay(0)).toBe("0%");
+    expect(toleranceDisplay(10)).toBe("10%");
+    expect(toleranceDisplay(null, [1])).toBe("1%");
+    expect(toleranceDisplay(null, [1, 1, 10])).toBe("1% · 10%");
+    expect(toleranceDisplay(null, [])).toBe("—");
+  });
+});
+
+describe("reportStatusFields", () => {
+  it("prints 0% found and each remark tolerance when the group has none", () => {
+    expect(reportStatusFields({ name: "General problems", agg: 0, ownTol: 0, present: false, state: "clean" }))
+      .toEqual({ name: "General problems", found: "0%", tolerance: "0%", state: "clean", ratio: null });
+    expect(reportStatusFields({ name: "Quality problems", agg: 13.89, ownTol: null, present: false, state: "exceeded", remarkTols: [1] }))
+      .toEqual({ name: "Quality problems", found: "13.89%", tolerance: "1%", state: "exceeded", ratio: 13.89 });
+  });
+});
+
+describe("statusBarRatio", () => {
+  it("uses the strictest remark tolerance when the group has none", () => {
+    expect(statusBarRatio(13.89, null, [1, 10])).toBe(13.89);
+    expect(statusBarRatio(5, 10, [1])).toBe(0.5);
   });
 });
 

@@ -8,7 +8,7 @@
 //   sample: { headline, detail },                        // "12 CU", "1 TU × 12 CU · 48 pcs · 7,200 g"
 //   facts: [[label, value]],                             // supplier, country, variety, date code, pallets…
 //   status: [{ name, found, tolerance, state, ratio }],  // state: clean | flagged | exceeded; ratio found/tol or null
-//   remarks: [{ problem, quantity, pct, source }],
+//   remarks: [{ problem, quantity, pct, tolerance, source }],
 //   parameters: [[label, value] | [label, value, specification, ok]],
 //   comment, photoGroups: [{ label, photos }], audit: [[action, text]],
 // }
@@ -166,7 +166,7 @@ export async function drawReportPdf(doc, model, photoData) {
     table({
       head: [["Problem group", "Found", "Tolerance", "Status"]],
       body: model.status.map(r => [r.name, r.found, r.tolerance, ""]),
-      columnStyles: { 0: { fontStyle: "bold" }, 1: { cellWidth: 44 }, 2: { cellWidth: 26 }, 3: { cellWidth: 38 } },
+      columnStyles: { 0: { fontStyle: "bold" }, 1: { cellWidth: 44 }, 2: { cellWidth: 30 }, 3: { cellWidth: 38 } },
       didDrawCell: d => {
         if (d.section !== "body") return;
         const r = model.status[d.row.index]; if (!r) return;
@@ -179,11 +179,11 @@ export async function drawReportPdf(doc, model, photoData) {
     });
   }
   if (model.remarks.length) {
-    section("Remarks", "what was found and why the result is what it is");
+    section("Remarks", "what was found, each remark's tolerance, and why the result is what it is");
     table({
-      head: [["Problem", "Quantity", "% of sample", "Source"]],
-      body: model.remarks.map(r => [r.problem, r.quantity, r.pct, r.source]),
-      columnStyles: { 1: { cellWidth: 30 }, 2: { cellWidth: 28 }, 3: { cellWidth: 30, textColor: MUTED, fontSize: 8 } },
+      head: [["Problem", "Quantity", "% of sample", "Tolerance", "Source"]],
+      body: model.remarks.map(r => [r.problem, r.quantity, r.pct, r.tolerance || "—", r.source]),
+      columnStyles: { 1: { cellWidth: 24 }, 2: { cellWidth: 24 }, 3: { cellWidth: 24 }, 4: { cellWidth: 26, textColor: MUTED, fontSize: 8 } },
     });
   }
   if (model.parameters.length) {

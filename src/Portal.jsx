@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, Fragment } from "react";
 import { createSyncer, guardUnload } from "./sync.js";
-import { hasV, specLabel, dayLabel, problemPath, typesOf, typeById, legacyTypeId, inspType, countsAs, listCheck, matchFieldSpec, numberSpecCheck } from "./shared/format.js";
+import { hasV, specLabel, dayLabel, problemPath, typesOf, typeById, legacyTypeId, inspType, countsAs, listCheck, matchFieldSpec, numberSpecCheck, reportStatusFields, toleranceDisplay } from "./shared/format.js";
 import { normArticle, isoWeekOf, todayISO, weekLabel, weekRange, shiftWeek, sortSnapshots, latestSnapshot, snapshotTotal, upsertSnapshot, snapshotsOfWeek, previousInWeek, deltaRows, subTypeMix, weekSeries, articleTrend, topArticles, asLegacyMeta, migrateLegacy, rowFor } from "./shared/complaints.js";
 import { activeTempForSpec, applyTempSpec, clearTempSpec, closeExpiredTempSpecs, tempOwnerLabel, tempUntilLabel, upsertTempSpec } from "./shared/tempspec.js";
 import { SpecValue } from "./shared/SpecValue.jsx";
@@ -174,6 +174,19 @@ const effTol = (problems, overrides, id) => {
     n = m[n.parentId];
   }
   return null;
+};
+// Own/override tolerance on nodes under a group, plus the effective tol of each remark found there.
+const tolsUnder = (problems, overrides, remarks, id) => {
+  const sub = subtree(problems, id);
+  const ov = Object.fromEntries((overrides || []).map(o => [o.problemTypeId, o.tolerance]));
+  const tols = [];
+  (remarks || []).forEach(r => { if (sub.has(r.leafId)) tols.push(effTol(problems, overrides, r.leafId)); });
+  problems.forEach(p => {
+    if (p.id === id || !sub.has(p.id)) return;
+    if (ov[p.id] !== undefined && ov[p.id] !== null && ov[p.id] !== "") tols.push(Number(ov[p.id]));
+    else if (p.tolerance !== null && p.tolerance !== undefined && p.tolerance !== "") tols.push(Number(p.tolerance));
+  });
+  return tols;
 };
 const presenceIn = (problems, remarks, id) => { const sub = subtree(problems, id); return remarks.some(r => r.mode === "Presence" && sub.has(r.leafId)); };
 const pct = (r, totals) => { if (r.mode === "Presence") return 0; const raw = Number(r.raw) || 0; const base = r.mode === "PieceCount" ? totals.pieces : r.mode === "DirectWeight" ? totals.weight : totals.cu; return base ? raw / base * 100 : 0; };
@@ -529,9 +542,9 @@ async function buildReportPdf(insp, s) {
   const extra = []; (insp.remarks || []).forEach(r => { if (!covered.has(r.leafId) && pm[r.leafId] && !extra.includes(r.leafId)) extra.push(r.leafId); });
   const status = [...refs, ...extra.map(i => pm[i])].map(n => {
     const tol = effTol(problems, t.overrides || [], n.id), agg = aggregate(problems, insp.remarks || [], n.id, totals), pr = presenceIn(problems, insp.remarks || [], n.id), st = statusOf(problems, t.overrides || [], insp.remarks || [], n.id, totals);
-    return { name: n.name, found: tol === 0 ? (pr ? "present" : "—") : `${fmt(agg)}%`, tolerance: tol === null ? "—" : `${tol}%`, state: st, ratio: tol > 0 ? agg / tol : null };
+    return reportStatusFields({ name: n.name, agg, ownTol: tol, present: pr, state: st, remarkTols: tolsUnder(problems, t.overrides || [], insp.remarks || [], n.id) });
   });
-  const remarks = (insp.remarks || []).map(r => { const unit = { PieceCount: "pcs", DirectWeight: "g", WholeUnitCount: "CU" }[r.mode] || ""; const p = r.mode === "Presence" ? null : pct(r, totals); return { problem: pathOf(problems, r.leafId), quantity: r.mode === "Presence" ? "present" : `${r.raw} ${unit}`, pct: p === null ? "—" : `${fmt(p)}%`, source: r.auto ? "measurement" : "reported" }; });
+  const remarks = (insp.remarks || []).map(r => { const unit = { PieceCount: "pcs", DirectWeight: "g", WholeUnitCount: "CU" }[r.mode] || ""; const p = r.mode === "Presence" ? null : pct(r, totals); return { problem: pathOf(problems, r.leafId), quantity: r.mode === "Presence" ? "present" : `${r.raw} ${unit}`, pct: p === null ? "—" : `${fmt(p)}%`, tolerance: toleranceDisplay(effTol(problems, t.overrides || [], r.leafId)), source: r.auto ? "measurement" : "reported" }; });
   const answered = (t.fields || []).filter(f => !isSystem(f.type) && insp.values?.[f.id] !== undefined && insp.values?.[f.id] !== "").sort(bySort);
   const parameters = answered.map(f => parameterRow(f, insp.values[f.id], s, product, insp.sample?.piecesPerCu));
   const photoGroups = photoGroupsOf(t, insp, problems);
@@ -2481,13 +2494,13 @@ function PrintReport({ insp, s, onClose }) {
         {refs.length > 0 && <>
           <h2>Quality status</h2>
           <table><thead><tr><th>Problem group</th><th style={{ width: 90 }}>Found</th><th style={{ width: 90 }}>Tolerance</th><th style={{ width: 180 }}></th><th style={{ width: 90 }}>Status</th></tr></thead><tbody>
-            {refs.map(n => { const tol = effTol(problems, t.overrides, n.id), agg = aggregate(problems, insp.remarks || [], n.id, totals), pr = presenceIn(problems, insp.remarks || [], n.id), st = statusOf(problems, t.overrides, insp.remarks || [], n.id, totals); const col = st === "exceeded" ? "#b23a3a" : st === "flagged" ? "#9a6a12" : "#1f7a45"; const w = tol === 0 ? (pr ? 100 : 0) : tol ? Math.min(100, agg / tol * 100) : (agg > 0 ? 100 : 0); return <tr key={n.id}><td><b>{n.name}</b></td><td>{tol === 0 ? (pr ? "present" : "—") : `${fmt(agg)}%`}</td><td>{tol === null ? "—" : `${tol}%`}</td><td><div className="bar"><div style={{ width: `${w}%`, background: col }} /></div></td><td style={{ color: col, fontWeight: 700 }}>{st === "exceeded" ? "EXCEEDED" : st === "flagged" ? "within" : "clean"}</td></tr>; })}
+            {refs.map(n => { const row = reportStatusFields({ name: n.name, agg: aggregate(problems, insp.remarks || [], n.id, totals), ownTol: effTol(problems, t.overrides, n.id), present: presenceIn(problems, insp.remarks || [], n.id), state: statusOf(problems, t.overrides, insp.remarks || [], n.id, totals), remarkTols: tolsUnder(problems, t.overrides, insp.remarks || [], n.id) }); const col = row.state === "exceeded" ? "#b23a3a" : row.state === "flagged" ? "#9a6a12" : "#1f7a45"; const w = row.ratio === null ? (row.found === "present" ? 100 : 0) : Math.min(100, row.ratio * 100); return <tr key={n.id}><td><b>{row.name}</b></td><td>{row.found}</td><td>{row.tolerance}</td><td><div className="bar"><div style={{ width: `${w}%`, background: col }} /></div></td><td style={{ color: col, fontWeight: 700 }}>{row.state === "exceeded" ? "EXCEEDED" : row.state === "flagged" ? "within" : "clean"}</td></tr>; })}
           </tbody></table>
         </>}
         {(insp.remarks || []).length > 0 && <>
           <h2>Remarks — reason for the result</h2>
-          <table><thead><tr><th>Problem</th><th style={{ width: 120 }}>Quantity</th><th style={{ width: 90 }}>% of sample</th><th style={{ width: 110 }}>Source</th></tr></thead><tbody>
-            {(insp.remarks || []).map(r => <tr key={r.id}><td>{pathOf(problems, r.leafId)}</td><td>{r.mode === "Presence" ? "present" : `${r.raw} ${r.mode === "PieceCount" ? "pcs" : r.mode === "DirectWeight" ? "g" : "CU"}`}</td><td>{r.mode === "Presence" ? "—" : `${fmt(pct(r, totals))}%`}</td><td className="k">{r.auto ? "measurement" : "manual"}</td></tr>)}
+          <table><thead><tr><th>Problem</th><th style={{ width: 120 }}>Quantity</th><th style={{ width: 90 }}>% of sample</th><th style={{ width: 90 }}>Tolerance</th><th style={{ width: 110 }}>Source</th></tr></thead><tbody>
+            {(insp.remarks || []).map(r => <tr key={r.id}><td>{pathOf(problems, r.leafId)}</td><td>{r.mode === "Presence" ? "present" : `${r.raw} ${r.mode === "PieceCount" ? "pcs" : r.mode === "DirectWeight" ? "g" : "CU"}`}</td><td>{r.mode === "Presence" ? "—" : `${fmt(pct(r, totals))}%`}</td><td>{toleranceDisplay(effTol(problems, t.overrides, r.leafId))}</td><td className="k">{r.auto ? "measurement" : "manual"}</td></tr>)}
           </tbody></table>
         </>}
         {fieldsAnswered.length > 0 && <>
@@ -3744,13 +3757,13 @@ function ProblemOverview({ t, problems, remarks, totals }) {
   const rows = [...refs, ...extra];
   if (!rows.length) return null;
   const Bar = ({ node }) => {
-    const tol = effTol(problems, t.overrides, node.id), agg = aggregate(problems, remarks, node.id, totals), pr = presenceIn(problems, remarks, node.id);
-    const st = statusOf(problems, t.overrides, remarks, node.id, totals), [fg, bg] = tone(st);
-    const width = tol === 0 ? (pr ? 100 : 0) : tol ? Math.min(100, agg / tol * 100) : agg > 0 ? 100 : 0;
-    const label = tol === 0 ? (pr ? "present" : "none") : `${fmt(agg)}%${tol !== null ? ` / ${tol}%` : ""}`;
+    const row = reportStatusFields({ name: node.name, agg: aggregate(problems, remarks, node.id, totals), ownTol: effTol(problems, t.overrides, node.id), present: presenceIn(problems, remarks, node.id), state: statusOf(problems, t.overrides, remarks, node.id, totals), remarkTols: tolsUnder(problems, t.overrides, remarks, node.id) });
+    const [fg, bg] = tone(row.state);
+    const width = row.found === "present" ? 100 : row.ratio === null ? 0 : Math.min(100, row.ratio * 100);
+    const label = `${row.found} / ${row.tolerance}`;
     return (
       <div className="mb-2">
-        <div className="flex items-center justify-between text-xs mb-1"><span className="font-medium">{node.name}</span><span style={{ color: fg, fontWeight: 500 }}>{label}{tol === 0 && " ⚡"}</span></div>
+        <div className="flex items-center justify-between text-xs mb-1"><span className="font-medium">{node.name}</span><span style={{ color: fg, fontWeight: 500 }}>{label}{row.tolerance === "0%" && " ⚡"}</span></div>
         <div className="h-2 rounded-full overflow-hidden" style={{ background: C.line }}><div className="h-full rounded-full" style={{ width: `${width}%`, background: fg, transition: "width .2s" }} /></div>
       </div>
     );
