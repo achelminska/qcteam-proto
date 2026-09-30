@@ -496,8 +496,10 @@ const photoData = memoPdfPhoto(fetchPdfPhotoSrc);
 function PhotoStrip({ photos, onAdd, onRemove, onReplace, size = 64, addLabel = "Add photo" }) {
   const [view, setView] = useState(null); const [busy, setBusy] = useState(false);
   const [cam, setCam] = useState(false);
+  const [peek, setPeek] = useState(false);
   const list = asPhotoList(photos);
   const [err, setErr] = useState("");
+  const thumb = peek ? 240 : size;
   const add = async (capture) => {
     if (capture && navigator.mediaDevices?.getUserMedia) { setCam(true); return; }
     setBusy(true); setErr("");
@@ -522,7 +524,8 @@ function PhotoStrip({ photos, onAdd, onRemove, onReplace, size = 64, addLabel = 
   const touch = typeof navigator !== "undefined" && navigator.maxTouchPoints > 0;
   return (
     <div className="flex flex-wrap gap-2 items-center">
-      {list.map(ph => <div key={ph.id} className="relative"><img src={ph.path || photoSrc(ph)} alt="" onClick={() => setView(list.indexOf(ph))} className="object-cover rounded-lg cursor-pointer" style={{ width: size, height: size, border: `1px solid ${C.line}` }} />{onRemove && <button onClick={() => onRemove(ph.id)} className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full text-[10px] leading-none" style={{ background: C.bad, color: C.onDark }} title="delete">×</button>}</div>)}
+      {list.length > 0 && <button type="button" onClick={() => setPeek(p => !p)} className="rounded-full inline-flex items-center justify-center flex-shrink-0" style={{ width: 32, height: 32, background: peek ? C.accent : C.accentSoft, color: peek ? C.onDark : C.accent }} aria-label={peek ? "Shrink photos" : "Enlarge photos"} aria-pressed={peek} title={peek ? "Shrink photos" : "Enlarge photos"}><Ic i={Search} s={16} mr={0} /></button>}
+      {list.map(ph => <div key={ph.id} className="relative"><img src={ph.path || photoSrc(ph)} alt="" onClick={() => setView(list.indexOf(ph))} className="rounded-lg cursor-pointer" style={{ width: thumb, height: thumb, objectFit: peek ? "contain" : "cover", background: peek ? C.surface : undefined, border: `1px solid ${C.line}` }} />{onRemove && <button onClick={() => onRemove(ph.id)} className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full text-[10px] leading-none" style={{ background: C.bad, color: C.onDark }} title="delete">×</button>}</div>)}
       {busy && <div className="rounded-lg flex items-center justify-center text-[10px]" style={{ width: size, height: size, background: C.bg, color: C.muted, border: `1px solid ${C.line}` }}>uploading…</div>}
       {onAdd && size < 56 && <>
         {touch && <button onClick={() => add(true)} disabled={busy} className="rounded-full inline-flex items-center gap-1.5 text-xs font-semibold px-3" style={{ height: 32, color: C.onDark, background: C.accent }}><Ic i={Camera} s={14} mr={0} />Photo</button>}
