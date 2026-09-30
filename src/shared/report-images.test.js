@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fitWithin, imageFormat, jpegDataUrlFrameFirst, jpegFrameFirst, keepsOriginalFile, knockOutDarkBorder } from "./report-images.js";
+import { fitWithin, imageFormat, jpegDataUrlFrameFirst, jpegFrameFirst, keepsOriginalFile, knockOutDarkBorder, memoPdfPhoto, pdfPhotoMaxEdge } from "./report-images.js";
 
 // What jsPDF 2.5.1 does with a JPEG header (its marker list includes C4).
 const jsPdfJpegInfo = bytes => {
@@ -91,6 +91,26 @@ describe("fitWithin", () => {
   it("returns null when the pixel size is unknown", () => {
     expect(fitWithin(null, 86, 86)).toBe(null);
     expect(fitWithin({ w: 0, h: 100 }, 86, 86)).toBe(null);
+  });
+});
+
+describe("pdfPhotoMaxEdge", () => {
+  it("caps a 56 mm report tile at about 180 dpi, not the phone's 12 MP", () => {
+    expect(pdfPhotoMaxEdge(56, 180)).toBe(Math.round(56 / 25.4 * 180));
+    expect(pdfPhotoMaxEdge(56, 180)).toBeLessThan(500);
+    expect(pdfPhotoMaxEdge(56, 180)).toBeGreaterThan(300);
+  });
+});
+
+describe("memoPdfPhoto", () => {
+  it("loads a path once and reuses the same promise", async () => {
+    let n = 0;
+    const load = memoPdfPhoto(async src => { n++; return "ok:" + src; });
+    const a = load({ path: "/photos/a.jpg" });
+    const b = load({ path: "/photos/a.jpg" });
+    expect(a).toBe(b);
+    expect(await a).toBe("ok:/photos/a.jpg");
+    expect(n).toBe(1);
   });
 });
 

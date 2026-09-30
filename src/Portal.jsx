@@ -5,7 +5,7 @@ import { normArticle, isoWeekOf, todayISO, weekLabel, weekRange, shiftWeek, sort
 import { activeTempForSpec, applyTempSpec, clearTempSpec, closeExpiredTempSpecs, tempOwnerLabel, tempUntilLabel, upsertTempSpec } from "./shared/tempspec.js";
 import { SpecValue } from "./shared/SpecValue.jsx";
 import { peopleOnFloor, peopleAtDock, floorWhere, floorVerb, doneTodayCount, doneTodayByUser } from "./shared/floor.js";
-import { readAsDataUrl, keepPhoto, shrinkPhoto } from "./shared/report-images.js";
+import { readAsDataUrl, keepPhoto, shrinkPhoto, memoPdfPhoto, fetchPdfPhotoSrc } from "./shared/report-images.js";
 import { attachRemarkPhotos } from "./shared/photos.js";
 import { drawReportPdf } from "./shared/report-pdf.js";
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceArea, ReferenceLine, Legend } from "recharts";
@@ -428,7 +428,7 @@ const pickPhotos = (opts = {}) => new Promise(res => {
 });
 const asPhotoList = v => Array.isArray(v) ? v : [];
 const photoSrc = ph => (ph && (ph.path || ph.dataUrl)) || "";
-const photoData = async ph => { const src = photoSrc(ph); if (!src) return null; if (src.startsWith("data:")) return src; try { const b = await (await fetch(src)).blob(); return await new Promise(res => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = () => res(null); r.readAsDataURL(b); }); } catch { return null; } };
+const photoData = memoPdfPhoto(fetchPdfPhotoSrc);
 function PhotoStrip({ photos, onAdd, onRemove, size = 64, addLabel = "Add photo" }) {
   const [view, setView] = useState(null); const [busy, setBusy] = useState(false);
   const list = asPhotoList(photos);
@@ -489,24 +489,17 @@ async function buildReportPdf(insp, s) {
   };
   return drawReportPdf(new jsPDF({ unit: "mm", format: "a4" }), model, photoData);
 }
-const ensurePdfJs = async () => { if (!window.pdfjsLib) { await loadScript("https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"); window.pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js"; } return window.pdfjsLib; };
-// Render the generated PDF to page images — works even where the sandbox refuses to show a PDF inline.
-async function renderPdfPages(arrayBuffer, scale = 1.6) {
-  const pdfjs = await ensurePdfJs(); const pdf = await pdfjs.getDocument({ data: arrayBuffer }).promise; const out = [];
-  for (let i = 1; i <= pdf.numPages; i++) { const page = await pdf.getPage(i); const vp = page.getViewport({ scale }); const c = document.createElement("canvas"); c.width = vp.width; c.height = vp.height; await page.render({ canvasContext: c.getContext("2d"), viewport: vp }).promise; out.push(c.toDataURL("image/png")); }
-  return out;
-}
 function PdfViewer({ insp, s, onClose }) {
-  const [url, setUrl] = useState(null); const [err, setErr] = useState(""); const [doc, setDoc] = useState(null); const [pages, setPages] = useState(null); const [note, setNote] = useState("");
+  const [url, setUrl] = useState(null); const [err, setErr] = useState(""); const [doc, setDoc] = useState(null);
   const fileName = `QC_Report_${(s.products.find(p => p.id === insp.productId)?.name || "report").replace(/[^\w]+/g, "_")}_${insp.id.toUpperCase()}.pdf`;
-  useEffect(() => { let alive = true; (async () => { try { const d = await buildReportPdf(insp, s); if (!alive) return; setDoc(d); setUrl(URL.createObjectURL(d.output("blob"))); try { const imgs = await renderPdfPages(d.output("arraybuffer")); if (alive) setPages(imgs); } catch (e) { if (alive) setNote("Preview renderer unavailable: " + (e.message || e)); } } catch (e) { setErr(String(e.message || e)); } })(); return () => { alive = false; }; }, [insp.id]);
+  useEffect(() => { let alive = true; (async () => { try { const d = await buildReportPdf(insp, s); if (!alive) return; setDoc(d); setUrl(URL.createObjectURL(d.output("blob"))); } catch (e) { setErr(String(e.message || e)); } })(); return () => { alive = false; }; }, [insp.id]);
   useEffect(() => () => { if (url) URL.revokeObjectURL(url); }, [url]);
   const download = () => { try { doc.save(fileName); } catch (e) { setErr("Download blocked in this sandbox — try 'Open in new tab' or the save button in the viewer toolbar."); } };
   const openTab = () => { try { const w = window.open(url, "_blank"); if (!w) setErr("Pop-up blocked — try the download link."); } catch (e) { setErr("Opening a new tab is blocked here."); } };
   return (
     <div className="fixed inset-0 flex flex-col" style={{ background: "rgba(20,26,22,.92)", zIndex: 70 }}>
       <div className="flex items-center gap-3 px-4" style={{ height: 52, background: "#1a211d", color: "#fff" }}>
-        <span className="text-sm font-medium">{fileName}</span><span className="text-xs" style={{ opacity: .7 }}>generated in the browser · in the real system this file comes from the server (Inspections.ReportFilePath)</span><div className="flex-1" />
+        <span className="text-sm font-medium truncate">{fileName}</span><span className="text-xs hidden sm:inline" style={{ opacity: .7 }}>generated in the browser</span><div className="flex-1" />
         <button onClick={download} disabled={!doc} className="text-sm px-4 py-2 rounded-lg font-semibold" style={{ background: "#fff", color: "#111" }}>Download PDF</button>
         {url && <button onClick={openTab} className="text-sm px-3 py-2 rounded-lg" style={{ background: "#3a443d", color: "#fff" }}>Open in new tab</button>}
         {url && <a href={url} download={fileName} className="text-sm px-3 py-2 rounded-lg underline" style={{ color: "#fff" }}>direct link</a>}
@@ -514,10 +507,8 @@ function PdfViewer({ insp, s, onClose }) {
       </div>
       {err && <div className="px-4 py-2 text-sm" style={{ background: "#5a2a2a", color: "#fff" }}>{err}</div>}
       {url ? (
-        <div className="flex-1 overflow-y-auto py-6" style={{ background: "#4a524d" }}>
-          {pages ? pages.map((src, i) => <img key={i} src={src} alt={`page ${i + 1}`} className="block mx-auto mb-5" style={{ width: "min(210mm, 92vw)", boxShadow: "0 10px 40px rgba(0,0,0,.45)", background: "#fff" }} />) : <div className="text-center text-sm py-10" style={{ color: "#fff" }}>{note || `PDF ready (${doc ? doc.getNumberOfPages() : "…"} page(s)) — rendering preview…`}</div>}
-        </div>
-      ) : <div className="flex-1 flex items-center justify-center text-sm" style={{ color: "#fff" }}>{err ? "" : "Generating PDF… (loading the library from cdnjs)"}</div>}
+        <iframe title={fileName} src={url} className="flex-1 w-full" style={{ border: 0, background: "#4a524d" }} />
+      ) : <div className="flex-1 flex items-center justify-center text-sm" style={{ color: "#fff" }}>{err ? "" : "Generating PDF…"}</div>}
     </div>
   );
 }
@@ -3848,6 +3839,7 @@ function InspectionRunner({ insp, patch, t, problems, product, suppliers, dictio
 
 function ReportView({ insp, s, onEdit, onAnswer, user, onMarkReference }) {
   const [printing, setPrinting] = useState(false);
+  useEffect(() => { if (insp.status === "Completed") ensureJsPdf().catch(() => {}); }, [insp.status]);
   const product = s.products.find(p => p.id === insp.productId), t = insp.template, problems = withLinkedProblems(s, problemsFor(s, { kind: "Product", id: insp.productId }, new Set((t && t.suppressed) || [])), t);
   const cu = (Number(insp.sample?.tu) || 0) * (Number(insp.sample?.cusPerTu) || 0);
   const totals = { cu, pieces: cu * (Number(insp.sample?.piecesPerCu) || 0), weight: cu * (Number(insp.sample?.weightPerCu) || 0) };

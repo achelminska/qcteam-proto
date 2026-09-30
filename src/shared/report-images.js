@@ -270,19 +270,71 @@ export async function drawResultMark(doc, { settings, insp, ok, R, OK, BAD, MUTE
   return { left: textRight - textW, bottom: top + blockH };
 }
 
+// Print-size pixel cap for a photo drawn at `maxMm`. 180 dpi is sharp on screen
+// and on a laser print; a 12 MP phone JPEG is ~10× larger than this box.
+export const pdfPhotoMaxEdge = (maxMm, dpi = 180) => Math.max(1, Math.round(Number(maxMm) / 25.4 * dpi));
+
+// One decode: if the file is already small enough and JPEG, keep the bytes;
+// otherwise redraw to a JPEG that matches the print box. Returns {d, w, h}.
+export function fitPhotoForPdf(src, maxEdge = 720, quality = 0.82) {
+  if (typeof document === "undefined" || !src) return Promise.resolve(null);
+  return new Promise(resolve => {
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const w = img.naturalWidth || img.width, h = img.naturalHeight || img.height;
+        if (!w || !h) return resolve(null);
+        const k = Math.min(1, maxEdge / Math.max(w, h));
+        if (k === 1 && String(src).startsWith("data:") && imageFormat(src) === "JPEG") return resolve({ d: jpegDataUrlFrameFirst(src), w, h });
+        const c = document.createElement("canvas");
+        c.width = Math.max(1, Math.round(w * k));
+        c.height = Math.max(1, Math.round(h * k));
+        c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+        resolve({ d: c.toDataURL("image/jpeg", quality), w: c.width, h: c.height });
+      } catch { resolve(null); }
+    };
+    img.onerror = () => resolve(null);
+    img.src = src;
+  });
+}
+
+// Fetch /photos as a blob URL (no multi-MB base64). data: URLs pass through.
+// Cached per src so the header icon and the photo strip share one download.
+export function memoPdfPhoto(load) {
+  const cache = new Map();
+  return ph => {
+    const src = (ph && (ph.path || ph.dataUrl)) || "";
+    if (!src) return Promise.resolve(null);
+    if (cache.has(src)) return cache.get(src);
+    const p = Promise.resolve().then(() => load(src)).catch(() => null);
+    cache.set(src, p);
+    return p;
+  };
+}
+
+export async function fetchPdfPhotoSrc(src) {
+  if (!src) return null;
+  if (src.startsWith("data:") || src.startsWith("blob:")) return src;
+  const r = await fetch(src);
+  if (!r.ok) return null;
+  return URL.createObjectURL(await r.blob());
+}
+
 // Place each photo at its own aspect ratio, wrapping the row and the page.
 // Returns the y just under the last row.
 export async function drawPhotoGroup(doc, { photos, photoData, x0, y0, right, maxW = 52, maxH = 52, gap = 4, pageBreak = 272, newPage }) {
-  const items = [];
-  for (const ph of photos || []) {
+  const maxEdge = pdfPhotoMaxEdge(Math.max(maxW, maxH));
+  const items = (await Promise.all((photos || []).map(async ph => {
     try {
-      const d = await photoData(ph);
-      if (!d) continue;
-      const box = fitWithin(await imagePixels(d), maxW, maxH);
-      if (!box) continue;
-      items.push({ d, w: box.w, h: box.h });
-    } catch { /* a photo that cannot be read is left out of this page */ }
-  }
+      const raw = await photoData(ph);
+      if (!raw) return null;
+      const fitted = await fitPhotoForPdf(raw, maxEdge);
+      if (!fitted) return null;
+      const box = fitWithin({ w: fitted.w, h: fitted.h }, maxW, maxH);
+      if (!box) return null;
+      return { d: fitted.d, w: box.w, h: box.h };
+    } catch { return null; }
+  }))).filter(Boolean);
   let x = x0, y = y0, rowH = 0;
   for (const im of items) {
     if (x > x0 && x + im.w > right + 0.1) { x = x0; y += rowH + gap; rowH = 0; }

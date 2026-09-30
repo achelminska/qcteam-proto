@@ -46,6 +46,9 @@ export async function ensureReportFont(doc) {
 }
 
 export async function drawReportPdf(doc, model, photoData) {
+  // Kick the photo downloads now so they overlap the tables, not the photo section.
+  for (const g of model.photoGroups || []) for (const ph of g.photos || []) { try { photoData?.(ph); } catch { /* prefetch */ } }
+  if (model.icon) { try { photoData?.(model.icon); } catch { /* prefetch */ } }
   const FONT = await ensureReportFont(doc);
   const font = (style = "normal", size = 9, color = INK) => { doc.setFont(FONT, style); doc.setFontSize(size); doc.setTextColor(...color); };
   const fill = c => doc.setFillColor(...c);
