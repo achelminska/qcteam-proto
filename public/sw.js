@@ -3,7 +3,7 @@
  * app opens without a network — the data layer (sync.js) already copes with being offline. Data endpoints are never
  * cached here. Navigations are network-first, so a redeploy is picked up as soon as there is a connection; the hashed
  * /assets/* files are immutable and served cache-first. */
-const VERSION = "qc-shell-v1";
+const VERSION = "qc-shell-v2";
 const SHELL = ["/", "/index.html", "/manifest.webmanifest", "/icon.svg", "/icon-192.png", "/icon-512.png"];
 const NEVER_CACHE = [/^\/storage\//, /^\/meta\//, /^\/boot$/, /^\/sheet\//, /^\/sheets\//, /^\/api\//, /^\/photos\//, /^\/backups/, /^\/proxy/, /^\/auth\//];
 

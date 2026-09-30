@@ -4,7 +4,7 @@ import { hasV, specLabel, dayLabel, typesOf, typeById, legacyTypeId, inspType, c
 import { activeTempForSpec, applyTempSpec, closeExpiredTempSpecs, tempUntilLabel } from "./shared/tempspec.js";
 import { SpecValue } from "./shared/SpecValue.jsx";
 import { peopleOnFloor, peopleAtDock, floorWhere, floorVerb, doneTodayCount } from "./shared/floor.js";
-import { readAsDataUrl, keepPhoto } from "./shared/report-images.js";
+import { readAsDataUrl, keepPhoto, shrinkPhoto } from "./shared/report-images.js";
 import { attachRemarkPhotos } from "./shared/photos.js";
 import { drawReportPdf } from "./shared/report-pdf.js";
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceArea, ReferenceLine, Legend } from "recharts";
@@ -460,18 +460,32 @@ const unmountPicker = i => { i.remove(); if (_pickerEl === i) _pickerEl = null; 
 // Photos are files on the state server, not base64 inside the shared state — a photo is { id, path, at, name }.
 // If the upload fails (offline, old server) the data URL stays in place, so nothing is ever lost.
 const uploadPhoto = async dataUrl => { try { const base = (typeof window !== "undefined" && window.__qcServer) || ""; const r = await fetch(`${base}/photos`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ dataUrl }) }); if (!r.ok) return null; const j = await r.json(); return j.path || null; } catch { return null; } };
+const persistPicked = async (d, name) => {
+  let path = await uploadPhoto(d);
+  let dataUrl = d;
+  if (!path) {
+    const small = await shrinkPhoto(d);
+    if (small && small !== d) path = await uploadPhoto(small);
+    if (!path) dataUrl = (small && small.length < d.length) ? small : d;
+    else dataUrl = small;
+  }
+  return path ? { id: uid(), path, at: nowISO(), name } : { id: uid(), dataUrl, at: nowISO(), name, size: dataUrl.length };
+};
 const pickPhotos = (opts = {}) => new Promise(res => {
   const i = document.createElement("input"); i.type = "file"; i.accept = "image/*,.heic,.heif"; i.multiple = !opts.capture; if (opts.capture) i.setAttribute("capture", "environment");
   mountPicker(i);
+  let done = false;
+  const finish = v => { if (done) return; done = true; unmountPicker(i); res(v); };
   i.onchange = async () => {
     const out = [], failed = [];
     for (const f of Array.from(i.files || [])) {
       let d = await keepPhoto(f);
       if (!d) d = await readAsDataUrl(f);
-      if (d) { const path = await uploadPhoto(d); out.push(path ? { id: uid(), path, at: nowISO(), name: f.name } : { id: uid(), dataUrl: d, at: nowISO(), name: f.name, size: f.size }); } else failed.push(f.name);
+      if (d) out.push(await persistPicked(d, f.name)); else failed.push(f.name);
     }
-    unmountPicker(i); res({ out, failed });
+    finish({ out, failed });
   };
+  i.addEventListener("cancel", () => finish({ out: [], failed: [] }));
   i.click();
 });
 const asPhotoList = v => Array.isArray(v) ? v : [];
@@ -1320,15 +1334,14 @@ function ProblemTreeView({ root, problems, overrides, remarks, onReport, onDelet
           </div>
         )}
         {leaf && mine.map(r => (
-          <div key={r.id} className="flex items-center gap-2 text-xs py-1" style={{ paddingLeft: indent + 28, color: C.muted }}>
-            <span className="flex-1">{r.mode === "Presence" ? "present" : `${r.raw} ${unitOf(r.mode)}`}{r.auto && " · from measurement"}</span>
-            {r.mode !== "Presence" && <span className="font-semibold" style={{ color: C.ink, fontVariantNumeric: "tabular-nums" }}>{fmt(pct(r, totals))}%</span>}
-            <button onClick={() => onPhoto && onPhoto(r.id)} className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full font-medium" style={{ background: asPhotoList(r.photos).length ? C.accentSoft : "transparent", color: C.accent, border: `1px solid ${asPhotoList(r.photos).length ? "transparent" : C.line}` }} title="photo of this problem (InspectionPhoto.RemarkId)"><Ic i={Camera} s={11} mr={0} />{asPhotoList(r.photos).length || "add"}</button>
-            <button onClick={() => onDelete(r.id)} className="inline-flex items-center justify-center rounded-full" style={{ width: 22, height: 22, color: C.bad, background: C.badBg }} title="delete report"><Ic i={X} s={11} mr={0} /></button>
+          <div key={r.id} className="mb-1" style={{ paddingLeft: indent + 28 }}>
+            <div className="flex items-center gap-2 text-xs py-1" style={{ color: C.muted }}>
+              <span className="flex-1">{r.mode === "Presence" ? "present" : `${r.raw} ${unitOf(r.mode)}`}{r.auto && " · from measurement"}</span>
+              {r.mode !== "Presence" && <span className="font-semibold" style={{ color: C.ink, fontVariantNumeric: "tabular-nums" }}>{fmt(pct(r, totals))}%</span>}
+              <button onClick={() => onDelete(r.id)} className="inline-flex items-center justify-center rounded-full" style={{ width: 22, height: 22, color: C.bad, background: C.badBg }} title="delete report"><Ic i={X} s={11} mr={0} /></button>
+            </div>
+            <PhotoStrip photos={r.photos} onAdd={got => onPhoto && onPhoto(r.id, got)} onRemove={onRemovePhoto ? pid => onRemovePhoto(r.id, pid) : null} size={44} addLabel="Photo" />
           </div>
-        ))}
-        {leaf && mine.filter(r => asPhotoList(r.photos).length).map(r => (
-          <div key={r.id + "-ph"} style={{ paddingLeft: indent + 28 }} className="mb-1"><PhotoStrip photos={r.photos} onRemove={onRemovePhoto ? pid => onRemovePhoto(r.id, pid) : null} size={44} /></div>
         ))}
         {leaf && isOpen && (
           <div className="rounded-xl p-2.5 mb-2 flex items-center gap-1.5 flex-wrap" style={{ marginLeft: indent + 28, background: zero ? C.warnBg : C.surface, border: `1px solid ${zero ? "transparent" : C.line}` }}>
@@ -1572,7 +1585,7 @@ function InspectionRunner({ insp, patch, t, problems, product, suppliers, dictio
             </div>
           ); })}
           {t.problemRefs.filter(r => r.moduleId === m.id).length > 0 && !sampleReady && <Note tone="bad">{hasSampleBlock ? "Sample size gives 0 CU — fill in the “Sample size” block to compute percentages." : "This template has no “Sample size” block — the Head must add it."}</Note>}
-          {t.problemRefs.filter(r => r.moduleId === m.id).sort(bySort).map(r => pm[r.problemTypeId] && <ProblemTreeView key={r.id} root={pm[r.problemTypeId]} problems={problems} overrides={t.overrides} remarks={remarks} totals={totals} disabled={!sampleReady} notes={effectiveNotesFor(sctx, product)} onReport={rem => setRemarks(x => [...x, { id: uid(), ...rem }])} onDelete={id => setRemarks(x => x.filter(q => q.id !== id))} onPhoto={async id => { const got = await pickPhotos(); setRemarks(x => attachRemarkPhotos(x, id, got)); }} onRemovePhoto={(id, pid) => setRemarks(x => x.map(q => q.id === id ? { ...q, photos: asPhotoList(q.photos).filter(ph => ph.id !== pid) } : q))} />)}
+          {t.problemRefs.filter(r => r.moduleId === m.id).sort(bySort).map(r => pm[r.problemTypeId] && <ProblemTreeView key={r.id} root={pm[r.problemTypeId]} problems={problems} overrides={t.overrides} remarks={remarks} totals={totals} disabled={!sampleReady} notes={effectiveNotesFor(sctx, product)} onReport={rem => setRemarks(x => [...x, { id: uid(), ...rem }])} onDelete={id => setRemarks(x => x.filter(q => q.id !== id))} onPhoto={(id, got) => setRemarks(x => attachRemarkPhotos(x, id, got))} onRemovePhoto={(id, pid) => setRemarks(x => x.map(q => q.id === id ? { ...q, photos: asPhotoList(q.photos).filter(ph => ph.id !== pid) } : q))} />)}
           {t.fields.filter(f => f.moduleId === m.id).length + t.problemRefs.filter(r => r.moduleId === m.id).length === 0 && <p className="text-sm" style={{ color: C.muted }}>Empty module.</p>}
           {!isLastModule && (() => { const missing = t.fields.filter(f => f.moduleId === m.id && f.required && !isSystem(f.type) && isEmptyValue(f)).length; return (
             <div className="mt-4 pt-4" style={{ borderTop: `1px solid ${C.line}` }}>

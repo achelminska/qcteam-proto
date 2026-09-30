@@ -19,6 +19,29 @@ export function keepsOriginalFile(file) {
 
 // Full-resolution bytes for formats the report can embed. Anything else (HEIC)
 // is decoded at its natural pixel size — never scaled down to a thumbnail.
+// When the full-size POST to /photos fails (phone JPEG + base64 is often > Render's body limit),
+// shrink to a still-usable still so the inspection can save a path instead of a multi-MB data URL.
+export function shrinkPhoto(dataUrl, maxEdge = 1600, quality = 0.82) {
+  if (typeof document === "undefined" || !dataUrl) return Promise.resolve(dataUrl);
+  return new Promise(res => {
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const w = img.naturalWidth || img.width, h = img.naturalHeight || img.height;
+        if (!w || !h) { res(dataUrl); return; }
+        const k = Math.min(1, maxEdge / Math.max(w, h));
+        const c = document.createElement("canvas");
+        c.width = Math.max(1, Math.round(w * k));
+        c.height = Math.max(1, Math.round(h * k));
+        c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+        res(c.toDataURL("image/jpeg", quality));
+      } catch { res(dataUrl); }
+    };
+    img.onerror = () => res(dataUrl);
+    img.src = dataUrl;
+  });
+}
+
 export function keepPhoto(file) {
   if (keepsOriginalFile(file)) return readAsDataUrl(file);
   return new Promise(res => {
