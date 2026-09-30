@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef, Fragment } from "react";
 import { createSyncer, guardUnload } from "./sync.js";
-import { hasV, specLabel, dayLabel, typesOf, typeById, legacyTypeId, inspType, countsAs, listCheck, matchFieldSpec, numberSpecCheck, reportStatusFields, toleranceDisplay } from "./shared/format.js";
+import { hasV, specLabel, dayLabel, typesOf, typeById, legacyTypeId, inspType, countsAs, listCheck, matchFieldSpec, numberSpecCheck, reportStatusFields, toleranceDisplay, matchesInspSearch } from "./shared/format.js";
 import { activeTempForSpec, applyTempSpec, closeExpiredTempSpecs, tempUntilLabel } from "./shared/tempspec.js";
 import { SpecValue } from "./shared/SpecValue.jsx";
 import { peopleOnFloor, peopleAtDock, floorWhere, floorVerb, doneTodayCount } from "./shared/floor.js";
+import { poRequiredOnReject, poSourceHint, sheetPoForInspection, suggestedPo } from "./shared/rejection-po.js";
 import { dockMatches } from "./shared/dock-search.js";
 import { readAsDataUrl, keepPhoto, shrinkPhoto, memoPdfPhoto, fetchPdfPhotoSrc, rotateImage } from "./shared/report-images.js";
 import { attachRemarkPhotos, photoGroupsByModule, pickedPhotos, replacePhoto, replaceRemarkPhoto } from "./shared/photos.js";
@@ -349,7 +350,7 @@ const scopeTag = (p, s) => p.productId ? `product: ${s.products.find(x => x.id =
 const SEED_TYPES = () => [];
 const SKIP_REASONS = ["no time", "stable product", "same delivery as earlier", "checked at the supplier"];
 const isVerdictType = (s, insp) => !inspType(s, insp).autoAccept;
-const settingsOf = s => ({ companyName: "Picnic Technologies", qcEmail: "qc@picnic.nl", rejectionWindowHours: 24, deadlineWarnHours: 6, deadlineWarnHoursRisky: 10, riskyLookbackDays: 14, resultIcons: {}, ...(s.settings || {}) });
+const settingsOf = s => ({ companyName: "Picnic Technologies", qcEmail: "qc@picnic.nl", rejectionWindowHours: 24, deadlineWarnHours: 6, deadlineWarnHoursRisky: 10, riskyLookbackDays: 14, requirePoOnReject: false, resultIcons: {}, ...(s.settings || {}) });
 // Policy = the set of allowed inspection types. Product → category chain → types allowed by default. A product always has one.
 const effectivePolicy = (s, product) => {
   const dflt = typesOf(s).filter(t => t.allowedByDefault).map(t => t.id);
@@ -595,6 +596,7 @@ async function buildReportPdf(insp, s) {
   if (insp.supplier) facts.push(["Supplier", insp.supplier]); if (insp.country) facts.push(["Country of origin", insp.country]); if (insp.variety) facts.push(["Variety", insp.variety]);
   if (insp.dateISO) facts.push(["Date code", `${dateCode(insp.dateISO)} (${insp.dateISO})`]);
   if ((insp.pallets || []).filter(Boolean).length) facts.push(["Pallets", insp.pallets.filter(Boolean).join(", ")]);
+  if (insp.po) facts.push(["PO", insp.po]);
   facts.push(["Controller", ctrl.name || "—"]);
   // quality status (referenced branches + root-level problems raised from fields)
   const refs = [...(t.problemRefs || [])].sort(bySort).map(r => pm[r.problemTypeId]).filter(Boolean);
@@ -924,6 +926,10 @@ function IntegrationsPage({ s, set }) {
                   {[["rejectionWindowHours", "Reject within (hours of arrival)"], ["deadlineWarnHours", "Warn — hours before the window closes"], ["deadlineWarnHoursRisky", "Warn earlier for recently-rejected products (hours before)"], ["riskyLookbackDays", "“Recently rejected” = within (days)"]].map(([k, l]) => <label key={k} className="text-xs" style={{ color: C.muted }}>{l}<input type="number" min={0} value={settingsOf(s)[k]} onChange={e => set(x => ({ ...x, settings: { ...settingsOf(x), [k]: Math.max(0, Number(e.target.value) || 0) } }))} className="w-full text-sm mt-1" /></label>)}
                 </div>
                 {(() => { const al = computeDeadlineAlerts(s); return al.length ? <p className="text-xs mt-2" style={{ color: C.bad }}>{al.length} pallet{al.length === 1 ? "" : "s"} currently within the warning window.</p> : <p className="text-xs mt-2" style={{ color: C.muted }}>Nothing within the warning window right now.</p>; })()}
+                <label className="flex items-start gap-2 text-xs mt-3 cursor-pointer" style={{ color: C.ink }}>
+                  <input type="checkbox" className="mt-0.5" checked={!!settingsOf(s).requirePoOnReject} onChange={e => set(x => ({ ...x, settings: { ...settingsOf(x), requirePoOnReject: e.target.checked } }))} />
+                  <span>Require a PO on rejection<span className="block" style={{ color: C.muted }}>Pull PO ID from this sheet when the pallet is on it. If the inspection is not from the sheet, the controller must type it.</span></span>
+                </label>
               </div>}
               <p className="label-sm mb-1">Live source (optional)</p>
               <div className="flex gap-1.5 mb-2">{[[false, "Pull from a URL"], [true, "Pushed by the sheet (recommended)"]].map(([m, l]) => <button key={String(m)} onClick={() => patchIt({ pushMode: m })} className="text-xs px-3 py-1.5 rounded-full" style={{ background: !!it.pushMode === m ? C.ink : "transparent", color: !!it.pushMode === m ? C.onDark : C.ink, border: `1px solid ${!!it.pushMode === m ? C.ink : C.line}` }}>{l}</button>)}</div>
@@ -1541,11 +1547,20 @@ function InspectionRunner({ insp, patch, t, problems, product, suppliers, dictio
   const goTab = i => { setTab(i); const sc = rootRef.current?.closest(".overflow-y-auto"); if (sc) sc.scrollTo({ top: 0 }); };
   const specs = effectiveSpecs(sctx, product);
   const editingCompleted = insp.status === "Completed";
+  const wantPo = !!(sctx && settingsOf(sctx).requirePoOnReject);
+  const sheetPo = sctx ? sheetPoForInspection(dockRowsLive(sctx), insp) : { fromSheet: false, pos: [] };
+  const poMissing = poRequiredOnReject(wantPo, insp.result, insp.po);
+  useEffect(() => {
+    if (!wantPo || insp.result !== "Rejected" || String(insp.po || "").trim()) return;
+    const sug = suggestedPo(insp, sheetPoForInspection(sctx ? dockRowsLive(sctx) : [], insp));
+    if (sug) set({ po: sug });
+  }, [insp.result, (insp.pallets || []).join("|")]);
   const finishControls = (
     <>
       {itype.reason && itype.reason !== "none" && <div className="mt-4"><p className="text-sm font-medium mb-1">Reason {itype.reason === "required" ? <span style={{ color: C.bad }}>*</span> : <span className="text-xs font-normal" style={{ color: C.muted }}>(optional)</span>}</p><div className="flex flex-wrap gap-1.5">{SKIP_REASONS.map(r => <button key={r} onClick={() => set({ skipReason: insp.skipReason === r ? null : r })} className="text-xs px-3 py-1.5 rounded-full" style={{ background: insp.skipReason === r ? C.ink : "transparent", color: insp.skipReason === r ? C.onDark : C.ink, border: `1px solid ${insp.skipReason === r ? C.ink : C.line}` }}>{r}</button>)}</div></div>}
       {itype.autoAccept && <Note tone="ok">{itype.name}: finishing records “Accepted” — no verdict needed. Problems you report still go to the Head.</Note>}
       {!itype.autoAccept && <div className="flex gap-2 mt-4">{[["Accepted", "Accept", C.ok, C.okBg, Check], ["Rejected", "Reject", C.bad, C.badBg, X]].map(([v, l, fg, bg, I]) => { const on = insp.result === v; return <button key={v} onClick={() => !escalated && set({ result: v })} disabled={escalated} className="flex-1 py-3 rounded-xl text-sm font-semibold inline-flex items-center justify-center gap-1.5" style={{ background: escalated ? C.line : on ? fg : bg, color: escalated ? C.muted : on ? C.onDark : fg, border: `1px solid ${escalated ? C.line : on ? fg : "transparent"}` }}><Ic i={I} s={15} mr={0} />{l}</button>; })}</div>}
+      {wantPo && insp.result === "Rejected" && <div className="mt-3"><p className="text-[13px] font-semibold mb-1">PO{poMissing ? <span style={{ color: C.bad }}> *</span> : null}</p><input value={insp.po || ""} onChange={e => set({ po: e.target.value })} placeholder="Purchase order" className="w-full text-sm rounded-xl px-3 py-2.5 outline-none font-mono" style={{ ...inp, borderColor: poMissing ? C.bad : C.line }} /><p className="text-xs mt-1.5" style={{ color: poMissing ? C.warn : C.muted }}>{poSourceHint(sheetPo)}</p></div>}
       {insp.result === "Accepted" && (anyExceeded || generalFlag) && <p className="text-xs mt-2" style={{ color: C.warn }}>Accepted despite the numbers — the Head will be notified. Status and decision are independent axes.</p>}
       {remind && missingRequired.length > 0 && <div className="rounded-xl px-3.5 py-3 mt-4" style={{ background: C.warnBg, border: `1px solid ${C.warn}` }}>
         <p className="text-sm font-semibold flex items-center" style={{ color: C.warn }}><Ic i={AlertTriangle} s={14} />{missingRequired.length} required field{missingRequired.length === 1 ? "" : "s"} still empty</p>
@@ -1553,9 +1568,10 @@ function InspectionRunner({ insp, patch, t, problems, product, suppliers, dictio
         <p className="text-xs mt-2" style={{ color: C.ink }}>Tap a field to fill it in, or press <b>Finish anyway</b> — the report will say which fields were left empty and the Head gets a notification.</p>
       </div>}
       <div className="mt-3">
-        {(() => { const off = escalated || (!itype.autoAccept && !insp.result) || (itype.reason === "required" && !insp.skipReason); return <button onClick={tryFinish} disabled={off} className="w-full py-3 rounded-xl text-sm font-semibold" style={{ background: off ? C.line : C.accent, color: off ? C.muted : C.onDark }}>{remind && missingRequired.length ? "Finish anyway" : editingCompleted ? "Save changes (audited)" : itype.autoAccept ? `Finish — ${itype.name.toLowerCase()} done` : "Finish inspection"}</button>; })()}
+        {(() => { const off = escalated || (!itype.autoAccept && !insp.result) || (itype.reason === "required" && !insp.skipReason) || poMissing; return <button onClick={tryFinish} disabled={off} className="w-full py-3 rounded-xl text-sm font-semibold" style={{ background: off ? C.line : C.accent, color: off ? C.muted : C.onDark }}>{remind && missingRequired.length ? "Finish anyway" : editingCompleted ? "Save changes (audited)" : itype.autoAccept ? `Finish — ${itype.name.toLowerCase()} done` : "Finish inspection"}</button>; })()}
         {!itype.autoAccept && !insp.result && !escalated && <p className="text-xs text-center mt-1.5" style={{ color: C.muted }}>choose a result to finish</p>}
         {itype.reason === "required" && !insp.skipReason && <p className="text-xs text-center mt-1.5" style={{ color: C.muted }}>pick a reason to finish</p>}
+        {poMissing && <p className="text-xs text-center mt-1.5" style={{ color: C.muted }}>enter the PO to finish</p>}
       </div>
     </>
   );
@@ -1662,7 +1678,7 @@ function InspectionRunner({ insp, patch, t, problems, product, suppliers, dictio
           {(() => { const all = product ? sameDeliveryPallets(product, insp) : []; const left = all.basis === "none" ? [] : all.filter(r => r.sameDay !== false); return left.length ? <div className="mb-3"><p className="text-xs mb-1" style={{ color: C.muted }}>Before you finish:</p><DeliveryPallets product={product} insp={insp} onAdd={hus => setPallets(ps => [...ps.filter(Boolean), ...hus.filter(h => !ps.includes(h))])} /></div> : null; })()}
           <Note tone={escalated ? "warn" : anyExceeded || generalFlag ? "bad" : remarks.length ? "warn" : "ok"}>{escalated ? "Paused — awaiting the Head." : anyExceeded ? "Tolerance exceeded — the system suggests rejection." : generalFlag ? "General problem flagged — the system suggests rejection." : remarks.length ? "Problems within tolerance." : "No problems."}</Note>
           <ProblemOverview t={t} problems={problems} remarks={remarks} totals={totals} />
-          <div className="text-xs mb-3 flex flex-wrap gap-x-4 gap-y-1" style={{ color: C.muted }}>{insp.supplier && <span>supplier: <b style={{ color: C.ink }}>{insp.supplier}</b></span>}{insp.variety && <span>variety: <b style={{ color: C.ink }}>{insp.variety}</b></span>}{insp.country && <span>country: <b style={{ color: C.ink }}>{insp.country}</b></span>}{pallets.filter(Boolean).length > 0 && <span>pallets: <b style={{ color: C.ink }}>{pallets.filter(Boolean).join(", ")}</b></span>}{insp.dateISO && <span>date code: <b style={{ color: C.ink }}>{dateCode(insp.dateISO)}</b></span>}<span>sample: <b style={{ color: C.ink }}>{totals.cu} CU</b></span></div>
+          <div className="text-xs mb-3 flex flex-wrap gap-x-4 gap-y-1" style={{ color: C.muted }}>{insp.supplier && <span>supplier: <b style={{ color: C.ink }}>{insp.supplier}</b></span>}{insp.variety && <span>variety: <b style={{ color: C.ink }}>{insp.variety}</b></span>}{insp.country && <span>country: <b style={{ color: C.ink }}>{insp.country}</b></span>}{pallets.filter(Boolean).length > 0 && <span>pallets: <b style={{ color: C.ink }}>{pallets.filter(Boolean).join(", ")}</b></span>}{insp.po && <span>PO: <b style={{ color: C.ink }}>{insp.po}</b></span>}{insp.dateISO && <span>date code: <b style={{ color: C.ink }}>{dateCode(insp.dateISO)}</b></span>}<span>sample: <b style={{ color: C.ink }}>{totals.cu} CU</b></span></div>
           {remarks.length > 0 && <div className="rounded-2xl px-3.5 py-1 mb-3" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
             {remarks.map((r, i) => <div key={r.id} className="flex items-center gap-2 text-sm py-2" style={{ borderTop: i ? `1px solid ${C.line}` : "none" }}><span className="flex-1 min-w-0 text-[13px] leading-snug">{pathOf(problems, r.leafId)}{r.auto && <span className="text-xs" style={{ color: C.muted }}> (from measurement)</span>}</span><span className="text-xs whitespace-nowrap" style={{ color: C.muted }}>{r.mode === "Presence" ? "present" : `${r.raw} ${r.mode === "PieceCount" ? "pcs" : r.mode === "DirectWeight" ? "g" : "CU"}`}</span><span className="font-semibold text-xs px-2 py-0.5 rounded-full" style={{ background: C.warnBg, color: C.warn, fontVariantNumeric: "tabular-nums" }}>{r.mode === "Presence" ? "⚡" : `${fmt(pct(r, totals))}%`}</span><button onClick={() => setRemarks(x => x.filter(q => q.id !== r.id))} className="inline-flex items-center justify-center rounded-full flex-shrink-0" style={{ width: 22, height: 22, color: C.bad, background: C.badBg }} title="delete"><Ic i={X} s={11} mr={0} /></button></div>)}
           </div>}
@@ -1700,7 +1716,7 @@ function ReportView({ insp, s, onEdit, onAnswer, user, onMarkReference }) {
       {printing && <PdfViewer insp={insp} s={s} onClose={() => setPrinting(false)} />}
       <div className="text-xs mb-3 flex flex-wrap gap-x-4 gap-y-1" style={{ color: C.muted }}>
         <span>controller <b style={{ color: C.ink }}>{s.users.find(u => u.id === insp.controllerId)?.name}</b></span><span>start {fmtTime(insp.startedAt)}</span>{insp.completedAt && <span>finished {fmtTime(insp.completedAt)}</span>}
-        {insp.supplier && <span>supplier <b style={{ color: C.ink }}>{insp.supplier}</b></span>}{insp.variety && <span>variety <b style={{ color: C.ink }}>{insp.variety}</b></span>}{insp.country && <span>country <b style={{ color: C.ink }}>{insp.country}</b></span>}{(insp.pallets || []).filter(Boolean).length > 0 && <span>pallets <b style={{ color: C.ink }}>{insp.pallets.filter(Boolean).join(", ")}</b></span>}{insp.dateISO && <span>date code <b style={{ color: C.ink }}>{dateCode(insp.dateISO)}</b></span>}<span>sample <b style={{ color: C.ink }}>{totals.cu} CU</b></span>
+        {insp.supplier && <span>supplier <b style={{ color: C.ink }}>{insp.supplier}</b></span>}{insp.variety && <span>variety <b style={{ color: C.ink }}>{insp.variety}</b></span>}{insp.country && <span>country <b style={{ color: C.ink }}>{insp.country}</b></span>}{(insp.pallets || []).filter(Boolean).length > 0 && <span>pallets <b style={{ color: C.ink }}>{insp.pallets.filter(Boolean).join(", ")}</b></span>}{insp.po && <span>PO <b style={{ color: C.ink }}>{insp.po}</b></span>}{insp.dateISO && <span>date code <b style={{ color: C.ink }}>{dateCode(insp.dateISO)}</b></span>}<span>sample <b style={{ color: C.ink }}>{totals.cu} CU</b></span>
       </div>
       {insp.status === "PendingReview" && (
         <div className="rounded-lg p-3 mb-3" style={{ background: C.warnBg }}>
@@ -2970,7 +2986,7 @@ function MHistory({ s, user, go }) {
   const [f, setF] = useState({ range: "7", result: "", status: "", supplier: "", controller: "", category: "", from: "", to: "", code: "", packFrom: "", packTo: "", type: "" });
   const [q, setQ] = useState("");
   const matchCode = i => { if (f.code.trim() && dateCode(i.dateISO) !== f.code.trim()) return false; if (f.packFrom && (!i.dateISO || i.dateISO < f.packFrom)) return false; if (f.packTo && (!i.dateISO || i.dateISO > f.packTo)) return false; return true; };
-  const matchQ = i => { if (!q.trim()) return true; const p = s.products.find(x => x.id === i.productId); return ((p?.name || "") + " " + (p?.articleId || "")).toLowerCase().includes(q.trim().toLowerCase()); };
+  const matchQ = i => { const p = s.products.find(x => x.id === i.productId); return matchesInspSearch(i, p, q); };
   const today = new Date(); const since = f.range === "custom" ? null : new Date(today.getFullYear(), today.getMonth(), today.getDate() - (f.range === "0" ? 0 : Number(f.range) - 1));
   const list = s.inspections.filter(i => i.status !== "Cancelled").filter(i => !f.type || (i.typeId || legacyTypeId(i.type)) === f.type).filter(matchQ).filter(matchCode).filter(i => { const d = new Date(i.completedAt || i.startedAt); if (since && d < since) return false; if (f.range === "custom") { if (f.from && (i.completedAt || i.startedAt).slice(0, 10) < f.from) return false; if (f.to && (i.completedAt || i.startedAt).slice(0, 10) > f.to) return false; } if (f.result && i.result !== f.result) return false; if (f.status && i.status !== f.status) return false; if (f.supplier && i.supplier !== f.supplier) return false; if (f.controller && i.controllerId !== f.controller) return false; if (f.category && s.products.find(p => p.id === i.productId)?.categoryId !== f.category) return false; return true; }).sort((a, b) => (b.completedAt || b.startedAt || "").localeCompare(a.completedAt || a.startedAt || ""));
   const groups = []; list.forEach(i => { const k = dayLabel(i.completedAt || i.startedAt); let g = groups.find(x => x.k === k); if (!g) { g = { k, items: [] }; groups.push(g); } g.items.push(i); });
@@ -2980,8 +2996,8 @@ function MHistory({ s, user, go }) {
   return (
     <div className="pb-4 relative" style={{ minHeight: "100%" }}>
       <TopBar title="Inspection history" onBack={() => go("back")} right={<button onClick={() => setOpen(true)} className="text-xs px-3 py-1.5 rounded-full" style={{ border: `1px solid ${active ? C.ink : C.line}`, fontWeight: active ? 500 : 400 }}>Filters{active ? ` · ${active}` : ""}</button>} />
-      <div className="px-4 pt-3"><SearchBox value={q} onChange={setQ} placeholder="Search by product name or ID…" inputClass="rounded-xl py-2.5" /></div>
-      <div className="px-4">{groups.length === 0 ? <p className="text-sm py-8 text-center" style={{ color: C.muted }}>Nothing matches.</p> : groups.map(g => <div key={g.k}><p className="label-sm mt-3 mb-1" style={{ color: C.muted }}>{g.k}</p>{g.items.map(i => <button key={i.id} onClick={() => go("inspection", i.id)} className="w-full text-left flex items-center gap-2 py-2.5" style={{ borderBottom: `1px solid ${C.line}` }}><div className="flex-1 min-w-0"><p className="text-sm truncate">{s.products.find(p => p.id === i.productId)?.name || `Pallet ${(i.pallets || [])[0] || ""}`}</p><p className="text-xs" style={{ color: C.muted }}>{hhmm(i.completedAt || i.startedAt)}{i.dateISO && ` · DC ${dateCode(i.dateISO)}`}{i.supplier && ` · ${i.supplier}`} · {s.users.find(u => u.id === i.controllerId)?.name.split(" ")[0]}</p></div><ResultPill i={i} s={s} /></button>)}</div>)}</div>
+      <div className="px-4 pt-3"><SearchBox value={q} onChange={setQ} placeholder="Search by product, article ID or report no.…" inputClass="rounded-xl py-2.5" /></div>
+      <div className="px-4">{groups.length === 0 ? <p className="text-sm py-8 text-center" style={{ color: C.muted }}>Nothing matches.</p> : groups.map(g => <div key={g.k}><p className="label-sm mt-3 mb-1" style={{ color: C.muted }}>{g.k}</p>{g.items.map(i => <button key={i.id} onClick={() => go("inspection", i.id)} className="w-full text-left flex items-center gap-2 py-2.5" style={{ borderBottom: `1px solid ${C.line}` }}><div className="flex-1 min-w-0"><p className="text-sm truncate">{s.products.find(p => p.id === i.productId)?.name || `Pallet ${(i.pallets || [])[0] || ""}`}</p><p className="text-xs" style={{ color: C.muted }}>{String(i.id).toUpperCase()} · {hhmm(i.completedAt || i.startedAt)}{i.dateISO && ` · DC ${dateCode(i.dateISO)}`}{i.supplier && ` · ${i.supplier}`} · {s.users.find(u => u.id === i.controllerId)?.name.split(" ")[0]}</p></div><ResultPill i={i} s={s} /></button>)}</div>)}</div>
       <Sheet open={open} onClose={() => setOpen(false)} title="Filters">
         <div className="flex items-center justify-between mb-2"><span className="label-sm" style={{ color: C.muted }}>Date range</span><button onClick={() => setF({ range: "7", result: "", status: "", supplier: "", controller: "", category: "", from: "", to: "", code: "", packFrom: "", packTo: "", type: "" })} className="text-xs" style={{ color: C.accent }}>Clear everything</button></div>
         <div className="flex flex-wrap gap-1.5 mb-3">{[["0", "Today"], ["7", "7 days"], ["30", "30 days"], ["custom", "Custom"]].map(([k, l]) => <Chip key={k} on={f.range === k} onClick={() => setF(x => ({ ...x, range: k }))}>{l}</Chip>)}</div>
@@ -3049,7 +3065,7 @@ function MProductHistory({ s, user, go, productId, initialResult }) {
                 <button key={i.id} onClick={() => go("inspection", i.id)} className="w-full flex items-center gap-2 py-2.5 text-left" style={{ borderBottom: ix === rows.length - 1 ? "none" : `1px solid ${C.line}` }}>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm truncate">{rem.length ? rem.join(", ") : "no remarks"}</p>
-                    <p className="text-xs" style={{ color: C.muted }}>{dayLabel(i.completedAt)}, {hhmm(i.completedAt)} · {s.users.find(u => u.id === i.controllerId)?.name.split(" ")[0]}</p>
+                    <p className="text-xs" style={{ color: C.muted }}>{String(i.id).toUpperCase()} · {dayLabel(i.completedAt)}, {hhmm(i.completedAt)} · {s.users.find(u => u.id === i.controllerId)?.name.split(" ")[0]}</p>
                   </div>
                   <ResultPill i={i} s={s} />
                 </button>

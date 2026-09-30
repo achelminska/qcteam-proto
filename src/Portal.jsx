@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef, Fragment } from "react";
 import { createSyncer, guardUnload } from "./sync.js";
-import { hasV, specLabel, dayLabel, problemPath, typesOf, typeById, legacyTypeId, inspType, countsAs, listCheck, matchFieldSpec, numberSpecCheck, reportStatusFields, toleranceDisplay } from "./shared/format.js";
+import { hasV, specLabel, dayLabel, problemPath, typesOf, typeById, legacyTypeId, inspType, countsAs, listCheck, matchFieldSpec, numberSpecCheck, reportStatusFields, toleranceDisplay, matchesInspSearch } from "./shared/format.js";
 import { normArticle, isoWeekOf, todayISO, weekLabel, weekRange, shiftWeek, sortSnapshots, latestSnapshot, snapshotTotal, upsertSnapshot, snapshotsOfWeek, previousInWeek, deltaRows, subTypeMix, weekSeries, articleTrend, topArticles, asLegacyMeta, migrateLegacy, rowFor } from "./shared/complaints.js";
 import { activeTempForSpec, applyTempSpec, clearTempSpec, closeExpiredTempSpecs, tempOwnerLabel, tempUntilLabel, upsertTempSpec } from "./shared/tempspec.js";
 import { SpecValue } from "./shared/SpecValue.jsx";
 import { peopleOnFloor, peopleAtDock, floorWhere, floorVerb, doneTodayCount, doneTodayByUser } from "./shared/floor.js";
+import { poRequiredOnReject, poSourceHint, sheetPoForInspection, suggestedPo } from "./shared/rejection-po.js";
 import { dockMatches } from "./shared/dock-search.js";
 import { readAsDataUrl, keepPhoto, shrinkPhoto, memoPdfPhoto, fetchPdfPhotoSrc, rotateImage } from "./shared/report-images.js";
 import { attachRemarkPhotos, photoGroupsByModule, pickedPhotos, replacePhoto, replaceRemarkPhoto } from "./shared/photos.js";
@@ -287,7 +288,7 @@ const effectiveGuide = (s, product) => { if (!product) return []; const hidden =
 const SEED_TYPES = () => [];
 const SKIP_REASONS = ["no time", "stable product", "same delivery as earlier", "checked at the supplier"];
 const isVerdictType = (s, insp) => !inspType(s, insp).autoAccept;
-const settingsOf = s => ({ companyName: "Picnic Technologies", qcEmail: "qc@picnic.nl", rejectionWindowHours: 24, deadlineWarnHours: 6, deadlineWarnHoursRisky: 10, riskyLookbackDays: 14, resultIcons: {}, ...(s.settings || {}) });
+const settingsOf = s => ({ companyName: "Picnic Technologies", qcEmail: "qc@picnic.nl", rejectionWindowHours: 24, deadlineWarnHours: 6, deadlineWarnHoursRisky: 10, riskyLookbackDays: 14, requirePoOnReject: false, resultIcons: {}, ...(s.settings || {}) });
 // Policy = the set of allowed inspection types. Product → category chain → types allowed by default. A product always has one.
 const effectivePolicy = (s, product) => {
   const dflt = typesOf(s).filter(t => t.allowedByDefault).map(t => t.id);
@@ -528,6 +529,7 @@ async function buildReportPdf(insp, s) {
   if (insp.supplier) facts.push(["Supplier", insp.supplier]); if (insp.country) facts.push(["Country of origin", insp.country]); if (insp.variety) facts.push(["Variety", insp.variety]);
   if (insp.dateISO) facts.push(["Date code", `${dateCode(insp.dateISO)} (${insp.dateISO})`]);
   if ((insp.pallets || []).filter(Boolean).length) facts.push(["Pallets", insp.pallets.filter(Boolean).join(", ")]);
+  if (insp.po) facts.push(["PO", insp.po]);
   facts.push(["Controller", ctrl.name || "—"]);
   // quality status (referenced branches + root-level problems raised from fields)
   const refs = [...(t.problemRefs || [])].sort(bySort).map(r => pm[r.problemTypeId]).filter(Boolean);
@@ -904,6 +906,10 @@ function IntegrationsPage({ s, set }) {
                   {[["rejectionWindowHours", "Reject within (hours of arrival)"], ["deadlineWarnHours", "Warn — hours before the window closes"], ["deadlineWarnHoursRisky", "Warn earlier for recently-rejected products (hours before)"], ["riskyLookbackDays", "“Recently rejected” = within (days)"]].map(([k, l]) => <label key={k} className="text-xs" style={{ color: C.muted }}>{l}<input type="number" min={0} value={settingsOf(s)[k]} onChange={e => set(x => ({ ...x, settings: { ...settingsOf(x), [k]: Math.max(0, Number(e.target.value) || 0) } }))} className="w-full text-sm mt-1" /></label>)}
                 </div>
                 {(() => { const al = computeDeadlineAlerts(s); return al.length ? <p className="text-xs mt-2" style={{ color: C.bad }}>{al.length} pallet{al.length === 1 ? "" : "s"} currently within the warning window.</p> : <p className="text-xs mt-2" style={{ color: C.muted }}>Nothing within the warning window right now.</p>; })()}
+                <label className="flex items-start gap-2 text-xs mt-3 cursor-pointer" style={{ color: C.ink }}>
+                  <input type="checkbox" className="mt-0.5" checked={!!settingsOf(s).requirePoOnReject} onChange={e => set(x => ({ ...x, settings: { ...settingsOf(x), requirePoOnReject: e.target.checked } }))} />
+                  <span>Require a PO on rejection<span className="block" style={{ color: C.muted }}>Pull PO ID from this sheet when the pallet is on it. If the inspection is not from the sheet, the controller must type it.</span></span>
+                </label>
               </div>}
               <p className="label-sm mb-1">Live source (optional)</p>
               <div className="flex gap-1.5 mb-2">{[[false, "Pull from a URL"], [true, "Pushed by the sheet (recommended)"]].map(([m, l]) => <button key={String(m)} onClick={() => patchIt({ pushMode: m })} className="text-xs px-3 py-1.5 rounded-full" style={{ background: !!it.pushMode === m ? C.ink : "transparent", color: !!it.pushMode === m ? C.onDark : C.ink, border: `1px solid ${!!it.pushMode === m ? C.ink : C.line}` }}>{l}</button>)}</div>
@@ -1043,7 +1049,7 @@ function ComposerExtras({ s, user, pending, setPending, compact, bar }) {
   const [busy, setBusy] = useState(false);
   const addFiles = async () => { setBusy(true); try { const got = await pickFiles(); if (got.length) setPending(p => ({ ...p, attachments: [...(p.attachments || []), ...got] })); } finally { setBusy(false); } };
   const products = s.products.filter(p => p.isActive !== false && (!qq || (p.name + " " + (p.articleId || "")).toLowerCase().includes(qq))).slice(0, 8);
-  const inspections = s.inspections.filter(i => i.status !== "Cancelled").sort((a, b) => (b.startedAt || "").localeCompare(a.startedAt || "")).filter(i => { const p = s.products.find(x => x.id === i.productId); return !qq || (p?.name || "").toLowerCase().includes(qq) || (i.pallets || []).some(h => String(h).includes(qq)); }).slice(0, 8);
+  const inspections = s.inspections.filter(i => i.status !== "Cancelled").sort((a, b) => (b.startedAt || "").localeCompare(a.startedAt || "")).filter(i => { const p = s.products.find(x => x.id === i.productId); return !qq || matchesInspSearch(i, p, q) || (i.pallets || []).some(h => String(h).includes(qq)); }).slice(0, 8);
   const urgentKeys = new Set(computeDeadlineAlerts(s).map(al => al.hu.replace(/\D/g, "").replace(/^0+/, "")));
   const pallets = dockRowsLive(s).filter(r => !qq || r.hu.includes(qq) || (r.name || "").toLowerCase().includes(qq)).sort((x, y) => (urgentKeys.has(y.hu.replace(/\D/g, "").replace(/^0+/, "")) ? 1 : 0) - (urgentKeys.has(x.hu.replace(/\D/g, "").replace(/^0+/, "")) ? 1 : 0)).slice(0, 8);
   const flags = s.flags.filter(f => f.status === "Open").filter(f => !qq || (f.description || "").toLowerCase().includes(qq)).slice(0, 8);
@@ -2482,6 +2488,7 @@ function PrintReport({ insp, s, onClose }) {
           <tr><th style={{ width: "22%" }}>Inspected</th><td>{fmtTime(insp.completedAt)} by {ctrl}{insp.lastEditedBy && ` (edited ${fmtTime(insp.lastEditedAt)} by ${s.users.find(u => u.id === insp.lastEditedBy)?.name})`}</td><th style={{ width: "22%" }}>Date code</th><td>{insp.dateISO ? `${dateCode(insp.dateISO)} (${insp.dateISO})` : "—"}</td></tr>
           <tr><th>Supplier</th><td>{insp.supplier || "—"}</td><th>Country of origin</th><td>{insp.country || "—"}</td></tr>
           <tr><th>Pallets</th><td>{(insp.pallets || []).filter(Boolean).join(", ") || "—"}</td><th>Variety</th><td>{insp.variety || "—"}</td></tr>
+          {insp.po && <tr><th>PO</th><td colSpan={3}>{insp.po}</td></tr>}
           <tr><th>Sample</th><td colSpan={3}>{insp.sample?.tu || 0} TU × {insp.sample?.cusPerTu || 0} CU = <b>{totals.cu} CU</b>{totals.pieces ? ` · ${totals.pieces} pcs` : ""}{totals.weight ? ` · ${fmt(totals.weight)} g` : ""}</td></tr>
         </tbody></table>
         {refs.length > 0 && <>
@@ -3152,7 +3159,7 @@ function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset, onMessag
                             return (
                               <button key={i.id} onClick={() => onOpenInspection && onOpenInspection(i.id)} className="w-full text-left flex items-center gap-3 px-2 py-2 rounded-lg row" style={{ borderTop: `1px solid ${C.line}` }}>
                                 <span className="text-xs px-2.5 py-0.5 rounded-full whitespace-nowrap" style={{ background: bg, color: fg, fontWeight: 500 }}>{i.result}</span>
-                                <span className="flex-1 text-xs min-w-0 truncate" style={{ color: rem.length ? C.ink : C.muted }}>{rem.length ? rem.join(", ") : "no remarks"}</span>
+                                <span className="flex-1 text-xs min-w-0 truncate" style={{ color: rem.length ? C.ink : C.muted }}>{rem.length ? rem.join(", ") : "no remarks"}<span className="ml-1.5 font-mono" style={{ color: C.muted }}>{String(i.id).toUpperCase()}</span></span>
                                 <span className="text-xs whitespace-nowrap" style={{ color: C.muted }}>{s.users.find(u => u.id === i.controllerId)?.name} · {fmtTime(i.completedAt)}</span>
                               </button>
                             );
@@ -3813,11 +3820,20 @@ function InspectionRunner({ insp, patch, t, problems, product, suppliers, dictio
   const isLastModule = !hasSummary && tab >= modules.length - 1;
   const specs = effectiveSpecs(sctx, product);
   const editingCompleted = insp.status === "Completed";
+  const wantPo = !!(sctx && settingsOf(sctx).requirePoOnReject);
+  const sheetPo = sctx ? sheetPoForInspection(dockRowsLive(sctx), insp) : { fromSheet: false, pos: [] };
+  const poMissing = poRequiredOnReject(wantPo, insp.result, insp.po);
+  useEffect(() => {
+    if (!wantPo || insp.result !== "Rejected" || String(insp.po || "").trim()) return;
+    const sug = suggestedPo(insp, sheetPoForInspection(sctx ? dockRowsLive(sctx) : [], insp));
+    if (sug) set({ po: sug });
+  }, [insp.result, (insp.pallets || []).join("|")]);
   const finishControls = (
     <>
       {itype.reason && itype.reason !== "none" && <div className="mt-4"><p className="text-sm font-medium mb-1">Reason {itype.reason === "required" ? <span style={{ color: C.bad }}>*</span> : <span className="text-xs font-normal" style={{ color: C.muted }}>(optional)</span>}</p><div className="flex flex-wrap gap-1.5">{SKIP_REASONS.map(r => <button key={r} onClick={() => set({ skipReason: insp.skipReason === r ? null : r })} className="text-xs px-3 py-1.5 rounded-full" style={{ background: insp.skipReason === r ? C.ink : "transparent", color: insp.skipReason === r ? C.onDark : C.ink, border: `1px solid ${insp.skipReason === r ? C.ink : C.line}` }}>{r}</button>)}</div></div>}
       {itype.autoAccept && <Note tone="ok">{itype.name}: finishing records “Accepted” — no verdict needed. Problems you report still go to the Head.</Note>}
       {!itype.autoAccept && <div className="flex gap-2 mt-4">{[["Accepted", "Accept", C.ok, C.okBg], ["Rejected", "Reject", C.bad, C.badBg]].map(([v, l, fg, bg]) => <button key={v} onClick={() => !escalated && set({ result: v })} disabled={escalated} className="flex-1 py-2 rounded-lg text-sm font-medium" style={{ background: escalated ? C.line : insp.result === v ? fg : bg, color: escalated ? C.muted : insp.result === v ? C.onDark : fg }}>{l}</button>)}</div>}
+      {wantPo && insp.result === "Rejected" && <div className="mt-3"><p className="text-sm font-medium mb-1">PO{poMissing ? <span style={{ color: C.bad }}> *</span> : null}</p><input value={insp.po || ""} onChange={e => set({ po: e.target.value })} placeholder="Purchase order" className="w-full text-sm rounded px-2 py-1.5 outline-none font-mono" style={{ ...inp, borderColor: poMissing ? C.bad : C.line }} /><p className="text-xs mt-1" style={{ color: poMissing ? C.warn : C.muted }}>{poSourceHint(sheetPo)}</p></div>}
       {insp.result === "Accepted" && (anyExceeded || generalFlag) && <p className="text-xs mt-2" style={{ color: C.warn }}>Accepted despite the numbers — the Head will be notified. Status and decision are independent axes.</p>}
       {remind && missingRequired.length > 0 && <div className="rounded-xl px-3.5 py-3 mt-4" style={{ background: C.warnBg, border: `1px solid ${C.warn}` }}>
         <p className="text-sm font-semibold flex items-center" style={{ color: C.warn }}><Ic i={AlertTriangle} s={14} />{missingRequired.length} required field{missingRequired.length === 1 ? "" : "s"} still empty</p>
@@ -3825,9 +3841,10 @@ function InspectionRunner({ insp, patch, t, problems, product, suppliers, dictio
         <p className="text-xs mt-2" style={{ color: C.ink }}>Tap a field to fill it in, or press <b>Finish anyway</b> — the report will say which fields were left empty and the Head gets a notification.</p>
       </div>}
       <div className="mt-4 flex items-center gap-3">
-        <Primary onClick={tryFinish} disabled={escalated || (!itype.autoAccept && !insp.result) || (itype.reason === "required" && !insp.skipReason)}>{remind && missingRequired.length ? "Finish anyway" : editingCompleted ? "Save changes (audited)" : itype.autoAccept ? `Finish — ${itype.name.toLowerCase()} done` : "Finish inspection"}</Primary>
+        <Primary onClick={tryFinish} disabled={escalated || (!itype.autoAccept && !insp.result) || (itype.reason === "required" && !insp.skipReason) || poMissing}>{remind && missingRequired.length ? "Finish anyway" : editingCompleted ? "Save changes (audited)" : itype.autoAccept ? `Finish — ${itype.name.toLowerCase()} done` : "Finish inspection"}</Primary>
         {!itype.autoAccept && !insp.result && !escalated && <span className="text-xs" style={{ color: C.muted }}>choose a result to finish</span>}
         {itype.reason === "required" && !insp.skipReason && <span className="text-xs" style={{ color: C.muted }}>pick a reason to finish</span>}
+        {poMissing && <span className="text-xs" style={{ color: C.muted }}>enter the PO to finish</span>}
       </div>
     </>
   );
@@ -3894,7 +3911,7 @@ function InspectionRunner({ insp, patch, t, problems, product, suppliers, dictio
           {(() => { const all = product ? sameDeliveryPallets(product, insp) : []; const left = all.basis === "none" ? [] : all.filter(r => r.sameDay !== false); return left.length ? <div className="mb-3"><p className="text-xs mb-1" style={{ color: C.muted }}>Before you finish:</p><DeliveryPallets product={product} insp={insp} onAdd={hus => setPallets(ps => [...ps.filter(Boolean), ...hus.filter(h => !ps.includes(h))])} /></div> : null; })()}
           <Note tone={escalated ? "warn" : anyExceeded || generalFlag ? "bad" : remarks.length ? "warn" : "ok"}>{escalated ? "Paused — awaiting the Head." : anyExceeded ? "Tolerance exceeded — the system suggests rejection." : generalFlag ? "General problem flagged — the system suggests rejection." : remarks.length ? "Problems within tolerance." : "No problems."}</Note>
           <ProblemOverview t={t} problems={problems} remarks={remarks} totals={totals} />
-          <div className="text-xs mb-3 flex flex-wrap gap-x-4 gap-y-1" style={{ color: C.muted }}>{insp.supplier && <span>supplier: <b style={{ color: C.ink }}>{insp.supplier}</b></span>}{insp.variety && <span>variety: <b style={{ color: C.ink }}>{insp.variety}</b></span>}{insp.country && <span>country: <b style={{ color: C.ink }}>{insp.country}</b></span>}{pallets.filter(Boolean).length > 0 && <span>pallets: <b style={{ color: C.ink }}>{pallets.filter(Boolean).join(", ")}</b></span>}{insp.dateISO && <span>date code: <b style={{ color: C.ink }}>{dateCode(insp.dateISO)}</b></span>}<span>sample: <b style={{ color: C.ink }}>{totals.cu} CU</b></span></div>
+          <div className="text-xs mb-3 flex flex-wrap gap-x-4 gap-y-1" style={{ color: C.muted }}>{insp.supplier && <span>supplier: <b style={{ color: C.ink }}>{insp.supplier}</b></span>}{insp.variety && <span>variety: <b style={{ color: C.ink }}>{insp.variety}</b></span>}{insp.country && <span>country: <b style={{ color: C.ink }}>{insp.country}</b></span>}{pallets.filter(Boolean).length > 0 && <span>pallets: <b style={{ color: C.ink }}>{pallets.filter(Boolean).join(", ")}</b></span>}{insp.po && <span>PO: <b style={{ color: C.ink }}>{insp.po}</b></span>}{insp.dateISO && <span>date code: <b style={{ color: C.ink }}>{dateCode(insp.dateISO)}</b></span>}<span>sample: <b style={{ color: C.ink }}>{totals.cu} CU</b></span></div>
           {remarks.map(r => <div key={r.id} className="flex items-center gap-2 text-sm py-1" style={{ borderTop: `1px solid ${C.line}` }}><span className="flex-1">{pathOf(problems, r.leafId)}{r.auto && <span className="text-xs" style={{ color: C.muted }}> (from measurement)</span>}</span><span className="text-xs" style={{ color: C.muted }}>{r.mode === "Presence" ? "present" : `${r.raw} ${r.mode === "PieceCount" ? "pcs" : r.mode === "DirectWeight" ? "g" : "CU"}`}</span><span>{r.mode === "Presence" ? "⚡" : `${fmt(pct(r, totals))}%`}</span><button onClick={() => setRemarks(x => x.filter(q => q.id !== r.id))} className="text-xs px-1" style={{ color: C.bad }} title="delete">×</button></div>)}
           <div className="flex items-center justify-between mt-4 mb-1"><label className="text-sm font-medium">Comment</label><Ghost onClick={() => set({ comment: generateComment(problems, t.overrides, remarks, totals, generalFlag) })}><Ic i={Sparkles} s={13} />Generate from remarks</Ghost></div>
           <textarea value={insp.comment || ""} onChange={e => set({ comment: e.target.value })} rows={3} placeholder="optional — or generate and edit" className="w-full text-sm rounded px-2 py-1.5 outline-none" style={{ ...inp }} />
@@ -3928,7 +3945,7 @@ function ReportView({ insp, s, onEdit, onAnswer, user, onMarkReference }) {
       {printing && <PdfViewer insp={insp} s={s} onClose={() => setPrinting(false)} />}
       <div className="text-xs mb-3 flex flex-wrap gap-x-4 gap-y-1" style={{ color: C.muted }}>
         <span>controller <b style={{ color: C.ink }}>{s.users.find(u => u.id === insp.controllerId)?.name}</b></span><span>start {fmtTime(insp.startedAt)}</span>{insp.completedAt && <span>finished {fmtTime(insp.completedAt)}</span>}
-        {insp.supplier && <span>supplier <b style={{ color: C.ink }}>{insp.supplier}</b></span>}{insp.variety && <span>variety <b style={{ color: C.ink }}>{insp.variety}</b></span>}{insp.country && <span>country <b style={{ color: C.ink }}>{insp.country}</b></span>}{(insp.pallets || []).filter(Boolean).length > 0 && <span>pallets <b style={{ color: C.ink }}>{insp.pallets.filter(Boolean).join(", ")}</b></span>}{insp.dateISO && <span>date code <b style={{ color: C.ink }}>{dateCode(insp.dateISO)}</b></span>}<span>sample <b style={{ color: C.ink }}>{totals.cu} CU</b></span>
+        {insp.supplier && <span>supplier <b style={{ color: C.ink }}>{insp.supplier}</b></span>}{insp.variety && <span>variety <b style={{ color: C.ink }}>{insp.variety}</b></span>}{insp.country && <span>country <b style={{ color: C.ink }}>{insp.country}</b></span>}{(insp.pallets || []).filter(Boolean).length > 0 && <span>pallets <b style={{ color: C.ink }}>{insp.pallets.filter(Boolean).join(", ")}</b></span>}{insp.po && <span>PO <b style={{ color: C.ink }}>{insp.po}</b></span>}{insp.dateISO && <span>date code <b style={{ color: C.ink }}>{dateCode(insp.dateISO)}</b></span>}<span>sample <b style={{ color: C.ink }}>{totals.cu} CU</b></span>}
       </div>
       {insp.status === "PendingReview" && (
         <div className="rounded-lg p-3 mb-3" style={{ background: C.warnBg }}>
@@ -3960,7 +3977,7 @@ function InspectionsPage({ s, set, user, notify, openId, setOpenId, preset, clea
   useEffect(() => { if (datePreset) { setAdv(x => ({ ...x, range: datePreset })); setAdvOpen(true); setOpenId(null); clearDatePreset && clearDatePreset(); } }, [datePreset]);
   const matchAdv = i => {
     const p = s.products.find(x => x.id === i.productId); const when = i.completedAt || i.startedAt || "";
-    if (q.trim() && !((p?.name || "") + " " + (p?.articleId || "")).toLowerCase().includes(q.trim().toLowerCase())) return false;
+    if (q.trim() && !matchesInspSearch(i, p, q)) return false;
     if (adv.range !== "all") { const t = new Date(), since = new Date(t.getFullYear(), t.getMonth(), t.getDate() - (adv.range === "0" ? 0 : Number(adv.range) - 1)); if (adv.range === "custom") { if (adv.from && when.slice(0, 10) < adv.from) return false; if (adv.to && when.slice(0, 10) > adv.to) return false; } else if (new Date(when) < since) return false; }
     if (adv.result && i.result !== adv.result) return false; if (adv.supplier && i.supplier !== adv.supplier) return false; if (adv.controller && i.controllerId !== adv.controller) return false; if (adv.category && p?.categoryId !== adv.category) return false;
     if (adv.code.trim() && dateCode(i.dateISO) !== adv.code.trim()) return false; if (adv.packFrom && (!i.dateISO || i.dateISO < adv.packFrom)) return false; if (adv.packTo && (!i.dateISO || i.dateISO > adv.packTo)) return false;
@@ -4019,7 +4036,7 @@ function InspectionsPage({ s, set, user, notify, openId, setOpenId, preset, clea
             {newProduct && !resolveTemplate(s, s.products.find(p => p.id === newProduct)) && <p className="text-xs mt-2" style={{ color: C.bad }}>This product has no form — no global template.</p>}
           </Card>
           <Card>
-            <div className="flex gap-2 mb-2"><SearchBox value={q} onChange={setQ} placeholder="search by product name or article ID…" className="flex-1" inputClass="rounded" /><button onClick={() => setAdvOpen(o => !o)} className="text-xs px-3 py-1.5 rounded-lg" style={{ background: advCount ? C.accent : C.accentSoft, color: advCount ? C.onDark : C.accent }}>Filters{advCount ? ` · ${advCount}` : ""}</button></div>
+            <div className="flex gap-2 mb-2"><SearchBox value={q} onChange={setQ} placeholder="search by product, article ID or report no.…" className="flex-1" inputClass="rounded" /><button onClick={() => setAdvOpen(o => !o)} className="text-xs px-3 py-1.5 rounded-lg" style={{ background: advCount ? C.accent : C.accentSoft, color: advCount ? C.onDark : C.accent }}>Filters{advCount ? ` · ${advCount}` : ""}</button></div>
             {advOpen && (
               <div className="rounded-lg p-3 mb-3" style={{ background: C.bg }}>
                 <div className="flex items-center justify-between mb-2"><span className="text-xs" style={{ color: C.muted }}>Filters</span><button onClick={() => { setAdv({ range: "all", result: "", supplier: "", controller: "", category: "", from: "", to: "", code: "", packFrom: "", packTo: "" }); setQ(""); }} className="text-xs" style={{ color: C.accent }}>Clear all</button></div>
@@ -4038,7 +4055,7 @@ function InspectionsPage({ s, set, user, notify, openId, setOpenId, preset, clea
             {list.length === 0 ? <Empty icon="📋" title={s.inspections.length ? "Nothing matches" : "No inspections"} hint={s.inspections.length ? "Change the search or filters." : "Start the first one above."} /> : list.map(i => { const p = s.products.find(x => x.id === i.productId); const it = inspType(s, i); const vis = it.autoAccept, skp = !it.countsAsInspection; const [fg, bg] = i.status !== "Completed" ? [STATUS[i.status][1], STATUS[i.status][2]] : it.autoAccept ? [it.color, C.accentSoft] : i.result === "Accepted" ? [C.ok, C.okBg] : i.result === "Rejected" ? [C.bad, C.badBg] : [STATUS[i.status][1], STATUS[i.status][2]]; return (
               <button key={i.id} onClick={() => { setOpenId(i.id); setEditing(false); }} className="w-full text-left flex items-center gap-3 px-2 py-2 rounded-lg row" style={{ borderTop: `1px solid ${C.line}` }}>
                 <span className="text-xs px-2.5 py-0.5 rounded-full whitespace-nowrap inline-flex items-center gap-1.5" style={{ background: C.surface, color: C.ink, border: `1px solid ${C.line}`, fontWeight: 500 }}><span className="inline-block rounded-full" style={{ width: 7, height: 7, background: fg }} />{i.status !== "Completed" ? STATUS[i.status][0] : it.autoAccept ? it.name : (i.result === "Accepted" ? "Accepted" : "Rejected")}</span>{it.id !== "type-full" && i.status === "Completed" && !it.autoAccept && <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ background: C.bg, color: C.muted }}>{it.name}</span>}
-                <span className="flex-1 text-sm min-w-0 truncate">{p?.name || `Pallet ${(i.pallets || [])[0] || ""}`}</span>
+                <span className="flex-1 text-sm min-w-0 truncate">{p?.name || `Pallet ${(i.pallets || [])[0] || ""}`}<span className="ml-2 font-mono text-[11px]" style={{ color: C.muted }}>{String(i.id).toUpperCase()}</span></span>
                 <span className="text-xs whitespace-nowrap" style={{ color: C.muted }}>{i.dateISO && `DC ${dateCode(i.dateISO)} · `}{s.users.find(u => u.id === i.controllerId)?.name} · {fmtTime(i.startedAt)}{i.lastEditedBy && " · ✏️"}</span>
               </button>
             ); })}
@@ -4745,6 +4762,14 @@ function SettingsPage({ s, set }) {
           <label className="text-xs" style={{ color: C.muted }}>Company<input value={st.companyName} onChange={e => put({ companyName: e.target.value })} className="w-full text-sm mt-1" /></label>
           <label className="text-xs" style={{ color: C.muted }}>QC contact e-mail<input value={st.qcEmail} onChange={e => put({ qcEmail: e.target.value })} className="w-full text-sm mt-1" /></label>
         </div>
+      </Card>
+      <Card style={{ marginBottom: 16 }}>
+        <h2 className="mb-1">PO on rejection</h2>
+        <p className="text-xs mb-3" style={{ color: C.muted }}>Off by default. When on, a Rejected inspection must have a PO. The system fills it from the dock sheet when the pallet is there; if the inspection was not started from the sheet, the controller types it.</p>
+        <label className="flex items-start gap-3 text-sm cursor-pointer">
+          <input type="checkbox" className="mt-1" checked={!!st.requirePoOnReject} onChange={e => put({ requirePoOnReject: e.target.checked })} />
+          <span>Require a PO when rejecting<span className="block text-xs mt-0.5" style={{ color: C.muted }}>Sheet pallets: pull PO ID automatically. Catalog / no sheet: required field on Reject.</span></span>
+        </label>
       </Card>
       <Card style={{ marginBottom: 16 }}>
         <h2 className="mb-1">Report result icon</h2>
