@@ -5,6 +5,7 @@ import { normArticle, isoWeekOf, todayISO, weekLabel, weekRange, shiftWeek, sort
 import { activeTempForSpec, applyTempSpec, clearTempSpec, closeExpiredTempSpecs, tempOwnerLabel, tempUntilLabel, upsertTempSpec } from "./shared/tempspec.js";
 import { SpecValue } from "./shared/SpecValue.jsx";
 import { peopleOnFloor, peopleAtDock, floorWhere, floorVerb, doneTodayCount, doneTodayByUser } from "./shared/floor.js";
+import { dockMatches } from "./shared/dock-search.js";
 import { readAsDataUrl, keepPhoto, shrinkPhoto, memoPdfPhoto, fetchPdfPhotoSrc, rotateImage } from "./shared/report-images.js";
 import { attachRemarkPhotos, replacePhoto, replaceRemarkPhoto } from "./shared/photos.js";
 import { CameraSheet } from "./shared/CameraSheet.jsx";
@@ -1447,7 +1448,7 @@ function DockMapPage({ s, user, openPallet }) {
   const byDock = {}; const other = [];
   rows.forEach(r => { const d = parseDock(r.location); if (d && dockZone(d.n)) (byDock[d.n] = byDock[d.n] || []).push({ ...r, sub: d.sub }); else other.push(r); });
   const floorPeople = peopleOnFloor(s, [...all, ...blockedRowsLive(s)]);
-  const [sel, setSel] = useState(null); const [quick, setQuick] = useState(false);
+  const [sel, setSel] = useState(null); const [quick, setQuick] = useState(false); const [q, setQ] = useState("");
   // Lens (status / age) and an optional legend filter: bars, counts and the selected dock's list follow both.
   const [mode, setMode] = useState("status"); const [filter, setFilter] = useState(null);
   const keyOf = r => mode === "age" ? dockAge(r) : dockStatus(r);
@@ -1485,6 +1486,8 @@ function DockMapPage({ s, user, openPallet }) {
     return Object.values(groups).map(g => { const first = g[0]; const product = s.products.find(p => p.articleId === first.article); const checked = g.filter(x => completedInspectionFor(s, x.hu)).length; const subs = [...new Set(g.map(r => r.sub).filter(Boolean))].sort(); const earliest = [...g].sort((x, y) => `${x.arrived || ""}${x.arrivedTime || "99"}`.localeCompare(`${y.arrived || ""}${y.arrivedTime || "99"}`))[0]; const pos = new Set(g.map(r => (r.po || "").trim()).filter(Boolean));
       return { key: first.article || first.hu, hu: earliest.hu, name: first.name || product?.name || first.article, article: first.article, count: g.length, checked, subs, product, priority: first.priority, status: dockStatus(g.find(r => r.blocking) || first), blocking: g.some(r => r.blocking), transporter: earliest.transporter, arrived: earliest.arrived, arrivedTime: earliest.arrivedTime, po: [...pos].join(", "), mixedPO: pos.size > 1, locations: [...new Set(g.map(r => r.location).filter(Boolean))].join(", ") };
     }).sort((a, b) => (dockStatusRank(a.status) - dockStatusRank(b.status)) || `${a.arrived || ""}${a.arrivedTime || "99"}`.localeCompare(`${b.arrived || ""}${b.arrivedTime || "99"}`)); })();
+  const shown = items.filter(it => dockMatches(it, q));
+  const searching = !!q.trim();
   const selZone = typeof sel === "number" ? dockZone(sel) : null;
   const quickRows = [14, ...DOCK_CHILLED, ...DOCK_AMBIENT, 0].map(n => ({ key: n, label: n === 14 || n === 0 ? `${dockLabel(n)} · across` : dockLabel(n), zone: dockZone(n), arr: byDock[n] || [] })).filter(q => q.arr.length).concat(other.length ? [{ key: "other", label: "Other locations", zone: null, arr: other }] : []);
   const ZoneCard = ({ icon, title, st, tint }) => (
@@ -1551,6 +1554,7 @@ function DockMapPage({ s, user, openPallet }) {
             <p className="font-medium text-sm">{sel === "other" ? "Other locations" : sel === 0 ? "D-00 · opposite dock 1" : `Dock ${sel}`}</p>
             {selZone && <span className="text-[11px] px-2 py-0.5 rounded-full inline-flex items-center gap-1" style={{ background: C.bg, color: selZone === "chilled" ? C.accent : C.warn, border: `1px solid ${C.line}` }}><Ic i={selZone === "chilled" ? Snowflake : Thermometer} s={11} mr={0} />{selZone}</span>}
             <span className="text-xs flex-1" style={{ color: C.muted }}>· {selRows.length} pallet{selRows.length === 1 ? "" : "s"} · {items.length} SKU{items.length === 1 ? "" : "s"}{selRows.filter(r => r.blocking).length ? ` · ${selRows.filter(r => r.blocking).length} needed today` : ""} · most urgent first</span>
+            <SearchBox value={q} onChange={setQ} placeholder="Search name, article or ID…" style={{ width: 260 }} inputClass="rounded-lg" size={13} />
             <button onClick={() => setSel(null)} className="text-xs" style={{ color: C.muted }}>close</button>
           </div>
           {(() => { const here = sel === "other" ? floorPeople.filter(p => p.dock === "other") : peopleAtDock(floorPeople, sel); if (!here.length) return null; return (
@@ -1563,9 +1567,9 @@ function DockMapPage({ s, user, openPallet }) {
               ); })}
             </div>
           ); })()}
-          {items.length === 0 ? <p className="text-xs py-3" style={{ color: C.muted }}>Nothing standing here right now.</p> : <table className="w-full text-sm">
+          {shown.length === 0 ? <p className="text-xs py-3" style={{ color: C.muted }}>{searching ? "Nothing matches." : "Nothing standing here right now."}</p> : <table className="w-full text-sm">
             <thead><tr className="text-xs text-left" style={{ color: C.muted }}>{["Product", "Pallets", sel === "other" ? "Location" : "Spot", "Status", "Article", "Arrived", "Transporter", "PO", "Report"].map(h => <th key={h} className="py-1.5 pr-3 font-medium" style={{ borderBottom: `1px solid ${C.line}` }}>{h}</th>)}</tr></thead>
-            <tbody>{items.map(it => <tr key={it.key} style={{ borderBottom: `1px solid ${C.line}` }}>
+            <tbody>{shown.map(it => <tr key={it.key} style={{ borderBottom: `1px solid ${C.line}` }}>
               <td className="py-1.5 pr-3"><span className="inline-flex items-center gap-2">{openPallet && (it.hu || it.article) ? <button onClick={() => openPallet(it.hu || it.article)} className="text-left font-medium" style={{ color: C.ink }}>{it.name}</button> : <span>{it.name}</span>}<ComplaintChip s={s} articleId={it.article} /></span></td>
               <td className="py-1.5 pr-3 text-xs">{it.count > 1 ? <span className="px-1.5 py-0.5 rounded-full" style={{ background: C.accentSoft, color: C.accent }}>×{it.count}</span> : "1"}</td>
               <td className="py-1.5 pr-3 text-xs">{sel === "other" ? it.locations : (it.subs.join("/") || "—")}</td>
@@ -1738,7 +1742,7 @@ const floorStats = (s, now = Date.now()) => {
 const agoShort = t => { if (!t) return "—"; const m = Math.round((Date.now() - new Date(t).getTime()) / 60000); return m < 1 ? "now" : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : fmtTime(t); };
 
 function Dashboard({ s, setPage, seed, user, openPallet, onAssign, set, openTodayInspections }) {
-  const [prioSel, setPrioSel] = useState(null); const [blSel, setBlSel] = useState(null);
+  const [prioSel, setPrioSel] = useState(null); const [blSel, setBlSel] = useState(null); const [prioQ, setPrioQ] = useState("");
   const [now, setNow] = useState(Date.now()); useEffect(() => { const id = setInterval(() => setNow(Date.now()), 30000); return () => clearInterval(id); }, []);
   const f = floorStats(s, now);
   const globalT = s.templates.find(t => t.scope === "Global");
@@ -1763,6 +1767,7 @@ function Dashboard({ s, setPage, seed, user, openPallet, onAssign, set, openToda
       // the two views simply answering different questions.
       const totalOnDock = first.article ? f.dock.filter(x => x.article === first.article).length : rows.length;
       return { ...first, count: rows.length, totalOnDock, checked: rows.filter(x => completedInspectionFor(s, x.hu)).length, mixedPO, location: locs.size <= 1 ? first.location : `${locs.size} locations` }; }).sort((a, b) => `${a.arrived} ${a.arrivedTime}`.localeCompare(`${b.arrived} ${b.arrivedTime}`)); })();
+  const prioShown = prioGroups.filter(r => dockMatches({ ...r, name: r.name || s.products.find(p => p.articleId === r.article)?.name }, prioQ));
   const Tile = ({ label, value, sub, color, onClick, active }) => <button onClick={onClick} disabled={!onClick} className="qc-elev qc-tile rounded-2xl p-4 text-left" style={{ background: active ? C.accentSoft : C.surface, border: `1px solid ${active ? C.accent : C.line}`, borderLeft: `3px solid ${color || C.line}`, cursor: onClick ? "pointer" : "default" }}><p className="text-xs" style={{ color: C.muted }}>{label}</p><p className="text-[26px] leading-tight font-semibold mt-0.5" style={{ color: value > 0 && color ? color : C.ink }}>{value}</p>{sub && <p className="text-[11px]" style={{ color: C.muted }}>{sub}</p>}</button>;
   return (
     <div>
@@ -1771,15 +1776,15 @@ function Dashboard({ s, setPage, seed, user, openPallet, onAssign, set, openToda
 
       <div className="flex items-center mt-2 mb-1.5"><p className="label-sm flex-1" style={{ color: C.muted }}>Docks · {f.dock.length} pallets · {f.skus} SKUs{f.blocking ? ` · ${f.blocking} needed today` : ""}{f.skippable ? ` · ${f.skippable} skippable` : ""}{f.dockLost ? ` · ${f.dockLost} lost` : ""}</p>{hasDock && <button onClick={() => setPage("docks")} className="text-xs inline-flex items-center gap-1" style={{ color: C.accent }}><Ic i={Warehouse} s={13} mr={0} />Dock map →</button>}</div>
       <div className="grid gap-3 mb-3" style={{ gridTemplateColumns: "repeat(7, 1fr)" }}>
-        <Tile label="Needed today" value={f.blocking} sub={f.blocking ? "blocks picking" : "nothing blocking"} color={f.blocking ? C.bad : C.muted} onClick={hasDock ? () => setPrioSel(prioSel === "Needed today" ? null : "Needed today") : undefined} active={prioSel === "Needed today"} />
-        {PRIO_ORDER.map(k => <Tile key={k} label={k} value={f.prio[k]} color={k === "Now needed" || k === "High risk" ? C.bad : k === "High issues" || k === "Late inspection" ? C.warn : C.muted} onClick={hasDock ? () => setPrioSel(prioSel === k ? null : k) : undefined} active={prioSel === k} />)}
-        <Tile label="Skippable" value={f.skippable} color={C.muted} onClick={hasDock ? () => setPrioSel(prioSel === "Skippable" ? null : "Skippable") : undefined} active={prioSel === "Skippable"} />
+        <Tile label="Needed today" value={f.blocking} sub={f.blocking ? "blocks picking" : "nothing blocking"} color={f.blocking ? C.bad : C.muted} onClick={hasDock ? () => { setPrioQ(""); setPrioSel(prioSel === "Needed today" ? null : "Needed today"); } : undefined} active={prioSel === "Needed today"} />
+        {PRIO_ORDER.map(k => <Tile key={k} label={k} value={f.prio[k]} color={k === "Now needed" || k === "High risk" ? C.bad : k === "High issues" || k === "Late inspection" ? C.warn : C.muted} onClick={hasDock ? () => { setPrioQ(""); setPrioSel(prioSel === k ? null : k); } : undefined} active={prioSel === k} />)}
+        <Tile label="Skippable" value={f.skippable} color={C.muted} onClick={hasDock ? () => { setPrioQ(""); setPrioSel(prioSel === "Skippable" ? null : "Skippable"); } : undefined} active={prioSel === "Skippable"} />
       </div>
       {prioSel && <Card style={{ marginBottom: 12 }}>
-        <div className="flex items-center gap-2 mb-2"><p className="font-medium text-sm flex-1">{prioSel} · {prioRows.length} pallet{prioRows.length === 1 ? "" : "s"} · {prioGroups.length} product{prioGroups.length === 1 ? "" : "s"} · oldest first{prioSel === "Needed today" ? " · flagged on the dock sheet — picking waits for these" : ""}</p><button onClick={() => setPrioSel(null)} className="text-xs" style={{ color: C.muted }}>close</button></div>
-        {prioRows.length === 0 ? <p className="text-xs py-3" style={{ color: C.muted }}>Nothing at this priority.</p> : <table className="w-full text-sm" style={{ borderCollapse: "collapse" }}>
+        <div className="flex items-center gap-2 mb-2"><p className="font-medium text-sm flex-1">{prioSel} · {prioRows.length} pallet{prioRows.length === 1 ? "" : "s"} · {prioGroups.length} product{prioGroups.length === 1 ? "" : "s"} · oldest first{prioSel === "Needed today" ? " · flagged on the dock sheet — picking waits for these" : ""}</p><SearchBox value={prioQ} onChange={setPrioQ} placeholder="Search name, article or ID…" style={{ width: 260 }} inputClass="rounded-lg" size={13} /><button onClick={() => setPrioSel(null)} className="text-xs" style={{ color: C.muted }}>close</button></div>
+        {prioRows.length === 0 ? <p className="text-xs py-3" style={{ color: C.muted }}>Nothing at this priority.</p> : prioShown.length === 0 ? <p className="text-xs py-3" style={{ color: C.muted }}>Nothing matches.</p> : <table className="w-full text-sm" style={{ borderCollapse: "collapse" }}>
           <thead><tr className="text-xs text-left" style={{ color: C.muted }}>{["Product", ...(prioSel === "Needed today" ? ["Priority"] : []), "Article", "Location", "Arrived", "Transporter", "History", ""].map(h => <th key={h || "act"} className="py-1.5 pr-3 font-medium" style={{ borderBottom: `1px solid ${C.line}` }}>{h}</th>)}</tr></thead>
-          <tbody>{prioGroups.map(r => { const prod = s.products.find(p => p.articleId === r.article); const hist = recentProblemsFor(s, prod?.id); const stacked = claimOf(s, r)?.status === "stacked"; return (
+          <tbody>{prioShown.map(r => { const prod = s.products.find(p => p.articleId === r.article); const hist = recentProblemsFor(s, prod?.id); const stacked = claimOf(s, r)?.status === "stacked"; return (
             <tr key={r.article || r.hu} style={{ borderBottom: `1px solid ${C.line}` }}>
               <td className="py-1.5 pr-3">{(r.hu || r.article) && openPallet ? <button onClick={() => openPallet(r.hu || r.article)} className="text-left font-medium" style={{ color: C.ink }}>{r.name || prod?.name || r.article}</button> : <span>{r.name || r.article}{!prod && <span className="text-[11px] ml-1" style={{ color: C.warn }}>no profile</span>}</span>}<span className="ml-1.5 inline-flex align-middle"><ComplaintChip s={s} articleId={r.article} /></span>{r.count > 1 && <span className="text-[10px] ml-1.5 px-1.5 py-0.5 rounded-full" style={{ background: C.accentSoft, color: C.accent }}>×{r.count} on docks</span>}{r.totalOnDock > r.count && <span className="text-[10px] ml-1.5" style={{ color: C.muted }}>+{r.totalOnDock - r.count} elsewhere</span>}{r.mixedPO && <span className="text-[10px] ml-1.5 px-1.5 py-0.5 rounded-full" style={{ background: C.warnBg, color: C.warn }}>⚠ mixed PO</span>}{r.checked > 0 && <span className="text-[10px] ml-1.5 px-1.5 py-0.5 rounded-full" style={{ background: C.okBg, color: C.ok }}>✓ {r.checked === r.count ? "already inspected" : `${r.checked}/${r.count} inspected`}</span>}{r.blocking && <span className="text-[10px] ml-1.5 px-1.5 py-0.5 rounded" style={{ background: C.badBg, color: C.bad }}>needed today</span>}{stacked && <span className="text-[10px] ml-1.5 px-1.5 py-0.5 rounded inline-flex items-center" style={{ background: C.line, color: C.muted }}><Ic i={Layers} s={10} mr={3} />in stack</span>}</td>
               {prioSel === "Needed today" && <td className="py-1.5 pr-3 text-xs">{r.priority || "—"}</td>}<td className="py-1.5 pr-3 font-mono text-xs">{r.article}</td><td className="py-1.5 pr-3">{r.location}</td><td className="py-1.5 pr-3 text-xs">{r.arrived} {r.arrivedTime}</td><td className="py-1.5 pr-3 text-xs">{r.transporter}</td>

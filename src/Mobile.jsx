@@ -4,6 +4,7 @@ import { hasV, specLabel, dayLabel, typesOf, typeById, legacyTypeId, inspType, c
 import { activeTempForSpec, applyTempSpec, closeExpiredTempSpecs, tempUntilLabel } from "./shared/tempspec.js";
 import { SpecValue } from "./shared/SpecValue.jsx";
 import { peopleOnFloor, peopleAtDock, floorWhere, floorVerb, doneTodayCount } from "./shared/floor.js";
+import { dockMatches } from "./shared/dock-search.js";
 import { readAsDataUrl, keepPhoto, shrinkPhoto, memoPdfPhoto, fetchPdfPhotoSrc, rotateImage } from "./shared/report-images.js";
 import { attachRemarkPhotos, replacePhoto, replaceRemarkPhoto } from "./shared/photos.js";
 import { CameraSheet } from "./shared/CameraSheet.jsx";
@@ -2218,11 +2219,14 @@ function MPriorityList({ s, user, go, priority, focus }) {
   // "Needed today" is the dock sheet's blocking flag (picking waits for these pallets), not a priority label — it cuts across priorities.
   const isNeeded = priority === "Needed today";
   const [subTab, setSubTab] = useState("regular");
+  const [q, setQ] = useState("");
   // "Priorities" is the all-up list — it must include skippable pallets too, not hide them; "Skippable" is just a
   // filtered view of the same set, not a separate bucket that pulls items out of the main list.
   const liveAll = dockRowsLive(s);
   const allRows = isAll ? liveAll.filter(r => subTab === "skippable" ? r.skippable : true) : isNeeded ? liveAll.filter(r => r.blocking) : liveAll.filter(r => priority === "Skippable" ? r.skippable : r.priority === priority);
-  const lostRows = allRows.filter(r => lostOf(s, r)); const rows = allRows.filter(r => !lostOf(s, r));
+  const named = r => ({ ...r, name: r.name || s.products.find(p => p.articleId === r.article)?.name || "" });
+  const lostAll = allRows.filter(r => lostOf(s, r)); const liveRows = allRows.filter(r => !lostOf(s, r));
+  const lostRows = lostAll.filter(r => dockMatches(named(r), q)); const rows = liveRows.filter(r => dockMatches(named(r), q));
   // Sections by arrival day, oldest first — the 24h rejection window makes the oldest pallets the urgent ones. Inside a day the
   // same SKU collapses into one row (×N) and anything with a recent rejection floats to the top.
   const dayKey = r => /^\d{4}-\d{2}-\d{2}/.test(r.arrived || "") ? r.arrived.slice(0, 10) : "";
@@ -2249,6 +2253,8 @@ function MPriorityList({ s, user, go, priority, focus }) {
   const dayTitle = d => { if (!d) return "Arrival date unknown"; const label = dayLabel(d + "T12:00:00"); const full = new Date(d + "T12:00:00").toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" }); return label === "Today" || label === "Yesterday" ? `${label} · ${full}` : full; };
   const ageDays = d => d ? Math.round((new Date().setHours(12, 0, 0, 0) - new Date(d + "T12:00:00").getTime()) / 86400000) : 0;
   const skus = new Set(rows.map(r => r.article || r.hu)).size;
+  const skusAll = new Set(liveRows.map(r => r.article || r.hu)).size;
+  const searching = !!q.trim();
   return (
     <div className="pb-4">
       <TopBar title={isAll ? "Pallets on docks" : priority} onBack={() => go("back")} />
@@ -2257,8 +2263,9 @@ function MPriorityList({ s, user, go, priority, focus }) {
       </div>}
       <div className="px-4 pt-3">
         {isNeeded && <div className="rounded-xl px-3 py-2 mb-2 flex items-start gap-2 text-[13px] leading-snug" style={{ background: C.badBg, color: C.bad }}><Ic i={AlertTriangle} s={14} mr={0} style={{ marginTop: 2 }} /><span>Flagged on the dock sheet as needed today — picking waits for these, inspect them first.</span></div>}
-        <p className="text-xs mb-1" style={{ color: C.muted }}>{rows.length} pallet{rows.length === 1 ? "" : "s"} · {skus} SKU{skus === 1 ? "" : "s"} · oldest arrivals first</p>
-        {rows.length === 0 && <p className="text-sm py-8 text-center" style={{ color: C.muted }}>{lostRows.length ? "Nothing findable here — only lost pallets below." : isNeeded ? "Nothing is flagged as needed today." : isAll ? (subTab === "skippable" ? "No skippable pallets on the docks right now." : "Nothing on the docks right now.") : "Nothing at this priority right now."}</p>}
+        <SearchBox value={q} onChange={setQ} placeholder="Search name, article or ID…" className="mb-3" inputClass="rounded-xl py-2.5" />
+        <p className="text-xs mb-1" style={{ color: C.muted }}>{searching ? `${rows.length} of ${liveRows.length} pallet${liveRows.length === 1 ? "" : "s"} · ${skus} of ${skusAll} SKU${skusAll === 1 ? "" : "s"}` : `${rows.length} pallet${rows.length === 1 ? "" : "s"} · ${skus} SKU${skus === 1 ? "" : "s"} · oldest arrivals first`}</p>
+        {rows.length === 0 && <p className="text-sm py-8 text-center" style={{ color: C.muted }}>{searching ? (lostRows.length ? "Nothing findable matches — only lost pallets below." : "Nothing matches.") : lostRows.length ? "Nothing findable here — only lost pallets below." : isNeeded ? "Nothing is flagged as needed today." : isAll ? (subTab === "skippable" ? "No skippable pallets on the docks right now." : "Nothing on the docks right now.") : "Nothing at this priority right now."}</p>}
         {days.map(d => { const items = itemsFor(byDay[d]); const n = byDay[d].length; const old = ageDays(d) >= 1; return (
           <div key={d || "none"} className="mt-3">
             <div className="flex items-center gap-2 py-1.5 sticky top-0" style={{ background: C.surface }}>
@@ -3419,7 +3426,7 @@ function MDocks({ s, user, go }) {
   const byDock = {}; const other = [];
   rows.forEach(r => { const d = parseDock(r.location); if (d && dockZone(d.n)) (byDock[d.n] = byDock[d.n] || []).push({ ...r, sub: d.sub }); else other.push(r); });
   const floorPeople = peopleOnFloor(s, [...all, ...blockedRowsLive(s)]);
-  const [sel, setSel] = useState(null); const [quick, setQuick] = useState(false);
+  const [sel, setSel] = useState(null); const [quick, setQuick] = useState(false); const [q, setQ] = useState("");
   // Lens (status / age) and an optional legend filter: bars, counts and the selected dock's list follow both.
   const [mode, setMode] = useState("status"); const [filter, setFilter] = useState(null);
   const keyOf = r => mode === "age" ? dockAge(r) : dockStatus(r);
@@ -3454,6 +3461,8 @@ function MDocks({ s, user, go }) {
     return Object.values(groups).map(g => { const first = g[0]; const product = s.products.find(p => p.articleId === first.article); const checked = g.filter(x => completedInspectionFor(s, x.hu)).length; const subs = [...new Set(g.map(r => r.sub).filter(Boolean))].sort(); const earliest = [...g].sort((x, y) => `${x.arrived || ""}${x.arrivedTime || "99"}`.localeCompare(`${y.arrived || ""}${y.arrivedTime || "99"}`))[0];
       return { key: first.article || first.hu, name: first.name || product?.name || first.article, count: g.length, checked, subs, hu: earliest.hu, productId: product?.id || null, priority: first.priority, status: dockStatus(g.find(r => r.blocking) || first), blocking: g.some(r => r.blocking), transporter: earliest.transporter, arrived: earliest.arrived, arrivedTime: earliest.arrivedTime, location: sel === "other" ? [...new Set(g.map(r => r.location).filter(Boolean))].join(", ") : "" };
     }).sort((a, b) => (dockStatusRank(a.status) - dockStatusRank(b.status)) || `${a.arrived || ""}${a.arrivedTime || "99"}`.localeCompare(`${b.arrived || ""}${b.arrivedTime || "99"}`)); })();
+  const shown = items.filter(it => dockMatches({ ...it, article: it.key }, q));
+  const searching = !!q.trim();
   const quickRows = [14, ...DOCK_CHILLED, ...DOCK_AMBIENT, 0].map(n => ({ key: n, label: n === 14 || n === 0 ? `${dockLabel(n)} · across` : dockLabel(n), zone: dockZone(n), arr: byDock[n] || [] })).filter(q => q.arr.length).concat(other.length ? [{ key: "other", label: "Other locations", zone: null, arr: other }] : []);
   const ZoneRow = ({ icon, title, st, tint }) => (
     <div className="flex items-center gap-3 py-2.5" style={{ borderBottom: `1px solid ${C.line}` }}>
@@ -3513,7 +3522,7 @@ function MDocks({ s, user, go }) {
               {selZone && <span className="text-[10px] px-1.5 py-0.5 rounded-full inline-flex items-center gap-1" style={{ background: C.bg, color: selZone === "chilled" ? C.accent : C.warn, border: `1px solid ${C.line}` }}><Ic i={selZone === "chilled" ? Snowflake : Thermometer} s={10} mr={0} />{selZone}</span>}
               <button onClick={() => setSel(null)} className="text-xs" style={{ color: C.muted }}>Clear</button>
             </div>
-            <p className="text-xs mb-1" style={{ color: C.muted }}>{selRows.length} pallet{selRows.length === 1 ? "" : "s"} · {items.length} SKU{items.length === 1 ? "" : "s"}{selRows.filter(r => r.blocking).length ? ` · ${selRows.filter(r => r.blocking).length} needed today` : ""}</p>
+            <p className="text-xs mb-2" style={{ color: C.muted }}>{selRows.length} pallet{selRows.length === 1 ? "" : "s"} · {items.length} SKU{items.length === 1 ? "" : "s"}{selRows.filter(r => r.blocking).length ? ` · ${selRows.filter(r => r.blocking).length} needed today` : ""}</p>
             {(() => { const here = sel === "other" ? floorPeople.filter(p => p.dock === "other") : peopleAtDock(floorPeople, sel); if (!here.length) return null; return (
               <div className="rounded-xl px-3 py-2 mb-2" style={{ background: C.accentSoft }}>
                 {here.map(p => { const u = s.users.find(x => x.id === p.userId); return (
@@ -3524,8 +3533,10 @@ function MDocks({ s, user, go }) {
                 ); })}
               </div>
             ); })()}
-            {items.length === 0 && <p className="text-sm py-6 text-center" style={{ color: C.muted }}>Nothing standing here right now.</p>}
-            {items.map(it => (
+            <SearchBox value={q} onChange={setQ} placeholder="Search name, article or ID…" className="mb-2" inputClass="rounded-xl py-2" />
+            {searching && <p className="text-xs mb-1" style={{ color: C.muted }}>{shown.length} of {items.length} SKU{items.length === 1 ? "" : "s"} match</p>}
+            {shown.length === 0 && <p className="text-sm py-6 text-center" style={{ color: C.muted }}>{searching ? "Nothing matches." : "Nothing standing here right now."}</p>}
+            {shown.map(it => (
               <button key={it.key} onClick={() => go("palletInfo", it.hu)} className="w-full text-left py-3 active:opacity-60" style={{ borderBottom: `1px solid ${C.line}` }}>
                 <p className="text-sm font-medium leading-snug">{it.name}</p>
                 <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 mt-1">
