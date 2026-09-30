@@ -97,6 +97,16 @@ export function numberSpecCheck({ min, max, unit }, measurements) {
   return { expected: specLabel({ min, max, unit: unit || "" }), ok };
 }
 
+// Inspection list search: product name / article, or the report number printed on the PDF (YEGDVNUW).
+export function matchesInspSearch(insp, product, q) {
+  const qq = String(q || "").trim().toLowerCase();
+  if (!qq) return true;
+  const id = String(insp?.id || "").toLowerCase();
+  const compact = s => String(s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  if (id.includes(qq) || (compact(qq) && compact(id).includes(compact(qq)))) return true;
+  return `${product?.name || ""} ${product?.articleId || ""}`.toLowerCase().includes(qq);
+}
+
 export const typesOf = s => [...(s.inspectionTypes || [])].sort((a, b) => a.sort - b.sort);
 export const typeById = (s, id) => (s.inspectionTypes || []).find(t => t.id === id) || null;
 export const legacyTypeId = t => t === "Visual" ? "type-visual" : t === "Skip" ? "type-skip" : "type-full";
