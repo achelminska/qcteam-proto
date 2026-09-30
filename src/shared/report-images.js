@@ -206,7 +206,6 @@ export async function addImageNatural(doc, src, x, y, w, h) {
   try {
     doc.addImage(src, fmt, x, y, w, h, alias, mode);
   } catch (e) {
-    if (fmt === "JPEG" || fmt === "PNG") throw e;
     const png = await canvasPng(src);
     if (!png) throw e;
     doc.addImage(png, "PNG", x, y, w, h, `${alias}p`, "FAST");
@@ -318,40 +317,64 @@ export const pdfPhotoMaxEdge = (maxMm, dpi = 180) => Math.max(1, Math.round(Numb
 // otherwise redraw to a JPEG that matches the print box. Returns {d, w, h}.
 export function fitPhotoForPdf(src, maxEdge = 720, quality = 0.82) {
   if (typeof document === "undefined" || !src) return Promise.resolve(null);
+  const draw = (img, w, h, edge) => {
+    if (!w || !h) return null;
+    const k = Math.min(1, edge / Math.max(w, h));
+    if (k === 1 && String(src).startsWith("data:") && imageFormat(src) === "JPEG") return { d: jpegDataUrlFrameFirst(src), w, h };
+    const c = document.createElement("canvas");
+    c.width = Math.max(1, Math.round(w * k));
+    c.height = Math.max(1, Math.round(h * k));
+    c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+    return { d: c.toDataURL("image/jpeg", quality), w: c.width, h: c.height };
+  };
   return new Promise(resolve => {
     const img = new Image();
     img.onload = () => {
-      try {
-        const w = img.naturalWidth || img.width, h = img.naturalHeight || img.height;
-        if (!w || !h) return resolve(null);
-        const k = Math.min(1, maxEdge / Math.max(w, h));
-        if (k === 1 && String(src).startsWith("data:") && imageFormat(src) === "JPEG") return resolve({ d: jpegDataUrlFrameFirst(src), w, h });
-        const c = document.createElement("canvas");
-        c.width = Math.max(1, Math.round(w * k));
-        c.height = Math.max(1, Math.round(h * k));
-        c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
-        resolve({ d: c.toDataURL("image/jpeg", quality), w: c.width, h: c.height });
-      } catch { resolve(null); }
+      const w = img.naturalWidth || img.width, h = img.naturalHeight || img.height;
+      try { resolve(draw(img, w, h, maxEdge)); }
+      catch {
+        try { resolve(draw(img, w, h, Math.max(160, Math.round(maxEdge / 2)))); }
+        catch { resolve(null); }
+      }
     };
     img.onerror = () => resolve(null);
+    const url = String(src);
+    if (url && !url.startsWith("data:") && !url.startsWith("blob:")) img.crossOrigin = "anonymous";
     img.src = src;
   });
 }
 
+// Load + decode one photo. Tries every stored src until a picture actually
+// decodes — a leftover data: URL that fetch treats as "loaded" must not hide
+// a working /photos path (Weight / module shots vs. remarks).
+export async function resolvePdfPhoto(ph, { load = fetchPdfPhotoSrc, fit = fitPhotoForPdf, maxEdge = 720 } = {}) {
+  for (const src of photoSrcCandidates(ph)) {
+    try {
+      const raw = await load(src);
+      if (!raw) continue;
+      const fitted = await fit(raw, maxEdge);
+      if (fitted && fitted.d && fitted.w && fitted.h) return fitted;
+    } catch { /* next candidate */ }
+  }
+  return null;
+}
+
 // A photo may be a leftover data URL, a /photos path, or a bare string after
-// the server rewrote embedded images. Prefer an in-memory data: URL — field
-// photos often keep one even when `path` 404s after a deploy.
+// the server rewrote embedded images. Prefer the file path — that is what the
+// inspection screen shows (`ph.path || ph.dataUrl`). A leftover data: URL is
+// often a multi-MB camera frame that OOMs the PDF canvas while `/photos` embeds.
 export function photoSrcCandidates(ph) {
   if (!ph) return [];
   if (typeof ph === "string") return ph.trim() ? [ph.trim()] : [];
   const raw = [];
   const add = s => { s = String(s || "").trim(); if (s && !raw.includes(s)) raw.push(s); };
-  add(ph.dataUrl);
   add(ph.path);
   add(ph.src);
   add(ph.url);
+  add(ph.dataUrl);
+  const files = raw.filter(s => !s.startsWith("data:"));
   const data = raw.filter(s => s.startsWith("data:"));
-  return [...data, ...raw.filter(s => !s.startsWith("data:"))];
+  return [...files, ...data];
 }
 
 export function absPhotoUrl(src) {
@@ -361,16 +384,25 @@ export function absPhotoUrl(src) {
   return src;
 }
 
+const fetchCache = new Map();
+
 export async function fetchPdfPhotoSrc(src) {
   src = absPhotoUrl(src);
   if (!src) return null;
   if (src.startsWith("data:") || src.startsWith("blob:")) return src;
-  const r = await fetch(src);
-  if (!r.ok) return null;
-  const blob = await r.blob();
-  const t = String(blob.type || "");
-  if (t && !t.startsWith("image/") && t !== "application/octet-stream") return null;
-  return URL.createObjectURL(blob);
+  if (fetchCache.has(src)) return fetchCache.get(src);
+  const p = (async () => {
+    try {
+      const r = await fetch(src);
+      if (!r.ok) return null;
+      const blob = await r.blob();
+      const t = String(blob.type || "");
+      if (t && !t.startsWith("image/") && t !== "application/octet-stream") return null;
+      return URL.createObjectURL(blob);
+    } catch { return null; }
+  })();
+  fetchCache.set(src, p);
+  return p;
 }
 
 // Cached per photo identity. Tries every candidate so a dead `path` still
@@ -410,11 +442,14 @@ export async function mapPool(items, n, fn) {
 // Returns the y just under the last row.
 export async function drawPhotoGroup(doc, { photos, photoData, x0, y0, right, maxW = 52, maxH = 52, gap = 4, pageBreak = 272, newPage }) {
   const maxEdge = pdfPhotoMaxEdge(Math.max(maxW, maxH));
-  const items = (await mapPool(photos || [], 2, async ph => {
+  // photoData is kept so callers / prefetch stay unchanged. Embed goes through
+  // resolvePdfPhoto so a leftover data: URL cannot hide a working /photos file.
+  void photoData;
+  // One at a time on the phone: a pool of 2 × full-res field shots was enough
+  // to OOM the canvas and drop Weight / module groups while remarks survived.
+  const items = (await mapPool(photos || [], 1, async ph => {
     try {
-      const raw = await photoData(ph);
-      if (!raw) return null;
-      const fitted = await fitPhotoForPdf(raw, maxEdge);
+      const fitted = await resolvePdfPhoto(ph, { maxEdge });
       if (!fitted) return null;
       const box = fitWithin({ w: fitted.w, h: fitted.h }, maxW, maxH);
       if (!box) return null;

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { asPhotoList, pickedPhotos, attachRemarkPhotos, replacePhoto, replaceRemarkPhoto } from "./photos.js";
+import { asPhotoList, flattenPhotos, photoGroupsByModule, pickedPhotos, attachRemarkPhotos, replacePhoto, replaceRemarkPhoto } from "./photos.js";
 
 const shot = (id) => ({ id, path: `/photos/${id}.jpg` });
 
@@ -22,12 +22,45 @@ describe("pickedPhotos", () => {
   });
 });
 
+describe("flattenPhotos", () => {
+  it("unwraps a nested { out } picker result left on a field", () => {
+    expect(flattenPhotos([{ out: [shot("a"), shot("b")], failed: [] }])).toEqual([shot("a"), shot("b")]);
+  });
+  it("keeps a normal photo list", () => {
+    expect(flattenPhotos([shot("a")])).toEqual([shot("a")]);
+  });
+});
+
+describe("photoGroupsByModule", () => {
+  it("walks module 1 then module 2, fields before remarks in each", () => {
+    const modules = [{ id: "m2", sort: 2 }, { id: "m1", sort: 1 }];
+    const fields = [
+      { id: "unit", moduleId: "m2", sort: 0, label: "Unit data" },
+      { id: "weight", moduleId: "m1", sort: 0, label: "Weight" },
+    ];
+    const photos = { unit: [shot("u")], weight: [shot("w")] };
+    const remarks = [{ id: "r1", leafId: "browning", photos: [shot("r")] }];
+    const groups = photoGroupsByModule({
+      modules, fields, photos, remarks,
+      remarkModuleId: r => r.leafId === "browning" ? "m2" : null,
+      labelField: f => f.label,
+      labelRemark: r => "Problem: " + r.leafId,
+    });
+    expect(groups.map(g => g.label)).toEqual(["Weight", "Unit data", "Problem: browning"]);
+    expect(groups[0].photos).toEqual([shot("w")]);
+  });
+});
+
 describe("replacePhoto", () => {
   it("swaps one photo and keeps its id so the strip does not jump", () => {
     const list = [shot("a"), shot("b")];
     const next = replacePhoto(list, "b", { path: "/photos/b2.jpg", dataUrl: "data:x" });
     expect(next[1]).toEqual({ id: "b", path: "/photos/b2.jpg", dataUrl: "data:x" });
     expect(next[0]).toEqual(shot("a"));
+  });
+  it("drops a stale dataUrl when the replacement is only a path", () => {
+    const list = [{ id: "a", path: "/photos/a.jpg", dataUrl: "data:image/jpeg;base64,old" }];
+    expect(replacePhoto(list, "a", { path: "/photos/a2.jpg" })[0]).toEqual({ id: "a", path: "/photos/a2.jpg" });
   });
   it("replaces a remark photo in place", () => {
     const remarks = [{ id: "r1", photos: [shot("a")] }];
