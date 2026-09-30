@@ -8,9 +8,10 @@ describe("pickedPhotos", () => {
     const out = [shot("a")];
     expect(pickedPhotos({ out, failed: ["x.jpg"] })).toEqual(out);
   });
-  it("still accepts a bare array from older callers", () => {
+  it("still accepts a bare array (PhotoStrip onAdd passes out directly)", () => {
     const out = [shot("a")];
     expect(pickedPhotos(out)).toEqual(out);
+    expect(attachRemarkPhotos([{ id: "r1", photos: [] }], "r1", out)[0].photos).toEqual(out);
   });
   it("does not treat the result object itself as a photo list", () => {
     // The bug: `{ out, failed }.length` is undefined, so remarks never saved.
