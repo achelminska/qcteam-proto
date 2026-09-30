@@ -159,6 +159,11 @@ const GLOBAL_CSS = () => `
   .qc button:active{transform:translateY(1px)}
   .qc-tile{box-shadow:${lift()}}
   .qc button.qc-elev:active,.qc button.qc-tile:active{box-shadow:0 1px 0 rgba(255,255,255,.03) inset,0 2px 6px rgba(0,0,0,.22)!important}
+  @keyframes qc-led-breathe{0%,100%{opacity:${C.isDark ? .55 : .36}}50%{opacity:${C.isDark ? .95 : .68}}}
+  .qc-led-halo{position:absolute;inset:-3px;border-radius:19px;pointer-events:none;z-index:0}
+  .qc-led-halo::before{content:"";position:absolute;inset:0;border-radius:inherit;background:${C.accent};filter:blur(8px);opacity:${C.isDark ? .72 : .4}}
+  .qc-led-halo::after{content:"";position:absolute;inset:1px;border-radius:17px;box-shadow:0 0 0 1px ${C.accent},0 0 10px ${C.accent};opacity:${C.isDark ? .88 : .58}}
+  @media (prefers-reduced-motion:no-preference){.qc-led-halo::before,.qc-led-halo::after{animation:qc-led-breathe 2.6s ease-in-out infinite}}
   .qc button:disabled{cursor:not-allowed;opacity:.6}
   .qc button:focus-visible,.qc a:focus-visible{outline:2px solid ${C.accent};outline-offset:2px}
   .qc .label-sm{font-size:11.5px;font-weight:600;color:${C.muted};letter-spacing:0;text-transform:none}
@@ -2321,17 +2326,20 @@ function MDashboard({ s, set, user, go, dismissed, setDismissed, onAssign }) {
         ].filter(Boolean);
         return (
           <div className="px-5 mb-3">
-            <button onClick={() => go("briefing")} className="qc-elev qc-tile w-full text-left rounded-2xl px-3.5 py-3 flex items-center gap-3" style={{ background: C.bg, border: `1px solid ${C.line}`, borderLeft: `3px solid ${seen ? C.line : C.accent}` }}>
-              <span className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: C.accentSoft, color: C.accent }}><Ic i={BookOpen} s={18} mr={0} /></span>
-              <span className="min-w-0 flex-1">
-                <span className="flex items-center gap-2">
-                  <span className="text-sm font-semibold">Shift update</span>
-                  {!seen && <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium" style={{ background: C.accentSoft, color: C.accent }}>open first</span>}
+            <div className="relative">
+              {!seen && <span aria-hidden className="qc-led-halo" />}
+              <button onClick={() => go("briefing")} className="qc-elev qc-tile w-full text-left rounded-2xl px-3.5 py-3 flex items-center gap-3 relative" style={{ background: C.bg, border: `1px solid ${C.line}`, borderLeft: `3px solid ${seen ? C.line : C.accent}`, zIndex: 1 }}>
+                <span className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: C.accentSoft, color: C.accent }}><Ic i={BookOpen} s={18} mr={0} /></span>
+                <span className="min-w-0 flex-1">
+                  <span className="flex items-center gap-2">
+                    <span className="text-sm font-semibold">Shift update</span>
+                    {!seen && <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium" style={{ background: C.accentSoft, color: C.accent }}>open first</span>}
+                  </span>
+                  <span className="block text-[11px] mt-0.5 leading-snug" style={{ color: C.muted }}>{bits.length ? bits.join(" · ") : "Nothing live — still worth a look"}</span>
                 </span>
-                <span className="block text-[11px] mt-0.5 leading-snug" style={{ color: C.muted }}>{bits.length ? bits.join(" · ") : "Nothing live — still worth a look"}</span>
-              </span>
-              <Ic i={ChevronRight} s={16} mr={0} style={{ color: C.muted }} />
-            </button>
+                <Ic i={ChevronRight} s={16} mr={0} style={{ color: C.muted }} />
+              </button>
+            </div>
           </div>
         );
       })()}
