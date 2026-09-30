@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, Fragment } from "react";
 import { createSyncer, guardUnload } from "./sync.js";
-import { hasV, specLabel, dayLabel, problemPath, typesOf, typeById, legacyTypeId, inspType, countsAs, listCheck } from "./shared/format.js";
+import { hasV, specLabel, dayLabel, problemPath, typesOf, typeById, legacyTypeId, inspType, countsAs, listCheck, matchFieldSpec, numberSpecCheck } from "./shared/format.js";
 import { normArticle, isoWeekOf, todayISO, weekLabel, weekRange, shiftWeek, sortSnapshots, latestSnapshot, snapshotTotal, upsertSnapshot, snapshotsOfWeek, previousInWeek, deltaRows, subTypeMix, weekSeries, articleTrend, topArticles, asLegacyMeta, migrateLegacy, rowFor } from "./shared/complaints.js";
 import { activeTempForSpec, applyTempSpec, clearTempSpec, closeExpiredTempSpecs, tempOwnerLabel, tempUntilLabel, upsertTempSpec } from "./shared/tempspec.js";
 import { SpecValue } from "./shared/SpecValue.jsx";
@@ -125,6 +125,22 @@ const photoGroupsOf = (t, insp, problems) => {
     labelField: f => f.type === "Photos" ? photoBlockLabel(f, t) : f.label,
     labelRemark: r => `Problem: ${pathOf(problems, r.leafId)}`,
   });
+};
+const parameterRow = (f, v, s, product, piecesPerCu) => {
+  if (f.type === "Number") {
+    const nums = (v?.measurements || []).filter(x => x !== "").map(Number);
+    const txt = nums.map(fmt).join(" / ") + (nums.length > 1 ? ` — avg ${fmt(nums.reduce((a, b) => a + b, 0) / nums.length)}` : "");
+    const spec = matchFieldSpec(effectiveSpecs(s, product), f);
+    const lim = limitsFor(spec, f, piecesPerCu);
+    const c = numberSpecCheck({ min: lim.min, max: lim.max, unit: spec ? spec.unit : "" }, nums);
+    return c ? [fieldLabel(f), txt, c.expected, c.ok] : [fieldLabel(f), txt];
+  }
+  const txt = Array.isArray(v) ? v.join(", ") : String(v ?? "");
+  if (f.type === "List" || f.type === "SingleChoice") {
+    const c = listCheck(effectiveAttributes(s, product).find(a => a.dictionaryId === f.dictionaryId), v);
+    if (c) return [fieldLabel(f), txt, c.expected, c.ok];
+  }
+  return [fieldLabel(f), txt];
 };
 // Basis conversion: a spec may be per piece or per CU; a field may measure per piece or per CU. Limits are converted through pieces-per-CU.
 const specBasis = q => q?.basis || "piece"; const fieldBasis = f => f?.measureBasis || "piece";
@@ -517,7 +533,7 @@ async function buildReportPdf(insp, s) {
   });
   const remarks = (insp.remarks || []).map(r => { const unit = { PieceCount: "pcs", DirectWeight: "g", WholeUnitCount: "CU" }[r.mode] || ""; const p = r.mode === "Presence" ? null : pct(r, totals); return { problem: pathOf(problems, r.leafId), quantity: r.mode === "Presence" ? "present" : `${r.raw} ${unit}`, pct: p === null ? "—" : `${fmt(p)}%`, source: r.auto ? "measurement" : "reported" }; });
   const answered = (t.fields || []).filter(f => !isSystem(f.type) && insp.values?.[f.id] !== undefined && insp.values?.[f.id] !== "").sort(bySort);
-  const parameters = answered.map(f => { const v = insp.values[f.id]; let txt; if (f.type === "Number") { const nums = (v?.measurements || []).filter(x => x !== "").map(Number); txt = nums.map(fmt).join(" / ") + (nums.length > 1 ? ` — avg ${fmt(nums.reduce((a, b) => a + b, 0) / nums.length)}` : ""); } else txt = Array.isArray(v) ? v.join(", ") : String(v ?? ""); if (f.type === "List") { const c = listCheck(effectiveAttributes(s, product).find(a => a.dictionaryId === f.dictionaryId), v); if (c) return [fieldLabel(f), txt, c.expected, c.ok]; } return [fieldLabel(f), txt]; });
+  const parameters = answered.map(f => parameterRow(f, insp.values[f.id], s, product, insp.sample?.piecesPerCu));
   const photoGroups = photoGroupsOf(t, insp, problems);
   const audit = (insp.audit || []).map(a => [a.action, `${fmtTime(a.at)} · ${users[a.userId]?.name || ""}${users[a.userId]?.email ? ` (${users[a.userId].email})` : ""}${a.details ? ` — ${a.details}` : ""}`]);
   const model = {
@@ -2476,7 +2492,7 @@ function PrintReport({ insp, s, onClose }) {
         </>}
         {fieldsAnswered.length > 0 && <>
           <h2>Parameters</h2>
-          <table><tbody>{fieldsAnswered.map(f => { const c = f.type === "List" ? listCheck(effectiveAttributes(s, product).find(a => a.dictionaryId === f.dictionaryId), insp.values[f.id]) : null; return <tr key={f.id}><th style={{ width: "30%" }}>{fieldLabel(f)}</th><td>{valStr(f, insp.values[f.id])}{f.type === "Number" && f.measurementCount > 1 && (() => { const nums = (insp.values[f.id]?.measurements || []).filter(x => x !== "").map(Number); return nums.length ? ` — avg ${fmt(nums.reduce((a, b) => a + b, 0) / nums.length)}` : ""; })()}{c ? <span className="k">{c.ok ? ` — matches spec ${c.expected}` : ` — doesn't match spec (expected ${c.expected})`}</span> : null}</td></tr>; })}</tbody></table>
+          <table><tbody>{fieldsAnswered.map(f => { const row = parameterRow(f, insp.values[f.id], s, product, insp.sample?.piecesPerCu); const spec = row.length > 2 ? row[2] : null; return <tr key={f.id}><th style={{ width: "30%" }}>{row[0]}</th><td>{row[1]}{spec ? <span className="k">{row[3] ? ` — matches spec ${spec}` : ` — doesn't match spec (expected ${spec})`}</span> : null}</td></tr>; })}</tbody></table>
         </>}
         <h2>Comment</h2>
         <div style={{ whiteSpace: "pre-wrap", border: "1px solid #ddd", borderRadius: 6, padding: "8px 10px", minHeight: 40 }}>{insp.comment || <span className="k">—</span>}</div>

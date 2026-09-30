@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, Fragment } from "react";
 import { createSyncer, guardUnload } from "./sync.js";
-import { hasV, specLabel, dayLabel, typesOf, typeById, legacyTypeId, inspType, countsAs, listCheck } from "./shared/format.js";
+import { hasV, specLabel, dayLabel, typesOf, typeById, legacyTypeId, inspType, countsAs, listCheck, matchFieldSpec, numberSpecCheck } from "./shared/format.js";
 import { activeTempForSpec, applyTempSpec, closeExpiredTempSpecs, tempUntilLabel } from "./shared/tempspec.js";
 import { SpecValue } from "./shared/SpecValue.jsx";
 import { peopleOnFloor, peopleAtDock, floorWhere, floorVerb, doneTodayCount } from "./shared/floor.js";
@@ -206,6 +206,22 @@ const photoGroupsOf = (t, insp, problems) => {
     labelField: f => f.type === "Photos" ? photoBlockLabel(f, t) : f.label,
     labelRemark: r => `Problem: ${pathOf(problems, r.leafId)}`,
   });
+};
+const parameterRow = (f, v, s, product, piecesPerCu) => {
+  if (f.type === "Number") {
+    const nums = (v?.measurements || []).filter(x => x !== "").map(Number);
+    const txt = nums.map(fmt).join(" / ") + (nums.length > 1 ? ` — avg ${fmt(nums.reduce((a, b) => a + b, 0) / nums.length)}` : "");
+    const spec = matchFieldSpec(effectiveSpecs(s, product), f);
+    const lim = limitsFor(spec, f, piecesPerCu);
+    const c = numberSpecCheck({ min: lim.min, max: lim.max, unit: spec ? spec.unit : "" }, nums);
+    return c ? [fieldLabel(f), txt, c.expected, c.ok] : [fieldLabel(f), txt];
+  }
+  const txt = Array.isArray(v) ? v.join(", ") : String(v ?? "");
+  if (f.type === "List" || f.type === "SingleChoice") {
+    const c = listCheck(effectiveAttributes(s, product).find(a => a.dictionaryId === f.dictionaryId), v);
+    if (c) return [fieldLabel(f), txt, c.expected, c.ok];
+  }
+  return [fieldLabel(f), txt];
 };
 // Basis conversion: a spec may be per piece or per CU; a field may measure per piece or per CU. Limits are converted through pieces-per-CU.
 const specBasis = q => q?.basis || "piece"; const fieldBasis = f => f?.measureBasis || "piece";
@@ -584,7 +600,7 @@ async function buildReportPdf(insp, s) {
   });
   const remarks = (insp.remarks || []).map(r => { const unit = { PieceCount: "pcs", DirectWeight: "g", WholeUnitCount: "CU" }[r.mode] || ""; const p = r.mode === "Presence" ? null : pct(r, totals); return { problem: pathOf(problems, r.leafId), quantity: r.mode === "Presence" ? "present" : `${r.raw} ${unit}`, pct: p === null ? "—" : `${fmt(p)}%`, source: r.auto ? "measurement" : "reported" }; });
   const answered = (t.fields || []).filter(f => !isSystem(f.type) && insp.values?.[f.id] !== undefined && insp.values?.[f.id] !== "").sort(bySort);
-  const parameters = answered.map(f => { const v = insp.values[f.id]; let txt; if (f.type === "Number") { const nums = (v?.measurements || []).filter(x => x !== "").map(Number); txt = nums.map(fmt).join(" / ") + (nums.length > 1 ? ` — avg ${fmt(nums.reduce((a, b) => a + b, 0) / nums.length)}` : ""); } else txt = Array.isArray(v) ? v.join(", ") : String(v ?? ""); if (f.type === "List") { const c = listCheck(effectiveAttributes(s, product).find(a => a.dictionaryId === f.dictionaryId), v); if (c) return [fieldLabel(f), txt, c.expected, c.ok]; } return [fieldLabel(f), txt]; });
+  const parameters = answered.map(f => parameterRow(f, insp.values[f.id], s, product, insp.sample?.piecesPerCu));
   const photoGroups = photoGroupsOf(t, insp, problems);
   const audit = (insp.audit || []).map(a => [a.action, `${fmtTime(a.at)} · ${users[a.userId]?.name || ""}${users[a.userId]?.email ? ` (${users[a.userId].email})` : ""}${a.details ? ` — ${a.details}` : ""}`]);
   const model = {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { countsAs, dayLabel, hasV, legacyTypeId, listCheck, problemPath, specLabel } from "./format.js";
+import { countsAs, dayLabel, hasV, legacyTypeId, listCheck, matchFieldSpec, numberSpecCheck, problemPath, specLabel } from "./format.js";
 
 describe("specLabel", () => {
   it("renders a range, a one-sided limit, or an em dash", () => {
@@ -35,6 +35,29 @@ describe("problemPath", () => {
     expect(problemPath(problems, "c")).toBe("Quality › Major › Rot");
     expect(problemPath(problems, "a")).toBe("Quality");
     expect(problemPath(problems, "missing")).toBe("");
+  });
+});
+
+describe("matchFieldSpec", () => {
+  const specs = [
+    { id: "sw", name: "Weight", min: "250", max: "", unit: "gram" },
+    { id: "sb", name: "Brix", min: "7", max: "14", unit: "%" },
+  ];
+  it("finds a spec by id or by the field label", () => {
+    expect(matchFieldSpec(specs, { specId: "sw", label: "CU weight" }).id).toBe("sw");
+    expect(matchFieldSpec(specs, { label: "Brix" }).id).toBe("sb");
+    expect(matchFieldSpec(specs, { specName: "Weight", label: "Net" }).id).toBe("sw");
+    expect(matchFieldSpec(specs, { label: "Temperature" })).toBe(null);
+  });
+});
+
+describe("numberSpecCheck", () => {
+  it("judges the average against min / max the way the form does", () => {
+    expect(numberSpecCheck({ min: "250", max: "", unit: "gram" }, [263, 268, 264])).toEqual({ expected: "min 250 gram", ok: true });
+    expect(numberSpecCheck({ min: "7", max: "14", unit: "%" }, [10.1, 1, 9.6])).toEqual({ expected: "7–14 %", ok: false });
+    expect(numberSpecCheck({ min: "7", max: "14", unit: "%" }, [10.1, 9.6])).toEqual({ expected: "7–14 %", ok: true });
+    expect(numberSpecCheck({ min: "", max: "" }, [10])).toBe(null);
+    expect(numberSpecCheck({ min: "250", unit: "g" }, [])).toBe(null);
   });
 });
 
