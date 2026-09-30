@@ -530,7 +530,7 @@ const pickPhotos = (opts = {}) => new Promise(res => {
 const asPhotoList = v => Array.isArray(v) ? v : [];
 const photoSrc = ph => (ph && (ph.path || ph.dataUrl)) || "";
 const photoData = memoPdfPhoto(fetchPdfPhotoSrc);
-function PhotoStrip({ photos, onAdd, onRemove, onReplace, size = 64, addLabel = "Add photo" }) {
+function PhotoStrip({ photos, onAdd, onRemove, onReplace, size = 64, addLabel = "Add photo", label }) {
   const [view, setView] = useState(null); const [busy, setBusy] = useState(false);
   const [cam, setCam] = useState(false);
   const [peek, setPeek] = useState(false);
@@ -559,9 +559,15 @@ function PhotoStrip({ photos, onAdd, onRemove, onReplace, size = 64, addLabel = 
     await replace(ph.id, next);
   };
   const touch = typeof navigator !== "undefined" && navigator.maxTouchPoints > 0;
+  const loupe = list.length > 0 && (
+    <button type="button" onClick={() => setPeek(p => !p)} className="h-7 px-2.5 rounded-full inline-flex items-center gap-1 text-[11px] font-semibold flex-shrink-0" style={{ background: peek ? C.ink : C.bg, color: peek ? C.onDark : C.ink, border: `1px solid ${peek ? C.ink : C.line}` }} aria-label={peek ? "Shrink photos" : "Enlarge photos"} aria-pressed={peek} title={peek ? "Shrink photos" : "Enlarge photos"}>
+      <Ic i={Search} s={13} mr={0} />{peek ? "Smaller" : "Larger"}
+    </button>
+  );
   return (
-    <div className="flex flex-wrap gap-2 items-center">
-      {list.length > 0 && <button type="button" onClick={() => setPeek(p => !p)} className="rounded-full inline-flex items-center justify-center flex-shrink-0" style={{ width: 32, height: 32, background: peek ? C.accent : C.accentSoft, color: peek ? C.onDark : C.accent }} aria-label={peek ? "Shrink photos" : "Enlarge photos"} aria-pressed={peek} title={peek ? "Shrink photos" : "Enlarge photos"}><Ic i={Search} s={16} mr={0} /></button>}
+    <div>
+      {(label || loupe) && <div className="flex items-center gap-2 mb-1.5">{label ? <p className="text-xs flex-1 min-w-0" style={{ color: C.muted }}>{label}</p> : <div className="flex-1" />}{loupe}</div>}
+      <div className="flex flex-wrap gap-2 items-center">
       {list.map(ph => <div key={ph.id} className="relative"><img src={ph.path || photoSrc(ph)} alt="" onClick={() => setView(list.indexOf(ph))} onError={e => { const fb = ph.dataUrl; if (fb && e.currentTarget.dataset.fb !== "1") { e.currentTarget.dataset.fb = "1"; e.currentTarget.src = fb; } }} className="rounded-lg cursor-pointer" style={{ width: thumb, height: thumb, objectFit: peek ? "contain" : "cover", background: peek ? C.surface : undefined, border: `1px solid ${C.line}` }} />{onRemove && <button onClick={() => onRemove(ph.id)} className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full text-[10px] leading-none" style={{ background: C.bad, color: C.onDark }} title="delete">×</button>}</div>)}
       {busy && <div className="rounded-lg flex items-center justify-center text-[10px]" style={{ width: size, height: size, background: C.bg, color: C.muted, border: `1px solid ${C.line}` }}>uploading…</div>}
       {onAdd && size < 56 && <>
@@ -575,6 +581,7 @@ function PhotoStrip({ photos, onAdd, onRemove, onReplace, size = 64, addLabel = 
       {/* Same viewer as the product profile: counter, arrows, dots and swipe between the photos of this strip. */}
       {view != null && <PhotoReview title="Photos" photos={list} index={view} onIndex={setView} onClose={() => setView(null)} onRotate={onReplace ? rotateView : undefined} onDelete={onRemove ? () => { const ph = list[view]; if (!ph) return; onRemove(ph.id); if (list.length <= 1) setView(null); else setView(Math.min(view, list.length - 2)); } : undefined} />}
       {cam && <CameraSheet onShot={shot} onReplace={onReplace ? replace : undefined} onClose={() => setCam(false)} onLibrary={() => { setCam(false); add(false); }} />}
+      </div>
     </div>
   );
 }
@@ -1756,7 +1763,7 @@ function ReportView({ insp, s, onEdit, onAnswer, user, onMarkReference, onProduc
       {t && <ProblemOverview t={t} problems={problems} remarks={insp.remarks || []} totals={totals} />}
       {(insp.remarks || []).map(r => <div key={r.id} className="flex items-center gap-2 text-sm py-1" style={{ borderTop: `1px solid ${C.line}` }}><span className="flex-1">{pathOf(problems, r.leafId)}{r.auto && <span className="text-xs" style={{ color: C.muted }}> (from measurement)</span>}</span><span className="text-xs" style={{ color: C.muted }}>{r.mode === "Presence" ? "present" : `${r.raw} ${r.mode === "PieceCount" ? "pcs" : r.mode === "DirectWeight" ? "g" : "CU"}`}</span><span>{r.mode === "Presence" ? "⚡" : `${fmt(pct(r, totals))}%`}</span></div>)}
       {insp.comment && <div className="rounded-lg p-3 mt-3 text-sm" style={{ background: C.bg }}>{insp.comment}</div>}
-      {(() => { const groups = photoGroupsOf(t, insp, problems); return <div className="mt-4"><p className="label-sm mb-2">Photos</p>{groups.length ? groups.map(g => <div key={g.key} className="mb-2"><p className="text-xs mb-1" style={{ color: C.muted }}>{g.label}</p><PhotoStrip photos={g.photos} size={72} /></div>) : <p className="text-xs" style={{ color: C.muted }}>No photos in this inspection.</p>}</div>; })()}
+      {(() => { const groups = photoGroupsOf(t, insp, problems); return <div className="mt-4"><p className="label-sm mb-2">Photos</p>{groups.length ? groups.map(g => <div key={g.key} className="mb-3"><PhotoStrip photos={g.photos} size={72} label={g.label} /></div>) : <p className="text-xs" style={{ color: C.muted }}>No photos in this inspection.</p>}</div>; })()}
       {(insp.audit || []).length > 0 && (
         <div className="mt-4">
           <p className="label-sm mb-1">Audit trail</p>
