@@ -4,9 +4,10 @@ import { hasV, specLabel, dayLabel, typesOf, typeById, legacyTypeId, inspType, c
 import { activeTempForSpec, applyTempSpec, closeExpiredTempSpecs, tempUntilLabel } from "./shared/tempspec.js";
 import { SpecValue } from "./shared/SpecValue.jsx";
 import { peopleOnFloor, peopleAtDock, floorWhere, floorVerb, doneTodayCount } from "./shared/floor.js";
-import { readAsDataUrl, keepPhoto, shrinkPhoto, memoPdfPhoto, fetchPdfPhotoSrc } from "./shared/report-images.js";
-import { attachRemarkPhotos } from "./shared/photos.js";
+import { readAsDataUrl, keepPhoto, shrinkPhoto, memoPdfPhoto, fetchPdfPhotoSrc, rotateImage } from "./shared/report-images.js";
+import { attachRemarkPhotos, replacePhoto, replaceRemarkPhoto } from "./shared/photos.js";
 import { CameraSheet } from "./shared/CameraSheet.jsx";
+import { PhotoReview } from "./shared/PhotoReview.jsx";
 import { drawReportPdf } from "./shared/report-pdf.js";
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceArea, ReferenceLine, Legend } from "recharts";
 import { Clock, MapPin, MessageCircle, Link2, List as ListIcon, BarChart3, Printer, SlidersHorizontal, SkipForward, LayoutDashboard, ClipboardList, Flag, Bell, FolderTree, ListTree, Package, LayoutTemplate, Truck, Globe, Megaphone, MessageSquare, Users, Search, Sun, Moon, Database, Home, Menu as MenuIcon, ScanLine, Plus, ChevronLeft, ChevronRight, ChevronDown, User, Camera, Image as ImageIcon, Paperclip, Send, Star, Pencil, Sparkles, HelpCircle, Download, Lock as LockIcon, AlertTriangle, Inbox, FileText, ShieldAlert, Tag, Layers, BookOpen, Filter, Check, X, Ruler, Boxes, Warehouse, Snowflake, Thermometer, ThumbsDown, ExternalLink } from "lucide-react";
@@ -492,7 +493,7 @@ const pickPhotos = (opts = {}) => new Promise(res => {
 const asPhotoList = v => Array.isArray(v) ? v : [];
 const photoSrc = ph => (ph && (ph.path || ph.dataUrl)) || "";
 const photoData = memoPdfPhoto(fetchPdfPhotoSrc);
-function PhotoStrip({ photos, onAdd, onRemove, size = 64, addLabel = "Add photo" }) {
+function PhotoStrip({ photos, onAdd, onRemove, onReplace, size = 64, addLabel = "Add photo" }) {
   const [view, setView] = useState(null); const [busy, setBusy] = useState(false);
   const [cam, setCam] = useState(false);
   const list = asPhotoList(photos);
@@ -506,6 +507,17 @@ function PhotoStrip({ photos, onAdd, onRemove, size = 64, addLabel = "Add photo"
   const shot = async dataUrl => {
     const ph = await persistPicked(dataUrl, "photo.jpg");
     if (ph) onAdd([ph]);
+    return ph;
+  };
+  const replace = async (id, dataUrl) => {
+    const ph = await persistPicked(dataUrl, "photo.jpg");
+    if (ph && onReplace) onReplace(id, ph);
+    return ph;
+  };
+  const rotateView = async (turns) => {
+    const ph = list[view]; if (!ph || !onReplace) return;
+    const next = await rotateImage(photoSrc(ph), turns);
+    await replace(ph.id, next);
   };
   const touch = typeof navigator !== "undefined" && navigator.maxTouchPoints > 0;
   return (
@@ -521,8 +533,8 @@ function PhotoStrip({ photos, onAdd, onRemove, size = 64, addLabel = "Add photo"
       {!onAdd && list.length === 0 && <span className="text-xs" style={{ color: C.muted }}>no photos</span>}
       {err && <span className="text-xs w-full" style={{ color: C.bad }}>{err}</span>}
       {/* Same viewer as the product profile: counter, arrows, dots and swipe between the photos of this strip. */}
-      {view != null && <MPhotoViewer photos={list} index={view} onIndex={setView} onClose={() => setView(null)} />}
-      {cam && <CameraSheet onShot={shot} onClose={() => setCam(false)} onLibrary={() => { setCam(false); add(false); }} />}
+      {view != null && <PhotoReview title="Photos" photos={list} index={view} onIndex={setView} onClose={() => setView(null)} onRotate={onReplace ? rotateView : undefined} onDelete={onRemove ? () => { const ph = list[view]; if (!ph) return; onRemove(ph.id); if (list.length <= 1) setView(null); else setView(Math.min(view, list.length - 2)); } : undefined} />}
+      {cam && <CameraSheet onShot={shot} onReplace={onReplace ? replace : undefined} onClose={() => setCam(false)} onLibrary={() => { setCam(false); add(false); }} />}
     </div>
   );
 }
@@ -1294,7 +1306,7 @@ function NumberInput({ f, problems, allProblems, overrides, specs, totals, value
   );
 }
 
-function ProblemTreeView({ root, problems, overrides, remarks, onReport, onDelete, onPhoto, onRemovePhoto, totals, disabled, notes }) {
+function ProblemTreeView({ root, problems, overrides, remarks, onReport, onDelete, onPhoto, onRemovePhoto, onReplacePhoto, totals, disabled, notes }) {
   const [open, setOpen] = useState(null);
   const [refOpen, setRefOpen] = useState(null);
   const [mode, setMode] = useState(totals.pieces > 0 ? "PieceCount" : totals.weight > 0 ? "DirectWeight" : "WholeUnitCount");
@@ -1343,7 +1355,7 @@ function ProblemTreeView({ root, problems, overrides, remarks, onReport, onDelet
               {r.mode !== "Presence" && <span className="font-semibold" style={{ color: C.ink, fontVariantNumeric: "tabular-nums" }}>{fmt(pct(r, totals))}%</span>}
               <button onClick={() => onDelete(r.id)} className="inline-flex items-center justify-center rounded-full" style={{ width: 22, height: 22, color: C.bad, background: C.badBg }} title="delete report"><Ic i={X} s={11} mr={0} /></button>
             </div>
-            <PhotoStrip photos={r.photos} onAdd={got => onPhoto && onPhoto(r.id, got)} onRemove={onRemovePhoto ? pid => onRemovePhoto(r.id, pid) : null} size={44} addLabel="Photo" />
+            <PhotoStrip photos={r.photos} onAdd={got => onPhoto && onPhoto(r.id, got)} onRemove={onRemovePhoto ? pid => onRemovePhoto(r.id, pid) : null} onReplace={onReplacePhoto ? (pid, next) => onReplacePhoto(r.id, pid, next) : null} size={44} addLabel="Photo" />
           </div>
         ))}
         {leaf && isOpen && (
@@ -1460,6 +1472,7 @@ function InspectionRunner({ insp, patch, t, problems, product, suppliers, dictio
   const setPhotos = fn => patch(prev => ({ ...prev, photos: fn(prev.photos || {}) }));
   const addPhotos = (key, got) => setPhotos(p => ({ ...p, [key]: [...asPhotoList(p[key]), ...got] }));
   const removePhoto = (key, id) => setPhotos(p => ({ ...p, [key]: asPhotoList(p[key]).filter(x => x.id !== id) }));
+  const replaceFieldPhoto = (key, id, next) => setPhotos(p => ({ ...p, [key]: replacePhoto(p[key], id, next) }));
   const setPallets = fn => patch(prev => ({ ...prev, pallets: fn(prev.pallets || [""]) }));
   const setSample = fn => patch(prev => ({ ...prev, sample: typeof fn === "function" ? fn(prev.sample) : fn }));
   const assigned = (product.supplierIds || []).map(id => suppliers.find(x => x.id === id)).filter(Boolean);
@@ -1576,7 +1589,7 @@ function InspectionRunner({ insp, patch, t, problems, product, suppliers, dictio
               </div>}
               {f.type === "DateCode" && <div><input type="date" value={insp.dateISO || ""} onChange={e => set({ dateISO: e.target.value })} className="w-full text-sm rounded-xl px-3 py-2.5 outline-none" style={{ ...inp }} />{insp.dateISO && <p className="text-xs mt-1.5" style={{ color: C.muted }}>saved as date code: <b style={{ color: C.ink, fontVariantNumeric: "tabular-nums" }}>{dateCode(insp.dateISO)}</b> (week {dateCode(insp.dateISO).slice(0, -1)}, day {dateCode(insp.dateISO).slice(-1)})</p>}</div>}
               {f.type === "SampleSize" && <SampleBlock sample={sample} setSample={setSample} totals={totals} />}
-              {f.type === "Photos" && <PhotoStrip photos={photos[f.id]} onAdd={got => addPhotos(f.id, got)} onRemove={id => removePhoto(f.id, id)} />}
+              {f.type === "Photos" && <PhotoStrip photos={photos[f.id]} onAdd={got => addPhotos(f.id, got)} onRemove={id => removePhoto(f.id, id)} onReplace={(id, next) => replaceFieldPhoto(f.id, id, next)} />}
               {f.type === "Escalate" && (escalated ? <p className="text-xs" style={{ color: C.warn }}>⏸ Already paused.</p> : <div className="flex gap-1.5"><input value={question} onChange={e => setQuestion(e.target.value)} placeholder="what to you want to ask the Head?" className="flex-1 text-sm rounded px-2 py-1.5 outline-none" style={{ ...inp }} /><button onClick={() => { if (question.trim()) { onEscalate(question.trim()); setQuestion(""); } }} className="text-sm px-3 py-2 rounded-lg" style={{ background: C.warnBg, color: C.warn, border: `1px solid ${C.warn}` }}><Ic i={HelpCircle} />Ask the Head</button></div>)}
               {f.type === "Text" && <input value={values[f.id] || ""} onChange={e => setV(f.id, e.target.value)} className="w-full text-sm rounded-xl px-3 py-2.5 outline-none" style={{ ...inp }} />}
               {f.type === "Date" && <input type="date" value={values[f.id] || ""} onChange={e => setV(f.id, e.target.value)} className="w-full text-sm rounded-xl px-3 py-2.5 outline-none" style={{ ...inp }} />}
@@ -1584,11 +1597,11 @@ function InspectionRunner({ insp, patch, t, problems, product, suppliers, dictio
               {f.type === "MultiChoice" && <div className="flex flex-col gap-1">{(f.options || []).map(o => { const on = (values[f.id] || []).includes(o.value); return <label key={o.value} className="flex items-center gap-2 text-sm cursor-pointer"><input type="checkbox" checked={on} onChange={e => setV(f.id, e.target.checked ? [...(values[f.id] || []), o.value] : (values[f.id] || []).filter(x => x !== o.value))} />{o.value}{o.trigger && " 🚩"}</label>; })}</div>}
               {f.type === "Scale" && <div className="flex gap-1">{Array.from({ length: f.scaleMax || 5 }, (_, i) => i + 1).map(k => <button key={k} onClick={() => setV(f.id, k)} className="w-8 h-8 rounded-lg text-sm" style={{ background: values[f.id] === k ? C.accent : C.accentSoft, color: values[f.id] === k ? C.onDark : C.accent }}>{k}</button>)}</div>}
               {f.type === "Number" && <NumberInput piecesPerCu={insp.sample?.piecesPerCu || product?.piecesPerCu} f={f} problems={problems} allProblems={sctx?.problems} overrides={t.overrides} specs={specs} totals={totals} value={values[f.id]} onChange={v => setV(f.id, v)} onRaise={(leafId, mode, raw) => setRemarks(r => [...r, { id: uid(), leafId, mode, raw, auto: true, fieldId: f.id }])} raised={remarks.some(r => r.auto && r.fieldId === f.id)} />}
-              {f.allowPhotos && !isSystem(f.type) && <div className="mt-2.5"><PhotoStrip photos={photos[f.id]} onAdd={got => addPhotos(f.id, got)} onRemove={id => removePhoto(f.id, id)} size={48} /></div>}
+              {f.allowPhotos && !isSystem(f.type) && <div className="mt-2.5"><PhotoStrip photos={photos[f.id]} onAdd={got => addPhotos(f.id, got)} onRemove={id => removePhoto(f.id, id)} onReplace={(id, next) => replaceFieldPhoto(f.id, id, next)} size={48} /></div>}
             </div>
           ); })}
           {t.problemRefs.filter(r => r.moduleId === m.id).length > 0 && !sampleReady && <Note tone="bad">{hasSampleBlock ? "Sample size gives 0 CU — fill in the “Sample size” block to compute percentages." : "This template has no “Sample size” block — the Head must add it."}</Note>}
-          {t.problemRefs.filter(r => r.moduleId === m.id).sort(bySort).map(r => pm[r.problemTypeId] && <ProblemTreeView key={r.id} root={pm[r.problemTypeId]} problems={problems} overrides={t.overrides} remarks={remarks} totals={totals} disabled={!sampleReady} notes={effectiveNotesFor(sctx, product)} onReport={rem => setRemarks(x => [...x, { id: uid(), ...rem }])} onDelete={id => setRemarks(x => x.filter(q => q.id !== id))} onPhoto={(id, got) => setRemarks(x => attachRemarkPhotos(x, id, got))} onRemovePhoto={(id, pid) => setRemarks(x => x.map(q => q.id === id ? { ...q, photos: asPhotoList(q.photos).filter(ph => ph.id !== pid) } : q))} />)}
+          {t.problemRefs.filter(r => r.moduleId === m.id).sort(bySort).map(r => pm[r.problemTypeId] && <ProblemTreeView key={r.id} root={pm[r.problemTypeId]} problems={problems} overrides={t.overrides} remarks={remarks} totals={totals} disabled={!sampleReady} notes={effectiveNotesFor(sctx, product)} onReport={rem => setRemarks(x => [...x, { id: uid(), ...rem }])} onDelete={id => setRemarks(x => x.filter(q => q.id !== id))} onPhoto={(id, got) => setRemarks(x => attachRemarkPhotos(x, id, got))} onRemovePhoto={(id, pid) => setRemarks(x => x.map(q => q.id === id ? { ...q, photos: asPhotoList(q.photos).filter(ph => ph.id !== pid) } : q))} onReplacePhoto={(id, pid, next) => setRemarks(x => replaceRemarkPhoto(x, id, pid, next))} />)}
           {t.fields.filter(f => f.moduleId === m.id).length + t.problemRefs.filter(r => r.moduleId === m.id).length === 0 && <p className="text-sm" style={{ color: C.muted }}>Empty module.</p>}
           {!isLastModule && (() => { const missing = t.fields.filter(f => f.moduleId === m.id && f.required && !isSystem(f.type) && isEmptyValue(f)).length; return (
             <div className="mt-4 pt-4" style={{ borderTop: `1px solid ${C.line}` }}>
@@ -2476,22 +2489,8 @@ function MSearch({ s, user, go, onStart, setState, notify, onVisual }) {
 // Used by the product profile screen and — via a sheet — from inside a running inspection, so nothing has to be left
 // to look something up.
 // Full-screen photo viewer with swipe / arrows / counter — shared by the product header and every photo row below.
-function MPhotoViewer({ photos, index, onIndex, onClose }) {
-  const touch = useRef(null);
-  const n = photos.length, ix = Math.min(index, n - 1);
-  const step = d => onIndex((ix + d + n) % n);
-  return (
-    <div className="fixed inset-0 flex flex-col" style={{ background: "rgba(0,0,0,.94)", zIndex: 80 }} onClick={onClose}
-      onTouchStart={e => { touch.current = e.touches[0].clientX; }} onTouchEnd={e => { if (touch.current == null) return; const dx = e.changedTouches[0].clientX - touch.current; touch.current = null; if (Math.abs(dx) > 40 && n > 1) { step(dx < 0 ? 1 : -1); } }}>
-      <div className="flex items-center justify-between px-4 py-3" style={{ color: "#fff" }}><span className="text-sm font-medium" style={{ fontVariantNumeric: "tabular-nums" }}>{n > 1 ? `${ix + 1} / ${n}` : ""}</span><button onClick={onClose} className="w-9 h-9 rounded-full flex items-center justify-center" style={{ background: "rgba(255,255,255,.14)" }}><Ic i={X} s={18} mr={0} /></button></div>
-      <div className="flex-1 flex items-center justify-center px-3 min-h-0"><img src={photoSrc(photos[ix])} alt="" style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain", borderRadius: 10 }} /></div>
-      <div className="flex items-center justify-center gap-6 py-4" onClick={e => e.stopPropagation()}>
-        {n > 1 && <button onClick={() => step(-1)} className="w-11 h-11 rounded-full flex items-center justify-center" style={{ background: "rgba(255,255,255,.14)", color: "#fff" }}><Ic i={ChevronLeft} s={20} mr={0} /></button>}
-        {n > 1 && <div className="flex gap-1.5">{photos.map((_, k) => <button key={k} onClick={() => onIndex(k)} className="rounded-full" style={{ width: 7, height: 7, background: k === ix ? "#fff" : "rgba(255,255,255,.35)" }} />)}</div>}
-        {n > 1 && <button onClick={() => step(1)} className="w-11 h-11 rounded-full flex items-center justify-center" style={{ background: "rgba(255,255,255,.14)", color: "#fff" }}><Ic i={ChevronRight} s={20} mr={0} /></button>}
-      </div>
-    </div>
-  );
+function MPhotoViewer({ photos, index, onIndex, onClose, onRotate, onDelete }) {
+  return <PhotoReview title="Photos" photos={photos} index={index} onIndex={onIndex} onClose={onClose} onRotate={onRotate} onDelete={onDelete} />;
 }
 // Read-only photo row: one horizontal line of thumbnails (no wrapping, scrolls sideways) — takes a fixed height however many photos there are.
 function MPhotoRow({ photos, size = 64 }) {

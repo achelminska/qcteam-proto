@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { asPhotoList, pickedPhotos, attachRemarkPhotos } from "./photos.js";
+import { asPhotoList, pickedPhotos, attachRemarkPhotos, replacePhoto, replaceRemarkPhoto } from "./photos.js";
 
 const shot = (id) => ({ id, path: `/photos/${id}.jpg` });
 
@@ -19,6 +19,20 @@ describe("pickedPhotos", () => {
     expect(got.length).toBeUndefined();
     expect(asPhotoList(got)).toEqual([]);
     expect(pickedPhotos(got)).toHaveLength(1);
+  });
+});
+
+describe("replacePhoto", () => {
+  it("swaps one photo and keeps its id so the strip does not jump", () => {
+    const list = [shot("a"), shot("b")];
+    const next = replacePhoto(list, "b", { path: "/photos/b2.jpg", dataUrl: "data:x" });
+    expect(next[1]).toEqual({ id: "b", path: "/photos/b2.jpg", dataUrl: "data:x" });
+    expect(next[0]).toEqual(shot("a"));
+  });
+  it("replaces a remark photo in place", () => {
+    const remarks = [{ id: "r1", photos: [shot("a")] }];
+    const next = replaceRemarkPhoto(remarks, "r1", "a", { path: "/photos/turned.jpg" });
+    expect(next[0].photos[0]).toEqual({ id: "a", path: "/photos/turned.jpg" });
   });
 });
 

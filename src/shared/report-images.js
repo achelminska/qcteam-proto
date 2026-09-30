@@ -21,6 +21,40 @@ export function keepsOriginalFile(file) {
 // is decoded at its natural pixel size — never scaled down to a thumbnail.
 // When the full-size POST to /photos fails (phone JPEG + base64 is often > Render's body limit),
 // shrink to a still-usable still so the inspection can save a path instead of a multi-MB data URL.
+export const rotatedSize = (w, h, turns) => {
+  const q = ((Number(turns) % 4) + 4) % 4;
+  return q % 2 === 1 ? { w: h, h: w } : { w, h };
+};
+
+// +1 = 90° clockwise, −1 = 90° counter-clockwise. Used by the photo preview.
+export function rotateImage(src, turns = 1, quality = 0.92) {
+  if (typeof document === "undefined" || !src) return Promise.resolve(src);
+  const q = ((Number(turns) % 4) + 4) % 4;
+  if (!q) return Promise.resolve(src);
+  return new Promise(resolve => {
+    const img = new Image();
+    const url = absPhotoUrl(src);
+    img.onload = () => {
+      try {
+        const w = img.naturalWidth || img.width, h = img.naturalHeight || img.height;
+        if (!w || !h) return resolve(src);
+        const box = rotatedSize(w, h, q);
+        const c = document.createElement("canvas");
+        c.width = box.w;
+        c.height = box.h;
+        const ctx = c.getContext("2d");
+        ctx.translate(box.w / 2, box.h / 2);
+        ctx.rotate(q * Math.PI / 2);
+        ctx.drawImage(img, -w / 2, -h / 2);
+        resolve(c.toDataURL("image/jpeg", quality));
+      } catch { resolve(src); }
+    };
+    img.onerror = () => resolve(src);
+    if (url && !url.startsWith("data:") && !url.startsWith("blob:")) img.crossOrigin = "anonymous";
+    img.src = url;
+  });
+}
+
 export function shrinkPhoto(dataUrl, maxEdge = 1600, quality = 0.82) {
   if (typeof document === "undefined" || !dataUrl) return Promise.resolve(dataUrl);
   return new Promise(res => {

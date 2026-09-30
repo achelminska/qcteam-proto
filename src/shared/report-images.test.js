@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fitWithin, imageFormat, jpegDataUrlFrameFirst, jpegFrameFirst, keepsOriginalFile, knockOutDarkBorder, mapPool, memoPdfPhoto, pdfPhotoMaxEdge, photoSrcCandidates } from "./report-images.js";
+import { fitWithin, imageFormat, jpegDataUrlFrameFirst, jpegFrameFirst, keepsOriginalFile, knockOutDarkBorder, mapPool, memoPdfPhoto, pdfPhotoMaxEdge, photoSrcCandidates, rotateImage, rotatedSize } from "./report-images.js";
 
 // What jsPDF 2.5.1 does with a JPEG header (its marker list includes C4).
 const jsPdfJpegInfo = bytes => {
@@ -67,6 +67,21 @@ describe("jpegFrameFirst", () => {
     const bytes = new Uint8Array(Buffer.from(out.split(",")[1], "base64"));
     expect(jsPdfJpegInfo(bytes)).toEqual({ width: 640, height: 480, numcomponents: 3 });
     expect(jpegDataUrlFrameFirst("data:image/png;base64,AAAA")).toBe("data:image/png;base64,AAAA");
+  });
+});
+
+describe("rotatedSize", () => {
+  it("swaps sides on a quarter turn and restores them after two", () => {
+    expect(rotatedSize(4000, 3000, 1)).toEqual({ w: 3000, h: 4000 });
+    expect(rotatedSize(4000, 3000, -1)).toEqual({ w: 3000, h: 4000 });
+    expect(rotatedSize(4000, 3000, 2)).toEqual({ w: 4000, h: 3000 });
+  });
+});
+
+describe("rotateImage", () => {
+  it("is a no-op in node and on a 0-turn", async () => {
+    expect(await rotateImage("data:image/jpeg;base64,xx", 1)).toBe("data:image/jpeg;base64,xx");
+    expect(await rotateImage("data:image/jpeg;base64,xx", 0)).toBe("data:image/jpeg;base64,xx");
   });
 });
 
