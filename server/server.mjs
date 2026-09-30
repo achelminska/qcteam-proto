@@ -8,6 +8,7 @@ import { computeMissingPalletUpdate } from "./misslogic.mjs";
 import { retainInspections } from "./retain.mjs";
 import { slimStateJson } from "./blobs.mjs";
 import { isPublic, isAuthorized, isSecure, safeEqual, cookieHeader, clearCookieHeader, corsFor } from "./auth.mjs";
+import { sheetKind, sheetPurposeName, metaSheets, stampUnchangedPush } from "../src/shared/sheet-kind.js";
 const STATE_KEY = "qcteam-portal-state-v2-clean";
 // Static hosting of the built app (dist/) so one service = API + portal + phone app. Any unknown path falls back to index.html.
 const DIST = new URL("../dist/", import.meta.url).pathname;
@@ -83,7 +84,7 @@ const checkMissingPallets = (prevDockRows, pushAt) => {
 const applyPushToState = (purpose, sheet) => {
   try {
     const raw = store[STATE_KEY]; if (!raw) return " (no app state yet)";
-    const st = JSON.parse(raw); const P = purpose === "dock" ? "Dock" : purpose === "blocked" ? "Blocked" : "Products";
+    const st = JSON.parse(raw); const P = sheetPurposeName(sheetKind(purpose));
     const targets = (st.integrations || []).filter(i => i.purpose === P && i.pushMode); if (!targets.length) return ` (no ${P} integration in push mode)`;
     const tg = targetsFor(P); let j = detectTable({ header: sheet.header, rows: sheet.rows }); let note = "";
     st.integrations = st.integrations.map(i => { if (!targets.some(t => t.id === i.id)) return i;
@@ -105,7 +106,12 @@ const applyPushToState = (purpose, sheet) => {
     // Same rows, same summary as before → nothing for the phones to re-download. Freshness travels via /meta instead.
     const gist = it => JSON.stringify([it.rows, it.summary, it.header, it.mappings, it.needsRemap]);
     const before = JSON.parse(raw).integrations, unchanged = st.integrations.every((it, k) => !targets.some(t => t.id === it.id) || gist(it) === gist(before[k]));
-    if (unchanged) { note += " (no change)"; } else { store[STATE_KEY] = JSON.stringify(st); (store.__meta = store.__meta || {})[STATE_KEY] = Math.max(Date.now(), (store.__meta?.[STATE_KEY] || 0) + 1); }
+    if (unchanged) {
+      // Same rows — do not bump the document version (phones must not full-pull). Still stamp
+      // lastPushAt so a later GET /storage and the Head's integration status show the real last POST.
+      note += " (no change)";
+      try { store[STATE_KEY] = JSON.stringify(stampUnchangedPush(JSON.parse(raw), st.integrations, new Set(targets.map(t => t.id)))); } catch {}
+    } else { store[STATE_KEY] = JSON.stringify(st); (store.__meta = store.__meta || {})[STATE_KEY] = Math.max(Date.now(), (store.__meta?.[STATE_KEY] || 0) + 1); }
     // Push log: enough to explain "the tiles vanished at 03:12" after the fact. /sheet/<purpose>/log returns the last 60 entries.
     try { const it = st.integrations.find(i => targets.some(t => t.id === i.id)); const hist = {}; (it?.rows || []).forEach(r => { const k = r.priority || (r.status ? `status:${r.status}` : "—"); hist[k] = (hist[k] || 0) + 1; }); const errs = (it?.rows || []).filter(r => r._errors?.length).length; (store.__pushlog = store.__pushlog || {})[purpose] = [...(store.__pushlog[purpose] || []).slice(-59), { at: sheet.receivedAt, raw: sheet.rows.length, table: j.rows.length, header: j.header.slice(0, 14), errors: errs, hist, note: note.trim() }]; } catch {}
     return " → applied to app state" + note;
@@ -156,7 +162,10 @@ const handler = async (req, res) => {
     if (req.method === "GET" || req.method === "HEAD") { const name = path.basename(decodeURIComponent(req.url.split("?")[0].replace(/^\/photos\/?/, ""))); const file = path.join(PHOTOS, name); if (!name || name === "photos" || !fs.existsSync(file)) { res.writeHead(404, cors); return res.end(""); } const type = name.endsWith(".png") ? "image/png" : name.endsWith(".webp") ? "image/webp" : name.endsWith(".gif") ? "image/gif" : "image/jpeg"; res.writeHead(200, { ...cors, "Content-Type": type, "Cache-Control": "public, max-age=31536000, immutable" }); if (req.method === "HEAD") return res.end(); return fs.createReadStream(file).pipe(res); }
   }
   if (req.url.startsWith("/sheet/")) {
-    const purpose = req.url.replace(/^\/sheet\//, "").split("?")[0].toLowerCase();
+    const rest = req.url.replace(/^\/sheet\//, "").split("?")[0].toLowerCase();
+    const isLog = rest.endsWith("/log");
+    const purpose = sheetKind(isLog ? rest.slice(0, -4) : rest);
+    const sheetOf = p => store.__sheets?.[p] || Object.entries(store.__sheets || {}).find(([k]) => sheetKind(k) === p)?.[1];
     if (req.method === "POST") { if (SYNC_KEY && req.headers["x-sync-key"] !== SYNC_KEY && req.headers["x-secret"] !== SYNC_KEY) { res.writeHead(401, cors).end("bad X-Sync-Key"); return; } const chunks = []; req.on("data", c => chunks.push(c)); req.on("end", () => { const body = Buffer.concat(chunks).toString("utf8"); try { let j = JSON.parse(body);
         // Accept the priority-bot payload too: { rows: [{ articleId, articleName, zone, stock, sscc, ... }] } → header + array rows
         const pretty = { articleId: "Article_id", articleName: "Article_name", zone: "Reach zone", stock: "Stock", sscc: "SSCC", pickLocation: "Pick location", deadline: "Departure_deadline", status: "Status", externalReference: "External_reference" };
@@ -164,18 +173,19 @@ const handler = async (req, res) => {
         // An EMPTY bot payload ({ rows: [] }) is a real message — "the sheet has no rows right now" (e.g. every blocked pallet was
         // resolved). It carries no header, so reuse the last one we saw for this purpose (or the bot's default). Rejecting it froze
         // the server on the last non-empty push and the phones kept showing pallets that were long gone.
-        else if (Array.isArray(j.rows) && j.rows.length === 0 && !Array.isArray(j.header)) { const prev = store.__sheets?.[purpose]?.header; j = { header: prev && prev.length ? prev : Object.values(pretty), rows: [], from: j.from || "priority-bot payload (empty)" }; }
+        else if (Array.isArray(j.rows) && j.rows.length === 0 && !Array.isArray(j.header)) { const prev = sheetOf(purpose)?.header; j = { header: prev && prev.length ? prev : Object.values(pretty), rows: [], from: j.from || "priority-bot payload (empty)" }; }
         if (!Array.isArray(j.header) || !Array.isArray(j.rows)) throw new Error("expected {header, rows}"); store.__sheets = store.__sheets || {}; store.__sheets[purpose] = { header: j.header, rows: j.rows, receivedAt: new Date().toISOString(), from: j.from || "" };
+        for (const k of Object.keys(store.__sheets)) { if (k !== purpose && sheetKind(k) === purpose) delete store.__sheets[k]; }
         // Captured BEFORE applying this push — computeMissingPalletUpdate needs to diff against what the dock looked
         // like a moment ago, and applyPushToState is about to overwrite that.
         let prevDockRows = []; if (purpose === "dock" && store[STATE_KEY]) { try { prevDockRows = (JSON.parse(store[STATE_KEY]).integrations || []).find(i => i.purpose === "Dock" && i.pushMode)?.rows || []; } catch {} }
         const applied = applyPushToState(purpose, store.__sheets[purpose]); if (purpose === "dock") checkMissingPallets(prevDockRows, store.__sheets[purpose].receivedAt); save(); if (purpose === "dock") checkDeadlines("after dock push"); console.log(`[sheet] ${purpose}: ${j.rows.length} rows pushed at ${new Date().toLocaleTimeString()}${applied}`); res.writeHead(200, cors).end(JSON.stringify({ ok: true, rows: j.rows.length })); } catch (e) { res.writeHead(400, cors).end(String(e.message || e)); } }); return; }
-    if (req.method === "GET" && purpose.endsWith("/log")) { res.writeHead(200, { ...cors, "Content-Type": "application/json" }); return res.end(JSON.stringify(store.__pushlog?.[purpose.replace(/\/log$/, "")] || [])); }
-    if (req.method === "GET") { const sh = store.__sheets?.[purpose]; if (!sh) { res.writeHead(404, cors); return res.end(""); } return sendJson(req, res, 200, sh); }
+    if (req.method === "GET" && isLog) { res.writeHead(200, { ...cors, "Content-Type": "application/json" }); return res.end(JSON.stringify(store.__pushlog?.[purpose] || [])); }
+    if (req.method === "GET") { const sh = sheetOf(purpose); if (!sh) { res.writeHead(404, cors); return res.end(""); } return sendJson(req, res, 200, sh); }
   }
   // Cheap poll target: just the version, so the app can check "did anything change?" every few seconds without pulling the whole state.
   if (req.url === "/boot") { res.writeHead(200, { ...cors, "Content-Type": "application/json" }); return res.end(JSON.stringify({ bootId: BOOT_ID })); }
-  if (req.url.startsWith("/meta/")) { const k = decodeURIComponent(req.url.replace(/^\/meta\//, "").split("?")[0]); const sheets = Object.fromEntries(Object.entries(store.__sheets || {}).map(([p, v]) => [p, v.receivedAt])); res.writeHead(200, { ...cors, "Content-Type": "application/json", "Cache-Control": "no-store" }); return res.end(JSON.stringify({ updatedAt: store.__meta?.[k] || null, sheets, bytes: (store[k] || "").length })); }
+  if (req.url.startsWith("/meta/")) { const k = decodeURIComponent(req.url.replace(/^\/meta\//, "").split("?")[0]); const sheets = metaSheets(store.__sheets); res.writeHead(200, { ...cors, "Content-Type": "application/json", "Cache-Control": "no-store" }); return res.end(JSON.stringify({ updatedAt: store.__meta?.[k] || null, sheets, bytes: (store[k] || "").length })); }
   const key = decodeURIComponent(req.url.replace(/^\/storage\//, "").split("?")[0]);
   if (!req.url.startsWith("/storage/")) return serveStatic(req, res);
   if (req.method === "GET") { const v = store[key]; if (v == null) { res.writeHead(404, cors); return res.end(""); } return sendJson(req, res, 200, { key, value: v, updatedAt: store.__meta?.[key] }); }

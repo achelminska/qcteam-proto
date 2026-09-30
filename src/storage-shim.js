@@ -4,6 +4,7 @@
 // Served by the state server itself (hosted, or `npm run preview` behind node server)? Then the API is same-origin. Under Vite dev it's on :3001/:3002
 // (any other dev port: set VITE_QC_SERVER, see .env.example).
 import { installAccessGate } from "./access-gate.js";
+import { mergeSheetFresh } from "./shared/sheet-kind.js";
 const devPorts = ["5173", "4173"];
 const SERVER = (import.meta.env && import.meta.env.VITE_QC_SERVER) || (devPorts.includes(location.port) ? `${location.protocol === "https:" ? "https" : "http"}://${location.hostname}:${location.protocol === "https:" ? 3002 : 3001}` : location.origin);
 window.__qcServer = SERVER;
@@ -47,7 +48,7 @@ window.storage = {
     return { key, value };
   },
   // Cheap version check for fast polling (badges etc.) — does not pull the whole state.
-  async getMeta(key) { if (!(await probe())) return null; try { const r = await fetch(`${SERVER}/meta/${encodeURIComponent(key)}`, { cache: "no-store" }); const j = await r.json(); if (j.sheets) window.__qcSheetFresh = j.sheets; return j.updatedAt ? String(j.updatedAt) : null; } catch { return null; } },
+  async getMeta(key) { if (!(await probe())) return null; try { const r = await fetch(`${SERVER}/meta/${encodeURIComponent(key)}`, { cache: "no-store" }); const j = await r.json(); if (j.sheets) { const next = mergeSheetFresh(window.__qcSheetFresh, j.sheets); window.__qcSheetFresh = next; try { window.dispatchEvent(new CustomEvent("qc-sheet-fresh", { detail: next })); } catch {} } return j.updatedAt ? String(j.updatedAt) : null; } catch { return null; } },
   // Changes when the server process restarts (every deploy) — used to notice a new build is live and offer a refresh.
   async getBootId() { if (!(await probe())) return null; try { const r = await fetch(`${SERVER}/boot`, { cache: "no-store" }); const j = await r.json(); return j.bootId || null; } catch { return null; } },
   // Versioned save: If-Match with the version we last saw. 409 → {conflict, value, version} (someone saved first) or {rejected} (size guard).
