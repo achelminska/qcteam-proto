@@ -637,7 +637,7 @@ function PdfViewer({ insp, s, onClose, intent = "open" }) {
   useEffect(() => { let alive = true; (async () => { try { const d = await buildReportPdf(insp, s); if (!alive) return; setUrl(URL.createObjectURL(d.output("blob"))); } catch (e) { setErr(String(e.message || e)); } })(); return () => { alive = false; }; }, [insp.id]);
   useEffect(() => {
     if (!url) return;
-    if (intent === "download") { triggerPdfDownload(url, fileName); return; }
+    if (intent === "download") { triggerPdfDownload(url, fileName); onClose(); return; }
     const touch = typeof navigator !== "undefined" && navigator.maxTouchPoints > 0;
     if (touch) { window.location.assign(url); return; }
     const w = window.open(url, "_blank", "noopener");
@@ -1737,7 +1737,7 @@ function ReportView({ insp, s, onEdit, onAnswer, user, onMarkReference, onProduc
             </div>
           )}
           {onProduct && <Action onClick={onProduct}><Ic i={BookOpen} s={15} mr={0} />Product profile</Action>}
-          {insp.status === "Completed" && user.role === "Head" && onMarkReference && <Action onClick={onMarkReference}>{insp.isReference ? <><Ic i={Star} s={15} mr={0} />Unmark reference</> : <><Ic i={Star} s={15} mr={0} />Mark as reference</>}</Action>}
+          {insp.status === "Completed" && user?.role === "Head" && onMarkReference && <Action onClick={onMarkReference}>{insp.isReference ? <><Ic i={Star} s={15} mr={0} />Unmark reference</> : <><Ic i={Star} s={15} mr={0} />Mark as reference</>}</Action>}
         </div>
       </div>
       {printing && <PdfViewer insp={insp} s={s} intent={printing} onClose={() => setPrinting(null)} />}
