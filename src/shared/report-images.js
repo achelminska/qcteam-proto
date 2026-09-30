@@ -159,17 +159,23 @@ export function jpegDataUrlFrameFirst(src) {
 // Embed the original pixels. A JPEG goes in as its own DCT stream, so "NONE"
 // means no second lossy pass. PNG pixels are deflated ("FAST"), which is lossless
 // and keeps the file from storing raw RGB. WEBP/GIF are redrawn at full pixels.
+let pdfImageAlias = 0;
+
 export async function addImageNatural(doc, src, x, y, w, h) {
   const fmt = imageFormat(src);
   const mode = fmt === "JPEG" ? "NONE" : "FAST";
   if (fmt === "JPEG") src = jpegDataUrlFrameFirst(src);
+  // jsPDF reuses a previous picture when the alias is missing or collides. A
+  // unique name per embed keeps Weight / module / remark shots from becoming
+  // copies of whichever photo landed last.
+  const alias = `qc${++pdfImageAlias}`;
   try {
-    doc.addImage(src, fmt, x, y, w, h, undefined, mode);
+    doc.addImage(src, fmt, x, y, w, h, alias, mode);
   } catch (e) {
     if (fmt === "JPEG" || fmt === "PNG") throw e;
     const png = await canvasPng(src);
     if (!png) throw e;
-    doc.addImage(png, "PNG", x, y, w, h, undefined, "FAST");
+    doc.addImage(png, "PNG", x, y, w, h, `${alias}p`, "FAST");
   }
 }
 
@@ -298,33 +304,79 @@ export function fitPhotoForPdf(src, maxEdge = 720, quality = 0.82) {
   });
 }
 
-// Fetch /photos as a blob URL (no multi-MB base64). data: URLs pass through.
-// Cached per src so the header icon and the photo strip share one download.
-export function memoPdfPhoto(load) {
-  const cache = new Map();
-  return ph => {
-    const src = (ph && (ph.path || ph.dataUrl)) || "";
-    if (!src) return Promise.resolve(null);
-    if (cache.has(src)) return cache.get(src);
-    const p = Promise.resolve().then(() => load(src)).catch(() => null);
-    cache.set(src, p);
-    return p;
-  };
+// A photo may be a leftover data URL, a /photos path, or a bare string after
+// the server rewrote embedded images. Prefer an in-memory data: URL — field
+// photos often keep one even when `path` 404s after a deploy.
+export function photoSrcCandidates(ph) {
+  if (!ph) return [];
+  if (typeof ph === "string") return ph.trim() ? [ph.trim()] : [];
+  const raw = [];
+  const add = s => { s = String(s || "").trim(); if (s && !raw.includes(s)) raw.push(s); };
+  add(ph.dataUrl);
+  add(ph.path);
+  add(ph.src);
+  add(ph.url);
+  const data = raw.filter(s => s.startsWith("data:"));
+  return [...data, ...raw.filter(s => !s.startsWith("data:"))];
+}
+
+export function absPhotoUrl(src) {
+  if (!src || src.startsWith("data:") || src.startsWith("blob:") || /^https?:\/\//i.test(src)) return src;
+  const base = (typeof window !== "undefined" && window.__qcServer) || "";
+  if (src.startsWith("/") && base) return base.replace(/\/$/, "") + src;
+  return src;
 }
 
 export async function fetchPdfPhotoSrc(src) {
+  src = absPhotoUrl(src);
   if (!src) return null;
   if (src.startsWith("data:") || src.startsWith("blob:")) return src;
   const r = await fetch(src);
   if (!r.ok) return null;
-  return URL.createObjectURL(await r.blob());
+  const blob = await r.blob();
+  const t = String(blob.type || "");
+  if (t && !t.startsWith("image/") && t !== "application/octet-stream") return null;
+  return URL.createObjectURL(blob);
+}
+
+// Cached per photo identity. Tries every candidate so a dead `path` still
+// falls through to `dataUrl`.
+export function memoPdfPhoto(load) {
+  const cache = new Map();
+  return ph => {
+    const candidates = photoSrcCandidates(ph);
+    if (!candidates.length) return Promise.resolve(null);
+    const key = candidates.join("\n");
+    if (cache.has(key)) return cache.get(key);
+    const p = (async () => {
+      for (const src of candidates) {
+        try { const got = await load(src); if (got) return got; } catch { /* next */ }
+      }
+      return null;
+    })();
+    cache.set(key, p);
+    return p;
+  };
+}
+
+export async function mapPool(items, n, fn) {
+  const out = new Array(items.length);
+  let i = 0;
+  const worker = async () => {
+    while (i < items.length) {
+      const k = i++;
+      out[k] = await fn(items[k], k);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(Math.max(1, n), Math.max(1, items.length)) }, worker));
+  return out;
 }
 
 // Place each photo at its own aspect ratio, wrapping the row and the page.
 // Returns the y just under the last row.
 export async function drawPhotoGroup(doc, { photos, photoData, x0, y0, right, maxW = 52, maxH = 52, gap = 4, pageBreak = 272, newPage }) {
   const maxEdge = pdfPhotoMaxEdge(Math.max(maxW, maxH));
-  const items = (await Promise.all((photos || []).map(async ph => {
+  const items = (await mapPool(photos || [], 2, async ph => {
     try {
       const raw = await photoData(ph);
       if (!raw) return null;
@@ -334,7 +386,7 @@ export async function drawPhotoGroup(doc, { photos, photoData, x0, y0, right, ma
       if (!box) return null;
       return { d: fitted.d, w: box.w, h: box.h };
     } catch { return null; }
-  }))).filter(Boolean);
+  })).filter(Boolean);
   let x = x0, y = y0, rowH = 0;
   for (const im of items) {
     if (x > x0 && x + im.w > right + 0.1) { x = x0; y += rowH + gap; rowH = 0; }
