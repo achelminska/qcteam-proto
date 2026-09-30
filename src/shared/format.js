@@ -34,6 +34,29 @@ export const listCheck = (expected, value) => {
   return { expected: String(exp), ok: String(value) === String(exp) };
 };
 
+// Number field vs a product/category spec (by specId, or by the field's specName / label).
+export function matchFieldSpec(specs, f) {
+  const list = specs || [];
+  if (f?.specId) {
+    const hit = list.find(q => q.id === f.specId);
+    if (hit) return hit;
+  }
+  const wanted = ((f?.specName || "").trim() || f?.label || "").toLowerCase();
+  if (!wanted) return null;
+  const same = list.filter(q => (q.name || "").trim().toLowerCase() === wanted);
+  const basis = f?.measureBasis || "piece";
+  return same.find(q => (q.basis || "piece") === basis) || same[0] || null;
+}
+
+// Average of the readings against min/max (already converted to the field's basis).
+export function numberSpecCheck({ min, max, unit }, measurements) {
+  const nums = (measurements || []).map(Number).filter(n => n === n);
+  if (!nums.length || !(hasV(min) || hasV(max))) return null;
+  const avg = nums.reduce((a, b) => a + b, 0) / nums.length;
+  const ok = !(hasV(min) && avg < Number(min)) && !(hasV(max) && avg > Number(max));
+  return { expected: specLabel({ min, max, unit: unit || "" }), ok };
+}
+
 export const typesOf = s => [...(s.inspectionTypes || [])].sort((a, b) => a.sort - b.sort);
 export const typeById = (s, id) => (s.inspectionTypes || []).find(t => t.id === id) || null;
 export const legacyTypeId = t => t === "Visual" ? "type-visual" : t === "Skip" ? "type-skip" : "type-full";
