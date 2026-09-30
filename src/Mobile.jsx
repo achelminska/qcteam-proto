@@ -6,7 +6,7 @@ import { SpecValue } from "./shared/SpecValue.jsx";
 import { peopleOnFloor, peopleAtDock, floorWhere, floorVerb, doneTodayCount } from "./shared/floor.js";
 import { dockMatches } from "./shared/dock-search.js";
 import { readAsDataUrl, keepPhoto, shrinkPhoto, memoPdfPhoto, fetchPdfPhotoSrc, rotateImage } from "./shared/report-images.js";
-import { attachRemarkPhotos, flattenPhotos, pickedPhotos, replacePhoto, replaceRemarkPhoto } from "./shared/photos.js";
+import { attachRemarkPhotos, photoGroupsByModule, pickedPhotos, replacePhoto, replaceRemarkPhoto } from "./shared/photos.js";
 import { CameraSheet } from "./shared/CameraSheet.jsx";
 import { PhotoReview } from "./shared/PhotoReview.jsx";
 import { drawReportPdf } from "./shared/report-pdf.js";
@@ -194,6 +194,19 @@ const SYSTEM_TYPES = {
 const isSystem = t => !!SYSTEM_TYPES[t];
 // A Photos block with its own name ("Label", "Pallet"…) is reported under that name; the generic default falls back to its module.
 const photoBlockLabel = (f, t) => { const l = (f.label || "").trim(); return l && !/^(module )?photos$/i.test(l) ? l : `Module photos: ${(t.modules.find(m => m.id === f.moduleId) || {}).name || ""}`; };
+const photoGroupsOf = (t, insp, problems) => {
+  const cover = new Map();
+  (t?.problemRefs || []).forEach(r => {
+    cover.set(r.problemTypeId, r.moduleId);
+    descendantIds(problems, r.problemTypeId).forEach(id => cover.set(id, r.moduleId));
+  });
+  return photoGroupsByModule({
+    modules: t?.modules || [], fields: t?.fields || [], photos: insp?.photos || {}, remarks: insp?.remarks || [],
+    remarkModuleId: r => cover.get(r.leafId),
+    labelField: f => f.type === "Photos" ? photoBlockLabel(f, t) : f.label,
+    labelRemark: r => `Problem: ${pathOf(problems, r.leafId)}`,
+  });
+};
 // Basis conversion: a spec may be per piece or per CU; a field may measure per piece or per CU. Limits are converted through pieces-per-CU.
 const specBasis = q => q?.basis || "piece"; const fieldBasis = f => f?.measureBasis || "piece";
 const limitsFor = (spec, f, piecesPerCu) => { const mn = spec ? spec.min : f.min, mx = spec ? spec.max : f.max; if (!spec) return { min: mn, max: mx, factor: 1, note: "" }; const sb = specBasis(spec), fb = fieldBasis(f); if (sb === fb) return { min: mn, max: mx, factor: 1, note: "" }; const n = Number(piecesPerCu) || 0; if (!n) return { min: mn, max: mx, factor: 1, note: `spec is per ${sb}, you measure per ${fb} — pieces per CU unknown, comparing as is` }; const factor = sb === "piece" && fb === "cu" ? n : 1 / n; const cv = v => hasV(v) ? String(Math.round(Number(v) * factor * 1000) / 1000) : v; return { min: cv(mn), max: cv(mx), factor, note: `spec ${specLabel(spec)}/${sb} → ${specLabel({ min: cv(mn), max: cv(mx), unit: spec.unit })} per ${fb} (${n} pcs/CU)` }; };
@@ -572,7 +585,7 @@ async function buildReportPdf(insp, s) {
   const remarks = (insp.remarks || []).map(r => { const unit = { PieceCount: "pcs", DirectWeight: "g", WholeUnitCount: "CU" }[r.mode] || ""; const p = r.mode === "Presence" ? null : pct(r, totals); return { problem: pathOf(problems, r.leafId), quantity: r.mode === "Presence" ? "present" : `${r.raw} ${unit}`, pct: p === null ? "—" : `${fmt(p)}%`, source: r.auto ? "measurement" : "reported" }; });
   const answered = (t.fields || []).filter(f => !isSystem(f.type) && insp.values?.[f.id] !== undefined && insp.values?.[f.id] !== "").sort(bySort);
   const parameters = answered.map(f => { const v = insp.values[f.id]; let txt; if (f.type === "Number") { const nums = (v?.measurements || []).filter(x => x !== "").map(Number); txt = nums.map(fmt).join(" / ") + (nums.length > 1 ? ` — avg ${fmt(nums.reduce((a, b) => a + b, 0) / nums.length)}` : ""); } else txt = Array.isArray(v) ? v.join(", ") : String(v ?? ""); if (f.type === "List") { const c = listCheck(effectiveAttributes(s, product).find(a => a.dictionaryId === f.dictionaryId), v); if (c) return [fieldLabel(f), txt, c.expected, c.ok]; } return [fieldLabel(f), txt]; });
-  const photoGroups = []; (t.fields || []).forEach(f => { const ph = flattenPhotos((insp.photos || {})[f.id]); if (ph.length) photoGroups.push({ label: f.type === "Photos" ? photoBlockLabel(f, t) : f.label, photos: ph }); }); (insp.remarks || []).forEach(r => { const ph = flattenPhotos(r.photos); if (ph.length) photoGroups.push({ label: `Problem: ${pathOf(problems, r.leafId)}`, photos: ph }); });
+  const photoGroups = photoGroupsOf(t, insp, problems);
   const audit = (insp.audit || []).map(a => [a.action, `${fmtTime(a.at)} · ${users[a.userId]?.name || ""}${users[a.userId]?.email ? ` (${users[a.userId].email})` : ""}${a.details ? ` — ${a.details}` : ""}`]);
   const model = {
     id: insp.id, ok: insp.result === "Accepted", result: insp.result, typeName: inspType(s, insp).name, company: settings.companyName, qcEmail: settings.qcEmail,
@@ -1678,7 +1691,7 @@ function ReportView({ insp, s, onEdit, onAnswer, user, onMarkReference }) {
       {t && <ProblemOverview t={t} problems={problems} remarks={insp.remarks || []} totals={totals} />}
       {(insp.remarks || []).map(r => <div key={r.id} className="flex items-center gap-2 text-sm py-1" style={{ borderTop: `1px solid ${C.line}` }}><span className="flex-1">{pathOf(problems, r.leafId)}{r.auto && <span className="text-xs" style={{ color: C.muted }}> (from measurement)</span>}</span><span className="text-xs" style={{ color: C.muted }}>{r.mode === "Presence" ? "present" : `${r.raw} ${r.mode === "PieceCount" ? "pcs" : r.mode === "DirectWeight" ? "g" : "CU"}`}</span><span>{r.mode === "Presence" ? "⚡" : `${fmt(pct(r, totals))}%`}</span></div>)}
       {insp.comment && <div className="rounded-lg p-3 mt-3 text-sm" style={{ background: C.bg }}>{insp.comment}</div>}
-      {(() => { const groups = []; (t?.fields || []).forEach(f => { const ph = asPhotoList((insp.photos || {})[f.id]); if (ph.length) groups.push({ key: f.id, label: f.type === "Photos" ? photoBlockLabel(f, t) : f.label, photos: ph }); }); (insp.remarks || []).forEach(r => { const ph = asPhotoList(r.photos); if (ph.length) groups.push({ key: r.id, label: `Problem: ${pathOf(problems, r.leafId)}`, photos: ph }); }); return <div className="mt-4"><p className="label-sm mb-2">Photos</p>{groups.length ? groups.map(g => <div key={g.key} className="mb-2"><p className="text-xs mb-1" style={{ color: C.muted }}>{g.label}</p><PhotoStrip photos={g.photos} size={72} /></div>) : <p className="text-xs" style={{ color: C.muted }}>No photos in this inspection.</p>}</div>; })()}
+      {(() => { const groups = photoGroupsOf(t, insp, problems); return <div className="mt-4"><p className="label-sm mb-2">Photos</p>{groups.length ? groups.map(g => <div key={g.key} className="mb-2"><p className="text-xs mb-1" style={{ color: C.muted }}>{g.label}</p><PhotoStrip photos={g.photos} size={72} /></div>) : <p className="text-xs" style={{ color: C.muted }}>No photos in this inspection.</p>}</div>; })()}
       {(insp.audit || []).length > 0 && (
         <div className="mt-4">
           <p className="label-sm mb-1">Audit trail</p>

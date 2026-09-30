@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { asPhotoList, flattenPhotos, pickedPhotos, attachRemarkPhotos, replacePhoto, replaceRemarkPhoto } from "./photos.js";
+import { asPhotoList, flattenPhotos, photoGroupsByModule, pickedPhotos, attachRemarkPhotos, replacePhoto, replaceRemarkPhoto } from "./photos.js";
 
 const shot = (id) => ({ id, path: `/photos/${id}.jpg` });
 
@@ -28,6 +28,26 @@ describe("flattenPhotos", () => {
   });
   it("keeps a normal photo list", () => {
     expect(flattenPhotos([shot("a")])).toEqual([shot("a")]);
+  });
+});
+
+describe("photoGroupsByModule", () => {
+  it("walks module 1 then module 2, fields before remarks in each", () => {
+    const modules = [{ id: "m2", sort: 2 }, { id: "m1", sort: 1 }];
+    const fields = [
+      { id: "unit", moduleId: "m2", sort: 0, label: "Unit data" },
+      { id: "weight", moduleId: "m1", sort: 0, label: "Weight" },
+    ];
+    const photos = { unit: [shot("u")], weight: [shot("w")] };
+    const remarks = [{ id: "r1", leafId: "browning", photos: [shot("r")] }];
+    const groups = photoGroupsByModule({
+      modules, fields, photos, remarks,
+      remarkModuleId: r => r.leafId === "browning" ? "m2" : null,
+      labelField: f => f.label,
+      labelRemark: r => "Problem: " + r.leafId,
+    });
+    expect(groups.map(g => g.label)).toEqual(["Weight", "Unit data", "Problem: browning"]);
+    expect(groups[0].photos).toEqual([shot("w")]);
   });
 });
 
