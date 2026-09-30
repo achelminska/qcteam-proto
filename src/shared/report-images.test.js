@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fitWithin, imageFormat, jpegDataUrlFrameFirst, jpegFrameFirst, keepsOriginalFile, knockOutDarkBorder, mapPool, memoPdfPhoto, pdfPhotoMaxEdge, photoSrcCandidates, rotateImage, rotatedSize } from "./report-images.js";
+import { fitWithin, imageFormat, jpegDataUrlFrameFirst, jpegFrameFirst, keepsOriginalFile, knockOutDarkBorder, mapPool, memoPdfPhoto, pdfPhotoMaxEdge, photoSrcCandidates, resolvePdfPhoto, rotateImage, rotatedSize } from "./report-images.js";
 
 // What jsPDF 2.5.1 does with a JPEG header (its marker list includes C4).
 const jsPdfJpegInfo = bytes => {
@@ -118,14 +118,37 @@ describe("pdfPhotoMaxEdge", () => {
 });
 
 describe("photoSrcCandidates", () => {
-  it("prefers an in-memory data URL over a /photos path", () => {
-    expect(photoSrcCandidates({ path: "/photos/dead.jpg", dataUrl: "data:image/jpeg;base64,xx" })).toEqual([
+  it("prefers the /photos path the inspection screen shows, then a leftover data URL", () => {
+    expect(photoSrcCandidates({ path: "/photos/weight.jpg", dataUrl: "data:image/jpeg;base64,xx" })).toEqual([
+      "/photos/weight.jpg",
       "data:image/jpeg;base64,xx",
-      "/photos/dead.jpg",
     ]);
   });
   it("accepts a bare /photos string left after the server rewrote a data URL", () => {
     expect(photoSrcCandidates("/photos/hash.jpg")).toEqual(["/photos/hash.jpg"]);
+  });
+});
+
+describe("resolvePdfPhoto", () => {
+  it("skips a leftover data URL that will not decode and uses the /photos path", async () => {
+    const fitted = await resolvePdfPhoto(
+      { dataUrl: "data:image/jpeg;base64,xxxx", path: "/photos/weight.jpg" },
+      {
+        load: async src => src.startsWith("data:") ? src : "blob:weight",
+        fit: async src => src === "blob:weight" ? { d: "data:image/jpeg;base64,ok", w: 40, h: 30 } : null,
+      },
+    );
+    expect(fitted).toEqual({ d: "data:image/jpeg;base64,ok", w: 40, h: 30 });
+  });
+  it("falls back to dataUrl when the path does not decode", async () => {
+    const fitted = await resolvePdfPhoto(
+      { dataUrl: "data:image/jpeg;base64,ok", path: "/photos/404.jpg" },
+      {
+        load: async src => src,
+        fit: async src => src.startsWith("data:") ? { d: src, w: 10, h: 10 } : null,
+      },
+    );
+    expect(fitted).toEqual({ d: "data:image/jpeg;base64,ok", w: 10, h: 10 });
   });
 });
 

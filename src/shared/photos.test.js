@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { asPhotoList, pickedPhotos, attachRemarkPhotos, replacePhoto, replaceRemarkPhoto } from "./photos.js";
+import { asPhotoList, flattenPhotos, pickedPhotos, attachRemarkPhotos, replacePhoto, replaceRemarkPhoto } from "./photos.js";
 
 const shot = (id) => ({ id, path: `/photos/${id}.jpg` });
 
@@ -22,12 +22,25 @@ describe("pickedPhotos", () => {
   });
 });
 
+describe("flattenPhotos", () => {
+  it("unwraps a nested { out } picker result left on a field", () => {
+    expect(flattenPhotos([{ out: [shot("a"), shot("b")], failed: [] }])).toEqual([shot("a"), shot("b")]);
+  });
+  it("keeps a normal photo list", () => {
+    expect(flattenPhotos([shot("a")])).toEqual([shot("a")]);
+  });
+});
+
 describe("replacePhoto", () => {
   it("swaps one photo and keeps its id so the strip does not jump", () => {
     const list = [shot("a"), shot("b")];
     const next = replacePhoto(list, "b", { path: "/photos/b2.jpg", dataUrl: "data:x" });
     expect(next[1]).toEqual({ id: "b", path: "/photos/b2.jpg", dataUrl: "data:x" });
     expect(next[0]).toEqual(shot("a"));
+  });
+  it("drops a stale dataUrl when the replacement is only a path", () => {
+    const list = [{ id: "a", path: "/photos/a.jpg", dataUrl: "data:image/jpeg;base64,old" }];
+    expect(replacePhoto(list, "a", { path: "/photos/a2.jpg" })[0]).toEqual({ id: "a", path: "/photos/a2.jpg" });
   });
   it("replaces a remark photo in place", () => {
     const remarks = [{ id: "r1", photos: [shot("a")] }];

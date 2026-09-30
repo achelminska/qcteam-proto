@@ -7,7 +7,7 @@ import { SpecValue } from "./shared/SpecValue.jsx";
 import { peopleOnFloor, peopleAtDock, floorWhere, floorVerb, doneTodayCount, doneTodayByUser } from "./shared/floor.js";
 import { dockMatches } from "./shared/dock-search.js";
 import { readAsDataUrl, keepPhoto, shrinkPhoto, memoPdfPhoto, fetchPdfPhotoSrc, rotateImage } from "./shared/report-images.js";
-import { attachRemarkPhotos, replacePhoto, replaceRemarkPhoto } from "./shared/photos.js";
+import { attachRemarkPhotos, flattenPhotos, pickedPhotos, replacePhoto, replaceRemarkPhoto } from "./shared/photos.js";
 import { CameraSheet } from "./shared/CameraSheet.jsx";
 import { PhotoReview } from "./shared/PhotoReview.jsx";
 import { drawReportPdf } from "./shared/report-pdf.js";
@@ -505,7 +505,7 @@ async function buildReportPdf(insp, s) {
   const remarks = (insp.remarks || []).map(r => { const unit = { PieceCount: "pcs", DirectWeight: "g", WholeUnitCount: "CU" }[r.mode] || ""; const p = r.mode === "Presence" ? null : pct(r, totals); return { problem: pathOf(problems, r.leafId), quantity: r.mode === "Presence" ? "present" : `${r.raw} ${unit}`, pct: p === null ? "—" : `${fmt(p)}%`, source: r.auto ? "measurement" : "reported" }; });
   const answered = (t.fields || []).filter(f => !isSystem(f.type) && insp.values?.[f.id] !== undefined && insp.values?.[f.id] !== "").sort(bySort);
   const parameters = answered.map(f => { const v = insp.values[f.id]; let txt; if (f.type === "Number") { const nums = (v?.measurements || []).filter(x => x !== "").map(Number); txt = nums.map(fmt).join(" / ") + (nums.length > 1 ? ` — avg ${fmt(nums.reduce((a, b) => a + b, 0) / nums.length)}` : ""); } else txt = Array.isArray(v) ? v.join(", ") : String(v ?? ""); if (f.type === "List") { const c = listCheck(effectiveAttributes(s, product).find(a => a.dictionaryId === f.dictionaryId), v); if (c) return [fieldLabel(f), txt, c.expected, c.ok]; } return [fieldLabel(f), txt]; });
-  const photoGroups = []; (t.fields || []).forEach(f => { const ph = asPhotoList((insp.photos || {})[f.id]); if (ph.length) photoGroups.push({ label: f.type === "Photos" ? photoBlockLabel(f, t) : f.label, photos: ph }); }); (insp.remarks || []).forEach(r => { const ph = asPhotoList(r.photos); if (ph.length) photoGroups.push({ label: `Problem: ${pathOf(problems, r.leafId)}`, photos: ph }); });
+  const photoGroups = []; (t.fields || []).forEach(f => { const ph = flattenPhotos((insp.photos || {})[f.id]); if (ph.length) photoGroups.push({ label: f.type === "Photos" ? photoBlockLabel(f, t) : f.label, photos: ph }); }); (insp.remarks || []).forEach(r => { const ph = flattenPhotos(r.photos); if (ph.length) photoGroups.push({ label: `Problem: ${pathOf(problems, r.leafId)}`, photos: ph }); });
   const audit = (insp.audit || []).map(a => [a.action, `${fmtTime(a.at)} · ${users[a.userId]?.name || ""}${users[a.userId]?.email ? ` (${users[a.userId].email})` : ""}${a.details ? ` — ${a.details}` : ""}`]);
   const model = {
     id: insp.id, ok: insp.result === "Accepted", result: insp.result, typeName: inspType(s, insp).name, company: settings.companyName, qcEmail: settings.qcEmail,
@@ -3750,7 +3750,7 @@ function InspectionRunner({ insp, patch, t, problems, product, suppliers, dictio
   const setV = (id, v) => patch(prev => ({ ...prev, values: { ...(prev.values || {}), [id]: v } }));
   const setRemarks = fn => patch(prev => ({ ...prev, remarks: fn(prev.remarks || []) }));
   const setPhotos = fn => patch(prev => ({ ...prev, photos: fn(prev.photos || {}) }));
-  const addPhotos = (key, got) => setPhotos(p => ({ ...p, [key]: [...asPhotoList(p[key]), ...got] }));
+  const addPhotos = (key, got) => setPhotos(p => ({ ...p, [key]: [...asPhotoList(p[key]), ...pickedPhotos(got)] }));
   const removePhoto = (key, id) => setPhotos(p => ({ ...p, [key]: asPhotoList(p[key]).filter(x => x.id !== id) }));
   const replaceFieldPhoto = (key, id, next) => setPhotos(p => ({ ...p, [key]: replacePhoto(p[key], id, next) }));
   const setPallets = fn => patch(prev => ({ ...prev, pallets: fn(prev.pallets || [""]) }));
