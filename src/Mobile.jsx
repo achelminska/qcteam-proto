@@ -11,6 +11,7 @@ import { attachRemarkPhotos, photoGroupsByModule, pickedPhotos, replacePhoto, re
 import { CameraSheet } from "./shared/CameraSheet.jsx";
 import { PhotoReview } from "./shared/PhotoReview.jsx";
 import { drawReportPdf } from "./shared/report-pdf.js";
+import { needsShareToSave, savePdfFile, triggerAnchorDownload } from "./shared/pdf-save.js";
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceArea, ReferenceLine, Legend } from "recharts";
 import { Clock, MapPin, MessageCircle, Link2, List as ListIcon, BarChart3, Printer, SlidersHorizontal, SkipForward, LayoutDashboard, ClipboardList, Flag, Bell, FolderTree, ListTree, Package, LayoutTemplate, Truck, Globe, Megaphone, MessageSquare, Users, Search, Sun, Moon, Database, Home, Menu as MenuIcon, ScanLine, Plus, ChevronLeft, ChevronRight, ChevronDown, User, Camera, Image as ImageIcon, Paperclip, Send, Star, Pencil, Sparkles, HelpCircle, Download, Lock as LockIcon, AlertTriangle, Inbox, FileText, ShieldAlert, Tag, Layers, BookOpen, Filter, Check, X, Ruler, Boxes, Warehouse, Snowflake, Thermometer, ThumbsDown, ExternalLink } from "lucide-react";
 
@@ -629,41 +630,82 @@ async function buildReportPdf(insp, s) {
   return drawReportPdf(new jsPDF({ unit: "mm", format: "a4" }), model, photoData);
 }
 const pdfFileName = (insp, s) => `QC_Report_${(s.products.find(p => p.id === insp.productId)?.name || "report").replace(/[^\w]+/g, "_")}_${insp.id.toUpperCase()}.pdf`;
-const triggerPdfDownload = (url, fileName) => {
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = fileName;
-  a.rel = "noopener";
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-};
+function PdfSaveOverlay({ phase, err, blob, url, fileName, onClose }) {
+  const [busy, setBusy] = useState(false);
+  const onSave = async () => {
+    if (!blob || busy) return;
+    setBusy(true);
+    try {
+      const result = await savePdfFile(blob, fileName, { url });
+      if (result === "shared" || result === "downloaded" || result === "aborted") onClose();
+    } finally { setBusy(false); }
+  };
+  return (
+    <div className="fixed inset-0 flex flex-col" style={{ background: "rgba(20,26,22,.92)", zIndex: 70 }}>
+      <div className="flex items-center gap-3 px-4" style={{ height: 52, background: "#1a211d", color: "#fff" }}>
+        <span className="text-sm font-medium truncate">Download PDF</span>
+        <div className="flex-1" />
+        <button type="button" onClick={onClose} className="text-sm px-3 py-2 rounded-lg" style={{ background: "#3a443d", color: "#fff" }}>Close</button>
+      </div>
+      {err && <div className="px-4 py-2 text-sm" style={{ background: "#5a2a2a", color: "#fff" }}>{err}</div>}
+      <div className="flex-1 flex flex-col items-center justify-center gap-4 px-6 text-center text-sm" style={{ color: "#fff" }}>
+        {phase === "generating" && !err && <p>Generating PDF…</p>}
+        {phase === "ready" && (
+          <>
+            <p>Tap Save PDF to put the file on this phone.</p>
+            <button type="button" onClick={onSave} disabled={busy} className="text-base px-6 py-3 rounded-2xl font-semibold" style={{ background: "#fff", color: "#111" }}>{busy ? "Saving…" : "Save PDF"}</button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
 function PdfViewer({ insp, s, onClose, intent = "open" }) {
-  const [url, setUrl] = useState(null); const [err, setErr] = useState("");
+  const [pack, setPack] = useState(null); const [err, setErr] = useState("");
   const fileName = pdfFileName(insp, s);
-  useEffect(() => { let alive = true; (async () => { try { const d = await buildReportPdf(insp, s); if (!alive) return; setUrl(URL.createObjectURL(d.output("blob"))); } catch (e) { setErr(String(e.message || e)); } })(); return () => { alive = false; }; }, [insp.id]);
   useEffect(() => {
-    if (!url) return;
-    if (intent === "download") { triggerPdfDownload(url, fileName); onClose(); return; }
+    let alive = true, created = null;
+    (async () => { try { const d = await buildReportPdf(insp, s); if (!alive) return; const blob = d.output("blob"); created = URL.createObjectURL(blob); setPack({ blob, url: created }); } catch (e) { if (alive) setErr(String(e.message || e)); } })();
+    return () => { alive = false; if (created) URL.revokeObjectURL(created); };
+  }, [insp.id]);
+  useEffect(() => {
+    if (!pack) return;
+    if (intent === "download") {
+      if (needsShareToSave()) return;
+      triggerAnchorDownload(pack.url, fileName);
+      onClose();
+      return;
+    }
     const touch = typeof navigator !== "undefined" && navigator.maxTouchPoints > 0;
-    if (touch) { window.location.assign(url); return; }
-    const w = window.open(url, "_blank", "noopener");
+    if (touch) { window.location.assign(pack.url); return; }
+    const w = window.open(pack.url, "_blank", "noopener");
     if (w) onClose();
-    else window.location.assign(url);
-  }, [url, intent, fileName]);
+    else window.location.assign(pack.url);
+  }, [pack, intent, fileName]);
+  const onSave = async () => {
+    if (!pack) return;
+    const result = await savePdfFile(pack.blob, fileName, { url: pack.url });
+    if (result === "shared" || result === "downloaded" || result === "aborted") onClose();
+  };
   return (
     <div className="fixed inset-0 flex flex-col" style={{ background: "rgba(20,26,22,.92)", zIndex: 70 }}>
       <div className="flex items-center gap-3 px-4" style={{ height: 52, background: "#1a211d", color: "#fff" }}>
         <span className="text-sm font-medium truncate">{intent === "download" ? "Download PDF" : "Opening report"}</span>
         <div className="flex-1" />
-        {url && <button type="button" onClick={() => triggerPdfDownload(url, fileName)} className="text-sm px-4 py-2 rounded-lg font-semibold" style={{ background: "#fff", color: "#111" }}>Download PDF</button>}
-        <button onClick={onClose} className="text-sm px-3 py-2 rounded-lg" style={{ background: "#3a443d", color: "#fff" }}>Close</button>
+        {pack && <button type="button" onClick={onSave} className="text-sm px-4 py-2 rounded-lg font-semibold" style={{ background: "#fff", color: "#111" }}>Save PDF</button>}
+        <button type="button" onClick={onClose} className="text-sm px-3 py-2 rounded-lg" style={{ background: "#3a443d", color: "#fff" }}>Close</button>
       </div>
       {err && <div className="px-4 py-2 text-sm" style={{ background: "#5a2a2a", color: "#fff" }}>{err}</div>}
-      <div className="flex-1 flex flex-col items-center justify-center gap-3 px-6 text-center text-sm" style={{ color: "#fff" }}>
-        {!url && !err && <p>Generating PDF…</p>}
-        {url && intent === "download" && <p>If the file did not start, tap Download PDF.</p>}
-        {url && intent !== "download" && <p>If the report did not open, tap Download PDF or Close.</p>}
+      <div className="flex-1 flex flex-col items-center justify-center gap-4 px-6 text-center text-sm" style={{ color: "#fff" }}>
+        {!pack && !err && <p>Generating PDF…</p>}
+        {pack && intent === "download" && needsShareToSave() && (
+          <>
+            <p>Tap Save PDF to put the file on this phone.</p>
+            <button type="button" onClick={onSave} className="text-base px-6 py-3 rounded-2xl font-semibold" style={{ background: "#fff", color: "#111" }}>Save PDF</button>
+          </>
+        )}
+        {pack && intent === "download" && !needsShareToSave() && <p>If the file did not start, tap Save PDF.</p>}
+        {pack && intent !== "download" && <p>If the report did not open, tap Save PDF or Close.</p>}
       </div>
     </div>
   );
@@ -1719,7 +1761,51 @@ function InspectionRunner({ insp, patch, t, problems, product, suppliers, dictio
 
 function ReportView({ insp, s, onEdit, onAnswer, user, onMarkReference, onProduct }) {
   const [printing, setPrinting] = useState(null);
-  useEffect(() => { if (insp.status === "Completed") ensureJsPdf().catch(() => {}); }, [insp.status]);
+  const [savingPdf, setSavingPdf] = useState(null);
+  const pdfPack = useRef(null);
+  useEffect(() => {
+    if (insp.status !== "Completed") return;
+    let alive = true;
+    (async () => {
+      try {
+        await ensureJsPdf();
+        const d = await buildReportPdf(insp, s);
+        if (!alive) return;
+        const blob = d.output("blob");
+        if (pdfPack.current?.url) URL.revokeObjectURL(pdfPack.current.url);
+        pdfPack.current = { blob, url: URL.createObjectURL(blob), fileName: pdfFileName(insp, s) };
+      } catch {}
+    })();
+    return () => { alive = false; if (pdfPack.current?.url) URL.revokeObjectURL(pdfPack.current.url); pdfPack.current = null; };
+  }, [insp.id, insp.status]);
+  useEffect(() => () => { if (savingPdf?.url && savingPdf.url !== pdfPack.current?.url) URL.revokeObjectURL(savingPdf.url); }, [savingPdf?.url]);
+  const onDownloadPdf = async () => {
+    const cached = pdfPack.current;
+    if (cached) {
+      const result = await savePdfFile(cached.blob, cached.fileName, { url: cached.url });
+      if (result === "shared" || result === "downloaded" || result === "aborted") return;
+      setSavingPdf({ phase: "ready", ...cached });
+      return;
+    }
+    setSavingPdf(cur => { if (cur?.url && cur.url !== pdfPack.current?.url) URL.revokeObjectURL(cur.url); return { phase: "generating" }; });
+    let created = null;
+    try {
+      const d = await buildReportPdf(insp, s);
+      const blob = d.output("blob");
+      created = URL.createObjectURL(blob);
+      const fileName = pdfFileName(insp, s);
+      const result = await savePdfFile(blob, fileName, { url: created });
+      if (result === "shared" || result === "downloaded" || result === "aborted") {
+        URL.revokeObjectURL(created);
+        setSavingPdf(null);
+        return;
+      }
+      setSavingPdf({ phase: "ready", blob, url: created, fileName });
+    } catch (e) {
+      if (created) URL.revokeObjectURL(created);
+      setSavingPdf({ phase: "err", err: String(e.message || e) });
+    }
+  };
   const product = s.products.find(p => p.id === insp.productId), t = insp.template, problems = withLinkedProblems(s, problemsFor(s, { kind: "Product", id: insp.productId }, new Set((t && t.suppressed) || [])), t);
   const cu = (Number(insp.sample?.tu) || 0) * (Number(insp.sample?.cusPerTu) || 0);
   const totals = { cu, pieces: cu * (Number(insp.sample?.piecesPerCu) || 0), weight: cu * (Number(insp.sample?.weightPerCu) || 0) };
@@ -1739,7 +1825,7 @@ function ReportView({ insp, s, onEdit, onAnswer, user, onMarkReference, onProduc
           {insp.status === "Completed" && <Action primary onClick={() => setPrinting("open")}><Ic i={Printer} s={15} mr={0} />Open PDF</Action>}
           {insp.status === "Completed" && (
             <div className="grid grid-cols-2 gap-2">
-              <Action onClick={() => setPrinting("download")}><Ic i={Download} s={15} mr={0} />Download PDF</Action>
+              <Action onClick={onDownloadPdf}><Ic i={Download} s={15} mr={0} />Download PDF</Action>
               <Action onClick={onEdit}><Ic i={Pencil} s={15} mr={0} />Edit report</Action>
             </div>
           )}
@@ -1748,6 +1834,7 @@ function ReportView({ insp, s, onEdit, onAnswer, user, onMarkReference, onProduc
         </div>
       </div>
       {printing && <PdfViewer insp={insp} s={s} intent={printing} onClose={() => setPrinting(null)} />}
+      {savingPdf && <PdfSaveOverlay phase={savingPdf.phase} err={savingPdf.err} blob={savingPdf.blob} url={savingPdf.url} fileName={savingPdf.fileName} onClose={() => { if (savingPdf.url) URL.revokeObjectURL(savingPdf.url); setSavingPdf(null); }} />}
       <div className="text-xs mb-3 flex flex-wrap gap-x-4 gap-y-1" style={{ color: C.muted }}>
         <span>controller <b style={{ color: C.ink }}>{s.users.find(u => u.id === insp.controllerId)?.name}</b></span><span>start {fmtTime(insp.startedAt)}</span>{insp.completedAt && <span>finished {fmtTime(insp.completedAt)}</span>}
         {insp.supplier && <span>supplier <b style={{ color: C.ink }}>{insp.supplier}</b></span>}{insp.variety && <span>variety <b style={{ color: C.ink }}>{insp.variety}</b></span>}{insp.country && <span>country <b style={{ color: C.ink }}>{insp.country}</b></span>}{(insp.pallets || []).filter(Boolean).length > 0 && <span>pallets <b style={{ color: C.ink }}>{insp.pallets.filter(Boolean).join(", ")}</b></span>}{insp.po && <span>PO <b style={{ color: C.ink }}>{insp.po}</b></span>}{insp.dateISO && <span>date code <b style={{ color: C.ink }}>{dateCode(insp.dateISO)}</b></span>}<span>sample <b style={{ color: C.ink }}>{totals.cu} CU</b></span>
