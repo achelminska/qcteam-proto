@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createSyncer, mergeForward } from "./sync.js";
+import { applyOutbox, buildOutbox, createSyncer, mergeForward } from "./sync.js";
 
 const valid = p => p && Array.isArray(p.categories);
 const norm = p => p;
@@ -189,5 +189,30 @@ describe("mergeForward", () => {
     expect(draft.status).toBe("Completed");
     expect(draft.skipReason).toBe("no time");
     expect(merged.inspections.map(i => i.id).sort()).toEqual(["draft", "kept"]);
+  });
+
+  it("unions briefingSeen so a card seen on one phone is not lost on a conflict", () => {
+    const base = { briefingSeen: [{ id: "u-anna:rej:a", userId: "u-anna", fp: "rej:a", at: "1" }] };
+    const local = { briefingSeen: [{ id: "u-anna:rej:b", userId: "u-anna", fp: "rej:b", at: "2" }] };
+    const merged = mergeForward(base, local);
+    expect(merged.briefingSeen.map(r => r.fp).sort()).toEqual(["rej:a", "rej:b"]);
+  });
+
+  it("replays a briefingSeen outbox onto a newer server copy", () => {
+    const base = { briefingSeen: [{ id: "u-anna:rej:a", userId: "u-anna", fp: "rej:a", at: "1" }] };
+    const local = { briefingSeen: [
+      { id: "u-anna:rej:a", userId: "u-anna", fp: "rej:a", at: "1" },
+      { id: "u-anna:rej:b", userId: "u-anna", fp: "rej:b", at: "2" },
+    ] };
+    const snap = buildOutbox(base, local, "1");
+    const server = { briefingSeen: [
+      { id: "u-anna:rej:a", userId: "u-anna", fp: "rej:a", at: "1" },
+      { id: "u-head:ann:n1", userId: "u-head", fp: "ann:n1", at: "3" },
+    ] };
+    expect(applyOutbox(server, snap).briefingSeen.map(r => r.id).sort()).toEqual([
+      "u-anna:rej:a",
+      "u-anna:rej:b",
+      "u-head:ann:n1",
+    ]);
   });
 });
