@@ -31,7 +31,7 @@ const newer = (v, than) => !!v && (!than || Number(v) > Number(than));
 
 // Records a controller creates or finishes. When the server moved on while our save was still unconfirmed, keep
 // these from the device and keep everything else (catalog, dock rows, …) from the server.
-const RECORD_LISTS = ["inspections", "flags", "notifications", "announcements", "conversations"];
+const RECORD_LISTS = ["inspections", "flags", "notifications", "announcements", "conversations", "briefingSeen"];
 const SMALL_KEYS = ["palletClaims", "lostPallets"];
 const recordStamp = o => [o?.completedAt, o?.lastEditedAt, o?.answeredAt, o?.updatedAt, o?.startedAt, o?.createdAt].filter(Boolean).sort().at(-1) || "";
 const recordRank = o => ({ Completed: 3, PendingReview: 2, Draft: 1 }[o?.status] ?? 0);

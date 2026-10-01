@@ -5,6 +5,7 @@ import { SPEC_TARGETS, SPEC_ALIASES } from "./shared/specsync.js";
 import { activeTempForSpec, applyTempSpec, closeExpiredTempSpecs, tempUntilLabel } from "./shared/tempspec.js";
 import { SpecValue } from "./shared/SpecValue.jsx";
 import { peopleOnFloor, peopleAtDock, floorWhere, floorVerb, doneTodayCount } from "./shared/floor.js";
+import { adoptLocalBriefingSeen, briefingFp, markBriefingSeen, seenFingerprints } from "./shared/briefing-seen.js";
 import { attachableSameDay, otherDeliveryDay, sameDeliveryRows } from "./shared/delivery-pallets.js";
 import { poRequiredOnReject, poSourceHint, sheetPoForInspection, suggestedPo } from "./shared/rejection-po.js";
 import { dockMatches } from "./shared/dock-search.js";
@@ -1871,7 +1872,7 @@ const convName = (conv, s, userId) => conv.name || conv.participantIds.filter(id
 
 const SEED_USERS = () => [{ id: "u-head", name: "Aleksandra Chełmińska", firstName: "Aleksandra", lastName: "Chełmińska", email: "aleksandra.chelminska@qc.local", role: "Head", active: true }, { id: "u-anna", name: "Damian Mrówka", firstName: "Damian", lastName: "Mrówka", email: "damian.mrowka@qc.local", role: "Controller", active: true }, { id: "u-jakub", name: "Snizhana Myshkina", firstName: "Snizhana", lastName: "Myshkina", email: "snizhana.myshkina@qc.local", role: "Controller", active: true }];
 
-const EMPTY = { categories: [], problems: [], problemNotes: [], products: [], templates: [], suppliers: [], countries: [], users: SEED_USERS(), inspections: [], flags: [], notifications: [], announcements: [], conversations: [], dictionaries: [], inspectionTypes: SEED_TYPES(), tempSpecs: [], settings: { defaultPolicy: "Visual", skipReasonRequired: false } };
+const EMPTY = { categories: [], problems: [], problemNotes: [], products: [], templates: [], suppliers: [], countries: [], users: SEED_USERS(), inspections: [], flags: [], notifications: [], announcements: [], conversations: [], dictionaries: [], inspectionTypes: SEED_TYPES(), tempSpecs: [], settings: { defaultPolicy: "Visual", skipReasonRequired: false }, briefingSeen: [] };
 
 // Migration of older exports: product.suppliers as names → global list + supplierIds
 
@@ -1888,6 +1889,7 @@ const normalize = raw => {
   { const seed = byId(SEED_USERS()); const placeholders = { "u-head": "Marta K.", "u-anna": "Anna K.", "u-jakub": "Jakub M." }; s.users = (s.users || []).map(u => placeholders[u.id] && u.name === placeholders[u.id] ? { ...u, ...seed[u.id] } : u); }
   s.categoryRules = Array.isArray(s.categoryRules) ? s.categoryRules : [];
   s.palletClaims = s.palletClaims && typeof s.palletClaims === "object" ? s.palletClaims : {};
+  s.briefingSeen = Array.isArray(s.briefingSeen) ? s.briefingSeen.filter(r => r && r.id && r.userId && r.fp) : [];
   s.settings = settingsOf(s);
   s.inspectionTypes = Array.isArray(s.inspectionTypes) ? s.inspectionTypes : [];
   // Migration: drop the previously seeded types (and their auto-generated templates) when nothing uses them — the Head defines types from scratch.
@@ -3438,24 +3440,26 @@ const complaintsLine = (s, articleId) => { const c = complaintsFor(s, articleId)
 const complaintsSeenKey = userId => `qcteam-complaints-seen-${userId}`;
 const complaintsNewCount = (s, userId) => { const meta = complaintsMeta(s); if (!meta.rows.length) return 0; let seen = ""; try { seen = localStorage.getItem(complaintsSeenKey(userId)) || ""; } catch {} return meta.rows.filter(r => (r.updatedAt || meta.updatedAt || "") > seen).length; };
 const markComplaintsSeen = userId => { try { localStorage.setItem(complaintsSeenKey(userId), nowISO()); } catch {} };
-// Shift update: each card is an update. Viewing it stores a fingerprint on this device; next open only shows new ones
-// (a new Rejected inspection, or a higher complaint count, is a new fingerprint). Sheets are not used.
 const briefingItemsKey = userId => `qcteam-briefing-items-${userId}`;
-const readBriefingSeen = userId => { try { return new Set(JSON.parse(localStorage.getItem(briefingItemsKey(userId)) || "[]")); } catch { return new Set(); } };
-const markBriefingItem = (userId, fp) => { if (!fp) return; const set = readBriefingSeen(userId); set.add(fp); try { localStorage.setItem(briefingItemsKey(userId), JSON.stringify([...set])); } catch {} };
-const briefingFp = c => {
-  if (!c) return null;
-  if (c.kind === "ann") return `ann:${c.a.id}`;
-  if (c.kind === "rej") return `rej:${c.i.id}`;
-  if (c.kind === "complaint") return `comp:${c.c.id}:${c.c.count}:${c.c.updatedAt || ""}`;
-  return null;
-};
 const briefingAnnouncements = s => (s.announcements || []).filter(a => (a.showOnDashboard || a.isBlocking || a.productId || a.categoryId) && (a.isBlocking || annActive(a))).sort((a, b) => (!!b.isBlocking - !!a.isBlocking) || (b.createdAt || "").localeCompare(a.createdAt || ""));
 // One card per completed Rejected inspection in the system — not dock-sheet "High risk".
 const briefingRejections = s => (s.inspections || []).filter(i => i.status === "Completed" && isVerdictType(s, i) && i.result === "Rejected" && i.completedAt).sort((a, b) => (b.completedAt || "").localeCompare(a.completedAt || ""));
 const briefingComplaints = s => [...complaintsMeta(s).rows].filter(r => r.count).sort((a, b) => (b.count || 0) - (a.count || 0) || (a.name || "").localeCompare(b.name || ""));
+const liveBriefingFps = s => [
+  ...briefingAnnouncements(s).map(a => briefingFp({ kind: "ann", a })),
+  ...briefingRejections(s).map(i => briefingFp({ kind: "rej", i })),
+  ...briefingComplaints(s).map(c => briefingFp({ kind: "complaint", c })),
+].filter(Boolean);
+const adoptDeviceBriefingSeen = (set, userId) => {
+  if (!userId) return;
+  let fps = [];
+  try { fps = JSON.parse(localStorage.getItem(briefingItemsKey(userId)) || "[]"); } catch { fps = []; }
+  if (!Array.isArray(fps) || !fps.length) return;
+  set(x => adoptLocalBriefingSeen(x, userId, fps, nowISO()));
+  try { localStorage.removeItem(briefingItemsKey(userId)); } catch {}
+};
 const briefingUnseen = (s, userId) => {
-  const seen = readBriefingSeen(userId);
+  const seen = seenFingerprints(s, userId);
   const anns = briefingAnnouncements(s).filter(a => !seen.has(briefingFp({ kind: "ann", a })));
   const rejs = briefingRejections(s).filter(i => !seen.has(briefingFp({ kind: "rej", i })));
   const complaints = briefingComplaints(s).filter(c => !seen.has(briefingFp({ kind: "complaint", c })));
@@ -3712,7 +3716,7 @@ function MDocks({ s, user, go }) {
     </div>
   );
 }
-function MBriefing({ s, user, go }) {
+function MBriefing({ s, set, user, go }) {
   const unseen = briefingUnseen(s, user.id);
   const [tab, setTab] = useState(() => briefingDefaultTab(s, user.id));
   const [cards, setCards] = useState(() => briefingTabDeck(s, briefingDefaultTab(s, user.id), user.id));
@@ -3728,8 +3732,8 @@ function MBriefing({ s, user, go }) {
   const ix = n ? Math.max(0, Math.min(i, n - 1)) : 0;
   useEffect(() => {
     const fp = briefingFp(cards[ix]);
-    if (!fp) return;
-    const t = setTimeout(() => markBriefingItem(user.id, fp), 400);
+    if (!fp || seenFingerprints(s, user.id).has(fp)) return;
+    const t = setTimeout(() => set(x => markBriefingSeen(x, user.id, fp, nowISO(), liveBriefingFps(x))), 400);
     return () => clearTimeout(t);
   }, [ix, tab, cards, user.id]);
   const goTo = nI => { if (!n) return; setAnim(true); setDx(0); setI(Math.max(0, Math.min(n - 1, nI))); };
@@ -4198,6 +4202,7 @@ export default function App() {
   }; const id = setInterval(tick, 5000); return () => clearInterval(id); }, [loaded]);
   useEffect(() => { const h = () => { if (document.visibilityState === "visible") syncerRef.current.tick(); }; document.addEventListener("visibilitychange", h); window.addEventListener("focus", h); window.addEventListener("pageshow", h); return () => { document.removeEventListener("visibilitychange", h); window.removeEventListener("focus", h); window.removeEventListener("pageshow", h); }; }, []);
   useEffect(() => { (async () => { try { if (window.storage) { const r = await window.storage.get(THEME_KEY); if (r?.value === "dark") { applyTheme(true); setDark(true); } } } catch (e) {} })(); }, []);
+  useEffect(() => { if (!loaded || !userId) return; adoptDeviceBriefingSeen(set, userId); }, [loaded, userId]);
   const toggleTheme = () => { const d = !dark; applyTheme(d); setDark(d); (async () => { try { if (window.storage) await window.storage.set(THEME_KEY, d ? "dark" : "light"); } catch (e) {} })(); };
   if (!loaded) return <div className="min-h-screen flex items-center justify-center text-sm" style={{ color: C.muted }}>Loading…</div>;
   const user = s.users.find(u => u.id === userId && u.active !== false) || null;
@@ -4258,7 +4263,7 @@ export default function App() {
       {page === "flags" && <MFlags s={s} user={user} go={go} />}
       {page === "unreported" && <MUnreported s={s} set={set} user={user} go={go} />}
       {page === "docks" && <MDocks s={s} user={user} go={go} />}
-      {page === "briefing" && <MBriefing s={s} user={user} go={go} />}
+      {page === "briefing" && <MBriefing s={s} set={set} user={user} go={go} />}
       {page === "complaints" && <MComplaints s={s} user={user} go={go} />}
       {page === "head-escalations" && <MHeadEscalations s={s} set={set} user={user} go={go} notify={notify} />}
       {page === "head-flags" && <MHeadFlags s={s} set={set} user={user} go={go} notify={notify} />}
