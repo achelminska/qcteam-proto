@@ -48,3 +48,16 @@ describe("adoptNewColumns — a column appears in a sheet the Head already mappe
     expect(after.map(m => m.source)).toEqual(HEADER.filter(h => h !== "Time needed"));
   });
 });
+
+describe("Supplier column", () => {
+  it("is a dock target and maps from a Supplier header", () => {
+    expect(DOCK_TARGETS.find(t => t[0] === "supplier")).toBeTruthy();
+    const header = [...HEADER, "Supplier"];
+    const row = [...ROW, "El Ciruelo"];
+    const m = byTarget(suggestMappings(header, [row], DOCK_TARGETS));
+    expect(m.supplier).toMatchObject({ source: "Supplier", transform: "none" });
+    expect(m.transporter.source).toBe("Transporter");
+    const rows = applyMapping({ mappings: suggestMappings(header, [row], DOCK_TARGETS) }, header, [row]);
+    expect(rows[0].supplier).toBe("El Ciruelo");
+  });
+});
