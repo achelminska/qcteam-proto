@@ -1525,7 +1525,7 @@ const generateComment = (problems, overrides, remarks, totals, generalFlag) => {
 
 function ProblemOverview({ t, problems, remarks, totals }) {
   const pm = byId(problems);
-  const refs = [...t.problemRefs].sort(bySort).map(r => pm[r.problemTypeId]).filter(Boolean);
+  const refs = [...(t.problemRefs || [])].sort(bySort).map(r => pm[r.problemTypeId]).filter(Boolean);
   const covered = new Set(refs.flatMap(n => [...subtree(problems, n.id)]));
   const extra = [...new Set(remarks.map(r => r.leafId).filter(id => !covered.has(id)))].map(id => pm[id]).filter(Boolean);
   const rows = [...refs, ...extra];
