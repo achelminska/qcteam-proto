@@ -9,6 +9,7 @@ import { peopleOnFloor, peopleAtDock, floorWhere, floorVerb, doneTodayCount, don
 import { attachableSameDay, otherDeliveryDay, sameDeliveryRows } from "./shared/delivery-pallets.js";
 import { poRequiredOnReject, poSourceHint, sheetPoForInspection, suggestedPo } from "./shared/rejection-po.js";
 import { dockMatches } from "./shared/dock-search.js";
+import { clearBriefingSeen } from "./shared/briefing-seen.js";
 import { readAsDataUrl, keepPhoto, shrinkPhoto, memoPdfPhoto, fetchPdfPhotoSrc, rotateImage } from "./shared/report-images.js";
 import { attachRemarkPhotos, photoGroupsByModule, pickedPhotos, replacePhoto, replaceRemarkPhoto } from "./shared/photos.js";
 import { CameraSheet } from "./shared/CameraSheet.jsx";
@@ -4967,6 +4968,12 @@ function SettingsPage({ s, set }) {
           <label className="text-xs" style={{ color: C.muted }}>Company<input value={st.companyName} onChange={e => put({ companyName: e.target.value })} className="w-full text-sm mt-1" /></label>
           <label className="text-xs" style={{ color: C.muted }}>QC contact e-mail<input value={st.qcEmail} onChange={e => put({ qcEmail: e.target.value })} className="w-full text-sm mt-1" /></label>
         </div>
+      </Card>
+      <Card style={{ marginBottom: 16 }}>
+        <h2 className="mb-1">Shift update cards</h2>
+        <p className="text-xs mb-3" style={{ color: C.muted }}>When a controller opens a card, it is marked seen for that person on every phone. Reset so notes, rejections and complaints show as new again — for everyone.</p>
+        <p className="text-xs mb-3" style={{ color: C.muted }}>{(s.briefingSeen || []).length} seen mark{(s.briefingSeen || []).length === 1 ? "" : "s"}{(() => { const n = new Set((s.briefingSeen || []).map(r => r.userId)).size; return n ? ` · ${n} people` : ""; })()}.</p>
+        <button type="button" onClick={() => set(x => clearBriefingSeen(x))} disabled={!(s.briefingSeen || []).length} className="text-sm px-3 py-2 rounded-xl font-semibold" style={{ background: (s.briefingSeen || []).length ? C.ink : C.line, color: (s.briefingSeen || []).length ? C.onDark : C.muted }}>Show all cards as new</button>
       </Card>
       <Card style={{ marginBottom: 16 }}>
         <h2 className="mb-1">PO on rejection</h2>

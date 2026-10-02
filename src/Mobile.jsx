@@ -5,7 +5,7 @@ import { SPEC_TARGETS, SPEC_ALIASES } from "./shared/specsync.js";
 import { activeTempForSpec, applyTempSpec, closeExpiredTempSpecs, tempUntilLabel } from "./shared/tempspec.js";
 import { SpecValue } from "./shared/SpecValue.jsx";
 import { peopleOnFloor, peopleAtDock, floorWhere, floorVerb, doneTodayCount } from "./shared/floor.js";
-import { adoptLocalBriefingSeen, briefingFp, markBriefingSeen, seenFingerprints } from "./shared/briefing-seen.js";
+import { adoptLocalBriefingSeen, briefingFp, clearBriefingSeen, markBriefingSeen, seenFingerprints } from "./shared/briefing-seen.js";
 import { attachableSameDay, otherDeliveryDay, sameDeliveryRows } from "./shared/delivery-pallets.js";
 import { poRequiredOnReject, poSourceHint, sheetPoForInspection, suggestedPo } from "./shared/rejection-po.js";
 import { dockMatches } from "./shared/dock-search.js";
@@ -3866,6 +3866,15 @@ function MBriefing({ s, set, user, go }) {
   const compN = tab === "complaints" ? n : unseen.complaints.length;
   const Tab = ({ id, label, count }) => <button data-story-cta onClick={() => setTab(id)} className="flex-1 py-2 text-[12px] font-medium whitespace-nowrap" style={{ background: tab === id ? C.ink : "transparent", color: tab === id ? C.onDark : C.ink }}>{label}{count ? ` · ${count}` : ""}</button>;
   const emptyCopy = tab === "complaints" ? "No new complaints to review." : tab === "notes" ? "No new notes to review." : "No new rejections to review.";
+  const replayCards = () => {
+    const cleared = { ...s, briefingSeen: [] };
+    const nextTab = briefingDefaultTab(cleared, user.id);
+    set(x => clearBriefingSeen(x));
+    setTab(nextTab);
+    setCards(briefingTabDeck(cleared, nextTab, user.id));
+    setI(0);
+    setDx(0);
+  };
   return (
     <div className="absolute inset-0 flex flex-col" style={{ background: C.surface }}>
       <TopBar title="Shift update" onBack={() => go("back")} right={n > 0 && <span className="text-[11px] font-medium" style={{ color: C.muted, fontVariantNumeric: "tabular-nums" }}>{ix + 1} / {n}</span>} />
@@ -3880,6 +3889,7 @@ function MBriefing({ s, set, user, go }) {
         <div className="flex-1 flex flex-col items-center justify-center px-8 text-center">
           <p className="text-[22px] font-semibold tracking-tight">You're up to date.</p>
           <p className="text-sm mt-2" style={{ color: C.muted }}>{emptyCopy}</p>
+          {user.role === "Head" && (s.briefingSeen || []).length > 0 && <button type="button" onClick={replayCards} className="mt-5 text-sm font-semibold px-4 py-2.5 rounded-xl" style={{ background: C.ink, color: C.onDark }}>Show all cards as new</button>}
         </div>
       ) : (
         <>
