@@ -2314,6 +2314,14 @@ function BriefingPage({ s, set, user, go }) {
     return () => clearTimeout(t);
   }, [ix, tab, cards, user.id]);
   const goTo = nI => { if (!n) return; setAnim(true); setDx(0); setI(Math.max(0, Math.min(n - 1, nI))); };
+  useEffect(() => {
+    const onKey = e => {
+      if (e.key === "ArrowRight" || e.key === "ArrowDown") { e.preventDefault(); goTo(ix + 1); }
+      if (e.key === "ArrowLeft" || e.key === "ArrowUp") { e.preventDefault(); goTo(ix - 1); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [ix, n]);
   const catPath = id => { const c = s.categories.find(x => x.id === id); if (!c) return null; const p = c.parentId && s.categories.find(x => x.id === c.parentId); return p ? `${p.name} › ${c.name}` : c.name; };
   const who = id => s.users.find(u => u.id === id)?.name.split(" ")[0];
   const onDown = e => {
