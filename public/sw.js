@@ -5,7 +5,7 @@
  * /assets/* files are immutable and served cache-first. */
 const VERSION = "qc-shell-v2";
 const SHELL = ["/", "/index.html", "/manifest.webmanifest", "/icon.svg", "/icon-192.png", "/icon-512.png"];
-const NEVER_CACHE = [/^\/storage\//, /^\/meta\//, /^\/boot$/, /^\/sheet\//, /^\/sheets\//, /^\/api\//, /^\/photos\//, /^\/backups/, /^\/proxy/, /^\/auth\//];
+const NEVER_CACHE = [/^\/storage\//, /^\/meta\//, /^\/boot$/, /^\/sheet\//, /^\/sheets\//, /^\/api\//, /^\/photos\//, /^\/files\//, /^\/backups/, /^\/proxy/, /^\/auth\//];
 
 self.addEventListener("install", e => {
   e.waitUntil(caches.open(VERSION).then(c => Promise.allSettled(SHELL.map(u => c.add(u)))).then(() => self.skipWaiting()));

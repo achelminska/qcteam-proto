@@ -6,7 +6,7 @@
 //   1. wrap window.fetch so every call to our API goes out with credentials (needed only when the app and the
 //      server are on different ports, i.e. Vite dev), and a 401 raises the gate;
 //   2. the gate itself: a small overlay asking for the key, POST /auth/login, reload on success.
-const API = /^\/(storage|meta|photos|sheet|backups|proxy|auth)(\/|$)/;
+const API = /^\/(storage|meta|photos|files|sheet|backups|proxy|auth)(\/|$)/;
 const ACCENT = "#1F5C3E";
 let shown = false;
 let nativeFetch = null;

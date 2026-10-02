@@ -40,7 +40,7 @@ export function bearerOf(req) {
 // Paths that need no key: the app shell and its assets (index.html, /assets, fonts, icons — nothing private in them),
 // the login endpoint itself, and /boot (a random id that only says "the process restarted"). Everything that holds
 // or changes data is behind the key.
-const PRIVATE = /^\/(storage|meta|photos|sheet|backups|proxy|auth)(\/|$)/;
+const PRIVATE = /^\/(storage|meta|photos|files|sheet|backups|proxy|auth)(\/|$)/;
 export function isPublic(url, method) {
   if (method === "OPTIONS") return true;
   const p = String(url || "").split("?")[0];
@@ -70,7 +70,7 @@ export const clearCookieHeader = (secure) => `${COOKIE}=; Path=/; HttpOnly; Same
 // rule — not this header — is what keeps other sites out; echoing is safe because a cross-site page never gets
 // the cookie attached in the first place.
 const METHODS = "GET,PUT,POST,DELETE,OPTIONS";
-const HEADERS = "Content-Type,If-Match,X-Force,X-Replace,X-Sync-Key,X-Secret,Authorization,X-App-Key";
+const HEADERS = "Content-Type,If-Match,X-Force,X-Replace,X-Sync-Key,X-Secret,Authorization,X-App-Key,X-File-Name,X-File-Mime";
 export function corsFor(req) {
   const origin = req.headers?.origin;
   if (!origin) return { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": METHODS, "Access-Control-Allow-Headers": HEADERS };

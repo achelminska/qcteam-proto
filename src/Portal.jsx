@@ -10,6 +10,8 @@ import { attachableSameDay, otherDeliveryDay, sameDeliveryRows } from "./shared/
 import { poRequiredOnReject, poSourceHint, sheetPoForInspection, suggestedPo } from "./shared/rejection-po.js";
 import { dockMatches } from "./shared/dock-search.js";
 import { clearBriefingSeen } from "./shared/briefing-seen.js";
+import { announceFilesOf } from "./shared/announce-files.js";
+import { AnnounceAttachButton, AnnounceFileList } from "./shared/AnnounceAttachments.jsx";
 import { readAsDataUrl, keepPhoto, shrinkPhoto, memoPdfPhoto, fetchPdfPhotoSrc, rotateImage } from "./shared/report-images.js";
 import { attachRemarkPhotos, photoGroupsByModule, pickedPhotos, replacePhoto, replaceRemarkPhoto } from "./shared/photos.js";
 import { CameraSheet } from "./shared/CameraSheet.jsx";
@@ -1805,7 +1807,7 @@ function PalletPage({ s, set, user, hu, onBack, onOpenProduct, onOpenInspection,
             {al && !lost && <NoteRow icon={Clock} tone="bad"><b>{al.level === "breached" ? "Rejection window expired" : `Rejection window closes in ${Math.max(0, Math.round(al.hoursLeft))} h`}</b>{al.risky ? " · rejected recently" : ""}</NoteRow>}
             {hist.count > 0 && <NoteRow icon={AlertTriangle} tone="bad"><b>{hist.count} rejected</b> in 14 days · {hist.problems.slice(0, 3).map(x => `${x.name} ×${x.count}`).join(", ")}{hist.problems.length > 3 ? "…" : ""}</NoteRow>}
             {compl && <NoteRow icon={ThumbsDown} tone="bad" onClick={onOpenComplaints}><b>{compl.count} freshness complaint{compl.count === 1 ? "" : "s"}</b>{compl.sub ? <> · mostly <b>{compl.sub}</b></> : null}{compl.period ? ` · ${compl.period}` : ""}</NoteRow>}
-            {anns.map(a => <NoteRow key={a.id} icon={Megaphone} tone={a.isBlocking ? "bad" : "warn"} onClick={onOpenAnnouncements}><b>{a.title}</b>{a.body ? ` — ${a.body}` : ""}{a.isBlocking ? " · blocking" : ""}</NoteRow>)}
+            {anns.map(a => <NoteRow key={a.id} icon={Megaphone} tone={a.isBlocking ? "bad" : "warn"} onClick={onOpenAnnouncements}><b>{a.title}</b>{a.body ? ` — ${a.body}` : ""}{a.isBlocking ? " · blocking" : ""}<AnnounceFileList announcement={a} colors={C} compact stopNav /></NoteRow>)}
             {draft && <NoteRow icon={Clock} tone="warn" onClick={onOpenInspection ? () => onOpenInspection(draft.id) : undefined}><b>{s.users.find(u => u.id === draft.controllerId)?.name.split(" ")[0]}</b> has this pallet in progress ({STATUS[draft.status][0]})</NoteRow>}
           </div>
         )}
@@ -2198,6 +2200,7 @@ function AnnouncementModal({ a, onClose }) {
         <p className="text-xs font-medium mb-2 flex items-center" style={{ color: C.accent }}><Ic i={Megaphone} s={13} />Announcement</p>
         <p className="text-lg font-semibold mb-2">{a.title}</p>
         <p className="text-sm mb-4" style={{ whiteSpace: "pre-wrap" }}>{a.body}</p>
+        <AnnounceFileList announcement={a} colors={C} />
         <p className="text-xs mb-4" style={{ color: C.muted }}>{fmtTime(a.createdAt)}{a.validTo && ` · on the dashboard until ${a.validTo}`}</p>
         <button onClick={onClose} className="text-sm px-4 py-2 rounded-xl" style={{ background: C.ink, color: C.onDark }}>Close</button>
       </div>
@@ -4008,7 +4011,7 @@ function InspectionRunner({ insp, patch, t, problems, product, suppliers, dictio
       </div>
       {askCancel && <Note tone="bad"><div className="flex items-center gap-3 flex-wrap"><span>Cancel this inspection? It stays in history as cancelled.</span><button onClick={onCancel} className="text-xs px-3 py-1.5 rounded-lg font-semibold" style={{ background: C.bad, color: C.onDark }}>Yes, cancel</button><button onClick={() => setAskCancel(false)} className="text-xs px-3 py-1.5 rounded-lg" style={{ border: `1px solid ${C.line}` }}>Keep working</button></div></Note>}
       {flagOpen && <div className="rounded-lg p-2 mb-3 flex gap-2 items-center" style={{ background: C.warnBg }}><input value={flagText} onChange={e => setFlagText(e.target.value)} placeholder="what's wrong with this product profile? (wrong supplier, code, spec…)" className="flex-1 text-xs rounded px-2 py-1 outline-none" style={{ ...inp }} /><Primary small onClick={() => { if (flagText.trim()) { onRaiseFlag(flagText.trim()); setFlagText(""); setFlagOpen(false); } }}>Send to the Head</Primary></div>}
-      {sctx.announcements.filter(a => annMatchesProduct(sctx, a, product)).map(a => <Note key={a.id} tone="warn">📣 <b>{a.title}</b> — {a.body}</Note>)}
+      {sctx.announcements.filter(a => annMatchesProduct(sctx, a, product)).map(a => <Note key={a.id} tone="warn">📣 <b>{a.title}</b> — {a.body}<AnnounceFileList announcement={a} colors={C} compact /></Note>)}
       {escalated && <Note tone="warn">⏸ Paused — question for the Head: <i>„{insp.question}"</i>. You can keep filling in; the result is locked until answered.</Note>}
       {insp.answer && insp.status !== "PendingReview" && <Note tone="ok">💬 Head's answer: <i>„{insp.answer}"</i></Note>}
       <div className="flex gap-1 mb-3 border-b flex-wrap" style={{ borderColor: C.line }}>{[...modules.map(x => x.name), ...(hasSummary ? ["Summary"] : [])].map((name, i) => <button key={i} onClick={() => setTab(i)} className="text-xs px-3 py-2" style={{ borderBottom: tab === i ? `2px solid ${C.accent}` : "2px solid transparent", color: tab === i ? C.ink : C.muted, fontWeight: tab === i ? 500 : 400, marginBottom: -1, fontStyle: i === modules.length ? "italic" : "normal" }}>{name}</button>)}</div>
@@ -4325,7 +4328,7 @@ function ProductPeek({ s, user, product, onClose }) {
         </div>
         <div className="flex-1 overflow-y-auto px-5 pb-6">
           {tab === "overview" && <div>
-            {anns.length > 0 && <div className="mt-4">{anns.map(a => <Note key={a.id} tone="warn">📣 <b>{a.title}</b>{a.body && <> — {a.body}</>}</Note>)}</div>}
+            {anns.length > 0 && <div className="mt-4">{anns.map(a => <Note key={a.id} tone="warn">📣 <b>{a.title}</b>{a.body && <> — {a.body}</>}<AnnounceFileList announcement={a} colors={C} compact /></Note>)}</div>}
             <div className="mt-4"><ComplaintsNote s={s} articleId={product.articleId} /></div>
             {photos.length > 0 && <><H>Photos · {photos.length}</H><Photos list={photos} size={104} /></>}
             <H>Facts</H>
@@ -4438,7 +4441,7 @@ function CatalogPage({ s, set, user, notify, onStartInspection }) {
                   {product.consumerAppUrl && <button className="text-xs mt-1 underline" style={{ color: C.accent }} title="ConsumerAppUrl — phone only">open in the consumer app ↗</button>}
                 </div>
               </div>
-              {s.announcements.filter(a => annMatchesProduct(s, a, product)).map(a => <Note key={a.id} tone="warn">📣 <b>{a.title}</b> — {a.body}</Note>)}
+              {s.announcements.filter(a => annMatchesProduct(s, a, product)).map(a => <Note key={a.id} tone="warn">📣 <b>{a.title}</b> — {a.body}<AnnounceFileList announcement={a} colors={C} compact /></Note>)}
               <ComplaintsNote s={s} articleId={product.articleId} />
               {openFlags.length > 0 && <Note tone="warn">🚩 {openFlags.length} open flag on this product — the Head hasn't resolved it yet.</Note>}
               {asPhotoList(product.photos).length > 1 && <div className="mb-3"><PhotoStrip photos={product.photos} size={56} /></div>}
@@ -4532,15 +4535,17 @@ function CategoryPicker({ categories, value, onChange, placeholder = "Search cat
 }
 function AnnouncementsPage({ s, set, user, notify }) {
   const [d, setD] = useState({ blocking: false, dashboard: true, product: false, category: false, title: "", body: "", productId: "", categoryId: "", validTo: "" });
+  const [files, setFiles] = useState([]);
   const controllers = s.users.filter(u => u.role === "Controller" && u.active !== false);
   const catPath = id => { const c = s.categories.find(x => x.id === id); if (!c) return "—"; const p = c.parentId && s.categories.find(x => x.id === c.parentId); return p ? `${p.name} › ${c.name}` : c.name; };
   const valid = d.title.trim() && d.body.trim() && (d.blocking || d.dashboard || d.product || d.category) && (!d.product || d.productId) && (!d.category || d.categoryId);
   const add = () => {
     if (!valid) return;
-    const a = { id: uid(), isBlocking: d.blocking, showOnDashboard: d.dashboard, productId: d.product ? d.productId : null, categoryId: d.category ? d.categoryId : null, title: d.title.trim(), body: d.body.trim(), validTo: d.dashboard ? (d.validTo || null) : null, createdBy: user.id, createdAt: nowISO(), acks: {} };
+    const a = { id: uid(), isBlocking: d.blocking, showOnDashboard: d.dashboard, productId: d.product ? d.productId : null, categoryId: d.category ? d.categoryId : null, title: d.title.trim(), body: d.body.trim(), validTo: d.dashboard ? (d.validTo || null) : null, createdBy: user.id, createdAt: nowISO(), acks: {}, attachments: files };
     set(x => ({ ...x, announcements: [...x.announcements, a] }));
     if (a.isBlocking) controllers.forEach(c => notify("Announcement", `New blocking announcement: ${a.title}`, "Announcement", a.id, c.id));
     setD({ blocking: false, dashboard: true, product: false, category: false, title: "", body: "", productId: "", categoryId: "", validTo: "" });
+    setFiles([]);
   };
   const remove = id => set(x => ({ ...x, announcements: x.announcements.filter(a => a.id !== id) }));
   const list = [...s.announcements].sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
@@ -4559,6 +4564,8 @@ function AnnouncementsPage({ s, set, user, notify }) {
           {d.product && <div className="mb-2"><ProductPicker products={s.products} value={d.productId} onChange={id => setD(x => ({ ...x, productId: id }))} invalid={!d.productId} /></div>}
           {d.category && <div className="mb-2"><CategoryPicker categories={s.categories} value={d.categoryId} onChange={id => setD(x => ({ ...x, categoryId: id }))} invalid={!d.categoryId} /></div>}
           {d.dashboard && <label className="text-xs flex items-center gap-2 mb-2" style={{ color: C.muted }}>on the dashboard until <input type="date" value={d.validTo} onChange={e => setD(x => ({ ...x, validTo: e.target.value }))} className="text-sm rounded px-2 py-1 outline-none" style={{ ...inp }} /> (empty = no expiry)</label>}
+          <AnnounceFileList files={files} colors={C} onRemove={id => setFiles(list => list.filter(f => f.id !== id))} />
+          <AnnounceAttachButton colors={C} onAdd={added => setFiles(list => [...list, ...added])} />
           <Primary onClick={add} disabled={!valid}>Publish</Primary>
         </Card>
         <Card>
@@ -4566,6 +4573,7 @@ function AnnouncementsPage({ s, set, user, notify }) {
             <div key={a.id} className="py-3" style={{ borderTop: `1px solid ${C.line}` }}>
               <div className="flex items-center gap-2 mb-1 flex-wrap">{annChannels(a).map(k => <span key={k} className="text-xs px-2 py-0.5 rounded-full inline-flex items-center gap-1.5" style={{ background: C.surface, border: `1px solid ${C.line}`, color: C.ink }}><span className="inline-block rounded-full" style={{ width: 6, height: 6, background: k === "blocking" ? C.bad : k === "product" ? C.warn : k === "category" ? C.ok : C.accent }} />{CHANNELS[k][0]}</span>)}<span className="text-sm font-medium flex-1">{a.title}</span><button onClick={() => remove(a.id)} className="text-xs" style={{ color: C.muted }}>×</button></div>
               <p className="text-sm mb-1">{a.body}</p>
+              <AnnounceFileList announcement={a} colors={C} compact />
               <p className="text-xs" style={{ color: C.muted }}>{fmtTime(a.createdAt)}{a.productId && ` · ${s.products.find(p => p.id === a.productId)?.name}`}{a.categoryId && ` · ${catPath(a.categoryId)}`}{a.validTo && ` · dashboard until ${a.validTo}`}{a.showOnDashboard && !annActive(a) && " · expired on the dashboard"}</p>
               {a.isBlocking && (
                 <div className="group relative inline-block mt-1">
@@ -4593,6 +4601,7 @@ function BlockingOverlay({ s, set, user }) {
         <p className="text-xs font-semibold mb-2" style={{ color: C.bad }}><Ic i={Megaphone} s={13} />Blocking announcement · {pending.length > 1 ? `1 of ${pending.length}` : "requires acknowledgement"}</p>
         <p className="text-lg font-semibold mb-2">{a.title}</p>
         <p className="text-sm mb-4">{a.body}</p>
+        <AnnounceFileList announcement={a} colors={C} />
         <p className="text-xs mb-4" style={{ color: C.muted }}>{s.users.find(u => u.id === a.createdBy)?.name} · {fmtTime(a.createdAt)}</p>
         <Primary onClick={ack}>I have read and acknowledge</Primary>
       </div>
@@ -5040,7 +5049,10 @@ const normalize = raw => {
   s.complaintSnapshots = Array.isArray(s.complaintSnapshots) && s.complaintSnapshots.length ? sortSnapshots(s.complaintSnapshots) : migrateLegacy(s.complaints, uid);
   if (s.complaintSnapshots.length) s.complaints = asLegacyMeta(latestSnapshot(s.complaintSnapshots), s.complaintSnapshots);
   s.notifications = Array.isArray(s.notifications) ? s.notifications : [];
-  s.announcements = (Array.isArray(s.announcements) ? s.announcements : []).map(a => a.type ? (({ type, ...r }) => ({ ...r, isBlocking: type === "Blocking", showOnDashboard: type === "General", productId: type === "Product" ? r.productId : null }))(a) : a);
+  s.announcements = (Array.isArray(s.announcements) ? s.announcements : []).map(a => {
+    const row = a.type ? (({ type, ...r }) => ({ ...r, isBlocking: type === "Blocking", showOnDashboard: type === "General", productId: type === "Product" ? r.productId : null }))(a) : a;
+    return { ...row, attachments: announceFilesOf(row) };
+  });
   s.conversations = Array.isArray(s.conversations) ? s.conversations : [];
   s.integrations = Array.isArray(s.integrations) ? s.integrations : [];
   { const seed = byId(SEED_USERS()); const placeholders = { "u-head": "Marta K.", "u-anna": "Anna K.", "u-jakub": "Jakub M." }; s.users = (s.users || []).map(u => placeholders[u.id] && u.name === placeholders[u.id] ? { ...u, ...seed[u.id] } : u); }

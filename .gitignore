@@ -2,4 +2,5 @@ node_modules
 dist
 server/state.json
 server/photos
+server/files
 .env

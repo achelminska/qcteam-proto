@@ -14,7 +14,7 @@ describe("what is public", () => {
     expect(isPublic("/storage/x", "OPTIONS")).toBe(true);
   });
   it("everything that holds data is private", () => {
-    for (const p of ["/storage/qcteam-portal-state-v2-clean", "/meta/x", "/photos/abc.jpg", "/photos", "/sheet/dock", "/sheet/dock/log", "/backups", "/backups/state-1.json/restore", "/proxy", "/auth/status", "/auth/logout"]) expect(isPublic(p, "GET")).toBe(false);
+    for (const p of ["/storage/qcteam-portal-state-v2-clean", "/meta/x", "/photos/abc.jpg", "/photos", "/files", "/files/abc.pdf", "/sheet/dock", "/sheet/dock/log", "/backups", "/backups/state-1.json/restore", "/proxy", "/auth/status", "/auth/logout"]) expect(isPublic(p, "GET")).toBe(false);
   });
   it("a query string does not change the verdict", () => {
     expect(isPublic("/storage/x?cb=1", "GET")).toBe(false);
