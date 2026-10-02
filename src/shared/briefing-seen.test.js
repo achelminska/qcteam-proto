@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { adoptLocalBriefingSeen, briefingFp, briefingSeenId, markBriefingSeen, seenFingerprints } from "./briefing-seen.js";
+import { adoptLocalBriefingSeen, briefingFp, briefingSeenId, clearBriefingSeen, markBriefingSeen, seenFingerprints } from "./briefing-seen.js";
 
 describe("briefingFp", () => {
   it("keys a rejection, a note, and a complaint count", () => {
@@ -30,6 +30,16 @@ describe("markBriefingSeen", () => {
     };
     const next = markBriefingSeen(start, "u-anna", "rej:new", "b", ["rej:new"]);
     expect(next.briefingSeen.map(r => r.id).sort()).toEqual(["u-anna:rej:new", "u-head:rej:old"]);
+  });
+});
+
+describe("clearBriefingSeen", () => {
+  it("empties the shared list and leaves an already-empty state alone", () => {
+    const start = { briefingSeen: [{ id: "u-anna:rej:r1", userId: "u-anna", fp: "rej:r1", at: "t" }], products: [] };
+    const next = clearBriefingSeen(start);
+    expect(next.briefingSeen).toEqual([]);
+    expect(next.products).toBe(start.products);
+    expect(clearBriefingSeen({ briefingSeen: [] })).toEqual({ briefingSeen: [] });
   });
 });
 

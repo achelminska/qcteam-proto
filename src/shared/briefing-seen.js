@@ -32,3 +32,9 @@ export function adoptLocalBriefingSeen(s, userId, fps, at) {
   if (!s || !userId || !fps?.length) return s;
   return fps.filter(fp => typeof fp === "string" && fp).reduce((acc, fp) => markBriefingSeen(acc, userId, fp, at), s);
 }
+
+// Head replay: drop every user's seen marks so the shift-update cards show as new again.
+export function clearBriefingSeen(s) {
+  if (!s || !Array.isArray(s.briefingSeen) || s.briefingSeen.length === 0) return s;
+  return { ...s, briefingSeen: [] };
+}
