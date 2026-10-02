@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { countsAs, dayLabel, foundDisplay, hasV, legacyTypeId, listCheck, matchFieldSpec, numberSpecCheck, problemPath, reportStatusFields, specLabel, statusBarRatio, toleranceDisplay } from "./format.js";
+import { applySpecEdit, countsAs, dayLabel, foundDisplay, hasV, legacyTypeId, listCheck, matchFieldSpec, numberSpecCheck, problemPath, reportStatusFields, specFieldsFromForm, specFormKind, specLabel, statusBarRatio, toleranceDisplay } from "./format.js";
 
 describe("specLabel", () => {
   it("renders a range, a one-sided limit, or an em dash", () => {
@@ -11,6 +11,27 @@ describe("specLabel", () => {
   it("treats empty string as missing", () => {
     expect(hasV("")).toBe(false);
     expect(hasV(0)).toBe(true);
+  });
+});
+
+describe("spec edit", () => {
+  it("reads the form kind from which limits are set", () => {
+    expect(specFormKind({ min: 6, max: 20 })).toBe("range");
+    expect(specFormKind({ min: 6, max: null })).toBe("min");
+    expect(specFormKind({ min: "", max: 8 })).toBe("max");
+  });
+
+  it("builds fields from the form and keeps the spec id when saving", () => {
+    expect(specFieldsFromForm({ kind: "range", min: "11.6", max: "14", unit: "%", basis: "cu" }, "  Brix ")).toEqual({
+      name: "Brix", unit: "%", basis: "cu", min: "11.6", max: "14",
+    });
+    expect(specFieldsFromForm({ kind: "min", min: "", max: "9", unit: "g" }, "Weight")).toBe(null);
+    const sheet = { id: "s1", name: "Weight", unit: "g", min: 89, max: 103, basis: "piece", origin: "sheet", sheetRaw: "89-103g", syncedAt: "t" };
+    const next = applySpecEdit(sheet, specFieldsFromForm({ kind: "range", min: "90", max: "100", unit: "g", basis: "piece" }, "Weight"));
+    expect(next.id).toBe("s1");
+    expect(next.min).toBe("90");
+    expect(next.origin).toBeUndefined();
+    expect(next.sheetRaw).toBeUndefined();
   });
 });
 

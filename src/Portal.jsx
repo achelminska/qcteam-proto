@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, Fragment } from "react";
 import { createSyncer, guardUnload } from "./sync.js";
-import { hasV, specLabel, dayLabel, problemPath, typesOf, typeById, legacyTypeId, inspType, countsAs, listCheck, matchFieldSpec, numberSpecCheck, reportStatusFields, toleranceDisplay, matchesInspSearch } from "./shared/format.js";
+import { applySpecEdit, hasV, specFieldsFromForm, specFormKind, specLabel, dayLabel, problemPath, typesOf, typeById, legacyTypeId, inspType, countsAs, listCheck, matchFieldSpec, numberSpecCheck, reportStatusFields, toleranceDisplay, matchesInspSearch } from "./shared/format.js";
 import { SPEC_TARGETS, SPEC_ALIASES, SPEC_COLUMNS, applySpecSheet, fmtRange } from "./shared/specsync.js";
 import { normArticle, isoWeekOf, todayISO, weekLabel, weekRange, shiftWeek, sortSnapshots, latestSnapshot, snapshotTotal, upsertSnapshot, snapshotsOfWeek, previousInWeek, deltaRows, subTypeMix, weekSeries, articleTrend, topArticles, asLegacyMeta, migrateLegacy, rowFor } from "./shared/complaints.js";
 import { activeTempForSpec, applyTempSpec, clearTempSpec, closeExpiredTempSpecs, tempOwnerLabel, tempUntilLabel, upsertTempSpec } from "./shared/tempspec.js";
@@ -2040,13 +2040,28 @@ function TempSpecEditor({ spec, ownerKind, ownerId, existing, s, set, user, onCl
   );
 }
 
-function SpecForm({ specs, inherited, onAdd, onRemove, hint, excluded, onExclude, onRestore, sctx, set, user, ownerKind, ownerId }) {
-  const [sp, setSp] = useState({ name: "", unit: "", kind: "min", min: "", max: "", basis: "piece" });
+function SpecForm({ specs, inherited, onAdd, onUpdate, onRemove, hint, excluded, onExclude, onRestore, sctx, set, user, ownerKind, ownerId }) {
+  const blank = { name: "", unit: "", kind: "min", min: "", max: "", basis: "piece" };
+  const [sp, setSp] = useState(blank);
+  const [editingId, setEditingId] = useState(null);
   const [edit, setEdit] = useState(null);
   const reg = sctx ? specRegistry(sctx) : []; const near = sctx ? nearSpecName(sctx, sp.name) : null;
-  const knownNames = new Set([...(specs || []), ...(inherited || [])].map(q => `${(q.name || "").toLowerCase()}|${specBasis(q)}`));
+  const knownNames = new Set([...(specs || []), ...(inherited || [])].filter(q => q.id !== editingId).map(q => `${(q.name || "").toLowerCase()}|${specBasis(q)}`));
   const suggestions = reg.filter(e => !knownNames.has(`${e.name.toLowerCase()}|${sp.basis}`) && (!sp.name.trim() || e.name.toLowerCase().includes(sp.name.trim().toLowerCase()))).slice(0, 8);
-  const add = () => { if (!sp.name.trim()) return; const min = sp.kind === "max" ? null : sp.min, max = sp.kind === "min" ? null : sp.max; if (!hasV(min) && !hasV(max)) return; onAdd({ id: uid(), basis: sp.basis, name: sctx ? canonicalSpecName(sctx, sp.name) : sp.name.trim(), unit: sp.unit.trim(), min: hasV(min) ? min : null, max: hasV(max) ? max : null }); setSp({ name: "", unit: "", kind: "min", min: "", max: "" }); };
+  const resetForm = () => { setSp(blank); setEditingId(null); };
+  const startEdit = q => {
+    setSp({ name: q.name || "", unit: q.unit || "", kind: specFormKind(q), min: hasV(q.min) ? q.min : "", max: hasV(q.max) ? q.max : "", basis: specBasis(q) });
+    setEditingId(q.id);
+    setEdit(null);
+  };
+  const save = () => {
+    const name = sctx ? canonicalSpecName(sctx, sp.name) : sp.name.trim();
+    const fields = specFieldsFromForm(sp, name);
+    if (!fields) return;
+    if (editingId && onUpdate) { onUpdate(editingId, fields); resetForm(); return; }
+    onAdd({ id: uid(), ...fields });
+    resetForm();
+  };
   const productId = ownerKind === "product" ? ownerId : null;
   const tempOf = q => sctx ? activeTempForSpec(sctx.tempSpecs, q.id, productId) : null;
   const canTemp = !!(set && user && ownerKind && ownerId);
@@ -2055,10 +2070,11 @@ function SpecForm({ specs, inherited, onAdd, onRemove, hint, excluded, onExclude
     const open = edit && edit.spec.id === q.id && edit.inherited === !!inheritedRow;
     return (
       <div style={{ borderTop: `1px solid ${C.line}` }}>
-        <div className="flex items-baseline gap-2 text-sm py-1.5" style={{ opacity: inheritedRow && !t ? 0.65 : 1 }}>
-          <span className="flex-1 min-w-0">{q.name}{q.origin === "sheet" && <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded-full align-middle" style={{ background: C.accentSoft, color: C.accent }} title={`from the commercial spec sheet — cell: “${q.sheetRaw || ""}”${q.note ? ` · ${q.note}` : ""}. To override it, remove it and add your own — the sheet then reports a conflict instead of overwriting.`}>from sheet</span>}</span>
+        <div className="flex items-baseline gap-2 text-sm py-1.5" style={{ opacity: inheritedRow && !t ? 0.65 : 1, background: !inheritedRow && editingId === q.id ? C.accentSoft : "transparent" }}>
+          <span className="flex-1 min-w-0">{q.name}{q.origin === "sheet" && <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded-full align-middle" style={{ background: C.accentSoft, color: C.accent }} title={`from the commercial spec sheet — cell: “${q.sheetRaw || ""}”${q.note ? ` · ${q.note}` : ""}. Edit it to take it over — the sheet then reports a conflict instead of overwriting.`}>from sheet</span>}</span>
           <SpecValue spec={q} temp={t} colors={C} extra={<span style={{ color: C.muted }}>{basisTag(q)}{inheritedRow && q.source ? ` · ${q.source}` : ""}</span>} />
-          {canTemp && <button type="button" onClick={() => setEdit(open ? null : { spec: q, inherited: !!inheritedRow })} className="text-xs px-1.5" style={{ color: t ? C.warn : C.accent }}>{t ? "edit temp" : "temp"}</button>}
+          {!inheritedRow && onUpdate && <button type="button" onClick={() => editingId === q.id ? resetForm() : startEdit(q)} className="text-xs px-1.5" style={{ color: editingId === q.id ? C.ink : C.accent }}>{editingId === q.id ? "editing" : "edit"}</button>}
+          {canTemp && <button type="button" onClick={() => { if (open) setEdit(null); else { setEdit({ spec: q, inherited: !!inheritedRow }); resetForm(); } }} className="text-xs px-1.5" style={{ color: t ? C.warn : C.accent }}>{t ? "edit temp" : "temp"}</button>}
           {inheritedRow && onExclude && <button type="button" onClick={() => onExclude(q.name)} className="text-xs px-1" style={{ color: C.muted }} title="don't inherit this specification on this product">exclude</button>}
           {!inheritedRow && <button type="button" onClick={() => onRemove(q.id)} className="text-xs px-1" style={{ color: C.muted }}>×</button>}
         </div>
@@ -2081,8 +2097,9 @@ function SpecForm({ specs, inherited, onAdd, onRemove, hint, excluded, onExclude
         {[["min", "Minimum"], ["max", "Maximum"], ["range", "Range"]].map(([k, l]) => <button key={k} onClick={() => setSp(x => ({ ...x, kind: k }))} className="text-xs px-2.5 py-1.5 rounded-lg" style={{ background: sp.kind === k ? C.accent : C.accentSoft, color: sp.kind === k ? C.onDark : C.accent }}>{l}</button>)}
         {sp.kind !== "max" && <input type="number" value={sp.min} onChange={e => setSp(x => ({ ...x, min: e.target.value }))} placeholder={sp.kind === "range" ? "from" : "min"} className="w-16 text-sm rounded px-2 py-1.5 outline-none" style={{ ...inp }} />}
         {sp.kind === "range" && <span className="text-xs" style={{ color: C.muted }}>–</span>}
-        {sp.kind !== "min" && <input type="number" value={sp.max} onChange={e => setSp(x => ({ ...x, max: e.target.value }))} onKeyDown={e => e.key === "Enter" && add()} placeholder={sp.kind === "range" ? "to" : "max"} className="w-16 text-sm rounded px-2 py-1.5 outline-none" style={{ ...inp }} />}
-        <Primary small onClick={add}>+</Primary>
+        {sp.kind !== "min" && <input type="number" value={sp.max} onChange={e => setSp(x => ({ ...x, max: e.target.value }))} onKeyDown={e => e.key === "Enter" && save()} placeholder={sp.kind === "range" ? "to" : "max"} className="w-16 text-sm rounded px-2 py-1.5 outline-none" style={{ ...inp }} />}
+        <Primary small onClick={save}>{editingId ? "Save" : "+"}</Primary>
+        {editingId && <button type="button" onClick={resetForm} className="text-xs" style={{ color: C.muted }}>Cancel</button>}
       </div>
       {specs.length === 0 && (!inherited || inherited.length === 0) && <p className="text-xs" style={{ color: C.muted }}>No specifications.</p>}
       {excluded && excluded.length > 0 && <div className="mt-2"><p className="label-sm mb-1">not inherited on this product</p>{excluded.map(n => <div key={n} className="flex items-center gap-2 text-xs py-1" style={{ color: C.muted }}><span className="flex-1 line-through">{n}</span><button onClick={() => onRestore(n)} className="text-xs" style={{ color: C.accent }}>restore</button></div>)}</div>}
@@ -2299,7 +2316,7 @@ function CategoriesPage({ s, set, onMessage, onOpenProduct, presetSel, clearPres
       {cat && (
         <Card style={{ marginTop: 16 }}>
           <p className="font-medium text-sm mb-1">Category specifications: {cat.name}</p>
-          <SpecForm sctx={s} set={set} user={s.users.find(u => u.role === "Head")} ownerKind="category" ownerId={cat.id} specs={cat.specs || []} inherited={parentSpecs} onAdd={q => { patchCat({ specs: [...(cat.specs || []), q] }); const kids = productsUnder(cat.id); if (kids.length) setApplyAsk({ spec: q, kids, chosen: new Set(kids.map(p => p.id)), choosing: false }); }} onRemove={id => patchCat({ specs: (cat.specs || []).filter(q => q.id !== id) })}
+          <SpecForm sctx={s} set={set} user={s.users.find(u => u.role === "Head")} ownerKind="category" ownerId={cat.id} specs={cat.specs || []} inherited={parentSpecs} onAdd={q => { patchCat({ specs: [...(cat.specs || []), q] }); const kids = productsUnder(cat.id); if (kids.length) setApplyAsk({ spec: q, kids, chosen: new Set(kids.map(p => p.id)), choosing: false }); }} onUpdate={(id, fields) => patchCat({ specs: (cat.specs || []).map(q => q.id === id ? applySpecEdit(q, fields) : q) })} onRemove={id => patchCat({ specs: (cat.specs || []).filter(q => q.id !== id) })}
             hint="Inherited by all products in this category (by name). A product can override with its own spec of the same name. Set e.g. Brix or Firmness once for the whole category here. Temp on a row applies to every product that inherits it." />
         </Card>
       )}
@@ -3187,7 +3204,7 @@ function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset, onMessag
                   <PhotoStrip photos={product.photos} onAdd={got => patchP({ photos: [...asPhotoList(product.photos), ...got] })} onRemove={id => patchP({ photos: asPhotoList(product.photos).filter(x => x.id !== id) })} onReplace={(id, next) => patchP({ photos: replacePhoto(product.photos, id, next) })} />
                 </div>}
                 {tab === "specs" && <div style={{ maxWidth: 720 }}>
-                  <SpecForm sctx={s} set={set} user={s.users.find(u => u.role === "Head")} ownerKind="product" ownerId={product.id} specs={product.specs} inherited={effectiveSpecs(s, product, { applyTemp: false }).filter(q => q.source !== "product")} onAdd={q => patchP({ specs: [...product.specs, q] })} onRemove={removeSpec} excluded={product.excludedSpecNames || []} onExclude={n => patchP({ excludedSpecNames: [...(product.excludedSpecNames || []), n] })} onRestore={n => patchP({ excludedSpecNames: (product.excludedSpecNames || []).filter(x => x !== n) })} hint="Own specifications override inherited ones of the same name. Most belong on the category — only exceptions here. Temp on a row is for this product only." />
+                  <SpecForm sctx={s} set={set} user={s.users.find(u => u.role === "Head")} ownerKind="product" ownerId={product.id} specs={product.specs} inherited={effectiveSpecs(s, product, { applyTemp: false }).filter(q => q.source !== "product")} onAdd={q => patchP({ specs: [...product.specs, q] })} onUpdate={(id, fields) => patchP({ specs: product.specs.map(q => q.id === id ? applySpecEdit(q, fields) : q) })} onRemove={removeSpec} excluded={product.excludedSpecNames || []} onExclude={n => patchP({ excludedSpecNames: [...(product.excludedSpecNames || []), n] })} onRestore={n => patchP({ excludedSpecNames: (product.excludedSpecNames || []).filter(x => x !== n) })} hint="Own specifications override inherited ones of the same name. Most belong on the category — only exceptions here. Temp on a row is for this product only. Edit keeps the same specification — forms stay linked." />
                 </div>}
                 {tab === "attrs" && <div style={{ maxWidth: 720 }}>
                   <AttributeForm s={s} own={product.attributes || []} inherited={effectiveAttributes(s, product).filter(a => a.source !== "product")} onSet={a => patchP({ attributes: [...(product.attributes || []).filter(x => x.dictionaryId !== a.dictionaryId), a] })} onRemove={did => patchP({ attributes: (product.attributes || []).filter(x => x.dictionaryId !== did) })} hint="Values from Lists. Own values override the category's; they pre-fill form fields bound to the same list. An answer that differs is flagged on the form." />
