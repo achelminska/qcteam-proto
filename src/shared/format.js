@@ -9,6 +9,36 @@ export const specLabel = q => {
   return `${core} ${q.unit || ""}`.trim();
 };
 
+// Kind of the add/edit spec form: a range, a floor, or a ceiling.
+export const specFormKind = q => {
+  const mn = hasV(q?.min), mx = hasV(q?.max);
+  if (mn && mx) return "range";
+  if (mx && !mn) return "max";
+  return "min";
+};
+
+export function specFieldsFromForm(sp, name) {
+  const label = (name || "").trim();
+  if (!label) return null;
+  const min = sp?.kind === "max" ? null : sp?.min;
+  const max = sp?.kind === "min" ? null : sp?.max;
+  if (!hasV(min) && !hasV(max)) return null;
+  return { name: label, unit: String(sp?.unit || "").trim(), basis: sp?.basis || "piece", min: hasV(min) ? min : null, max: hasV(max) ? max : null };
+}
+
+// Keep the spec id (forms and temp overrides point at it). A Head edit of a sheet-owned
+// spec takes it over so the next commercial push reports a conflict instead of overwriting.
+export function applySpecEdit(spec, fields) {
+  if (!spec || !fields) return spec;
+  const next = { ...spec, ...fields };
+  if (spec.origin === "sheet") {
+    delete next.origin;
+    delete next.sheetRaw;
+    delete next.syncedAt;
+  }
+  return next;
+}
+
 // `now` is injectable so the labels can be tested without freezing the clock.
 export const dayLabel = (iso, now = new Date()) => {
   if (!iso) return "—";
