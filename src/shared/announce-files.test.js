@@ -6,8 +6,10 @@ import {
   announceFilesOf,
   classifyAnnounceFile,
   extOfName,
+  fileKindLabel,
   formatFileSize,
   isAnnounceFile,
+  isImageAnnounceFile,
   isInlineExt,
   mimeForExt,
   sanitizeFileName,
@@ -66,5 +68,9 @@ describe("helpers", () => {
     expect(formatFileSize(2048)).toBe("2 KB");
     expect(ANNOUNCE_ACCEPT).toContain(".pptx");
     expect(sanitizeFileName("a/b<c>.pdf")).toBe("bc.pdf");
+    expect(fileKindLabel("Freshness issues w38.pdf")).toBe("PDF");
+    expect(fileKindLabel("deck.PPTX")).toBe("PPTX");
+    expect(isImageAnnounceFile({ name: "label.jpg", path: "/files/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.jpg" })).toBe(true);
+    expect(isImageAnnounceFile({ name: "briefing.pdf", path: "/files/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.pdf" })).toBe(false);
   });
 });
