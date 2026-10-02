@@ -6,6 +6,7 @@ import { activeTempForSpec, applyTempSpec, closeExpiredTempSpecs, tempUntilLabel
 import { SpecValue } from "./shared/SpecValue.jsx";
 import { peopleOnFloor, peopleAtDock, floorWhere, floorVerb, doneTodayCount } from "./shared/floor.js";
 import { adoptLocalBriefingSeen, briefingFp, clearBriefingSeen, markBriefingSeen, seenFingerprints } from "./shared/briefing-seen.js";
+import { briefingDefaultTab, briefingItemsKey, briefingRemark, briefingTabDeck, briefingUnseen, liveBriefingFps } from "./shared/briefing-cards.js";
 import { attachableSameDay, otherDeliveryDay, sameDeliveryRows } from "./shared/delivery-pallets.js";
 import { poRequiredOnReject, poSourceHint, sheetPoForInspection, suggestedPo } from "./shared/rejection-po.js";
 import { dockMatches } from "./shared/dock-search.js";
@@ -3448,16 +3449,6 @@ const complaintsLine = (s, articleId) => { const c = complaintsFor(s, articleId)
 const complaintsSeenKey = userId => `qcteam-complaints-seen-${userId}`;
 const complaintsNewCount = (s, userId) => { const meta = complaintsMeta(s); if (!meta.rows.length) return 0; let seen = ""; try { seen = localStorage.getItem(complaintsSeenKey(userId)) || ""; } catch {} return meta.rows.filter(r => (r.updatedAt || meta.updatedAt || "") > seen).length; };
 const markComplaintsSeen = userId => { try { localStorage.setItem(complaintsSeenKey(userId), nowISO()); } catch {} };
-const briefingItemsKey = userId => `qcteam-briefing-items-${userId}`;
-const briefingAnnouncements = s => (s.announcements || []).filter(a => (a.showOnDashboard || a.isBlocking || a.productId || a.categoryId) && (a.isBlocking || annActive(a))).sort((a, b) => (!!b.isBlocking - !!a.isBlocking) || (b.createdAt || "").localeCompare(a.createdAt || ""));
-// One card per completed Rejected inspection in the system — not dock-sheet "High risk".
-const briefingRejections = s => (s.inspections || []).filter(i => i.status === "Completed" && isVerdictType(s, i) && i.result === "Rejected" && i.completedAt).sort((a, b) => (b.completedAt || "").localeCompare(a.completedAt || ""));
-const briefingComplaints = s => [...complaintsMeta(s).rows].filter(r => r.count).sort((a, b) => (b.count || 0) - (a.count || 0) || (a.name || "").localeCompare(b.name || ""));
-const liveBriefingFps = s => [
-  ...briefingAnnouncements(s).map(a => briefingFp({ kind: "ann", a })),
-  ...briefingRejections(s).map(i => briefingFp({ kind: "rej", i })),
-  ...briefingComplaints(s).map(c => briefingFp({ kind: "complaint", c })),
-].filter(Boolean);
 const adoptDeviceBriefingSeen = (set, userId) => {
   if (!userId) return;
   let fps = [];
@@ -3465,32 +3456,6 @@ const adoptDeviceBriefingSeen = (set, userId) => {
   if (!Array.isArray(fps) || !fps.length) return;
   set(x => adoptLocalBriefingSeen(x, userId, fps, nowISO()));
   try { localStorage.removeItem(briefingItemsKey(userId)); } catch {}
-};
-const briefingUnseen = (s, userId) => {
-  const seen = seenFingerprints(s, userId);
-  const anns = briefingAnnouncements(s).filter(a => !seen.has(briefingFp({ kind: "ann", a })));
-  const rejs = briefingRejections(s).filter(i => !seen.has(briefingFp({ kind: "rej", i })));
-  const complaints = briefingComplaints(s).filter(c => !seen.has(briefingFp({ kind: "complaint", c })));
-  return { anns, rejs, complaints, total: anns.length + rejs.length + complaints.length };
-};
-const briefingTabDeck = (s, tab, userId) => {
-  const u = briefingUnseen(s, userId);
-  if (tab === "complaints") return u.complaints.map(c => ({ kind: "complaint", c }));
-  if (tab === "notes") return u.anns.map(a => ({ kind: "ann", a }));
-  return u.rejs.map(i => ({ kind: "rej", i }));
-};
-const briefingDefaultTab = (s, userId) => {
-  const u = briefingUnseen(s, userId);
-  if (u.anns.length) return "notes";
-  if (u.rejs.length) return "rejections";
-  if (u.complaints.length) return "complaints";
-  return "rejections";
-};
-const briefingRemark = (s, r) => {
-  const name = pathOf(s.problems, r.leafId).split(" › ").pop() || "?";
-  if (r.mode === "Presence") return name;
-  const unit = r.mode === "PieceCount" ? "pcs" : r.mode === "DirectWeight" ? "g" : r.mode === "WholeUnitCount" ? "CU" : "";
-  return r.raw != null && r.raw !== "" ? `${name} · ${r.raw}${unit ? ` ${unit}` : ""}` : name;
 };
 const ComplaintChip = ({ s, articleId }) => { const c = complaintsFor(s, articleId); if (!c || !c.count) return null; return <span className="text-[10px] px-1.5 py-0.5 rounded-full inline-flex items-center gap-1 flex-shrink-0" style={{ background: C.badBg, color: C.bad }}><Ic i={ThumbsDown} s={10} mr={0} />{c.count}</span>; };
 function MComplaints({ s, user, go }) {
