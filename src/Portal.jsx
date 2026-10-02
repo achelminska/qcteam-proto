@@ -291,6 +291,9 @@ const effectiveGuide = (s, product) => { if (!product) return []; const hidden =
 const SEED_TYPES = () => [];
 const SKIP_REASONS = ["no time", "stable product", "same delivery as earlier", "checked at the supplier"];
 const isVerdictType = (s, insp) => !inspType(s, insp).autoAccept;
+// One completed inspection per product is the reference report — what a good pallet looks like for controllers.
+const toggleReferenceInspection = (set, productId, inspId) => set(x => ({ ...x, inspections: x.inspections.map(i => i.productId === productId ? { ...i, isReference: i.id === inspId ? !i.isReference : false } : i) }));
+const referenceOf = (s, productId) => (s.inspections || []).find(i => i.productId === productId && i.isReference);
 const settingsOf = s => ({ companyName: "Picnic Technologies", qcEmail: "qc@picnic.nl", rejectionWindowHours: 24, deadlineWarnHours: 6, deadlineWarnHoursRisky: 10, riskyLookbackDays: 14, requirePoOnReject: false, resultIcons: {}, ...(s.settings || {}) });
 // Policy = the set of allowed inspection types. Product → category chain → types allowed by default. A product always has one.
 const effectivePolicy = (s, product) => {
@@ -2559,7 +2562,7 @@ function PrintReport({ insp, s, onClose }) {
   const cu = (Number(insp.sample?.tu) || 0) * (Number(insp.sample?.cusPerTu) || 0);
   const totals = { cu, pieces: cu * (Number(insp.sample?.piecesPerCu) || 0), weight: cu * (Number(insp.sample?.weightPerCu) || 0) };
   const pm = byId(problems);
-  const refs = t ? [...t.problemRefs].sort(bySort).map(r => pm[r.problemTypeId]).filter(Boolean) : [];
+  const refs = t ? [...(t.problemRefs || [])].sort(bySort).map(r => pm[r.problemTypeId]).filter(Boolean) : [];
   const ctrl = s.users.find(u => u.id === insp.controllerId)?.name;
   const fieldsAnswered = t ? t.fields.filter(f => !isSystem(f.type) && insp.values?.[f.id] !== undefined && insp.values?.[f.id] !== "").sort(bySort) : [];
   const valStr = (f, v) => f.type === "Number" ? (v?.measurements || []).filter(x => x !== "").join(" / ") : Array.isArray(v) ? v.join(", ") : String(v ?? "");
@@ -3046,7 +3049,7 @@ function EncyclopediaEditor({ s, set, kind, owner, onOpenCategory }) {
   );
 }
 
-function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset, onMessage, onOpenInspection, onOpenCategory }) {
+function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset, onMessage, onOpenInspection, onOpenCategory, user }) {
   const [d, setD] = useState({ name: "", articleId: "", categoryId: "", isBio: false, cusPerTu: "", piecesPerCu: "", weightPerCu: "" });
   const [filter, setFilter] = useState(""); const [importOpen, setImportOpen] = useState(false); const [importText, setImportText] = useState(""); const [importMsg, setImportMsg] = useState("");
   useEffect(() => { if (presetFilter) { setFilter(presetFilter); clearPreset && clearPreset(); } }, [presetFilter]);
@@ -3113,7 +3116,10 @@ function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset, onMessag
   const histAll = product ? s.inspections.filter(i => i.productId === product.id && i.status === "Completed" && countsAs(s, i)) : [];
   const histVerdict = histAll.filter(i => isVerdictType(s, i));
   const histInfo = histAll.filter(i => !isVerdictType(s, i));
-  const tabs = product ? [["profile", "Profile"], ["photos", `Photos${asPhotoList(product.photos).length ? ` · ${asPhotoList(product.photos).length}` : ""}`], ["specs", `Specifications${effectiveSpecs(s, product).length ? ` · ${effectiveSpecs(s, product).length}` : ""}`], ["attrs", `Properties${effectiveAttributes(s, product).length ? ` · ${effectiveAttributes(s, product).length}` : ""}`], ["supply", `Suppliers${(product.supplierIds || []).length ? ` · ${(product.supplierIds || []).length}` : ""}`], ["reference", `Reference guide${refCount ? ` · ${refCount}` : ""}`], ["guide", `Encyclopedia${effectiveGuide(s, product).length ? ` · ${effectiveGuide(s, product).length}` : ""}`], ["history", `Inspection history${histAll.length ? ` · ${histAll.length}` : ""}`], ["policy", "Inspection types"]] : [];
+  const refInsp = product ? referenceOf(s, product.id) : null;
+  const markRef = id => product && toggleReferenceInspection(set, product.id, id);
+  const completedForProduct = product ? s.inspections.filter(i => i.productId === product.id && i.status === "Completed").sort((a, b) => (b.completedAt || "").localeCompare(a.completedAt || "")) : [];
+  const tabs = product ? [["profile", "Profile"], ["photos", `Photos${asPhotoList(product.photos).length ? ` · ${asPhotoList(product.photos).length}` : ""}`], ["specs", `Specifications${effectiveSpecs(s, product).length ? ` · ${effectiveSpecs(s, product).length}` : ""}`], ["attrs", `Properties${effectiveAttributes(s, product).length ? ` · ${effectiveAttributes(s, product).length}` : ""}`], ["supply", `Suppliers${(product.supplierIds || []).length ? ` · ${(product.supplierIds || []).length}` : ""}`], ["reference", `Reference guide${refCount ? ` · ${refCount}` : ""}`], ["guide", `Encyclopedia${effectiveGuide(s, product).length ? ` · ${effectiveGuide(s, product).length}` : ""}`], ["history", `Inspection history${histAll.length ? ` · ${histAll.length}` : ""}`], ["refreport", "Reference report"], ["policy", "Inspection types"]] : [];
   const missing = product ? [!product.articleId && "article ID", !product.barcodeCu && !product.barcodeTu && "barcode", !product.categoryId && "category", !asPhotoList(product.photos).length && "photo"].filter(Boolean) : [];
   return (
     <div>
@@ -3158,6 +3164,7 @@ function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset, onMessag
                     <span className="text-[11px] px-2 py-0.5 rounded-full font-mono" style={{ background: C.bg, border: `1px solid ${C.line}` }}>{product.articleId || "no ID"}</span>
                     <span className="text-[11px] px-2 py-0.5 rounded-full" style={{ background: C.bg, border: `1px solid ${C.line}`, color: product.categoryId ? C.ink : C.warn }}>{product.categoryId ? catPath(product.categoryId) : "no category"}</span>
                     {product.isBio && <span className="text-[11px] px-2 py-0.5 rounded-full" style={{ background: C.okBg, color: C.ok }}>bio</span>}
+                    <button type="button" onClick={() => setTab("refreport")} className="text-[11px] px-2 py-0.5 rounded-full inline-flex items-center" style={refInsp ? { background: C.okBg, color: C.ok } : { background: C.bg, border: `1px solid ${C.line}`, color: C.muted }} title={refInsp ? "Open the reference report" : "No reference report yet"}><Ic i={Star} s={11} mr={3} />{refInsp ? "Reference report" : "No reference report"}</button>
                     {product.sortable && <span className="text-[11px] px-2 py-0.5 rounded-full" style={{ background: product.sortable.value ? C.okBg : C.bg, color: product.sortable.value ? C.ok : C.muted, border: product.sortable.value ? "none" : `1px solid ${C.line}` }} title="from the commercial spec sheet">{product.sortable.value ? "sortable" : "not sortable"}</span>}
                     {product.isActive === false && <span className="text-[11px] px-2 py-0.5 rounded-full" style={{ background: C.line, color: C.muted }}>inactive</span>}
                     {missing.length > 0 && <span className="text-[11px]" style={{ color: C.warn }}>· missing: {missing.join(", ")}</span>}
@@ -3180,6 +3187,15 @@ function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset, onMessag
               </div>
               <div className="px-4 py-4">
                 {tab === "profile" && <div style={{ maxWidth: 760 }}>
+                  <div className="rounded-xl px-3 py-2.5 mb-4 flex items-center gap-2" style={refInsp ? { background: C.okBg } : { background: C.bg, border: `1px solid ${C.line}` }}>
+                    <Ic i={Star} s={14} mr={0} style={{ color: refInsp ? C.ok : C.muted }} />
+                    <div className="flex-1 min-w-0 text-sm" style={{ color: refInsp ? C.ok : C.ink }}>
+                      {refInsp
+                        ? <>Reference report · {s.users.find(u => u.id === refInsp.controllerId)?.name} · {fmtTime(refInsp.completedAt)} · {refInsp.result || "—"}</>
+                        : <>No reference report yet — the example controllers open to see what a good pallet looks like.</>}
+                    </div>
+                    <button type="button" onClick={() => setTab("refreport")} className="text-xs px-2.5 py-1 rounded-lg flex-shrink-0" style={{ color: refInsp ? C.ok : C.accent, border: `1px solid ${refInsp ? C.ok : C.line}` }}>{refInsp ? "Open" : "Set one"}</button>
+                  </div>
                   <ComplaintsNote s={s} articleId={product.articleId} />
                   <Group title="Identity" cols={6}>
                     <Field label="Name" className="col-span-4"><FastInput value={product.name} onCommit={v => patchP({ name: v })} /></Field>
@@ -3261,11 +3277,14 @@ function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset, onMessag
                             const [fg, bg] = i.result === "Accepted" ? [C.ok, C.okBg] : [C.bad, C.badBg];
                             const rem = (i.remarks || []).map(r => pm[r.leafId]?.name).filter(Boolean);
                             return (
-                              <button key={i.id} onClick={() => onOpenInspection && onOpenInspection(i.id)} className="w-full text-left flex items-center gap-3 px-2 py-2 rounded-lg row" style={{ borderTop: `1px solid ${C.line}` }}>
-                                <span className="text-xs px-2.5 py-0.5 rounded-full whitespace-nowrap" style={{ background: bg, color: fg, fontWeight: 500 }}>{i.result}</span>
-                                <span className="flex-1 text-xs min-w-0 truncate" style={{ color: rem.length ? C.ink : C.muted }}>{rem.length ? rem.join(", ") : "no remarks"}<span className="ml-1.5 font-mono" style={{ color: C.muted }}>{String(i.id).toUpperCase()}</span></span>
-                                <span className="text-xs whitespace-nowrap" style={{ color: C.muted }}>{s.users.find(u => u.id === i.controllerId)?.name} · {fmtTime(i.completedAt)}</span>
-                              </button>
+                              <div key={i.id} className="flex items-center gap-2 px-2 py-2 rounded-lg" style={{ borderTop: `1px solid ${C.line}`, background: i.isReference ? C.okBg : "transparent" }}>
+                                <button onClick={() => onOpenInspection && onOpenInspection(i.id)} className="flex-1 min-w-0 text-left flex items-center gap-3">
+                                  <span className="text-xs px-2.5 py-0.5 rounded-full whitespace-nowrap" style={{ background: bg, color: fg, fontWeight: 500 }}>{i.result}</span>
+                                  <span className="flex-1 text-xs min-w-0 truncate" style={{ color: rem.length ? C.ink : C.muted }}>{i.isReference && <Ic i={Star} s={11} mr={4} style={{ color: C.ok }} />}{rem.length ? rem.join(", ") : "no remarks"}<span className="ml-1.5 font-mono" style={{ color: C.muted }}>{String(i.id).toUpperCase()}</span></span>
+                                  <span className="text-xs whitespace-nowrap" style={{ color: C.muted }}>{s.users.find(u => u.id === i.controllerId)?.name} · {fmtTime(i.completedAt)}</span>
+                                </button>
+                                <button type="button" onClick={() => markRef(i.id)} className="text-[11px] px-1.5 whitespace-nowrap" style={{ color: i.isReference ? C.ok : C.accent }}>{i.isReference ? "unmark" : "use as reference"}</button>
+                              </div>
                             );
                           })}
                         </>
@@ -3273,6 +3292,29 @@ function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset, onMessag
                     </div>
                   );
                 })()}
+                {tab === "refreport" && <div style={{ maxWidth: 760 }}>
+                  <p className="text-xs mb-3" style={{ color: C.muted }}>The reference report is the example controllers open to see what a good pallet looks like. One per product — mark it here or on the inspection itself.</p>
+                  {refInsp ? (
+                    <ReportView insp={refInsp} s={s} user={user} onEdit={() => onOpenInspection && onOpenInspection(refInsp.id)} onAnswer={() => {}} onMarkReference={() => markRef(refInsp.id)} />
+                  ) : (
+                    <Empty icon={Star} title="No reference report" hint="Pick a completed inspection below, or open one and click Mark as reference." />
+                  )}
+                  {completedForProduct.length > 0 && (
+                    <div className="mt-4">
+                      <p className="label-sm mb-1">{refInsp ? "Use a different inspection" : "Completed inspections"}</p>
+                      {completedForProduct.map(i => {
+                        const [fg, bg] = i.result === "Accepted" ? [C.ok, C.okBg] : i.result === "Rejected" ? [C.bad, C.badBg] : [C.muted, C.line];
+                        return (
+                          <div key={i.id} className="flex items-center gap-2 py-2" style={{ borderTop: `1px solid ${C.line}` }}>
+                            <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: bg, color: fg }}>{i.result || inspType(s, i).name}</span>
+                            <span className="flex-1 text-xs min-w-0 truncate" style={{ color: C.muted }}>{s.users.find(u => u.id === i.controllerId)?.name} · {fmtTime(i.completedAt)}<span className="ml-1.5 font-mono">{String(i.id).toUpperCase()}</span></span>
+                            <button type="button" onClick={() => markRef(i.id)} className="text-xs" style={{ color: i.isReference ? C.ok : C.accent }}>{i.isReference ? "unmark" : "use as reference"}</button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>}
                 {tab === "policy" && <div style={{ maxWidth: 720 }}>
                   <p className="text-xs mb-3" style={{ color: C.muted }}>Which inspection types a controller can start on this product. Inherited from the category / type settings unless overridden here.</p>
                   <PolicyEditor s={s} own={Array.isArray(product.allowedTypeIds) ? product.allowedTypeIds : null} inherited={effectivePolicy(s, { ...product, allowedTypeIds: undefined }).typeIds} inheritedSource={effectivePolicy(s, { ...product, allowedTypeIds: undefined }).source} onChange={v => patchP({ allowedTypeIds: v })} />
@@ -3855,7 +3897,7 @@ const generateComment = (problems, overrides, remarks, totals, generalFlag) => {
 
 function ProblemOverview({ t, problems, remarks, totals }) {
   const pm = byId(problems);
-  const refs = [...t.problemRefs].sort(bySort).map(r => pm[r.problemTypeId]).filter(Boolean);
+  const refs = [...(t.problemRefs || [])].sort(bySort).map(r => pm[r.problemTypeId]).filter(Boolean);
   const covered = new Set(refs.flatMap(n => [...subtree(problems, n.id)]));
   const extra = [...new Set(remarks.map(r => r.leafId).filter(id => !covered.has(id)))].map(id => pm[id]).filter(Boolean);
   const rows = [...refs, ...extra];
@@ -4222,7 +4264,7 @@ function InspectionsPage({ s, set, user, notify, openId, setOpenId, preset, clea
             <button onClick={() => { setOpenId(null); setEditing(false); }} className="text-xs" style={{ color: C.accent }}>← list</button>
             {product && <button onClick={() => setPeek(true)} className="text-xs px-3 py-1.5 rounded-lg inline-flex items-center font-medium" style={{ background: C.accentSoft, color: C.accent }} title="Open the product profile in a side panel — the inspection stays open"><Ic i={BookOpen} s={13} mr={4} />Product profile</button>}
           </div>
-          {peek && product && <ProductPeek s={s} product={product} onClose={() => setPeek(false)} />}
+          {peek && product && <ProductPeek s={s} user={user} product={product} onClose={() => setPeek(false)} />}
           {legacyLight ? (
             <div>
               <div className="rounded-xl p-4 mb-3" style={{ background: !countsAs(s, insp) ? C.bg : C.accentSoft }}>
@@ -4236,7 +4278,7 @@ function InspectionsPage({ s, set, user, notify, openId, setOpenId, preset, clea
             </div>
           ) : showRunner
             ? <InspectionRunner key={insp.id} insp={insp} patch={fn => patchInsp(insp.id, fn)} t={insp.template} problems={withLinkedProblems(s, problemsFor(s, { kind: "Product", id: product.id }, new Set(insp.template.suppressed || [])), insp.template)} product={product} suppliers={s.suppliers || []} dictionaries={s.dictionaries || []} sctx={s} user={user} onFinish={finish} onEscalate={escalate} onRaiseFlag={raiseFlag} onCancel={cancel} />
-            : <ReportView insp={insp} s={s} user={user} onEdit={() => setEditing(true)} onAnswer={answer} onMarkReference={() => set(x => ({ ...x, inspections: x.inspections.map(i => i.productId === insp.productId ? { ...i, isReference: i.id === insp.id ? !i.isReference : false } : i) }))} />}
+            : <ReportView insp={insp} s={s} user={user} onEdit={() => setEditing(true)} onAnswer={answer} onMarkReference={() => toggleReferenceInspection(set, insp.productId, insp.id)} />}
         </Card>
       )}
     </div>
@@ -4246,9 +4288,10 @@ function InspectionsPage({ s, set, user, notify, openId, setOpenId, preset, clea
 // Read-only product profile in a side drawer, opened from inside an inspection. Everything the controller may want
 // to double-check mid-inspection (photos, facts, specs, properties, suppliers, encyclopedia, reference guide,
 // announcements, recent history) without leaving the form — the runner keeps its state underneath.
-function ProductPeek({ s, product, onClose }) {
+function ProductPeek({ s, user, product, onClose }) {
   const [tab, setTab] = useState("overview");
   const [zoom, setZoom] = useState(null);
+  const [showRef, setShowRef] = useState(false);
   useEffect(() => { const h = e => { if (e.key === "Escape") { if (zoom) setZoom(null); else onClose(); } }; window.addEventListener("keydown", h); return () => window.removeEventListener("keydown", h); }, [zoom, onClose]);
   const photos = asPhotoList(product.photos);
   const specs = effectiveSpecs(s, product), attrs = effectiveAttributes(s, product), varieties = effectiveVarieties(s, product);
@@ -4298,7 +4341,14 @@ function ProductPeek({ s, product, onClose }) {
               {suppliers.length > 0 && <div className="flex gap-1.5 flex-wrap mb-2">{suppliers.map(x => <span key={x.id} className="text-xs px-2 py-0.5 rounded-full" style={{ background: C.bg, border: `1px solid ${C.line}` }}><Ic i={Truck} s={11} mr={4} />{x.name}{x.country ? ` · ${x.country}` : ""}</span>)}</div>}
               {varieties.length > 0 && <div className="flex gap-1.5 flex-wrap">{varieties.map((v, i) => <span key={v.id || i} className="text-xs px-2 py-0.5 rounded-full" style={{ background: C.accentSoft, color: C.accent }}>{v.name}</span>)}</div>}
             </>}
-            {reference && <><H>Reference inspection</H><p className="text-sm"><Ic i={Star} s={13} mr={4} />{s.users.find(u => u.id === reference.controllerId)?.name} · {fmtTime(reference.completedAt)} · {reference.result || "—"}</p></>}
+            {reference && <><H>Reference report</H>
+              <button type="button" onClick={() => setShowRef(v => !v)} className="w-full text-left rounded-xl px-3 py-2.5 flex items-center gap-2" style={{ background: C.okBg }}>
+                <Ic i={Star} s={14} mr={0} style={{ color: C.ok }} />
+                <span className="flex-1 text-sm" style={{ color: C.ok }}>{s.users.find(u => u.id === reference.controllerId)?.name} · {fmtTime(reference.completedAt)} · {reference.result || "—"}</span>
+                <span className="text-xs" style={{ color: C.ok }}>{showRef ? "hide" : "see how it should look"}</span>
+              </button>
+              {showRef && <div className="mt-2"><ReportView insp={reference} s={s} user={user} onEdit={() => {}} onAnswer={() => {}} /></div>}
+            </>}
           </div>}
           {tab === "specs" && <div className="mt-3">{specs.length === 0 ? <Empty icon="📏" title="No specifications" hint="Nothing set on the product or its categories." /> : specs.map((q, i) => <div key={q.id || i} className="py-2 text-sm" style={{ borderBottom: `1px solid ${C.line}` }}><div className="flex justify-between gap-3 items-baseline"><div><span className="font-medium">{q.name}</span>{q.source !== "product" && <span className="text-[10px] ml-2" style={{ color: C.muted }}>{q.source}</span>}</div><SpecValue spec={q} colors={C} /></div>{q.temp?.note && <p className="text-[12px] mt-1" style={{ color: C.bad }}>{q.temp.note}</p>}</div>)}</div>}
           {tab === "attrs" && <div className="mt-3">{attrs.length === 0 ? <Empty icon="🏷️" title="No properties" hint="Nothing set on the product or its categories." /> : attrs.map(a => <div key={a.dictionaryId} className="flex justify-between gap-3 py-2 text-sm" style={{ borderBottom: `1px solid ${C.line}` }}><div><span style={{ color: C.muted }}>{a.list}</span>{a.source !== "product" && <span className="text-[10px] ml-2" style={{ color: C.muted }}>{a.source}</span>}</div><span className="font-medium text-right">{a.value}</span></div>)}</div>}
@@ -5285,7 +5335,7 @@ export default function App() {
       {!selPallet && safePage === "dashboard" && (user.role === "Head" ? <Dashboard s={s} user={user} set={set} setPage={setPage} seed={() => set(olaState(), { replace: true })} openPallet={hu => setSelPallet(hu)} onAssign={a => { setPendingChatContext({ kind: "pallet", id: a.hu, label: `${a.name} · ${a.location}` }); setPage("messages"); }} openTodayInspections={() => { setOpenInspId(null); setInspDatePreset("0"); setPage("inspections"); }} /> : <ControllerDashboard s={s} user={user} setPage={setPage} setOpenId={setOpenInspId} openProduct={id => { setSelProduct(id); setPage("products"); }} />)}
       {!selPallet && safePage === "categories" && <CategoriesPage s={s} set={set} onMessage={ctx => { setPendingChatContext(ctx); setPage("messages"); }} onOpenProduct={id => { setSelProduct(id); setPage("products"); }} presetSel={presetCategory} clearPresetSel={() => setPresetCategory(null)} />}
       {!selPallet && safePage === "problems" && <ProblemsPage s={s} set={set} />}
-      {!selPallet && safePage === "products" && <ProductsPage s={s} set={set} sel={selProduct} setSel={setSelProduct} presetFilter={productsQuery} clearPreset={() => setProductsQuery("")} onMessage={ctx => { setPendingChatContext(ctx); setPage("messages"); }} onOpenInspection={id => { setOpenInspId(id); setPage("inspections"); }} onOpenCategory={id => { setPresetCategory(id); setPage("categories"); }} />}
+      {!selPallet && safePage === "products" && <ProductsPage s={s} set={set} user={user} sel={selProduct} setSel={setSelProduct} presetFilter={productsQuery} clearPreset={() => setProductsQuery("")} onMessage={ctx => { setPendingChatContext(ctx); setPage("messages"); }} onOpenInspection={id => { setOpenInspId(id); setPage("inspections"); }} onOpenCategory={id => { setPresetCategory(id); setPage("categories"); }} />}
       {!selPallet && safePage === "tempspecs" && <TempSpecsPage s={s} set={set} user={user} openProduct={id => { setSelProduct(id); setPage("products"); }} openCategory={id => { setPresetCategory(id); setPage("categories"); }} />}
       {!selPallet && safePage === "forms" && <FormsPage s={s} set={set} />}
       {!selPallet && safePage === "suppliers" && <DictionaryPage s={s} set={set} listKey="suppliers" title="Suppliers" hint="One global list of all suppliers (Suppliers). Assign to products in Products." placeholder="e.g. El Ciruelo" usageOf={id => s.products.filter(p => (p.supplierIds || []).includes(id)).length} />}
