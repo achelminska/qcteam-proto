@@ -8,6 +8,8 @@ import { computeMissingPalletUpdate } from "./misslogic.mjs";
 import { retainInspections } from "./retain.mjs";
 import { applySpecSheet } from "../src/shared/specsync.js";
 import { slimStateJson } from "./blobs.mjs";
+import { contentDisposition, filesDirOf, resolveStoredFile, storeUploadedFile } from "./files.mjs";
+import { ANNOUNCE_MAX_BYTES } from "../src/shared/announce-files.js";
 import { isPublic, isAuthorized, isSecure, safeEqual, cookieHeader, clearCookieHeader, corsFor } from "./auth.mjs";
 const STATE_KEY = "qcteam-portal-state-v2-clean";
 // Static hosting of the built app (dist/) so one service = API + portal + phone app. Any unknown path falls back to index.html.
@@ -39,6 +41,7 @@ console.log(`state file: ${filePath}`);
 // Atomic replace: the one-time photo extract rewrites the whole file, and a crash mid-write must not leave a truncated state.
 const save = () => { const tmp = filePath + ".tmp"; fs.writeFileSync(tmp, JSON.stringify(store)); fs.renameSync(tmp, filePath); };
 const photosDir = () => STATE_DIR ? path.join(STATE_DIR, "photos") : path.join(path.dirname(fileURLToPath(import.meta.url)), "photos");
+const filesDir = () => filesDirOf(STATE_DIR, path.dirname(fileURLToPath(import.meta.url)));
 // Move data: URLs out of the shared document before the first request, so a phone never has to download them.
 const slimStoredState = () => {
   try {
@@ -161,6 +164,35 @@ const handler = async (req, res) => {
     const PHOTOS = photosDir();
     if (req.method === "POST" && req.url.split("?")[0] === "/photos") { const chunks = []; req.on("data", c => chunks.push(c)); req.on("end", () => { try { const j = JSON.parse(Buffer.concat(chunks).toString("utf8")); const m = /^data:(image\/[a-z0-9.+-]+);base64,([A-Za-z0-9+/=\s]+)$/.exec(j.dataUrl || ""); if (!m) throw new Error("expected an image data URL"); const ext = m[1] === "image/png" ? "png" : m[1] === "image/webp" ? "webp" : m[1] === "image/gif" ? "gif" : "jpg"; const named = typeof j.name === "string" && /^[a-f0-9]{32}$/.test(j.name) ? j.name : null; const id = named || (Date.now().toString(36) + Math.random().toString(36).slice(2, 8)); fs.mkdirSync(PHOTOS, { recursive: true }); const file = path.join(PHOTOS, id + "." + ext); if (!(named && fs.existsSync(file))) fs.writeFileSync(file, Buffer.from(m[2].replace(/\s/g, ""), "base64")); res.writeHead(200, { ...cors, "Content-Type": "application/json" }).end(JSON.stringify({ path: "/photos/" + id + "." + ext })); } catch (e) { res.writeHead(400, cors).end(String(e.message || e)); } }); return; }
     if (req.method === "GET" || req.method === "HEAD") { const name = path.basename(decodeURIComponent(req.url.split("?")[0].replace(/^\/photos\/?/, ""))); const file = path.join(PHOTOS, name); if (!name || name === "photos" || !fs.existsSync(file)) { res.writeHead(404, cors); return res.end(""); } const type = name.endsWith(".png") ? "image/png" : name.endsWith(".webp") ? "image/webp" : name.endsWith(".gif") ? "image/gif" : "image/jpeg"; res.writeHead(200, { ...cors, "Content-Type": type, "Cache-Control": "public, max-age=31536000, immutable" }); if (req.method === "HEAD") return res.end(); return fs.createReadStream(file).pipe(res); }
+  }
+  // Announcement attachments (PDF, PowerPoint, …). Same idea as /photos: bytes on disk, a path in the shared state.
+  if (req.url.startsWith("/files")) {
+    const DIR = filesDir();
+    if (req.method === "POST" && urlPath === "/files") {
+      const chunks = []; let size = 0; let tooBig = false;
+      req.on("data", c => { size += c.length; if (size > ANNOUNCE_MAX_BYTES) { tooBig = true; req.destroy(); } else chunks.push(c); });
+      req.on("close", () => { if (tooBig && !res.writableEnded) { res.writeHead(413, cors); res.end("file too large"); } });
+      req.on("end", () => {
+        if (tooBig) { if (!res.writableEnded) { res.writeHead(413, cors); res.end("file too large"); } return; }
+        try {
+          const name = decodeURIComponent(String(req.headers["x-file-name"] || "file"));
+          const mime = String(req.headers["x-file-mime"] || "");
+          const saved = storeUploadedFile({ bytes: Buffer.concat(chunks), name, mime, dir: DIR });
+          if (saved.error) { res.writeHead(saved.status || 400, cors); return res.end(saved.error); }
+          res.writeHead(200, { ...cors, "Content-Type": "application/json" }).end(JSON.stringify(saved));
+        } catch (e) { res.writeHead(400, cors).end(String(e.message || e)); }
+      });
+      return;
+    }
+    if (req.method === "GET" || req.method === "HEAD") {
+      let queryName = "";
+      try { queryName = new URL(req.url, "http://x").searchParams.get("name") || ""; } catch {}
+      const hit = resolveStoredFile(DIR, urlPath, queryName);
+      if (!hit) { res.writeHead(404, cors); return res.end(""); }
+      res.writeHead(200, { ...cors, "Content-Type": hit.mime, "Content-Disposition": contentDisposition(hit.inline, hit.download), "Cache-Control": "private, max-age=31536000, immutable" });
+      if (req.method === "HEAD") return res.end();
+      return fs.createReadStream(hit.file).pipe(res);
+    }
   }
   if (req.url.startsWith("/sheet/")) {
     const purpose = req.url.replace(/^\/sheet\//, "").split("?")[0].toLowerCase();

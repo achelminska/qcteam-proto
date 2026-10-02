@@ -9,6 +9,8 @@ import { adoptLocalBriefingSeen, briefingFp, clearBriefingSeen, markBriefingSeen
 import { attachableSameDay, otherDeliveryDay, sameDeliveryRows } from "./shared/delivery-pallets.js";
 import { poRequiredOnReject, poSourceHint, sheetPoForInspection, suggestedPo } from "./shared/rejection-po.js";
 import { dockMatches } from "./shared/dock-search.js";
+import { announceFilesOf } from "./shared/announce-files.js";
+import { AnnounceAttachButton, AnnounceFileList } from "./shared/AnnounceAttachments.jsx";
 import { readAsDataUrl, keepPhoto, shrinkPhoto, memoPdfPhoto, fetchPdfPhotoSrc, rotateImage } from "./shared/report-images.js";
 import { attachRemarkPhotos, photoGroupsByModule, pickedPhotos, replacePhoto, replaceRemarkPhoto } from "./shared/photos.js";
 import { CameraSheet } from "./shared/CameraSheet.jsx";
@@ -1644,7 +1646,7 @@ function InspectionRunner({ insp, patch, t, problems, product, suppliers, dictio
       </div>
       {askCancel && <Note tone="bad"><div className="flex items-center gap-3 flex-wrap"><span>Cancel this inspection? It stays in history as cancelled.</span><button onClick={onCancel} className="text-xs px-3 py-1.5 rounded-lg font-semibold" style={{ background: C.bad, color: C.onDark }}>Yes, cancel</button><button onClick={() => setAskCancel(false)} className="text-xs px-3 py-1.5 rounded-lg" style={{ border: `1px solid ${C.line}` }}>Keep working</button></div></Note>}
       {flagOpen && <div className="rounded-lg p-2 mb-3 flex gap-2 items-center" style={{ background: C.warnBg }}><input value={flagText} onChange={e => setFlagText(e.target.value)} placeholder="what's wrong with this product profile? (wrong supplier, code, spec…)" className="flex-1 text-xs rounded px-2 py-1 outline-none" style={{ ...inp }} /><Primary small onClick={() => { if (flagText.trim()) { onRaiseFlag(flagText.trim()); setFlagText(""); setFlagOpen(false); } }}>Send to the Head</Primary></div>}
-      {sctx.announcements.filter(a => annMatchesProduct(sctx, a, product)).map(a => <Note key={a.id} tone="warn">📣 <b>{a.title}</b> — {a.body}</Note>)}
+      {sctx.announcements.filter(a => annMatchesProduct(sctx, a, product)).map(a => <Note key={a.id} tone="warn">📣 <b>{a.title}</b> — {a.body}<AnnounceFileList announcement={a} colors={C} compact /></Note>)}
       {escalated && <Note tone="warn">⏸ Paused — question for the Head: <i>„{insp.question}"</i>. You can keep filling in; the result is locked until answered.</Note>}
       {insp.answer && insp.status !== "PendingReview" && <Note tone="ok">💬 Head's answer: <i>„{insp.answer}"</i></Note>}
       {(() => { const names = stepNames; return (
@@ -1859,6 +1861,7 @@ function BlockingOverlay({ s, set, user }) {
         <p className="text-xs font-semibold mb-2" style={{ color: C.bad }}><Ic i={Megaphone} s={13} />Blocking announcement · {pending.length > 1 ? `1 of ${pending.length}` : "requires acknowledgement"}</p>
         <p className="text-lg font-semibold mb-2">{a.title}</p>
         <p className="text-sm mb-4">{a.body}</p>
+        <AnnounceFileList announcement={a} colors={C} />
         <p className="text-xs mb-4" style={{ color: C.muted }}>{s.users.find(u => u.id === a.createdBy)?.name} · {fmtTime(a.createdAt)}</p>
         <Primary onClick={ack}>I have read and acknowledge</Primary>
       </div>
@@ -1883,7 +1886,10 @@ const normalize = raw => {
   s.inspections = (Array.isArray(s.inspections) ? s.inspections : []).map(i => ({ ...i, type: i.type || "Full", photos: Object.fromEntries(Object.entries(i.photos || {}).map(([k, v]) => [k, asPhotoList(v)])), remarks: (i.remarks || []).map(r => ({ ...r, photos: asPhotoList(r.photos) })) }));
   s.flags = Array.isArray(s.flags) ? s.flags : [];
   s.notifications = Array.isArray(s.notifications) ? s.notifications : [];
-  s.announcements = (Array.isArray(s.announcements) ? s.announcements : []).map(a => a.type ? (({ type, ...r }) => ({ ...r, isBlocking: type === "Blocking", showOnDashboard: type === "General", productId: type === "Product" ? r.productId : null }))(a) : a);
+  s.announcements = (Array.isArray(s.announcements) ? s.announcements : []).map(a => {
+    const row = a.type ? (({ type, ...r }) => ({ ...r, isBlocking: type === "Blocking", showOnDashboard: type === "General", productId: type === "Product" ? r.productId : null }))(a) : a;
+    return { ...row, attachments: announceFilesOf(row) };
+  });
   s.conversations = Array.isArray(s.conversations) ? s.conversations : [];
   s.integrations = Array.isArray(s.integrations) ? s.integrations : [];
   { const seed = byId(SEED_USERS()); const placeholders = { "u-head": "Marta K.", "u-anna": "Anna K.", "u-jakub": "Jakub M." }; s.users = (s.users || []).map(u => placeholders[u.id] && u.name === placeholders[u.id] ? { ...u, ...seed[u.id] } : u); }
@@ -2088,6 +2094,7 @@ function MBlocking({ s, set, user }) {
         <p className="text-xs font-semibold mb-2" style={{ color: C.bad }}><Ic i={Megaphone} s={13} />Blocking announcement{pending.length > 1 ? ` · 1 of ${pending.length}` : ""}</p>
         <p className="text-lg font-semibold mb-2">{a.title}</p>
         <p className="text-sm mb-4">{a.body}</p>
+        <AnnounceFileList announcement={a} colors={C} />
         <button onClick={ack} className="w-full py-3 rounded-xl text-sm font-medium" style={{ background: C.ink, color: C.onDark }}>I have read and acknowledge</button>
       </div>
     </div>
@@ -2250,7 +2257,7 @@ function MProductHeader({ s, product, article, name, go }) {
       {attrs.length > 0 && <div className="flex flex-wrap gap-1.5 mt-2.5">{attrs.map(a => <span key={a.dictionaryId} className="text-xs px-2.5 py-1 rounded-full" style={{ background: C.surface, border: `1px solid ${C.line}` }}><span style={{ color: C.muted }}>{a.list}:</span> <b>{a.value}</b></span>)}</div>}
       {/* Wherever this header shows up — dock pallet, blocked pallet, scan result — the product is already identified, so
           any announcement about it belongs here, not only after tapping through to the full profile. */}
-      {s.announcements.filter(a => annMatchesProduct(s, a, product)).map(a => <div key={a.id} className="rounded-xl px-3 py-2 mt-2.5" style={{ background: C.accentSoft }}><p className="text-xs font-semibold flex items-center" style={{ color: C.accent }}><Ic i={Megaphone} s={12} mr={4} />{a.title}</p><p className="text-xs mt-0.5" style={{ color: C.ink }}>{a.body}</p></div>)}
+      {s.announcements.filter(a => annMatchesProduct(s, a, product)).map(a => <div key={a.id} className="rounded-xl px-3 py-2 mt-2.5" style={{ background: C.accentSoft }}><p className="text-xs font-semibold flex items-center" style={{ color: C.accent }}><Ic i={Megaphone} s={12} mr={4} />{a.title}</p><p className="text-xs mt-0.5" style={{ color: C.ink }}>{a.body}</p><AnnounceFileList announcement={a} colors={C} compact /></div>)}
       {hist.count > 0 && <div className="rounded-xl px-3 py-2 mt-2.5" style={{ background: C.badBg }}><p className="text-xs font-semibold" style={{ color: C.bad }}>{hist.count} rejected recently · last {dayLabel(hist.lastAt)}</p><p className="text-xs" style={{ color: C.bad }}>{hist.problems.slice(0, 3).map(p => `${p.name} ×${p.count}`).join(", ")}{hist.problems.length > 3 ? "…" : ""}</p></div>}
     </button>
   );
@@ -2325,7 +2332,7 @@ function MPalletSheet({ s, set, user, go, row: r, onStart, onPickPallet, onAssig
       {al && !lost && <div className="rounded-xl px-3 py-2 mb-2 flex items-start gap-2" style={{ background: C.badBg, color: C.bad }}><Ic i={Clock} s={14} mr={0} style={{ marginTop: 2 }} /><div className="text-[13px] leading-snug"><b>{al.level === "breached" ? "Rejection window expired" : `Rejection window closes in ${Math.max(0, Math.round(al.hoursLeft))} h`}</b><span className="block text-[11px] mt-0.5" style={{ opacity: .85 }}>{al.level === "breached" ? "Rejecting is no longer possible — inspect anyway and note it." : al.risky ? "This product was rejected recently, so it's flagged early." : "Inspect it before the window closes."}</span></div></div>}
       {hist.count > 0 && <div className="rounded-xl px-3 py-2 mb-2 flex items-start gap-2" style={{ background: C.badBg, color: C.bad }}><Ic i={AlertTriangle} s={14} mr={0} style={{ marginTop: 2 }} /><div className="text-[13px] leading-snug"><b>{hist.count} rejected</b> in 14 days · {hist.problems.slice(0, 3).map(x => `${x.name} ×${x.count}`).join(", ")}{hist.problems.length > 3 ? "…" : ""}</div></div>}
       {compl && <div className="rounded-xl px-3 py-2 mb-2 flex items-start gap-2" style={{ background: C.badBg, color: C.bad }}><Ic i={ThumbsDown} s={14} mr={0} style={{ marginTop: 2 }} /><div className="text-[13px] leading-snug"><b>{compl.count} freshness complaint{compl.count === 1 ? "" : "s"}</b>{compl.sub ? <> · mostly <b>{compl.sub}</b></> : null}{compl.period ? <span style={{ opacity: .8 }}> · {compl.period}</span> : null}</div></div>}
-      {anns.map(a => <button key={a.id} onClick={() => go("announcements")} className="w-full text-left rounded-xl px-3 py-2 mb-2 flex items-start gap-2" style={{ background: a.isBlocking ? C.badBg : C.accentSoft, color: C.ink }}><Ic i={Megaphone} s={14} mr={0} style={{ marginTop: 2, color: a.isBlocking ? C.bad : C.accent }} /><span className="min-w-0 text-[13px] leading-snug"><b>{a.title}</b>{a.body ? <span style={{ color: C.muted }}> — {a.body}</span> : null}{a.isBlocking && <span className="block text-[11px] mt-0.5" style={{ color: C.bad }}>Blocking — read it before you inspect</span>}</span></button>)}
+      {anns.map(a => <div key={a.id} className="w-full text-left rounded-xl px-3 py-2 mb-2 flex items-start gap-2" style={{ background: a.isBlocking ? C.badBg : C.accentSoft, color: C.ink }}><Ic i={Megaphone} s={14} mr={0} style={{ marginTop: 2, color: a.isBlocking ? C.bad : C.accent }} /><span className="min-w-0 text-[13px] leading-snug"><button type="button" onClick={() => go("announcements")} className="text-left"><b>{a.title}</b>{a.body ? <span style={{ color: C.muted }}> — {a.body}</span> : null}{a.isBlocking && <span className="block text-[11px] mt-0.5" style={{ color: C.bad }}>Blocking — read it before you inspect</span>}</button><AnnounceFileList announcement={a} colors={C} compact /></span></div>)}
       {draft && <div className="rounded-xl px-3 py-2 mb-2 flex items-start gap-2 text-[13px] leading-snug" style={{ background: C.warnBg, color: C.warn }}><Ic i={Clock} s={14} mr={0} style={{ marginTop: 2 }} /><span><b>{s.users.find(u => u.id === draft.controllerId)?.name.split(" ")[0]}</b> has this pallet in progress ({STATUS[draft.status][0]}){draft.controllerId === user.id && <button onClick={() => go("inspection", draft.id)} className="ml-2 underline">continue</button>}</span></div>}
 
       {others.length > 0 && <MSection title="Same article on the docks" count={others.length} defaultOpen>
@@ -2483,6 +2490,7 @@ function MAnnouncementModal({ a, onClose }) {
         <p className="text-xs font-medium mb-2 flex items-center" style={{ color: C.accent }}><Ic i={Megaphone} s={13} />Announcement</p>
         <p className="text-base font-semibold mb-2">{a.title}</p>
         <p className="text-sm mb-4" style={{ whiteSpace: "pre-wrap" }}>{a.body}</p>
+        <AnnounceFileList announcement={a} colors={C} />
         <p className="text-xs mb-4" style={{ color: C.muted }}>{fmtTime(a.createdAt)}{a.validTo && ` · on the dashboard until ${a.validTo}`}</p>
         <button onClick={onClose} className="w-full py-2.5 rounded-xl text-sm font-medium" style={{ background: C.ink, color: C.onDark }}>Close</button>
       </div>
@@ -2780,7 +2788,7 @@ function MProductInfo({ s, user, product, go, setState, embedded }) {
       {/* Alerts: one line each, highest priority first. */}
       {hist.count > 0 && <div className="rounded-xl px-3 py-2 mb-2 flex items-start gap-2" style={{ background: C.badBg, color: C.bad }}><Ic i={AlertTriangle} s={14} mr={0} style={{ marginTop: 2 }} /><div className="min-w-0 text-[13px] leading-snug"><b>{hist.count} rejected</b> in 14 days · {hist.problems.slice(0, 3).map(x => `${x.name} ×${x.count}`).join(", ")}{hist.problems.length > 3 ? "…" : ""}<span className="block text-[11px] mt-0.5" style={{ opacity: .8 }}>last {dayLabel(hist.lastAt)} — look for these first</span></div></div>}
       {(() => { const l = complaintsLine(s, product.articleId); return l && <button onClick={() => go("complaints")} className="w-full text-left rounded-xl px-3 py-2 mb-2 flex items-start gap-2" style={{ background: C.badBg, color: C.bad }}><Ic i={ThumbsDown} s={14} mr={0} style={{ marginTop: 2 }} /><span className="min-w-0 text-[13px] leading-snug"><b>{l.count} freshness complaint{l.count === 1 ? "" : "s"}</b>{l.sub ? <> · mostly <b>{l.sub}</b></> : null}{l.period && <span className="block text-[11px] mt-0.5" style={{ opacity: .8 }}>{l.period} — customers noticed this, look closer</span>}</span><Ic i={ChevronRight} s={14} mr={0} style={{ marginLeft: "auto", marginTop: 2 }} /></button>; })()}
-      {anns.map(a => <div key={a.id} className="rounded-xl px-3 py-2 mb-2 flex items-start gap-2 text-[13px] leading-snug" style={{ background: C.accentSoft, color: C.ink }}><Ic i={Megaphone} s={14} mr={0} style={{ marginTop: 2, color: C.accent }} /><span className="min-w-0"><b>{a.title}</b>{a.body && <span style={{ color: C.muted }}> — {a.body}</span>}</span></div>)}
+      {anns.map(a => <div key={a.id} className="rounded-xl px-3 py-2 mb-2 flex items-start gap-2 text-[13px] leading-snug" style={{ background: C.accentSoft, color: C.ink }}><Ic i={Megaphone} s={14} mr={0} style={{ marginTop: 2, color: C.accent }} /><span className="min-w-0"><b>{a.title}</b>{a.body && <span style={{ color: C.muted }}> — {a.body}</span>}<AnnounceFileList announcement={a} colors={C} compact /></span></div>)}
       {ref && <button onClick={() => go("inspection", ref.id)} className="w-full rounded-xl px-3 py-2 mb-2 text-[13px] text-left flex items-center" style={{ background: C.okBg, color: C.ok }}><Ic i={Star} s={14} />Reference inspection<span className="ml-1" style={{ opacity: .75 }}>· what a good pallet looks like</span><Ic i={ChevronRight} s={14} mr={0} style={{ marginLeft: "auto" }} /></button>}
 
       {guide.length > 0 && <MSection title="Encyclopedia" count={guide.length}>{guide.map((e, ix) => <MEncyclopediaEntry key={e.id} e={e} last={ix === guide.length - 1} />)}</MSection>}
@@ -3040,7 +3048,7 @@ function MScan({ s, user, go, onStart, onVisual, onSkip, setState, notify, prese
         {mode === "done" && completed && (
           <div className="rounded-2xl p-4" style={{ background: C.bg }}>
             <p className="text-sm font-medium mb-1 flex items-center" style={{ color: C.ok }}><Ic i={Check} s={14} />Pallet already inspected</p>
-            {(() => { const p = s.products.find(x => x.id === completed.productId); const list = p ? s.announcements.filter(a => annActive(a) && annMatchesProduct(s, a, p)) : []; return list.map(a => <button key={a.id} onClick={() => go("announcements")} className="w-full text-left rounded-xl px-3 py-2 mb-2 flex items-start gap-2" style={{ background: a.isBlocking ? C.badBg : C.accentSoft, color: C.ink }}><Ic i={Megaphone} s={14} mr={0} style={{ marginTop: 2, color: a.isBlocking ? C.bad : C.accent }} /><span className="min-w-0 text-[13px] leading-snug"><b>{a.title}</b>{a.body ? <span style={{ color: C.muted }}> — {a.body}</span> : null}</span></button>); })()}
+            {(() => { const p = s.products.find(x => x.id === completed.productId); const list = p ? s.announcements.filter(a => annActive(a) && annMatchesProduct(s, a, p)) : []; return list.map(a => <div key={a.id} className="w-full text-left rounded-xl px-3 py-2 mb-2 flex items-start gap-2" style={{ background: a.isBlocking ? C.badBg : C.accentSoft, color: C.ink }}><Ic i={Megaphone} s={14} mr={0} style={{ marginTop: 2, color: a.isBlocking ? C.bad : C.accent }} /><span className="min-w-0 text-[13px] leading-snug"><button type="button" onClick={() => go("announcements")} className="text-left"><b>{a.title}</b>{a.body ? <span style={{ color: C.muted }}> — {a.body}</span> : null}</button><AnnounceFileList announcement={a} colors={C} compact /></span></div>); })()}
             <p className="text-sm mb-3">{completed.productId ? <button onClick={() => go("catalog", completed.productId)} className="font-semibold underline" style={{ color: C.accent }}>{s.products.find(p => p.id === completed.productId)?.name || "product"}</button> : "no product"} · {s.users.find(u => u.id === completed.controllerId)?.name} · {dayLabel(completed.completedAt)}, {hhmm(completed.completedAt)}{" · " + inspType(s, completed).name.toLowerCase()}</p>
             <div className="flex items-center gap-2 mb-3"><ResultPill i={completed} s={s} /><span className="text-xs" style={{ color: C.muted }}>{completed.comment}</span></div>
             <button onClick={() => go("inspection", completed.id)} className="w-full py-2.5 rounded-xl text-sm mb-1" style={{ border: `1px solid ${C.line}` }}>{completed.template ? "View report" : "View entry"}</button>
@@ -3810,6 +3818,7 @@ function MBriefing({ s, set, user, go }) {
         {prod && a.title !== prod.name && <p className="text-[15px] font-semibold mt-2">{a.title}</p>}
         {a.categoryId && !prod && <p className="text-[12px] mt-1" style={{ color: C.ok }}>{catPath(a.categoryId)}</p>}
         {a.body && <p className="text-[14px] mt-2 leading-snug line-clamp-2" style={{ color: C.ink }}>{truncate(a.body, 140)}</p>}
+        <AnnounceFileList announcement={a} colors={C} compact cta />
         <p className="text-[12px] mt-2" style={{ color: C.muted }}>{dayLabel(a.createdAt)}{who(a.createdBy) ? ` · ${who(a.createdBy)}` : ""}</p>
         <div className="mt-auto pt-3 space-y-2">
           {prod && <Cta ghost onClick={() => go("catalog", prod.id)}>Product profile<Ic i={ChevronRight} s={15} mr={0} /></Cta>}
@@ -4004,7 +4013,7 @@ function MAnnouncements({ s, set, user, go }) {
   const catPath = id => { const c = s.categories.find(x => x.id === id); if (!c) return null; const p = c.parentId && s.categories.find(x => x.id === c.parentId); return p ? `${p.name} › ${c.name}` : c.name; };
   // Same "×" as the web portal — Head can publish from the phone, so Head needs to be able to take one back from here too.
   const remove = id => set(x => ({ ...x, announcements: x.announcements.filter(a => a.id !== id) }));
-  return <div><TopBar title="Announcements" onBack={() => go("back")} /><div className="px-4">{list.length === 0 ? <p className="text-sm py-8 text-center" style={{ color: C.muted }}>No announcements.</p> : list.map(a => <div key={a.id} className="py-3" style={{ borderBottom: `1px solid ${C.line}` }}><div className="flex items-center gap-2 mb-1">{a.isBlocking && <span className="text-[10px] px-1.5 rounded" style={{ background: C.badBg, color: C.bad }}>blocking</span>}{a.productId && <span className="text-[10px] px-1.5 rounded" style={{ background: C.warnBg, color: C.warn }}>{s.products.find(p => p.id === a.productId)?.name}</span>}{a.categoryId && <span className="text-[10px] px-1.5 rounded" style={{ background: C.okBg, color: C.ok }}>{catPath(a.categoryId)}</span>}<p className="text-sm font-medium flex-1">{a.title}</p>{user.role === "Head" && <button onClick={() => remove(a.id)} className="text-sm px-1" style={{ color: C.muted }}>×</button>}</div><p className="text-sm">{a.body}</p><p className="text-xs" style={{ color: C.muted }}>{dayLabel(a.createdAt)}{(a.acks || {})[user.id] && " · acknowledged ✓"}</p></div>)}</div></div>;
+  return <div><TopBar title="Announcements" onBack={() => go("back")} /><div className="px-4">{list.length === 0 ? <p className="text-sm py-8 text-center" style={{ color: C.muted }}>No announcements.</p> : list.map(a => <div key={a.id} className="py-3" style={{ borderBottom: `1px solid ${C.line}` }}><div className="flex items-center gap-2 mb-1">{a.isBlocking && <span className="text-[10px] px-1.5 rounded" style={{ background: C.badBg, color: C.bad }}>blocking</span>}{a.productId && <span className="text-[10px] px-1.5 rounded" style={{ background: C.warnBg, color: C.warn }}>{s.products.find(p => p.id === a.productId)?.name}</span>}{a.categoryId && <span className="text-[10px] px-1.5 rounded" style={{ background: C.okBg, color: C.ok }}>{catPath(a.categoryId)}</span>}<p className="text-sm font-medium flex-1">{a.title}</p>{user.role === "Head" && <button onClick={() => remove(a.id)} className="text-sm px-1" style={{ color: C.muted }}>×</button>}</div><p className="text-sm">{a.body}</p><AnnounceFileList announcement={a} colors={C} compact /><p className="text-xs" style={{ color: C.muted }}>{dayLabel(a.createdAt)}{(a.acks || {})[user.id] && " · acknowledged ✓"}</p></div>)}</div></div>;
 }
 // Unreported pallets: the audit trail for "who moved this without QC ever seeing it" — detected server-side on
 // every dock push (server/misslogic.mjs), so this list updates itself even with nobody's app open. Both roles see
@@ -4089,7 +4098,8 @@ function MHeadFlags({ s, set, user, go, notify }) {
 }
 function MHeadAnnounce({ s, set, user, go, notify }) {
   const [d, setD] = useState({ title: "", body: "", isBlocking: false, showOnDashboard: true, productId: "", categoryId: "", validTo: "" });
-  const publish = () => { if (!d.title.trim()) return; const id = uid(); set(x => ({ ...x, announcements: [...x.announcements, { id, title: d.title.trim(), body: d.body.trim(), productId: d.productId || null, categoryId: d.categoryId || null, validTo: d.validTo || null, createdBy: user.id, createdAt: nowISO(), acks: {}, isBlocking: d.isBlocking, showOnDashboard: d.showOnDashboard }] })); if (d.isBlocking && notify) s.users.filter(u => u.role === "Controller" && u.active !== false).forEach(u => notify("Announcement", `New blocking announcement: ${d.title.trim()}`, "Announcement", id, u.id)); go("home"); };
+  const [files, setFiles] = useState([]);
+  const publish = () => { if (!d.title.trim()) return; const id = uid(); set(x => ({ ...x, announcements: [...x.announcements, { id, title: d.title.trim(), body: d.body.trim(), productId: d.productId || null, categoryId: d.categoryId || null, validTo: d.validTo || null, createdBy: user.id, createdAt: nowISO(), acks: {}, isBlocking: d.isBlocking, showOnDashboard: d.showOnDashboard, attachments: files }] })); if (d.isBlocking && notify) s.users.filter(u => u.role === "Controller" && u.active !== false).forEach(u => notify("Announcement", `New blocking announcement: ${d.title.trim()}`, "Announcement", id, u.id)); go("home"); };
   const Chip = ({ on, onClick, children }) => <button onClick={onClick} className="text-xs px-3 py-1.5 rounded-full" style={{ background: on ? C.ink : "transparent", color: on ? C.onDark : C.ink, border: `1px solid ${on ? C.ink : C.line}` }}>{children}</button>;
   return <div><TopBar title="New announcement" onBack={() => go("back")} /><div className="px-4 pt-3">
     <input value={d.title} onChange={e => setD(x => ({ ...x, title: e.target.value }))} placeholder="title" className="w-full text-sm mb-2" />
@@ -4101,7 +4111,9 @@ function MHeadAnnounce({ s, set, user, go, notify }) {
     <div className="flex items-center justify-between mb-1.5"><p className="label-sm">Category (optional)</p>{d.categoryId && <button onClick={() => setD(x => ({ ...x, categoryId: "" }))} className="text-xs" style={{ color: C.muted }}>clear</button>}</div>
     <div className="mb-3"><MCategoryPicker categories={s.categories} value={d.categoryId} onChange={id => setD(x => ({ ...x, categoryId: id, productId: id ? "" : x.productId }))} /></div>
     <p className="label-sm mb-1.5">Dashboard until (optional)</p>
-    <input type="date" value={d.validTo} onChange={e => setD(x => ({ ...x, validTo: e.target.value }))} className="w-full text-sm mb-4" />
+    <input type="date" value={d.validTo} onChange={e => setD(x => ({ ...x, validTo: e.target.value }))} className="w-full text-sm mb-3" />
+    <AnnounceFileList files={files} colors={C} onRemove={id => setFiles(list => list.filter(f => f.id !== id))} />
+    <AnnounceAttachButton colors={C} onAdd={added => setFiles(list => [...list, ...added])} />
     <button onClick={publish} disabled={!d.title.trim()} className="w-full py-3 rounded-xl text-sm font-medium" style={{ background: d.title.trim() ? C.ink : C.line, color: d.title.trim() ? C.onDark : C.muted }}>Publish</button>
   </div></div>;
 }
