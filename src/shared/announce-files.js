@@ -77,6 +77,17 @@ export function announceFilesOf(a) {
   return (Array.isArray(a?.attachments) ? a.attachments : []).filter(isAnnounceFile);
 }
 
+export function isImageAnnounceFile(f) {
+  const ext = extOfName(f?.name || f?.path);
+  return ["png", "jpg", "jpeg", "webp", "gif"].includes(ext);
+}
+
+export function fileKindLabel(name) {
+  const ext = extOfName(name);
+  if (ext === "jpeg") return "JPG";
+  return (ext || "FILE").toUpperCase();
+}
+
 export function formatFileSize(n) {
   const b = Number(n) || 0;
   if (b < 1024) return `${b} B`;

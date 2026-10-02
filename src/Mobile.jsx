@@ -10,7 +10,7 @@ import { attachableSameDay, otherDeliveryDay, sameDeliveryRows } from "./shared/
 import { poRequiredOnReject, poSourceHint, sheetPoForInspection, suggestedPo } from "./shared/rejection-po.js";
 import { dockMatches } from "./shared/dock-search.js";
 import { announceFilesOf } from "./shared/announce-files.js";
-import { AnnounceAttachButton, AnnounceFileList } from "./shared/AnnounceAttachments.jsx";
+import { AnnounceAttachButton, AnnounceFileList, AnnounceFileThumbs } from "./shared/AnnounceAttachments.jsx";
 import { readAsDataUrl, keepPhoto, shrinkPhoto, memoPdfPhoto, fetchPdfPhotoSrc, rotateImage } from "./shared/report-images.js";
 import { attachRemarkPhotos, photoGroupsByModule, pickedPhotos, replacePhoto, replaceRemarkPhoto } from "./shared/photos.js";
 import { CameraSheet } from "./shared/CameraSheet.jsx";
@@ -3810,15 +3810,24 @@ function MBriefing({ s, set, user, go }) {
     let hero = null, body = null;
     if (c.kind === "ann") {
       const a = c.a, prod = a.productId && s.products.find(p => p.id === a.productId);
-      hero = <Hero product={prod} name={prod?.name || a.title} />;
+      const author = s.users.find(u => u.id === a.createdBy);
+      const files = announceFilesOf(a);
+      // Product notes keep the product photo. A Head note with no product used to show a
+      // giant empty letter — drop that. Corner avatar, and a tappable file thumb when one is attached.
+      hero = prod ? <Hero product={prod} name={prod.name} /> : null;
       body = <>
-        <p className="text-[11px] font-semibold uppercase tracking-[0.16em]" style={{ color: a.isBlocking ? C.bad : C.accent }}>{a.isBlocking ? "Blocking note" : "From the Head"}</p>
-        <p className="text-[20px] font-semibold leading-[1.15] tracking-tight mt-1">{prod?.name || a.title}</p>
+        <div className="flex items-start gap-3">
+          <div className="flex-1 min-w-0">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.16em]" style={{ color: a.isBlocking ? C.bad : C.accent }}>{a.isBlocking ? "Blocking note" : "From the Head"}</p>
+            <p className="text-[20px] font-semibold leading-[1.15] tracking-tight mt-1">{prod?.name || a.title}</p>
+          </div>
+          {!prod && author && <span className="flex-shrink-0 mt-0.5"><Avatar user={author} size={36} /></span>}
+        </div>
         {prod && <p className="text-[12px] mt-1" style={{ color: C.muted }}>{factsOf(prod).join(" · ")}</p>}
         {prod && a.title !== prod.name && <p className="text-[15px] font-semibold mt-2">{a.title}</p>}
         {a.categoryId && !prod && <p className="text-[12px] mt-1" style={{ color: C.ok }}>{catPath(a.categoryId)}</p>}
-        {a.body && <p className="text-[14px] mt-2 leading-snug line-clamp-2" style={{ color: C.ink }}>{truncate(a.body, 140)}</p>}
-        <AnnounceFileList announcement={a} colors={C} compact cta />
+        {a.body && <p className={`text-[14px] mt-2 leading-snug ${prod ? "line-clamp-2" : "line-clamp-5"}`} style={{ color: C.ink }}>{truncate(a.body, prod ? 140 : 280)}</p>}
+        {files.length ? <AnnounceFileThumbs files={files} colors={C} cta /> : null}
         <p className="text-[12px] mt-2" style={{ color: C.muted }}>{dayLabel(a.createdAt)}{who(a.createdBy) ? ` · ${who(a.createdBy)}` : ""}</p>
         <div className="mt-auto pt-3 space-y-2">
           {prod && <Cta ghost onClick={() => go("catalog", prod.id)}>Product profile<Ic i={ChevronRight} s={15} mr={0} /></Cta>}
