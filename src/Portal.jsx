@@ -2047,7 +2047,7 @@ function SpecForm({ specs, inherited, onAdd, onUpdate, onRemove, hint, excluded,
   const [edit, setEdit] = useState(null);
   const reg = sctx ? specRegistry(sctx) : []; const near = sctx ? nearSpecName(sctx, sp.name) : null;
   const knownNames = new Set([...(specs || []), ...(inherited || [])].filter(q => q.id !== editingId).map(q => `${(q.name || "").toLowerCase()}|${specBasis(q)}`));
-  const suggestions = reg.filter(e => !knownNames.has(`${e.name.toLowerCase()}|${sp.basis}`) && (!sp.name.trim() || e.name.toLowerCase().includes(sp.name.trim().toLowerCase()))).slice(0, 8);
+  const suggestions = editingId ? [] : reg.filter(e => !knownNames.has(`${e.name.toLowerCase()}|${sp.basis}`) && (!sp.name.trim() || e.name.toLowerCase().includes(sp.name.trim().toLowerCase()))).slice(0, 8);
   const resetForm = () => { setSp(blank); setEditingId(null); };
   const startEdit = q => {
     setSp({ name: q.name || "", unit: q.unit || "", kind: specFormKind(q), min: hasV(q.min) ? q.min : "", max: hasV(q.max) ? q.max : "", basis: specBasis(q) });
@@ -2317,7 +2317,7 @@ function CategoriesPage({ s, set, onMessage, onOpenProduct, presetSel, clearPres
         <Card style={{ marginTop: 16 }}>
           <p className="font-medium text-sm mb-1">Category specifications: {cat.name}</p>
           <SpecForm sctx={s} set={set} user={s.users.find(u => u.role === "Head")} ownerKind="category" ownerId={cat.id} specs={cat.specs || []} inherited={parentSpecs} onAdd={q => { patchCat({ specs: [...(cat.specs || []), q] }); const kids = productsUnder(cat.id); if (kids.length) setApplyAsk({ spec: q, kids, chosen: new Set(kids.map(p => p.id)), choosing: false }); }} onUpdate={(id, fields) => patchCat({ specs: (cat.specs || []).map(q => q.id === id ? applySpecEdit(q, fields) : q) })} onRemove={id => patchCat({ specs: (cat.specs || []).filter(q => q.id !== id) })}
-            hint="Inherited by all products in this category (by name). A product can override with its own spec of the same name. Set e.g. Brix or Firmness once for the whole category here. Temp on a row applies to every product that inherits it." />
+            hint="Inherited by all products in this category (by name). A product can override with its own spec of the same name. Set e.g. Brix or Firmness once for the whole category here. Temp on a row applies to every product that inherits it. Edit keeps the same specification — forms stay linked." />
         </Card>
       )}
 
