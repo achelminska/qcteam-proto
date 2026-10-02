@@ -9,9 +9,10 @@ import { peopleOnFloor, peopleAtDock, floorWhere, floorVerb, doneTodayCount, don
 import { attachableSameDay, otherDeliveryDay, sameDeliveryRows } from "./shared/delivery-pallets.js";
 import { poRequiredOnReject, poSourceHint, sheetPoForInspection, suggestedPo } from "./shared/rejection-po.js";
 import { dockMatches } from "./shared/dock-search.js";
-import { clearBriefingSeen } from "./shared/briefing-seen.js";
+import { adoptLocalBriefingSeen, briefingFp, clearBriefingSeen, markBriefingSeen, seenFingerprints } from "./shared/briefing-seen.js";
+import { briefingComplaintsMeta, briefingDefaultTab, briefingItemsKey, briefingRemark, briefingTabDeck, briefingUnseen, liveBriefingFps } from "./shared/briefing-cards.js";
 import { announceFilesOf } from "./shared/announce-files.js";
-import { AnnounceAttachButton, AnnounceFileList } from "./shared/AnnounceAttachments.jsx";
+import { AnnounceAttachButton, AnnounceFileList, AnnounceFileThumbs } from "./shared/AnnounceAttachments.jsx";
 import { readAsDataUrl, keepPhoto, shrinkPhoto, memoPdfPhoto, fetchPdfPhotoSrc, rotateImage } from "./shared/report-images.js";
 import { attachRemarkPhotos, photoGroupsByModule, pickedPhotos, replacePhoto, replaceRemarkPhoto } from "./shared/photos.js";
 import { CameraSheet } from "./shared/CameraSheet.jsx";
@@ -75,7 +76,7 @@ const notifLook = t => { const [I, tone] = NOTIF[t] || [Bell, "info"]; const fg 
 const cleanMsg = m => String(m || "").replace(/^[\p{Extended_Pictographic}\uFE0F\s]+/u, "");
 const NotifIcon = ({ type, size = 32 }) => { const { I, fg, bg } = notifLook(type); return <span className="rounded-full flex items-center justify-center flex-shrink-0" style={{ width: size, height: size, background: bg, color: fg }}><I size={Math.round(size * 0.5)} strokeWidth={2} /></span>; };
 const Dot = ({ on }) => <span className="inline-block rounded-full ml-2 align-middle" style={{ width: 7, height: 7, background: on ? C.ok : C.line }} />;
-const NAV_ICON = { blocked: LockIcon, lost: Search, unreported: ShieldAlert, integrations: Link2, lists: ListIcon, analytics: BarChart3, settings: SlidersHorizontal, dashboard: LayoutDashboard, inspections: ClipboardList, flags: Flag, notifications: Bell, categories: FolderTree, problems: ListTree, products: Package, forms: LayoutTemplate, suppliers: Truck, countries: Globe, announcements: Megaphone, messages: MessageSquare, users: Users, catalog: Package, home: Home, chat: MessageSquare, menu: MenuIcon, docks: Warehouse, complaints: ThumbsDown, tempspecs: Clock };
+const NAV_ICON = { blocked: LockIcon, lost: Search, unreported: ShieldAlert, integrations: Link2, lists: ListIcon, analytics: BarChart3, settings: SlidersHorizontal, dashboard: LayoutDashboard, inspections: ClipboardList, flags: Flag, notifications: Bell, categories: FolderTree, problems: ListTree, products: Package, forms: LayoutTemplate, suppliers: Truck, countries: Globe, announcements: Megaphone, messages: MessageSquare, users: Users, catalog: Package, home: Home, chat: MessageSquare, menu: MenuIcon, docks: Warehouse, complaints: ThumbsDown, tempspecs: Clock, briefing: BookOpen, profile: User };
 const EMPTY_ICON = { "📁": FolderTree, "🌳": ListTree, "📦": Package, "🧩": LayoutTemplate, "📖": BookOpen, "📏": Ruler, "📋": ClipboardList, "🚩": Flag, "🔔": Bell, "📣": Megaphone, "💬": MessageSquare, "🔒": LockIcon };
 
 
@@ -94,6 +95,11 @@ const GLOBAL_CSS = () => `
   .qc button:active{transform:translateY(1px)}
   .qc-tile{box-shadow:${lift()}}
   .qc button.qc-elev:active,.qc button.qc-tile:active{box-shadow:0 1px 0 rgba(255,255,255,.03) inset,0 2px 6px rgba(0,0,0,.22)!important}
+  .qc-led-halo{position:absolute;inset:-3px;border-radius:19px;pointer-events:none;z-index:0}
+  .qc-led-halo::before{content:"";position:absolute;inset:0;border-radius:inherit;background:${C.accent};filter:blur(8px);opacity:${C.isDark ? .72 : .4}}
+  .qc-led-halo::after{content:"";position:absolute;inset:1px;border-radius:17px;box-shadow:0 0 0 1px ${C.accent},0 0 10px ${C.accent};opacity:${C.isDark ? .88 : .58}}
+  @media (prefers-reduced-motion:no-preference){.qc-led-halo::before,.qc-led-halo::after{animation:qc-led-breathe 2.6s ease-in-out infinite}}
+  @keyframes qc-led-breathe{0%,100%{opacity:${C.isDark ? .55 : .32}}50%{opacity:${C.isDark ? .95 : .7}}}
   .qc button:disabled{cursor:not-allowed;opacity:.6}
   .qc button:focus-visible,.qc a:focus-visible{outline:2px solid ${C.accent};outline-offset:2px}
   .qc .label-sm{font-size:11.5px;font-weight:600;color:${C.muted};letter-spacing:0;text-transform:none}
@@ -1292,7 +1298,9 @@ const NAV_HEAD = [
   { group: "Administration", items: [["integrations", "🔗", "Integrations"], ["settings", "⚙️", "Settings"], ["users", "👤", "Users"]] },
 ];
 const NAV_CONTROLLER = [
-  { group: null, items: [["dashboard", "🏠", "Dashboard"], ["docks", "🏭", "Dock map"], ["inspections", "📋", "Inspections"], ["catalog", "📦", "Products"], ["complaints", "👎", "Complaints"], ["unreported", "🛡️", "Unreported pallets"], ["messages", "💬", "Messages"], ["flags", "🚩", "My flags"], ["notifications", "🔔", "Notifications"]] },
+  { group: null, items: [["dashboard", "🏠", "Dashboard"], ["briefing", "📖", "Shift update"], ["docks", "🏭", "Dock map"], ["catalog", "📦", "Products"], ["complaints", "👎", "Complaints"], ["blocked", "🔒", "Blocked pallets"], ["lost", "🔍", "Lost pallets"], ["unreported", "🛡️", "Unreported pallets"], ["inspections", "📋", "History"]] },
+  { group: "Communication", items: [["announcements", "📣", "Announcements"], ["messages", "💬", "Messages"], ["flags", "🚩", "My flags"], ["notifications", "🔔", "Notifications"]] },
+  { group: "Me", items: [["profile", "👤", "Profile"]] },
 ];
 
 function Shell({ page, setPage, children, badge, topRight, users, user, setUser, onLogout, unread, onBell, onSearch }) {
@@ -2169,25 +2177,100 @@ function TempSpecsPage({ s, set, user, openProduct, openCategory }) {
   );
 }
 
-function ControllerDashboard({ s, user, setPage, setOpenId, openProduct }) {
-  const alerts = computeDeadlineAlerts(s);
-  const mine = s.inspections.filter(i => i.controllerId === user.id).sort((a, b) => (b.startedAt || "").localeCompare(a.startedAt || ""));
-  const open = mine.filter(i => ["Draft", "PendingReview"].includes(i.status));
+function ShiftUpdateBanner({ s, user, onOpen }) {
+  const pulse = briefingUnseen(s, user.id);
+  const seen = pulse.total === 0;
+  const bits = [
+    pulse.rejs.length && `${pulse.rejs.length} new rejection${pulse.rejs.length === 1 ? "" : "s"}`,
+    pulse.complaints.length && `${pulse.complaints.length} new complaint${pulse.complaints.length === 1 ? "" : "s"}`,
+    pulse.anns.length && `${pulse.anns.length} note${pulse.anns.length === 1 ? "" : "s"} from the Head`,
+  ].filter(Boolean);
+  return (
+    <div className="relative mb-4">
+      {!seen && <span aria-hidden className="qc-led-halo" />}
+      <button type="button" onClick={onOpen} className="qc-elev qc-tile w-full text-left rounded-2xl px-3.5 py-3 flex items-center gap-3 relative" style={{ background: C.surface, border: `1px solid ${C.line}`, borderLeft: `3px solid ${seen ? C.line : C.accent}`, zIndex: 1 }}>
+        <span className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: C.accentSoft, color: C.accent }}><Ic i={BookOpen} s={18} mr={0} /></span>
+        <span className="min-w-0 flex-1">
+          <span className="flex items-center gap-2">
+            <span className="text-sm font-semibold">Shift update</span>
+            {!seen && <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium" style={{ background: C.accentSoft, color: C.accent }}>open first</span>}
+          </span>
+          <span className="block text-[11px] mt-0.5 leading-snug" style={{ color: C.muted }}>{bits.length ? bits.join(" · ") : "Nothing live — still worth a look"}</span>
+        </span>
+        <Ic i={ChevronRight} s={16} mr={0} style={{ color: C.muted }} />
+      </button>
+    </div>
+  );
+}
+
+function ControllerDashboard({ s, user, set, setPage, setOpenId, openProduct, openPallet }) {
+  const [now, setNow] = useState(Date.now()); useEffect(() => { const id = setInterval(() => setNow(Date.now()), 30000); return () => clearInterval(id); }, []);
+  const [prioSel, setPrioSel] = useState(null); const [blSel, setBlSel] = useState(null); const [prioQ, setPrioQ] = useState("");
   const [annOpen, setAnnOpen] = useState(null);
+  const f = floorStats(s, now);
+  const hasDock = (s.integrations || []).some(i => i.purpose === "Dock" && i.rows?.length);
   const dashAnns = s.announcements.filter(a => a.showOnDashboard && annActive(a)).sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
-  // Product-scoped announcements already have a home — the product's profile card — so clicking one just opens that instead of a modal.
   const openAnn = a => (a.productId && openProduct) ? openProduct(a.productId) : setAnnOpen(a);
+  const mine = s.inspections.filter(i => i.status !== "Cancelled").sort((a, b) => (b.completedAt || b.startedAt || "").localeCompare(a.completedAt || a.startedAt || ""));
+  const HISTORY_LIMIT = 12;
+  const groups = []; mine.slice(0, HISTORY_LIMIT).forEach(i => { const k = dayLabel(i.completedAt || i.startedAt); let g = groups.find(x => x.k === k); if (!g) { g = { k, items: [] }; groups.push(g); } g.items.push(i); });
+  const prioRows = prioSel ? f.dock.filter(r => prioSel === "Skippable" ? r.skippable : prioSel === "Needed today" ? r.blocking : r.priority === prioSel).sort((a, b) => `${a.arrived} ${a.arrivedTime}`.localeCompare(`${b.arrived} ${b.arrivedTime}`)) : [];
+  const prioGroups = (() => { const map = new Map(); prioRows.forEach(r => { const k = r.article || r.hu; if (!map.has(k)) map.set(k, []); map.get(k).push(r); });
+    return [...map.values()].map(rows => { const sorted = [...rows].sort((a, b) => `${a.arrived} ${a.arrivedTime}`.localeCompare(`${b.arrived} ${b.arrivedTime}`)); const first = sorted[0]; const locs = new Set(rows.map(r => r.location).filter(Boolean));
+      const mixedPO = new Set(rows.map(r => (r.po || "").trim()).filter(Boolean)).size > 1;
+      const totalOnDock = first.article ? f.dock.filter(x => x.article === first.article).length : rows.length;
+      return { ...first, count: rows.length, totalOnDock, checked: rows.filter(x => completedInspectionFor(s, x.hu)).length, mixedPO, location: locs.size <= 1 ? first.location : `${locs.size} locations` }; }).sort((a, b) => `${a.arrived} ${a.arrivedTime}`.localeCompare(`${b.arrived} ${b.arrivedTime}`)); })();
+  const prioShown = prioGroups.filter(r => dockMatches({ ...r, name: r.name || s.products.find(p => p.articleId === r.article)?.name }, prioQ, s));
+  const Tile = ({ label, value, sub, color, onClick, active }) => <button onClick={onClick} disabled={!onClick} className="qc-elev qc-tile rounded-2xl p-4 text-left" style={{ background: active ? C.accentSoft : C.surface, border: `1px solid ${active ? C.accent : C.line}`, borderLeft: `3px solid ${color || C.line}`, cursor: onClick ? "pointer" : "default" }}><p className="text-xs" style={{ color: C.muted }}>{label}</p><p className="text-[26px] leading-tight font-semibold mt-0.5" style={{ color: value > 0 && color ? color : C.ink, fontVariantNumeric: "tabular-nums" }}>{value}</p>{sub && <p className="text-[11px]" style={{ color: C.muted }}>{sub}</p>}</button>;
   return (
     <div>
-      <h1 className="mb-1">Hi, {user.name.split(" ")[0]}</h1>
-      <p className="text-sm mb-5" style={{ color: C.muted, maxWidth: 640 }}>Controller view (on the phone this is the mobile app). Only what's yours.</p>
-      {/* One gets its full preview text; several collapse to titles only so they don't take over the dashboard. */}
-      {dashAnns.length > 0 && <Card style={{ marginBottom: 16, borderColor: C.accent }}><p className="text-xs font-medium mb-2" style={{ color: C.accent }}>📣 ANNOUNCEMENTS</p>{dashAnns.length === 1 ? <button onClick={() => openAnn(dashAnns[0])} className="w-full text-left py-2" style={{ borderTop: `1px solid ${C.line}` }}><p className="text-sm font-medium">{dashAnns[0].title}</p><p className="text-sm truncate" style={{ color: C.muted }}>{truncate(dashAnns[0].body)}</p><p className="text-xs" style={{ color: C.muted }}>{fmtTime(dashAnns[0].createdAt)}{dashAnns[0].validTo && ` · to ${dashAnns[0].validTo}`}</p></button> : dashAnns.map(a => <button key={a.id} onClick={() => openAnn(a)} className="w-full text-left py-2" style={{ borderTop: `1px solid ${C.line}` }}><p className="text-sm font-medium">{a.title}</p></button>)}</Card>}
-      {/* Controllers see this too, not just the Head — a pallet that left without a report is something everyone on the floor should be aware of. */}
-      {unreportedStats(s).open > 0 && <button onClick={() => setPage("unreported")} className="w-full flex items-center gap-2.5 text-left mb-4 rounded-xl px-3.5 py-2.5" style={{ background: C.warnBg, border: `1px solid ${C.warn}` }}><Ic i={ShieldAlert} s={16} style={{ color: C.warn }} /><span className="text-sm flex-1">{unreportedStats(s).open} pallet{unreportedStats(s).open === 1 ? "" : "s"} left the dock without a report</span><span className="text-xs underline" style={{ color: C.warn }}>see all</span></button>}
-      <div className="mb-4"><Primary onClick={() => { setOpenId(null); setPage("inspections"); }}>+ New inspection</Primary></div>
-      {open.length > 0 && <Card style={{ marginBottom: 16 }}><p className="font-medium text-sm mb-2">Unfinished</p>{open.map(i => <button key={i.id} onClick={() => { setOpenId(i.id); setPage("inspections"); }} className="w-full text-left flex items-center gap-2 py-2" style={{ borderTop: `1px solid ${C.line}` }}><span className="text-xs px-2 py-0.5 rounded-full" style={{ background: STATUS[i.status][2], color: STATUS[i.status][1] }}>{STATUS[i.status][0]}</span><span className="flex-1 text-sm">{s.products.find(p => p.id === i.productId)?.name}</span><span className="text-xs" style={{ color: C.muted }}>{fmtTime(i.startedAt)}</span></button>)}</Card>}
-      <Card><p className="font-medium text-sm mb-2">My recent</p>{mine.filter(i => i.status === "Completed").slice(0, 8).map(i => <button key={i.id} onClick={() => { setOpenId(i.id); setPage("inspections"); }} className="w-full text-left flex items-center gap-2 py-2" style={{ borderTop: `1px solid ${C.line}` }}><span className="text-xs px-2 py-0.5 rounded-full" style={{ background: i.result === "Accepted" ? C.okBg : C.badBg, color: i.result === "Accepted" ? C.ok : C.bad }}>{i.result === "Accepted" ? "Accepted" : "Rejected"}</span><span className="flex-1 text-sm">{s.products.find(p => p.id === i.productId)?.name}</span><span className="text-xs" style={{ color: C.muted }}>{fmtTime(i.completedAt)}</span></button>)}{mine.filter(i => i.status === "Completed").length === 0 && <p className="text-xs" style={{ color: C.muted }}>Nothing yet.</p>}</Card>
+      <div className="flex items-baseline gap-3 mb-1"><h1>Hi, {user.name.split(" ")[0]}</h1><span className="text-xs" style={{ color: C.muted }}>{new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "short" })}{f.fresh.length ? ` · ${f.fresh.map(x => `${x.purpose === "Dock" ? "dock" : "blocked"} sheet ${agoShort(x.at)}`).join(" · ")}` : ""}</span></div>
+      <p className="text-sm mb-4" style={{ color: C.muted, maxWidth: 640 }}>Same floor as the phone — dock, catalog, complaints, chat, history. Inspections start on the phone, not here.</p>
+      <ShiftUpdateBanner s={s} user={user} onOpen={() => setPage("briefing")} />
+      <DeadlineBanner s={s} alerts={f.alerts} now={now} onOpen={a => a.hu && openPallet && openPallet(a.hu)} />
+      {dashAnns.length === 1 && <button type="button" onClick={() => openAnn(dashAnns[0])} className="qc-elev qc-tile w-full text-left mb-3 rounded-xl px-3.5 py-2.5 flex items-start gap-2.5" style={{ background: C.surface, border: `1px solid ${C.line}`, borderLeft: `3px solid ${C.accent}` }}><span style={{ color: C.accent, marginTop: 2 }}><Ic i={Megaphone} s={14} mr={0} /></span><p className="text-sm flex-1"><b>{dashAnns[0].title}</b><span style={{ color: C.muted }}> — {truncate(dashAnns[0].body)}</span></p></button>}
+      {dashAnns.length > 1 && <div className="mb-3 rounded-xl overflow-hidden" style={{ background: C.surface, border: `1px solid ${C.line}` }}>{dashAnns.map((a, i) => <button key={a.id} type="button" onClick={() => openAnn(a)} className="w-full text-left px-3.5 py-2 flex items-center gap-2.5" style={{ borderTop: i ? `1px solid ${C.line}` : "none", borderLeft: `3px solid ${C.accent}` }}><span style={{ color: C.accent }}><Ic i={Megaphone} s={13} mr={0} /></span><p className="text-sm flex-1 truncate"><b>{a.title}</b></p></button>)}</div>}
+      {f.unreported.open > 0 && <button type="button" onClick={() => setPage("unreported")} className="w-full flex items-center gap-2.5 text-left mb-4 rounded-xl px-3.5 py-2.5" style={{ background: C.warnBg, border: `1px solid ${C.warn}` }}><Ic i={ShieldAlert} s={16} style={{ color: C.warn }} /><span className="text-sm flex-1">{f.unreported.open} pallet{f.unreported.open === 1 ? "" : "s"} left the dock without a report</span><span className="text-xs underline" style={{ color: C.warn }}>see all</span></button>}
+
+      <div className="flex items-center mt-1 mb-1.5"><p className="label-sm flex-1" style={{ color: C.muted }}>Docks · {f.dock.length} pallets · {f.skus} SKUs{f.blocking ? ` · ${f.blocking} needed today` : ""}{f.skippable ? ` · ${f.skippable} skippable` : ""}{f.dockLost ? ` · ${f.dockLost} lost` : ""}</p>{hasDock && <button type="button" onClick={() => setPage("docks")} className="text-xs inline-flex items-center gap-1" style={{ color: C.accent }}><Ic i={Warehouse} s={13} mr={0} />Dock map →</button>}</div>
+      <div className="grid gap-3 mb-3" style={{ gridTemplateColumns: "repeat(7, 1fr)" }}>
+        <Tile label="Needed today" value={f.blocking} sub={f.blocking ? "blocks picking" : "nothing blocking"} color={f.blocking ? C.bad : C.muted} onClick={hasDock ? () => { setPrioQ(""); setPrioSel(prioSel === "Needed today" ? null : "Needed today"); } : undefined} active={prioSel === "Needed today"} />
+        {PRIO_ORDER.map(k => <Tile key={k} label={k} value={f.prio[k]} color={k === "Now needed" || k === "High risk" ? C.bad : k === "High issues" || k === "Late inspection" ? C.warn : C.muted} onClick={hasDock ? () => { setPrioQ(""); setPrioSel(prioSel === k ? null : k); } : undefined} active={prioSel === k} />)}
+        <Tile label="Skippable" value={f.skippable} color={C.muted} onClick={hasDock ? () => { setPrioQ(""); setPrioSel(prioSel === "Skippable" ? null : "Skippable"); } : undefined} active={prioSel === "Skippable"} />
+      </div>
+      {prioSel && <Card style={{ marginBottom: 12 }}>
+        <div className="flex items-center gap-2 mb-2"><p className="font-medium text-sm flex-1">{prioSel} · {prioRows.length} pallet{prioRows.length === 1 ? "" : "s"} · {prioGroups.length} product{prioGroups.length === 1 ? "" : "s"}</p><SearchBox value={prioQ} onChange={setPrioQ} placeholder="Search name, article, supplier…" style={{ width: 260 }} inputClass="rounded-lg" size={13} /><button type="button" onClick={() => setPrioSel(null)} className="text-xs" style={{ color: C.muted }}>close</button></div>
+        {prioRows.length === 0 ? <p className="text-xs py-3" style={{ color: C.muted }}>Nothing at this priority.</p> : prioShown.length === 0 ? <p className="text-xs py-3" style={{ color: C.muted }}>Nothing matches.</p> : <table className="w-full text-sm" style={{ borderCollapse: "collapse" }}>
+          <thead><tr className="text-xs text-left" style={{ color: C.muted }}>{["Product", ...(prioSel === "Needed today" ? ["Priority"] : []), "Article", "Location", "Arrived", "Transporter"].map(h => <th key={h} className="py-1.5 pr-3 font-medium" style={{ borderBottom: `1px solid ${C.line}` }}>{h}</th>)}</tr></thead>
+          <tbody>{prioShown.map(r => { const prod = s.products.find(p => p.articleId === r.article); return (
+            <tr key={r.article || r.hu} style={{ borderBottom: `1px solid ${C.line}` }}>
+              <td className="py-1.5 pr-3">{(r.hu || r.article) && openPallet ? <button type="button" onClick={() => openPallet(r.hu || r.article)} className="text-left font-medium">{r.name || prod?.name || r.article}</button> : <span>{r.name || r.article}</span>}<span className="ml-1.5 inline-flex align-middle"><ComplaintChip s={s} articleId={r.article} /></span>{r.count > 1 && <span className="text-[10px] ml-1.5 px-1.5 py-0.5 rounded-full" style={{ background: C.accentSoft, color: C.accent }}>×{r.count}</span>}{r.checked > 0 && <span className="text-[10px] ml-1.5 px-1.5 py-0.5 rounded-full" style={{ background: C.okBg, color: C.ok }}>✓ {r.checked === r.count ? "inspected" : `${r.checked}/${r.count}`}</span>}</td>
+              {prioSel === "Needed today" && <td className="py-1.5 pr-3 text-xs">{r.priority || "—"}</td>}<td className="py-1.5 pr-3 font-mono text-xs">{r.article}</td><td className="py-1.5 pr-3">{r.location}</td><td className="py-1.5 pr-3 text-xs">{r.arrived} {r.arrivedTime}</td><td className="py-1.5 pr-3 text-xs">{r.transporter}</td>
+            </tr>); })}</tbody>
+        </table>}
+      </Card>}
+
+      <p className="label-sm mt-4 mb-1.5" style={{ color: C.muted }}>Queue</p>
+      <div className="grid gap-3 mb-3" style={{ gridTemplateColumns: "repeat(4, 1fr)" }}>
+        <Tile label="Blocked pallets" value={f.bl.open} sub={f.bl.taken ? `${f.bl.taken} taken` : (f.bl.open ? "waiting for a check" : "queue is clear")} color={f.bl.open ? C.bad : C.muted} onClick={() => setBlSel(blSel === "blocked" ? null : "blocked")} active={blSel === "blocked"} />
+        <Tile label="Unreported" value={f.unreported.open} sub={f.unreported.open ? "left without a report" : "all reported"} color={f.unreported.open ? C.warn : C.muted} onClick={() => setPage("unreported")} />
+        <Tile label="Lost" value={f.lostOpen} sub={f.lostOpen ? "not counted above" : "none marked lost"} color={C.muted} onClick={f.lostOpen ? () => setPage("lost") : undefined} />
+        <Tile label="Done today" value={f.doneToday} sub="by the team" color={f.doneToday ? C.ok : C.muted} onClick={() => { setOpenId(null); setPage("inspections"); }} />
+      </div>
+      {blSel === "blocked" && (() => { const q = blockedQueue(s); const order = { "Not started": 0, "Started": 1, "Completed": 2 }; const list = q.filter(b => b.status !== "Completed" && !b.lost).sort((a, b) => (order[a.status] ?? 9) - (order[b.status] ?? 9) || (a.time || "").localeCompare(b.time || "")); return (
+        <Card style={{ marginBottom: 12 }}>
+          <div className="flex items-center gap-2 mb-1"><p className="font-medium text-sm flex-1">Blocked pallets · {list.length} open</p><button type="button" onClick={() => setPage("blocked")} className="text-xs underline" style={{ color: C.accent }}>full page</button><button type="button" onClick={() => setBlSel(null)} className="text-xs ml-2" style={{ color: C.muted }}>close</button></div>
+          {list.length === 0 ? <p className="text-xs py-3" style={{ color: C.muted }}>Nothing in the blocked queue.</p> : list.map(b => <QueueRow key={b.key} s={s} set={set} user={user} b={b} onOpen={() => openPallet && openPallet(b.hu || claimKey(b))} />)}
+        </Card>); })()}
+
+      <p className="label-sm mt-4 mb-1.5" style={{ color: C.muted }}>Recent inspections</p>
+      <Card>
+        <div className="flex items-center mb-1"><p className="font-medium text-sm flex-1">History</p><button type="button" onClick={() => { setOpenId(null); setPage("inspections"); }} className="text-xs" style={{ color: C.accent }}>all ›</button></div>
+        {groups.length === 0 ? <p className="text-xs py-3" style={{ color: C.muted }}>No inspections yet. They are started on the phone.</p> : groups.map(g => (
+          <div key={g.k}><p className="label-sm mt-2 mb-1" style={{ color: C.muted }}>{g.k}</p>{g.items.map(i => <button key={i.id} type="button" onClick={() => { setOpenId(i.id); setPage("inspections"); }} className="w-full text-left flex items-center gap-2 py-2" style={{ borderTop: `1px solid ${C.line}` }}><span className="flex-1 text-sm truncate">{s.products.find(p => p.id === i.productId)?.name || `Pallet ${(i.pallets || [])[0] || ""}`}</span><span className="text-xs" style={{ color: C.muted }}>{fmtTime(i.completedAt || i.startedAt)}</span><span className="text-xs px-2 py-0.5 rounded-full" style={{ background: i.status !== "Completed" ? STATUS[i.status][2] : i.result === "Accepted" ? C.okBg : C.badBg, color: i.status !== "Completed" ? STATUS[i.status][1] : i.result === "Accepted" ? C.ok : C.bad }}>{i.status !== "Completed" ? STATUS[i.status][0] : (i.result === "Accepted" ? "Accepted" : "Rejected")}</span></button>)}</div>
+        ))}
+        {mine.length > HISTORY_LIMIT && <button type="button" onClick={() => { setOpenId(null); setPage("inspections"); }} className="w-full text-sm py-2 mt-2 rounded-xl font-medium" style={{ color: C.accent, background: C.accentSoft }}>Show all {mine.length} inspections ›</button>}
+      </Card>
       {annOpen && <AnnouncementModal a={annOpen} onClose={() => setAnnOpen(null)} />}
     </div>
   );
@@ -2204,6 +2287,243 @@ function AnnouncementModal({ a, onClose }) {
         <p className="text-xs mb-4" style={{ color: C.muted }}>{fmtTime(a.createdAt)}{a.validTo && ` · on the dashboard until ${a.validTo}`}</p>
         <button onClick={onClose} className="text-sm px-4 py-2 rounded-xl" style={{ background: C.ink, color: C.onDark }}>Close</button>
       </div>
+    </div>
+  );
+}
+
+const hhmm = iso => { const d = new Date(iso); return isNaN(d) ? "" : d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }); };
+
+function BriefingPage({ s, set, user, go }) {
+  const unseen = briefingUnseen(s, user.id);
+  const [tab, setTab] = useState(() => briefingDefaultTab(s, user.id));
+  const [cards, setCards] = useState(() => briefingTabDeck(s, briefingDefaultTab(s, user.id), user.id));
+  const [i, setI] = useState(0);
+  const [dx, setDx] = useState(0);
+  const [anim, setAnim] = useState(false);
+  const start = useRef(null);
+  const dragging = useRef(false);
+  const wheelLock = useRef(false);
+  const stage = useRef(null);
+  useEffect(() => { setCards(briefingTabDeck(s, tab, user.id)); setI(0); setDx(0); }, [tab]);
+  const n = cards.length;
+  const ix = n ? Math.max(0, Math.min(i, n - 1)) : 0;
+  useEffect(() => {
+    const fp = briefingFp(cards[ix]);
+    if (!fp || seenFingerprints(s, user.id).has(fp)) return;
+    const t = setTimeout(() => set(x => markBriefingSeen(x, user.id, fp, nowISO(), liveBriefingFps(x))), 400);
+    return () => clearTimeout(t);
+  }, [ix, tab, cards, user.id]);
+  const goTo = nI => { if (!n) return; setAnim(true); setDx(0); setI(Math.max(0, Math.min(n - 1, nI))); };
+  const catPath = id => { const c = s.categories.find(x => x.id === id); if (!c) return null; const p = c.parentId && s.categories.find(x => x.id === c.parentId); return p ? `${p.name} › ${c.name}` : c.name; };
+  const who = id => s.users.find(u => u.id === id)?.name.split(" ")[0];
+  const onDown = e => {
+    if (e.target.closest("[data-story-cta]")) return;
+    dragging.current = true;
+    start.current = { y: e.clientY, x: e.clientX };
+    setAnim(false);
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch {}
+  };
+  const onMove = e => { if (!dragging.current || !start.current) return; setDx(e.clientX - start.current.x); };
+  const onUp = e => {
+    if (!dragging.current || !start.current) return;
+    dragging.current = false;
+    const d = e.clientX - start.current.x, dy = e.clientY - start.current.y;
+    const tap = Math.abs(d) < 12 && Math.abs(dy) < 12;
+    if (tap && stage.current) {
+      const rect = stage.current.getBoundingClientRect();
+      goTo(e.clientX > rect.left + rect.width * 0.55 ? ix + 1 : ix - 1);
+    } else if (d < -56) goTo(ix + 1);
+    else if (d > 56) goTo(ix - 1);
+    else { setAnim(true); setDx(0); }
+    start.current = null;
+  };
+  const onWheel = e => {
+    e.stopPropagation();
+    if (wheelLock.current) return;
+    const delta = Math.abs(e.deltaX) >= Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+    if (Math.abs(delta) < 18) return;
+    wheelLock.current = true;
+    goTo(ix + (delta > 0 ? 1 : -1));
+    setTimeout(() => { wheelLock.current = false; }, 380);
+  };
+  const Cta = ({ children, onClick, ghost }) => <button type="button" data-story-cta onClick={onClick} className="w-full py-2.5 rounded-2xl text-sm font-semibold inline-flex items-center justify-center gap-1" style={ghost ? { background: "transparent", color: C.ink, border: `1px solid ${C.line}` } : { background: C.ink, color: C.onDark }}>{children}</button>;
+  const edge = c => c.kind === "rej" ? C.bad : c.kind === "complaint" ? C.bad : c.kind === "ann" && c.a.isBlocking ? C.bad : C.accent;
+  const trans = anim && !dragging.current ? "transform .32s cubic-bezier(.2,.8,.2,1), opacity .28s ease" : "none";
+  const PAD = 10;
+  const face = pos => {
+    const box = { top: PAD, bottom: PAD, left: PAD, right: PAD, overflow: "hidden" };
+    if (pos < 0) return { ...box, zIndex: 1, transform: `translateX(calc(-100% - ${PAD}px + ${Math.max(0, dx)}px))`, transition: trans, pointerEvents: "none" };
+    if (pos > 0) return { ...box, zIndex: 1, transform: `translateX(calc(100% + ${PAD}px + ${Math.min(0, dx)}px))`, transition: trans, pointerEvents: "none" };
+    return { ...box, zIndex: 4, transform: `translateX(${dx}px)`, opacity: Math.abs(dx) > 8 ? Math.max(.45, 1 - Math.abs(dx) / 280) : 1, transition: trans, pointerEvents: "auto" };
+  };
+  const Hero = ({ product, name }) => {
+    const photo = product && asPhotoList(product.photos)[0];
+    return (
+      <div className="relative flex-shrink-0 overflow-hidden flex items-center justify-center" style={{ height: 196, background: PHOTO_BG }}>
+        {photo && <img src={photoSrc(photo)} alt="" className="absolute inset-0 w-full h-full object-contain p-4" onError={e => { e.currentTarget.style.display = "none"; const el = e.currentTarget.parentElement?.querySelector("[data-letter]"); if (el) el.style.opacity = "1"; }} />}
+        <span data-letter className="text-[56px] font-semibold leading-none" style={{ color: "#8A9278", opacity: photo ? 0 : .55 }}>{(name || "?")[0]}</span>
+      </div>
+    );
+  };
+  const factsOf = p => {
+    if (!p) return [];
+    return [p.articleId && `ID ${p.articleId}`, catPath(p.categoryId), p.piecesPerCu && `${p.piecesPerCu} pcs / CU`, p.weightPerCu && `${p.weightPerCu} g / CU`].filter(Boolean);
+  };
+  const renderCard = (c, pos) => {
+    if (!c) return null;
+    let hero = null, body = null;
+    if (c.kind === "ann") {
+      const a = c.a, prod = a.productId && s.products.find(p => p.id === a.productId);
+      const author = s.users.find(u => u.id === a.createdBy);
+      const files = announceFilesOf(a);
+      hero = prod ? <Hero product={prod} name={prod.name} /> : null;
+      body = <>
+        <div className="flex items-start gap-3">
+          <div className="flex-1 min-w-0">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.16em]" style={{ color: a.isBlocking ? C.bad : C.accent }}>{a.isBlocking ? "Blocking note" : "From the Head"}</p>
+            <p className="text-[20px] font-semibold leading-[1.15] tracking-tight mt-1">{prod?.name || a.title}</p>
+          </div>
+          {!prod && author && <span className="flex-shrink-0 mt-0.5"><Avatar user={author} size={36} /></span>}
+        </div>
+        {prod && <p className="text-[12px] mt-1" style={{ color: C.muted }}>{factsOf(prod).join(" · ")}</p>}
+        {prod && a.title !== prod.name && <p className="text-[15px] font-semibold mt-2">{a.title}</p>}
+        {a.categoryId && !prod && <p className="text-[12px] mt-1" style={{ color: C.ok }}>{catPath(a.categoryId)}</p>}
+        {a.body && <p className={`text-[14px] mt-2 leading-snug ${prod ? "line-clamp-2" : "line-clamp-5"}`} style={{ color: C.ink }}>{truncate(a.body, prod ? 140 : 280)}</p>}
+        {files.length ? <AnnounceFileThumbs files={files} colors={C} cta /> : null}
+        <p className="text-[12px] mt-2" style={{ color: C.muted }}>{dayLabel(a.createdAt)}{who(a.createdBy) ? ` · ${who(a.createdBy)}` : ""}</p>
+        <div className="mt-auto pt-3 space-y-2">
+          {prod && <Cta ghost onClick={() => go("catalog", prod.id)}>Product profile<Ic i={ChevronRight} s={15} mr={0} /></Cta>}
+          {!prod && <Cta ghost onClick={() => go("announcements")}>Read full note<Ic i={ChevronRight} s={15} mr={0} /></Cta>}
+        </div>
+      </>;
+    } else if (c.kind === "rej") {
+      const insp = c.i, prod = s.products.find(p => p.id === insp.productId);
+      const remarks = (insp.remarks || []).map(r => briefingRemark(s, r)).filter(Boolean);
+      hero = <Hero product={prod} name={prod?.name} />;
+      body = <>
+        <p className="text-[11px] font-semibold uppercase tracking-[0.16em]" style={{ color: C.bad }}>Rejected · {dayLabel(insp.completedAt)}, {hhmm(insp.completedAt)}</p>
+        <p className="text-[20px] font-semibold leading-[1.15] tracking-tight mt-1">{prod?.name || "Product"}</p>
+        {prod && <p className="text-[12px] mt-1" style={{ color: C.muted }}>{factsOf(prod).join(" · ")}</p>}
+        <p className="text-[13px] mt-2.5" style={{ color: C.ink }}>by {who(insp.controllerId) || "controller"}{insp.supplier ? ` · ${insp.supplier}` : ""}{(insp.pallets || []).filter(Boolean).length ? ` · ${insp.pallets.filter(Boolean).join(", ")}` : ""}</p>
+        {remarks.length > 0 && (
+          <div className="mt-2.5">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] mb-1" style={{ color: C.muted }}>Why</p>
+            {remarks.slice(0, 4).map((line, ri) => <p key={ri} className="text-[13px] leading-snug py-0.5" style={{ color: C.ink }}>{line}</p>)}
+            {remarks.length > 4 && <p className="text-[12px]" style={{ color: C.muted }}>+{remarks.length - 4} more</p>}
+          </div>
+        )}
+        {insp.comment && <p className="text-[13px] mt-2 leading-relaxed" style={{ color: C.muted }}>{insp.comment}</p>}
+        <div className="mt-auto pt-3">
+          <Cta onClick={() => go("inspection", insp.id)}>Open this rejection<Ic i={ChevronRight} s={15} mr={0} /></Cta>
+        </div>
+      </>;
+    } else {
+      const row = c.c, p = productForArticle(s, row.articleId);
+      hero = <Hero product={p} name={row.name || p?.name} />;
+      body = <>
+        <p className="text-[11px] font-semibold uppercase tracking-[0.16em]" style={{ color: C.bad }}>Complaint{briefingComplaintsMeta(s).period ? ` · ${briefingComplaintsMeta(s).period}` : ""}</p>
+        <p className="text-[20px] font-semibold leading-[1.15] tracking-tight mt-1">{row.name || p?.name || row.articleId}</p>
+        <p className="text-[12px] mt-1" style={{ color: C.muted }}>{[row.articleId && `ID ${row.articleId}`, p && catPath(p.categoryId)].filter(Boolean).join(" · ")}</p>
+        <p className="text-[34px] font-semibold leading-none tracking-tight mt-2.5" style={{ color: C.bad, fontVariantNumeric: "tabular-nums" }}>{row.count}</p>
+        <p className="text-[14px] mt-1" style={{ color: C.bad }}>freshness complaint{row.count === 1 ? "" : "s"}{row.subType ? ` · mostly ${row.subType}` : ""}</p>
+        <p className="text-[13px] mt-2 leading-snug" style={{ color: C.muted }}>{p ? "Customers already noticed. Look closer today." : "No catalog profile yet."}</p>
+        <div className="mt-auto pt-3 space-y-2">
+          {p && <Cta ghost onClick={() => go("catalog", p.id)}>Product profile<Ic i={ChevronRight} s={15} mr={0} /></Cta>}
+          {!p && <Cta onClick={() => go("complaints")}>See all complaints</Cta>}
+        </div>
+      </>;
+    }
+    return (
+      <div key={`${c.kind}-${c.a?.id || c.i?.id || c.c?.id || "x"}-${pos}`} className="absolute flex flex-col overflow-hidden rounded-[28px]" style={{ background: C.bg, border: `1px solid ${C.line}`, boxShadow: lift(2), ...face(pos) }}>
+        <div className="absolute top-0 left-0 right-0 h-[3px]" style={{ background: edge(c), zIndex: 2 }} />
+        {hero}
+        <div className="flex-1 min-h-0 flex flex-col px-4 pt-3 pb-3 overflow-y-auto">{body}</div>
+      </div>
+    );
+  };
+  const notesN = tab === "notes" ? n : unseen.anns.length;
+  const rejN = tab === "rejections" ? n : unseen.rejs.length;
+  const compN = tab === "complaints" ? n : unseen.complaints.length;
+  const Tab = ({ id, label, count }) => <button type="button" data-story-cta onClick={() => setTab(id)} className="flex-1 py-2 text-[12px] font-medium whitespace-nowrap" style={{ background: tab === id ? C.ink : "transparent", color: tab === id ? C.onDark : C.ink }}>{label}{count ? ` · ${count}` : ""}</button>;
+  const emptyCopy = tab === "complaints" ? "No new complaints to review." : tab === "notes" ? "No new notes to review." : "No new rejections to review.";
+  return (
+    <div>
+      <div className="flex items-baseline gap-3 mb-1"><h1>Shift update</h1>{n > 0 && <span className="text-[11px] font-medium" style={{ color: C.muted, fontVariantNumeric: "tabular-nums" }}>{ix + 1} / {n}</span>}</div>
+      <p className="text-sm mb-4" style={{ color: C.muted, maxWidth: 640 }}>Same cards as on the phone — swipe or use the arrow keys. Opening a card marks it seen for the whole team view of your shift.</p>
+      <div className="flex rounded-xl overflow-hidden mb-3" style={{ border: `1px solid ${C.line}`, maxWidth: 440 }}>
+        <Tab id="notes" label="Notes" count={notesN} />
+        <Tab id="rejections" label="Rejections" count={rejN} />
+        <Tab id="complaints" label="Complaints" count={compN} />
+      </div>
+      {n === 0 ? (
+        <Card style={{ maxWidth: 440 }}><Empty icon={BookOpen} title="You're up to date." hint={emptyCopy} /></Card>
+      ) : (
+        <div style={{ maxWidth: 440 }}>
+          <div className="h-[3px] rounded-full overflow-hidden mb-2" style={{ background: C.line }}>
+            <span className="block h-full rounded-full" style={{ width: `${Math.round((ix + 1) / n * 100)}%`, background: C.ink }} />
+          </div>
+          <div ref={stage} className="relative overflow-hidden" style={{ height: 560, touchAction: "none" }}
+            onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp} onWheel={onWheel}>
+            {renderCard(cards[ix - 1], -1)}
+            {renderCard(cards[ix + 1], 1)}
+            {renderCard(cards[ix], 0)}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ProfilePage({ s, set, user, openInspection }) {
+  const allMine = s.inspections.filter(i => i.controllerId === user.id && i.status === "Completed");
+  const mine = allMine.filter(i => countsAs(s, i)); const skips = allMine.filter(i => !countsAs(s, i)).length;
+  const acc = mine.filter(i => i.result === "Accepted").length;
+  const avg = avgActiveMinutes(mine);
+  const week = mine.filter(i => (new Date() - new Date(i.completedAt)) < 7 * 86400000).length;
+  const todayISO = new Date().toISOString().slice(0, 10);
+  const inToday = i => (i.completedAt || "").slice(0, 10) === todayISO;
+  const inWeek = i => (new Date() - new Date(i.completedAt)) < 7 * 86400000;
+  const todayN = mine.filter(inToday).length;
+  const [detail, setDetail] = useState(null);
+  const typeOf = i => i.typeId || legacyTypeId(i.type);
+  const openPeriod = (key, title) => { const pick = key === "today" ? inToday : key === "week" ? inWeek : () => true; setDetail({ title, items: mine.filter(pick), traces: allMine.filter(i => !countsAs(s, i)).filter(pick) }); };
+  const splitSub = list => { const n = list.length; if (!n) return null; const a = list.filter(i => i.result === "Accepted").length; return `${a} accepted · ${n - a} rejected`; };
+  const Tile = ({ l, v, sub, onClick }) => { const T = onClick ? "button" : "div"; return (
+    <T type={onClick ? "button" : undefined} onClick={onClick} className={`${onClick ? "qc-elev " : ""}qc-tile rounded-2xl p-3.5 text-left flex flex-col`} style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+      <div className="flex items-center justify-between gap-1"><p className="text-xs" style={{ color: C.muted }}>{l}</p>{onClick && <Ic i={ChevronRight} s={14} mr={0} style={{ color: C.muted }} />}</div>
+      <p className="text-2xl font-semibold">{v}</p>{sub && <p className="text-[10px] leading-tight mt-0.5" style={{ color: C.muted }}>{sub}</p>}
+    </T>
+  ); };
+  const shown = detail ? [...detail.items, ...detail.traces].sort((x, y) => (y.completedAt || "").localeCompare(x.completedAt || "")) : [];
+  return (
+    <div>
+      <h1 className="mb-1">Profile</h1>
+      <p className="text-sm mb-5" style={{ color: C.muted, maxWidth: 640 }}>Your numbers from completed inspections. Tap a tile to see the reports behind it — web is view-only.</p>
+      <div className="flex items-center gap-3 mb-5"><Avatar user={user} size={56} onPick={url => set(x => ({ ...x, users: x.users.map(q => q.id === user.id ? { ...q, photoUrl: url } : q) }))} /><div><p className="font-semibold">{user.name}</p><p className="text-xs" style={{ color: C.muted }}>{user.email} · Controller</p></div></div>
+      <p className="label-sm mb-1.5" style={{ color: C.muted }}>My inspections</p>
+      <div className="grid gap-3 mb-4" style={{ gridTemplateColumns: "repeat(3, 1fr)", maxWidth: 720 }}>
+        <Tile l="Today" v={todayN} sub={splitSub(mine.filter(inToday)) || "nothing yet today"} onClick={todayN ? () => openPeriod("today", "Today") : null} />
+        <Tile l="This week" v={week} sub={splitSub(mine.filter(inWeek)) || "none in 7 days"} onClick={week ? () => openPeriod("week", "Last 7 days") : null} />
+        <Tile l="Total" v={mine.length} sub={splitSub(mine) || "no inspections yet"} onClick={mine.length ? () => openPeriod("total", "All my inspections") : null} />
+      </div>
+      <p className="label-sm mb-1.5" style={{ color: C.muted }}>Quality</p>
+      <div className="grid gap-3 mb-4" style={{ gridTemplateColumns: "repeat(3, 1fr)", maxWidth: 720 }}>
+        <Tile l="Accepted" v={mine.length ? `${Math.round(acc / mine.length * 100)}%` : "—"} sub={`${acc} of ${mine.length}`} />
+        <Tile l="Active time" v={avg !== null ? `${Math.round(avg)} min` : "—"} sub="avg., excl. waiting for the Head" />
+        <Tile l="Traces" v={skips} sub="types that don't count" onClick={skips ? () => setDetail({ title: "Traces", items: [], traces: allMine.filter(i => !countsAs(s, i)) }) : null} />
+      </div>
+      <p className="label-sm mb-1.5" style={{ color: C.muted }}>By type</p>
+      <div className="grid gap-3 mb-5" style={{ gridTemplateColumns: "repeat(2, 1fr)", maxWidth: 720 }}>{typesOf(s).map(t => { const m = allMine.filter(i => typeOf(i) === t.id); return <button key={t.id} type="button" disabled={!m.length} onClick={() => setDetail({ title: t.name, items: t.autoAccept ? [] : m, traces: t.autoAccept ? m : [] })} className={`qc-tile rounded-2xl p-3.5 text-left ${m.length ? "qc-elev" : ""}`} style={{ background: C.surface, border: `1px solid ${C.line}`, borderTop: `3px solid ${t.color}` }}><div className="flex items-center justify-between gap-1"><p className="text-xs" style={{ color: C.muted }}>{t.name}</p>{m.length > 0 && <Ic i={ChevronRight} s={14} mr={0} style={{ color: C.muted }} />}</div><p className="text-[22px] leading-tight font-semibold">{m.length}</p>{!t.autoAccept && m.length > 0 && <p className="text-[10px]" style={{ color: C.muted }}>{Math.round(m.filter(i => i.result === "Rejected").length / m.length * 100)}% rejected</p>}</button>; })}</div>
+      {detail && <Card>
+        <div className="flex items-center mb-2"><p className="font-medium text-sm flex-1">{detail.title}</p><button type="button" onClick={() => setDetail(null)} className="text-xs" style={{ color: C.muted }}>close</button></div>
+        {shown.length === 0 ? <p className="text-xs" style={{ color: C.muted }}>Nothing in this slice.</p> : shown.map(i => (
+          <button key={i.id} type="button" onClick={() => openInspection && openInspection(i.id)} className="w-full text-left flex items-center gap-2 py-2" style={{ borderTop: `1px solid ${C.line}` }}>
+            <span className="flex-1 text-sm truncate">{s.products.find(p => p.id === i.productId)?.name || `Pallet ${(i.pallets || [])[0] || ""}`}</span>
+            <span className="text-xs" style={{ color: C.muted }}>{fmtTime(i.completedAt)}</span>
+            <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: i.result === "Accepted" ? C.okBg : C.badBg, color: i.result === "Accepted" ? C.ok : C.bad }}>{i.result === "Accepted" ? "Accepted" : "Rejected"}</span>
+          </button>
+        ))}
+      </Card>}
     </div>
   );
 }
@@ -4137,7 +4457,7 @@ function ReportView({ insp, s, onEdit, onAnswer, user, onMarkReference, onProduc
         <div className="mt-3 flex flex-wrap gap-2">
           {insp.status === "Completed" && <Action primary onClick={() => setPrinting("open")}><Ic i={Printer} s={15} mr={0} />Open PDF</Action>}
           {insp.status === "Completed" && <Action onClick={onDownloadPdf}><Ic i={Download} s={15} mr={0} />Download PDF</Action>}
-          {insp.status === "Completed" && <Action onClick={onEdit}><Ic i={Pencil} s={15} mr={0} />Edit report</Action>}
+          {insp.status === "Completed" && onEdit && <Action onClick={onEdit}><Ic i={Pencil} s={15} mr={0} />Edit report</Action>}
           {onProduct && <Action onClick={onProduct}><Ic i={BookOpen} s={15} mr={0} />Product profile</Action>}
           {insp.status === "Completed" && user?.role === "Head" && onMarkReference && <Action onClick={onMarkReference}>{insp.isReference ? <><Ic i={Star} s={15} mr={0} />Unmark reference</> : <><Ic i={Star} s={15} mr={0} />Mark as reference</>}</Action>}
         </div>
@@ -4221,21 +4541,22 @@ function InspectionsPage({ s, set, user, notify, openId, setOpenId, preset, clea
   const cancel = () => { patchInsp(insp.id, { status: "Cancelled" }); log(insp.id, "Cancelled"); setOpenId(null); };
 
   const list = s.inspections.filter(i => filter === "all" ? true : filter === "mine" ? i.controllerId === user.id : filter.startsWith("type:") ? (i.typeId || legacyTypeId(i.type)) === filter.slice(5) : i.status === filter).filter(matchAdv).sort((a, b) => (b.startedAt || "").localeCompare(a.startedAt || ""));
+  const canInspect = user.role !== "Controller";
   const legacyLight = insp && !insp.template;
-  const showRunner = insp && !legacyLight && (insp.status === "Draft" || insp.status === "PendingReview" || editing);
+  const showRunner = canInspect && insp && !legacyLight && (insp.status === "Draft" || insp.status === "PendingReview" || editing);
 
   return (
     <div>
-      <h1 className="mb-1">Inspections</h1>
-      <p className="text-sm mb-5" style={{ color: C.muted, maxWidth: 640 }}>Statuses: Draft → (Awaiting Head) → Completed / Cancelled. Any controller can edit a completed report — with an audit trail.</p>
+      <h1 className="mb-1">{canInspect ? "Inspections" : "History"}</h1>
+      <p className="text-sm mb-5" style={{ color: C.muted, maxWidth: 640 }}>{canInspect ? "Statuses: Draft → (Awaiting Head) → Completed / Cancelled. Any controller can edit a completed report — with an audit trail." : "Reports from the floor. Web is view-only — start and finish inspections on the phone."}</p>
       {!insp ? (
         <>
-          <Card style={{ marginBottom: 16 }}>
+          {canInspect && <Card style={{ marginBottom: 16 }}>
             <p className="font-medium text-sm mb-2">New inspection</p>
             <div className="flex gap-2 items-center"><div className="flex-1 min-w-0"><SearchSelect value={newProduct} onChange={v => { setNewProduct(v); setCollisionWarn(null); }} options={s.products.filter(p => p.isActive !== false).map(p => ({ value: p.id, label: p.articleId ? `${p.articleId} · ${p.name}` : p.name }))} empty="— product —" placeholder="Search products…" searchFrom={0} /></div><select value={newType} onChange={e => setNewType(e.target.value)} className="text-sm" style={{ minHeight: 36 }}>{(newProduct ? allowedTypes(s, s.products.find(p => p.id === newProduct)) : typesOf(s)).map(t => <option key={t.id} value={t.id}>{t.name}</option>)}</select><Primary onClick={() => start(false)} disabled={!newProduct || !(newProduct && resolveTemplate(s, s.products.find(p => p.id === newProduct), allowedTypes(s, s.products.find(p => p.id === newProduct)).some(t => t.id === newType) ? newType : allowedTypes(s, s.products.find(p => p.id === newProduct))[0]?.id))}>Start</Primary></div>
             {collisionWarn && <div className="mt-2"><Note tone="warn"><div className="flex items-center gap-3 flex-wrap"><span>{s.users.find(u => u.id === collisionWarn.controllerId)?.name} already has an open inspection of this product ({STATUS[collisionWarn.status][0]}).</span><button onClick={() => start(true)} className="text-xs px-3 py-1.5 rounded-lg font-semibold" style={{ background: C.ink, color: C.onDark }}>Start anyway</button><button onClick={() => setCollisionWarn(null)} className="text-xs px-3 py-1.5 rounded-lg" style={{ border: `1px solid ${C.line}` }}>Never mind</button></div></Note></div>}
             {newProduct && !resolveTemplate(s, s.products.find(p => p.id === newProduct)) && <p className="text-xs mt-2" style={{ color: C.bad }}>This product has no form — no global template.</p>}
-          </Card>
+          </Card>}
           <Card>
             <div className="flex gap-2 mb-2"><SearchBox value={q} onChange={setQ} placeholder="search by product, article ID or report no.…" className="flex-1" inputClass="rounded" /><button onClick={() => setAdvOpen(o => !o)} className="text-xs px-3 py-1.5 rounded-lg" style={{ background: advCount ? C.accent : C.accentSoft, color: advCount ? C.onDark : C.accent }}>Filters{advCount ? ` · ${advCount}` : ""}</button></div>
             {advOpen && (
@@ -4253,7 +4574,7 @@ function InspectionsPage({ s, set, user, notify, openId, setOpenId, preset, clea
               </div>
             )}
             <div className="flex gap-1.5 mb-3 flex-wrap">{[["all", "all"], ["mine", "mine"], ...typesOf(s).map(t => ["type:" + t.id, t.name.toLowerCase()]), ["Draft", "drafts"], ["PendingReview", "awaiting Head"], ["Completed", "completed"], ["Cancelled", "cancelled"]].map(([k, l]) => <button key={k} onClick={() => setFilter(k)} className="text-xs px-2.5 py-1 rounded-full" style={{ background: filter === k ? C.accent : C.accentSoft, color: filter === k ? C.onDark : C.accent }}>{l} {k === "PendingReview" && s.inspections.filter(i => i.status === "PendingReview").length > 0 && `(${s.inspections.filter(i => i.status === "PendingReview").length})`}</button>)}</div>
-            {list.length === 0 ? <Empty icon="📋" title={s.inspections.length ? "Nothing matches" : "No inspections"} hint={s.inspections.length ? "Change the search or filters." : "Start the first one above."} /> : list.map(i => { const p = s.products.find(x => x.id === i.productId); const it = inspType(s, i); const vis = it.autoAccept, skp = !it.countsAsInspection; const [fg, bg] = i.status !== "Completed" ? [STATUS[i.status][1], STATUS[i.status][2]] : it.autoAccept ? [it.color, C.accentSoft] : i.result === "Accepted" ? [C.ok, C.okBg] : i.result === "Rejected" ? [C.bad, C.badBg] : [STATUS[i.status][1], STATUS[i.status][2]]; return (
+            {list.length === 0 ? <Empty icon="📋" title={s.inspections.length ? "Nothing matches" : "No inspections"} hint={s.inspections.length ? "Change the search or filters." : (canInspect ? "Start the first one above." : "Inspections are started on the phone.")} /> : list.map(i => { const p = s.products.find(x => x.id === i.productId); const it = inspType(s, i); const vis = it.autoAccept, skp = !it.countsAsInspection; const [fg, bg] = i.status !== "Completed" ? [STATUS[i.status][1], STATUS[i.status][2]] : it.autoAccept ? [it.color, C.accentSoft] : i.result === "Accepted" ? [C.ok, C.okBg] : i.result === "Rejected" ? [C.bad, C.badBg] : [STATUS[i.status][1], STATUS[i.status][2]]; return (
               <button key={i.id} onClick={() => { setOpenId(i.id); setEditing(false); }} className="w-full text-left flex items-center gap-3 px-2 py-2 rounded-lg row" style={{ borderTop: `1px solid ${C.line}` }}>
                 <span className="text-xs px-2.5 py-0.5 rounded-full whitespace-nowrap inline-flex items-center gap-1.5" style={{ background: C.surface, color: C.ink, border: `1px solid ${C.line}`, fontWeight: 500 }}><span className="inline-block rounded-full" style={{ width: 7, height: 7, background: fg }} />{i.status !== "Completed" ? STATUS[i.status][0] : it.autoAccept ? it.name : (i.result === "Accepted" ? "Accepted" : "Rejected")}</span>{it.id !== "type-full" && i.status === "Completed" && !it.autoAccept && <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ background: C.bg, color: C.muted }}>{it.name}</span>}
                 <span className="flex-1 text-sm min-w-0 truncate">{p?.name || `Pallet ${(i.pallets || [])[0] || ""}`}<span className="ml-2 font-mono text-[11px]" style={{ color: C.muted }}>{String(i.id).toUpperCase()}</span></span>
@@ -4282,7 +4603,10 @@ function InspectionsPage({ s, set, user, notify, openId, setOpenId, preset, clea
             </div>
           ) : showRunner
             ? <InspectionRunner key={insp.id} insp={insp} patch={fn => patchInsp(insp.id, fn)} t={insp.template} problems={withLinkedProblems(s, problemsFor(s, { kind: "Product", id: product.id }, new Set(insp.template.suppressed || [])), insp.template)} product={product} suppliers={s.suppliers || []} dictionaries={s.dictionaries || []} sctx={s} user={user} onFinish={finish} onEscalate={escalate} onRaiseFlag={raiseFlag} onCancel={cancel} />
-            : <ReportView insp={insp} s={s} user={user} onEdit={() => setEditing(true)} onAnswer={answer} onMarkReference={() => toggleReferenceInspection(set, insp.productId, insp.id)} />}
+            : <>
+                {!canInspect && ["Draft", "PendingReview"].includes(insp.status) && <Note tone="warn">This inspection is in progress on the phone. Web is view-only.</Note>}
+                <ReportView insp={insp} s={s} user={user} onEdit={canInspect ? () => setEditing(true) : null} onAnswer={answer} onMarkReference={canInspect ? () => toggleReferenceInspection(set, insp.productId, insp.id) : null} />
+              </>}
         </Card>
       )}
     </div>
@@ -4384,8 +4708,10 @@ function FoldNote({ title, chip, children }) {
     </div>
   );
 }
-function CatalogPage({ s, set, user, notify, onStartInspection }) {
+function CatalogPage({ s, set, user, notify, onStartInspection, onOpenInspection, presetSel, clearPresetSel, presetFilter, clearPreset }) {
   const [q, setQ] = useState(""); const [sel, setSel] = useBackSel("catalogSel", null); const [flagText, setFlagText] = useState(""); const [flagOpen, setFlagOpen] = useState(false); const [showRef, setShowRef] = useState(null);
+  useEffect(() => { if (presetSel) { setSel(presetSel); clearPresetSel && clearPresetSel(); } }, [presetSel]);
+  useEffect(() => { if (presetFilter) { setQ(presetFilter); clearPreset && clearPreset(); } }, [presetFilter]);
   const [cat, setCat] = useBackSel("catalogCat", null); const [f, setF] = useState({ bio: "", supplier: "", flagged: false, sort: "name" });
   const catPath = id => { const c = s.categories.find(x => x.id === id); if (!c) return "uncategorised"; const p = c.parentId && s.categories.find(x => x.id === c.parentId); return p ? `${p.name} › ${c.name}` : c.name; };
   const catChain = id => { const out = []; let c = s.categories.find(x => x.id === id); while (c) { out.unshift(c); c = c.parentId ? s.categories.find(x => x.id === c.parentId) : null; } return out; };
@@ -4455,9 +4781,9 @@ function CatalogPage({ s, set, user, notify, onStartInspection }) {
                 <div><p className="label-sm mb-1" style={{ color: C.muted }}>Varieties</p><div className="flex flex-wrap gap-1">{effectiveVarieties(s, product).length ? effectiveVarieties(s, product).map(v => <span key={v.id} className="text-xs px-2 py-0.5 rounded-full" style={{ background: C.bg, border: `1px solid ${C.line}` }} title={v.source}>{v.name}</span>) : <span className="text-xs" style={{ color: C.muted }}>none</span>}</div></div>
               </div>
               <p className="label-sm mt-3 mb-1" style={{ color: C.muted }}>Recent inspections</p>
-              {history.length === 0 ? <p className="text-xs" style={{ color: C.muted }}>None yet.</p> : history.map(i => <div key={i.id} className="flex items-center gap-2 text-xs py-1" style={{ borderTop: `1px solid ${C.line}` }}><span className="px-2 py-0.5 rounded-full" style={{ background: i.result === "Accepted" ? C.okBg : C.badBg, color: i.result === "Accepted" ? C.ok : C.bad }}>{i.result === "Accepted" ? "Accepted" : "Rejected"}</span><span className="flex-1 truncate" style={{ color: C.muted }}>{i.comment || "—"}</span><span style={{ color: C.muted }}>{fmtTime(i.completedAt)}</span></div>)}
+              {history.length === 0 ? <p className="text-xs" style={{ color: C.muted }}>None yet.</p> : history.map(i => <button key={i.id} type="button" onClick={() => onOpenInspection && onOpenInspection(i.id)} className="w-full flex items-center gap-2 text-xs py-1 text-left" style={{ borderTop: `1px solid ${C.line}` }}><span className="px-2 py-0.5 rounded-full" style={{ background: i.result === "Accepted" ? C.okBg : C.badBg, color: i.result === "Accepted" ? C.ok : C.bad }}>{i.result === "Accepted" ? "Accepted" : "Rejected"}</span><span className="flex-1 truncate" style={{ color: C.muted }}>{i.comment || "—"}</span><span style={{ color: C.muted }}>{fmtTime(i.completedAt)}</span></button>)}
               <div className="flex gap-2 mt-4 flex-wrap">
-                <Primary small onClick={() => onStartInspection(product.id)}><Ic i={ClipboardList} />Start inspection</Primary>
+                {onStartInspection && <Primary small onClick={() => onStartInspection(product.id)}><Ic i={ClipboardList} />Start inspection</Primary>}
                 <button onClick={() => setFlagOpen(o => !o)} className="text-xs px-2.5 py-1.5 rounded-lg" style={{ background: C.warnBg, color: C.warn }}><Ic i={Flag} />Something's off</button>
               </div>
               {flagOpen && <div className="flex gap-2 mt-2"><input value={flagText} onChange={e => setFlagText(e.target.value)} placeholder="e.g. supplier changed, spec outdated…" className="flex-1 text-xs rounded px-2 py-1 outline-none" style={{ ...inp }} /><Primary small onClick={raise}>Send</Primary></div>}
@@ -4549,12 +4875,13 @@ function AnnouncementsPage({ s, set, user, notify }) {
   };
   const remove = id => set(x => ({ ...x, announcements: x.announcements.filter(a => a.id !== id) }));
   const list = [...s.announcements].sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
+  const canPublish = user.role === "Head";
   return (
     <div>
       <h1 className="mb-1">Announcements</h1>
-      <p className="text-sm mb-5" style={{ color: C.muted, maxWidth: 640 }}>One announcement, several channels — enable all of them to make sure it lands.</p>
-      <div className="grid gap-4" style={{ gridTemplateColumns: "1fr 1fr" }}>
-        <Card>
+      <p className="text-sm mb-5" style={{ color: C.muted, maxWidth: 640 }}>{canPublish ? "One announcement, several channels — enable all of them to make sure it lands." : "Notes from the Head — same list as on the phone. Blocking ones still have to be acknowledged first."}</p>
+      <div className="grid gap-4" style={{ gridTemplateColumns: canPublish ? "1fr 1fr" : "1fr" }}>
+        {canPublish && <Card>
           <p className="font-medium text-sm mb-3">New announcement</p>
           <p className="text-xs mb-1.5" style={{ color: C.muted }}>Channels — tick every one it should reach through:</p>
           {Object.entries(CHANNELS).map(([k, [l, desc]]) => <label key={k} className="flex items-start gap-2 text-sm mb-1.5 cursor-pointer"><input type="checkbox" checked={!!d[k]} onChange={e => setD(x => ({ ...x, [k]: e.target.checked }))} className="mt-1" /><span><b>{l}</b><span className="block text-xs" style={{ color: C.muted }}>{desc}</span></span></label>)}
@@ -4567,11 +4894,11 @@ function AnnouncementsPage({ s, set, user, notify }) {
           <AnnounceFileList files={files} colors={C} onRemove={id => setFiles(list => list.filter(f => f.id !== id))} />
           <AnnounceAttachButton colors={C} onAdd={added => setFiles(list => [...list, ...added])} />
           <Primary onClick={add} disabled={!valid}>Publish</Primary>
-        </Card>
+        </Card>}
         <Card>
-          {list.length === 0 ? <Empty icon="📣" title="No announcements" hint="Publish the first one on the left." /> : list.map(a => { const acked = Object.keys(a.acks || {}).length; return (
+          {list.length === 0 ? <Empty icon="📣" title="No announcements" hint={canPublish ? "Publish the first one on the left." : "Nothing from the Head yet."} /> : list.map(a => { const acked = Object.keys(a.acks || {}).length; return (
             <div key={a.id} className="py-3" style={{ borderTop: `1px solid ${C.line}` }}>
-              <div className="flex items-center gap-2 mb-1 flex-wrap">{annChannels(a).map(k => <span key={k} className="text-xs px-2 py-0.5 rounded-full inline-flex items-center gap-1.5" style={{ background: C.surface, border: `1px solid ${C.line}`, color: C.ink }}><span className="inline-block rounded-full" style={{ width: 6, height: 6, background: k === "blocking" ? C.bad : k === "product" ? C.warn : k === "category" ? C.ok : C.accent }} />{CHANNELS[k][0]}</span>)}<span className="text-sm font-medium flex-1">{a.title}</span><button onClick={() => remove(a.id)} className="text-xs" style={{ color: C.muted }}>×</button></div>
+              <div className="flex items-center gap-2 mb-1 flex-wrap">{annChannels(a).map(k => <span key={k} className="text-xs px-2 py-0.5 rounded-full inline-flex items-center gap-1.5" style={{ background: C.surface, border: `1px solid ${C.line}`, color: C.ink }}><span className="inline-block rounded-full" style={{ width: 6, height: 6, background: k === "blocking" ? C.bad : k === "product" ? C.warn : k === "category" ? C.ok : C.accent }} />{CHANNELS[k][0]}</span>)}<span className="text-sm font-medium flex-1">{a.title}</span>{canPublish && <button onClick={() => remove(a.id)} className="text-xs" style={{ color: C.muted }}>×</button>}</div>
               <p className="text-sm mb-1">{a.body}</p>
               <AnnounceFileList announcement={a} colors={C} compact />
               <p className="text-xs" style={{ color: C.muted }}>{fmtTime(a.createdAt)}{a.productId && ` · ${s.products.find(p => p.id === a.productId)?.name}`}{a.categoryId && ` · ${catPath(a.categoryId)}`}{a.validTo && ` · dashboard until ${a.validTo}`}{a.showOnDashboard && !annActive(a) && " · expired on the dashboard"}</p>
@@ -4707,7 +5034,7 @@ function MessagesPage({ s, set, user, setPage, onOpenProduct, onOpenInspection, 
   useEffect(() => { if (initialContext) { setPending(p => ({ ...p, contexts: [...p.contexts.filter(c => !(c.kind === initialContext.kind && c.id === initialContext.id)), initialContext] })); clearInitialContext && clearInitialContext(); } }, [initialContext]);
   const canSend = !!(text.trim() || pending.attachments.length || pending.contexts.length);
   const send = () => { if (!canSend || !conv) return; set(x => ({ ...x, conversations: x.conversations.map(c => c.id === conv.id ? { ...c, messages: [...(c.messages || []), { id: uid(), senderId: user.id, text: text.trim(), at: nowISO(), attachments: pending.attachments, contexts: pending.contexts, productId: pending.contexts.find(k => k.kind === "product")?.id || null }], lastRead: { ...(c.lastRead || {}), [user.id]: nowISO() } } : c) })); setText(""); setPending({ attachments: [], contexts: [] }); };
-  const openCtx = c => { if (c.kind === "product") { setPage && setPage("products"); onOpenProduct && onOpenProduct(c.id); } else if (c.kind === "inspection") { onOpenInspection && onOpenInspection(c.id); } else if (c.kind === "flag") { setPage && setPage("flags"); } else if (c.kind === "category") { setPage && setPage("categories"); onOpenCategory && onOpenCategory(c.id); } };
+  const openCtx = c => { if (c.kind === "product") { setPage && setPage(user.role === "Head" ? "products" : "catalog"); onOpenProduct && onOpenProduct(c.id); } else if (c.kind === "inspection") { onOpenInspection && onOpenInspection(c.id); } else if (c.kind === "flag") { setPage && setPage("flags"); } else if (c.kind === "category") { setPage && setPage("categories"); onOpenCategory && onOpenCategory(c.id); } };
   const create = () => {
     if (!pick.length) return;
     const isGroup = pick.length > 1 || !!gname.trim();
@@ -4791,7 +5118,7 @@ function NotificationsPage({ s, set, user, setPage, setOpenId, setSelProduct }) 
       <p className="text-sm mb-5" style={{ color: C.muted, maxWidth: 640 }}>One generic table (Notification) fed by: tolerance exceeded, accepted despite exceeding, escalation, answer, flag, editing someone else's report.</p>
       <Card>
         {mine.length === 0 ? <Empty icon="🔔" title="Quiet" hint="Nothing needs your attention." /> : mine.map(n => (
-          <button key={n.id} onClick={() => { markRead(n.id); if (n.entityType === "Inspection" && n.entityId) { setOpenId(n.entityId); setPage("inspections"); } if (n.entityType === "ProductFlag") setPage("flags"); if (n.entityType === "Conversation") setPage("messages"); if (n.entityType === "Product" && n.entityId) { setSelProduct(n.entityId); setPage("products"); } }} className="w-full text-left flex items-center gap-3 px-2 py-2.5" style={{ borderTop: `1px solid ${C.line}`, background: n.readAt ? "transparent" : C.accentSoft }}>
+          <button key={n.id} onClick={() => { markRead(n.id); if (n.entityType === "Inspection" && n.entityId) { setOpenId(n.entityId); setPage("inspections"); } if (n.entityType === "ProductFlag") setPage("flags"); if (n.entityType === "Conversation") setPage("messages"); if (n.entityType === "Announcement") setPage("announcements"); if (n.entityType === "Product" && n.entityId) { setSelProduct(n.entityId); setPage(user.role === "Head" ? "products" : "catalog"); } }} className="w-full text-left flex items-center gap-3 px-2 py-2.5" style={{ borderTop: `1px solid ${C.line}`, background: n.readAt ? "transparent" : C.accentSoft }}>
             <NotifIcon type={n.type} />
             <span className="flex-1 min-w-0"><span className="block text-sm" style={{ fontWeight: n.readAt ? 400 : 500 }}>{cleanMsg(n.message)}</span><span className="block text-[11px]" style={{ color: C.muted }}>{fmtTime(n.createdAt)}</span></span>
             {!n.readAt && <span className="rounded-full flex-shrink-0" style={{ width: 8, height: 8, background: C.accent }} />}
@@ -5322,6 +5649,14 @@ export default function App() {
   useEffect(() => { (async () => { try { if (window.storage) { const r = await window.storage.get(THEME_KEY); if (r?.value === "dark") { applyTheme(true); setDark(true); } } } catch (e) {} })(); }, []);
   const toggleTheme = () => { const d = !dark; applyTheme(d); setDark(d); (async () => { try { if (window.storage) await window.storage.set(THEME_KEY, d ? "dark" : "light"); } catch (e) {} })(); };
   useEffect(() => { if (!loaded) return; const tick = () => refreshPushedIntegrations(() => _S, set); tick(); const id = setInterval(tick, 60000); return () => clearInterval(id); }, [loaded]);
+  useEffect(() => {
+    if (!loaded || !userId) return;
+    let fps = [];
+    try { fps = JSON.parse(localStorage.getItem(briefingItemsKey(userId)) || "[]"); } catch { fps = []; }
+    if (!Array.isArray(fps) || !fps.length) return;
+    set(x => adoptLocalBriefingSeen(x, userId, fps, nowISO()));
+    try { localStorage.removeItem(briefingItemsKey(userId)); } catch {}
+  }, [loaded, userId]);
   // Load the shared state once; from then on the syncer owns saving, conflict merging and pulling other devices' changes.
   useEffect(() => { let alive = true; syncerRef.current.load().then(() => { if (alive) setLoaded(true); }); const off = guardUnload(syncerRef.current); return () => { alive = false; off(); }; }, []);
   // Cheap poll every ~5s: retry anything unsaved, otherwise pull when the server's version moved (someone else saved, or
@@ -5342,16 +5677,26 @@ export default function App() {
   const notify = (type, message, entityType, entityId, toUserId) => set(x => { const targets = toUserId ? [toUserId] : x.users.filter(u => u.role === "Head").map(u => u.id); return { ...x, notifications: [...x.notifications, ...targets.map(uid_ => ({ id: uid(), userId: uid_, type, message, entityType, entityId, createdAt: nowISO(), readAt: null }))] }; });
   const unread = s.notifications.filter(n => n.userId === user.id && !n.readAt).length;
   const unreadMsgs = s.conversations.filter(c => c.participantIds.includes(user.id)).reduce((a, c) => a + unreadIn(c, user.id), 0);
+  const briefingNew = briefingUnseen(s, user.id).total;
+  const productPage = user.role === "Head" ? "products" : "catalog";
+  const goBriefing = (page, id) => {
+    setSelPallet(null);
+    if (page === "catalog") { setSelProduct(id); setPage("catalog"); }
+    else if (page === "inspection") { setOpenInspId(id); setPage("inspections"); }
+    else setPage(page);
+  };
   const guard = key => user.role === "Head" || NAV_CONTROLLER.some(g => g.items.some(([k]) => k === key));
   const safePage = guard(page) ? page : "dashboard";
   return (
-    <Shell onSearch={q => { setSelPallet(null); setProductsQuery(q); setPage("products"); }} onLogout={() => { writeSession(null); setUserId(null); }} page={safePage} setPage={p => { setSelPallet(null); setPage(p); }} badge={{ ...badge, complaints: complaintsNewCount(s, user.id), messages: unreadMsgs, notifications: unread, flags: user.role === "Head" ? s.flags.filter(f => f.status === "Open").length : 0, inspections: user.role === "Head" ? s.inspections.filter(i => i.status === "PendingReview").length : 0, tempspecs: user.role === "Head" ? (s.tempSpecs || []).filter(t => !t.endedAt).length : 0 }} topRight={dataButton} users={s.users} user={user} setUser={id => { setUserId(id); setSelPallet(null); setPage("dashboard"); setOpenInspId(null); }} unread={unread} onBell={() => { setSelPallet(null); setPage("notifications"); }}>
+    <Shell onSearch={q => { setSelPallet(null); setProductsQuery(q); setPage(productPage); }} onLogout={() => { writeSession(null); setUserId(null); }} page={safePage} setPage={p => { setSelPallet(null); setPage(p); }} badge={{ ...badge, complaints: complaintsNewCount(s, user.id), messages: unreadMsgs, notifications: unread, briefing: briefingNew, flags: user.role === "Head" ? s.flags.filter(f => f.status === "Open").length : s.flags.filter(f => f.raisedBy === user.id && f.status === "Open").length, inspections: user.role === "Head" ? s.inspections.filter(i => i.status === "PendingReview").length : 0, tempspecs: user.role === "Head" ? (s.tempSpecs || []).filter(t => !t.endedAt).length : 0 }} topRight={dataButton} users={s.users} user={user} setUser={id => { setUserId(id); setSelPallet(null); setPage("dashboard"); setOpenInspId(null); }} unread={unread} onBell={() => { setSelPallet(null); setPage("notifications"); }}>
       <BlockingOverlay s={s} set={set} user={user} />
       {dataOpen && <DataPanel s={s} set={set} onClose={() => setDataOpen(false)} />}
       {toastMsg && <div className="fixed left-1/2 -translate-x-1/2 text-sm px-4 py-2 rounded-xl" style={{ top: 12, zIndex: 90, background: C.ink, color: C.onDark, boxShadow: "0 8px 20px rgba(0,0,0,.25)" }}>{toastMsg}</div>}
       {newVersion && <div className="fixed left-1/2 -translate-x-1/2 flex items-center gap-3 text-sm px-4 py-2.5 rounded-xl" style={{ top: 12, zIndex: 91, background: C.accent, color: C.onDark, boxShadow: "0 8px 20px rgba(0,0,0,.3)" }}>A new version is live<button onClick={() => location.reload()} className="px-2.5 py-1 rounded-lg font-semibold" style={{ background: C.onDark, color: C.accent }}>Refresh</button></div>}
       {selPallet && <PalletPage s={s} set={set} user={user} hu={selPallet} onBack={() => setSelPallet(null)} onPickPallet={h => setSelPallet(h)} onOpenProduct={id => { setSelPallet(null); setSelProduct(id); setPage(user.role === "Head" ? "products" : "catalog"); }} onOpenInspection={id => { setSelPallet(null); setOpenInspId(id); setPage("inspections"); }} onAssign={r => { setSelPallet(null); setPendingChatContext({ kind: "pallet", id: r.hu || claimKey(r), label: `${r.name || r.article} · ${r.location || ""}`.trim() }); setPage("messages"); }} onOpenAnnouncements={() => { setSelPallet(null); setPage("announcements"); }} onOpenComplaints={() => { setSelPallet(null); setPage("complaints"); }} />}
-      {!selPallet && safePage === "dashboard" && (user.role === "Head" ? <Dashboard s={s} user={user} set={set} setPage={setPage} seed={() => set(olaState(), { replace: true })} openPallet={hu => setSelPallet(hu)} onAssign={a => { setPendingChatContext({ kind: "pallet", id: a.hu, label: `${a.name} · ${a.location}` }); setPage("messages"); }} openTodayInspections={() => { setOpenInspId(null); setInspDatePreset("0"); setPage("inspections"); }} /> : <ControllerDashboard s={s} user={user} setPage={setPage} setOpenId={setOpenInspId} openProduct={id => { setSelProduct(id); setPage("products"); }} />)}
+      {!selPallet && safePage === "dashboard" && (user.role === "Head" ? <Dashboard s={s} user={user} set={set} setPage={setPage} seed={() => set(olaState(), { replace: true })} openPallet={hu => setSelPallet(hu)} onAssign={a => { setPendingChatContext({ kind: "pallet", id: a.hu, label: `${a.name} · ${a.location}` }); setPage("messages"); }} openTodayInspections={() => { setOpenInspId(null); setInspDatePreset("0"); setPage("inspections"); }} /> : <ControllerDashboard s={s} user={user} set={set} setPage={setPage} setOpenId={setOpenInspId} openPallet={hu => setSelPallet(hu)} openProduct={id => { setSelProduct(id); setPage("catalog"); }} />)}
+      {!selPallet && safePage === "briefing" && <BriefingPage s={s} set={set} user={user} go={goBriefing} />}
+      {!selPallet && safePage === "profile" && <ProfilePage s={s} set={set} user={user} openInspection={id => { setOpenInspId(id); setPage("inspections"); }} />}
       {!selPallet && safePage === "categories" && <CategoriesPage s={s} set={set} onMessage={ctx => { setPendingChatContext(ctx); setPage("messages"); }} onOpenProduct={id => { setSelProduct(id); setPage("products"); }} presetSel={presetCategory} clearPresetSel={() => setPresetCategory(null)} />}
       {!selPallet && safePage === "problems" && <ProblemsPage s={s} set={set} />}
       {!selPallet && safePage === "products" && <ProductsPage s={s} set={set} user={user} sel={selProduct} setSel={setSelProduct} presetFilter={productsQuery} clearPreset={() => setProductsQuery("")} onMessage={ctx => { setPendingChatContext(ctx); setPage("messages"); }} onOpenInspection={id => { setOpenInspId(id); setPage("inspections"); }} onOpenCategory={id => { setPresetCategory(id); setPage("categories"); }} />}
@@ -5365,7 +5710,7 @@ export default function App() {
       {!selPallet && safePage === "docks" && <DockMapPage s={s} user={user} openPallet={hu => setSelPallet(hu)} />}
       {!selPallet && safePage === "unreported" && <UnreportedPalletsPage s={s} set={set} user={user} setSel={setSelProduct} setPage={setPage} setSelPallet={setSelPallet} />}
       {!selPallet && safePage === "inspections" && <InspectionsPage s={s} set={set} user={user} notify={notify} openId={openInspId} setOpenId={setOpenInspId} preset={presetProduct} clearPreset={() => setPresetProduct("")} datePreset={inspDatePreset} clearDatePreset={() => setInspDatePreset("")} />}
-      {!selPallet && safePage === "catalog" && <CatalogPage s={s} set={set} user={user} notify={notify} onStartInspection={pid => { setPresetProduct(pid); setOpenInspId(null); setPage("inspections"); }} />}
+      {!selPallet && safePage === "catalog" && <CatalogPage s={s} set={set} user={user} notify={notify} presetSel={selProduct} clearPresetSel={() => setSelProduct(null)} presetFilter={productsQuery} clearPreset={() => setProductsQuery("")} onOpenInspection={id => { setOpenInspId(id); setPage("inspections"); }} />}
       {!selPallet && safePage === "flags" && <FlagsPage s={s} set={set} user={user} />}
       {!selPallet && safePage === "notifications" && <NotificationsPage s={s} set={set} user={user} setPage={setPage} setOpenId={setOpenInspId} setSelProduct={setSelProduct} />}
       {!selPallet && safePage === "analytics" && <AnalyticsPage s={s} setPage={setPage} openInspection={id => { setOpenInspId(id); setPage("inspections"); }} />}
