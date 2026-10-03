@@ -1,3 +1,4 @@
+import { extRejectedRecently } from "../src/shared/rejections.js";
 // Rejection-deadline alerts: a pallet can only be rejected within `rejectionWindowHours` of arrival, sooner for a product
 // rejected recently. This is the server-side twin of computeDeadlineAlerts()/settingsOf() in Portal.jsx — kept in sync by
 // hand. This module is what actually *fires* notifications: it runs on a timer, independent of anyone having the app open.
@@ -27,7 +28,7 @@ export function computeDeadlineAlerts(s, nowMs = Date.now()) {
     const deadlineAt = arrivalMs + st.rejectionWindowHours * 3600000;
     const hoursLeft = (deadlineAt - nowMs) / 3600000;
     const product = (s.products || []).find(p => p.articleId === r.article);
-    const risky = product ? (s.inspections || []).some(i => i.productId === product.id && i.status === "Completed" && typeIsVerdict(s, i) && i.result === "Rejected" && i.completedAt && (nowMs - new Date(i.completedAt).getTime()) <= st.riskyLookbackDays * 86400000) : false;
+    const risky = product ? (s.inspections || []).some(i => i.productId === product.id && i.status === "Completed" && typeIsVerdict(s, i) && i.result === "Rejected" && i.completedAt && (nowMs - new Date(i.completedAt).getTime()) <= st.riskyLookbackDays * 86400000) || extRejectedRecently(s, r.article, st.riskyLookbackDays, nowMs) : extRejectedRecently(s, r.article, st.riskyLookbackDays, nowMs);
     const threshold = risky ? st.deadlineWarnHoursRisky : st.deadlineWarnHours;
     const level = hoursLeft <= 0 ? "breached" : hoursLeft <= threshold ? "warning" : null;
     if (!level) continue;

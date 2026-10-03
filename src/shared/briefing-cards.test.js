@@ -58,3 +58,20 @@ describe("briefing decks", () => {
     expect(briefingRemark(s, { leafId: "rot", mode: "PieceCount", raw: 3 })).toBe("Rot · 3 pcs");
   });
 });
+
+describe("rejections from the DC5 sheet in the deck", () => {
+  const now = new Date(); const iso = d => new Date(now.getTime() - d * 86400000).toISOString().slice(0, 16);
+  const s2 = { ...s, inspections: [{ id: "r1", status: "Completed", typeId: "type-full", result: "Rejected", completedAt: iso(2) + ":00.000Z" }],
+    extRejections: { latest: [{ a: "90006116", n: "Andijvie", d: iso(1), po: "p1", tu: 15, reason: "cold damage" }, { a: "11295128", n: "Paprika", d: iso(1.5), po: "p2", tu: 2 }, { a: "x", n: "old", d: iso(20), po: "p3" }], byArticle: {} } };
+  it("rows from the last 48 h become cards, merged with QCteam's own rejections newest first, with their own fingerprints", () => {
+    const u = briefingUnseen(s2, "u-anna");
+    expect(u.xrejs.map(x => x.po)).toEqual(["p1", "p2"]); expect(u.total).toBe(2 + 1 + 1 + 1);
+    expect(briefingTabDeck(s2, "rejections", "u-anna").map(c => c.kind + ":" + (c.i?.id || c.x.po))).toEqual(["xrej:p1", "xrej:p2", "rej:r1"]);
+    expect(liveBriefingFps(s2)).toContain(`xrej:90006116:${iso(1)}:p1`);
+    const seen = { ...s2, briefingSeen: [{ id: "u-anna:x", userId: "u-anna", fp: `xrej:90006116:${iso(1)}:p1`, at: "t" }] };
+    expect(briefingUnseen(seen, "u-anna").xrejs.map(x => x.po)).toEqual(["p2"]);
+  });
+  it("sheet rejections alone open the rejections tab", () => {
+    expect(briefingDefaultTab({ ...s2, announcements: [], inspections: [], complaints: { rows: [] } }, "u-anna")).toBe("rejections");
+  });
+});

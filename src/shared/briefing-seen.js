@@ -8,6 +8,7 @@ export function briefingFp(c) {
   if (!c) return null;
   if (c.kind === "ann") return `ann:${c.a.id}`;
   if (c.kind === "rej") return `rej:${c.i.id}`;
+  if (c.kind === "xrej") return `xrej:${c.x.a}:${c.x.d}:${c.x.po || ""}`;   // a row of the DC5 rejections sheet (no id of its own)
   if (c.kind === "complaint") return `comp:${c.c.id}:${c.c.count}:${c.c.updatedAt || ""}`;
   return null;
 }

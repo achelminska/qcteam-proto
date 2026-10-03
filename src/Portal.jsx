@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, Fragment } from "react";
 import { createSyncer, guardUnload } from "./sync.js";
 import { applySpecEdit, hasV, specFieldsFromForm, specFormKind, specLabel, dayLabel, problemPath, typesOf, typeById, legacyTypeId, inspType, countsAs, listCheck, matchFieldSpec, numberSpecCheck, reportStatusFields, toleranceDisplay, matchesInspSearch } from "./shared/format.js";
 import { SPEC_TARGETS, SPEC_ALIASES, SPEC_COLUMNS, applySpecSheet, fmtRange } from "./shared/specsync.js";
+import { REJECTION_TARGETS, REJECTION_ALIASES, buildRejectionDigest, extRejectionsFor, extRejectedRecently, extRejectionLine, extRejectionsRecent, extRejectionKey, topCats, fmtRejectionDay, linkLabel } from "./shared/rejections.js";
 import { normArticle, isoWeekOf, todayISO, weekLabel, weekRange, shiftWeek, sortSnapshots, latestSnapshot, snapshotTotal, upsertSnapshot, snapshotsOfWeek, previousInWeek, deltaRows, subTypeMix, weekSeries, articleTrend, topArticles, asLegacyMeta, migrateLegacy, rowFor } from "./shared/complaints.js";
 import { activeTempForSpec, applyTempSpec, clearTempSpec, closeExpiredTempSpecs, tempOwnerLabel, tempUntilLabel, upsertTempSpec } from "./shared/tempspec.js";
 import { SpecValue } from "./shared/SpecValue.jsx";
@@ -21,7 +22,7 @@ import { PhotoReview } from "./shared/PhotoReview.jsx";
 import { drawReportPdf } from "./shared/report-pdf.js";
 import { needsShareToSave, savePdfFile, triggerAnchorDownload } from "./shared/pdf-save.js";
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceArea, ReferenceLine, Legend } from "recharts";
-import { Clock, MessageCircle, Link2, List as ListIcon, BarChart3, Printer, SlidersHorizontal, SkipForward, LayoutDashboard, ClipboardList, Flag, Bell, FolderTree, ListTree, Package, LayoutTemplate, Truck, Globe, Megaphone, MessageSquare, Users, Search, Sun, Moon, Database, Home, Menu as MenuIcon, ScanLine, Plus, ChevronLeft, ChevronDown, ChevronRight, User, Camera, Image as ImageIcon, Paperclip, Send, Star, Pencil, Sparkles, HelpCircle, Download, Lock as LockIcon, AlertTriangle, Inbox, FileText, ShieldAlert, Tag, Layers, BookOpen, Filter, Check, X, Ruler, Boxes, Warehouse, Snowflake, Thermometer, ThumbsDown, ClipboardPaste, Trash2, Eye } from "lucide-react";
+import { Clock, MessageCircle, Link2, List as ListIcon, BarChart3, Printer, SlidersHorizontal, SkipForward, LayoutDashboard, ClipboardList, Flag, Bell, FolderTree, ListTree, Package, LayoutTemplate, Truck, Globe, Megaphone, MessageSquare, Users, Search, Sun, Moon, Database, Home, Menu as MenuIcon, ScanLine, Plus, ChevronLeft, ChevronDown, ChevronRight, User, Camera, Image as ImageIcon, Paperclip, Send, Star, Pencil, Sparkles, HelpCircle, Download, Lock as LockIcon, AlertTriangle, Inbox, FileText, ShieldAlert, Tag, Layers, BookOpen, Filter, Check, X, Ruler, Boxes, Warehouse, Snowflake, Thermometer, ThumbsDown, ClipboardPaste, Trash2, Eye, ExternalLink } from "lucide-react";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // QCteam — portal Head of Quality (mini-aplikacja, stan startowy pusty)
@@ -72,7 +73,7 @@ const SearchBox = ({ value, onChange, placeholder, className = "", style = {}, i
   </div>
 );
 // Notification look: one lucide icon per type in a soft circle; legacy messages get their emoji stripped on display.
-const NOTIF = { Exceeded: [AlertTriangle, "bad"], AcceptedDespite: [AlertTriangle, "warn"], Escalation: [HelpCircle, "warn"], Question: [MessageCircle, "info"], Answered: [MessageCircle, "ok"], Flag: [Flag, "warn"], Announcement: [Megaphone, "info"], EditedByOther: [Pencil, "info"], DeadlineWarning: [Clock, "warn"], DeadlineBreached: [AlertTriangle, "bad"], Lost: [Search, "warn"], Found: [Check, "ok"], MissingRequired: [AlertTriangle, "warn"], Complaints: [ThumbsDown, "warn"] };
+const NOTIF = { Exceeded: [AlertTriangle, "bad"], AcceptedDespite: [AlertTriangle, "warn"], Escalation: [HelpCircle, "warn"], Question: [MessageCircle, "info"], Answered: [MessageCircle, "ok"], Flag: [Flag, "warn"], Announcement: [Megaphone, "info"], EditedByOther: [Pencil, "info"], DeadlineWarning: [Clock, "warn"], DeadlineBreached: [AlertTriangle, "bad"], Lost: [Search, "warn"], Found: [Check, "ok"], MissingRequired: [AlertTriangle, "warn"], Complaints: [ThumbsDown, "warn"], Specs: [Database, "info"], Rejections: [AlertTriangle, "warn"] };
 const notifLook = t => { const [I, tone] = NOTIF[t] || [Bell, "info"]; const fg = tone === "bad" ? C.bad : tone === "warn" ? C.warn : tone === "ok" ? C.ok : C.accent; const bg = tone === "bad" ? C.badBg : tone === "warn" ? C.warnBg : tone === "ok" ? C.okBg : C.accentSoft; return { I, fg, bg }; };
 const cleanMsg = m => String(m || "").replace(/^[\p{Extended_Pictographic}\uFE0F\s]+/u, "");
 const NotifIcon = ({ type, size = 32 }) => { const { I, fg, bg } = notifLook(type); return <span className="rounded-full flex items-center justify-center flex-shrink-0" style={{ width: size, height: size, background: bg, color: fg }}><I size={Math.round(size * 0.5)} strokeWidth={2} /></span>; };
@@ -718,7 +719,7 @@ const DOCK_TARGETS = [
   ["cusPerTu", "CU per TU", false], ["quantity", "Quantity (TU on the pallet)", false], ["sortable", "Sortable", false], ["ignore", "— ignore —", false],
 ];
 const BLOCKED_TARGETS = [["article", "Article ID (from batch / UOM)", true], ["name", "Product name", false], ["hu", "Pallet SSCC", false], ["location", "Dock location", false], ["zone", "Reach zone", false], ["pickLocation", "Pick location", false], ["deadline", "Departure deadline", false], ["wmsStatus", "WMS status", false], ["status", "QC status (Not started / Started / Completed)", false], ["date", "Date", false], ["time", "Time", false], ["ignore", "— ignore —", false]];
-const targetsFor = purpose => purpose === "Products" ? PRODUCT_TARGETS : purpose === "Blocked" ? BLOCKED_TARGETS : purpose === "Specs" ? SPEC_TARGETS : DOCK_TARGETS;
+const targetsFor = purpose => purpose === "Products" ? PRODUCT_TARGETS : purpose === "Blocked" ? BLOCKED_TARGETS : purpose === "Specs" ? SPEC_TARGETS : purpose === "Rejections" ? REJECTION_TARGETS : DOCK_TARGETS;
 const PRODUCT_TARGETS = [["articleId", "Article ID", true], ["name", "Product name", true], ["barcodeCu", "Barcode CU (consumer pack EAN)", false], ["barcodeTu", "Barcode TU (box / case)", false], ["cusPerTu", "CU per TU", false], ["piecesPerCu", "Pieces per CU", false], ["weightPerCu", "Weight per CU (g)", false], ["category", "Category name", false], ["ignore", "— ignore —", false]];
 const TRANSFORMS = [
   ["none", "as is", v => v],
@@ -735,6 +736,7 @@ const TRANSFORMS = [
 const transformOf = k => TRANSFORMS.find(t => t[0] === k)?.[2] || (v => v);
 const ALIASES = { hu: ["handlingunit", "hu", "sscc", "pallet", "palletid"], article: ["uomid", "uom", "articleid", "article", "sku", "artikel", "batch"], articleId: ["uomid", "uom", "articleid", "article", "sku", "artikel"], name: ["itemname", "productname", "name", "product", "omschrijving", "item"], location: ["location", "locatie", "stock", "dock"], priority: ["priorityitem", "priority", "prioriteit"], blocking: ["neededtoday", "urgent"], skippable: ["skippable", "skip"], arrived: ["arrivaldate", "arrival", "date", "datum"], arrivedTime: ["arrivaltime", "time", "tijd"], transporter: ["transporter", "carrier", "vervoerder"], supplier: ["supplier", "leverancier", "dostawca", "vendor", "grower"], po: ["poid", "po", "order", "ponumber"], cusPerTu: ["cupertu", "cus", "cu"], sortable: ["sortable", "sorteerbaar"], barcodeCu: ["barcodecu", "cubarcode", "eancu", "cuean", "consumerbarcode", "barcode", "ean", "gtin"], barcodeTu: ["barcodetu", "tubarcode", "eantu", "tuean", "boxbarcode", "casebarcode", "itf14", "itf", "gtin14", "tradeunitbarcode"], piecesPerCu: ["piecespercu", "pieces", "stuks"], weightPerCu: ["weightpercu", "weight", "gewicht"], category: ["category", "categorie"], status: ["qcstatus", "status", "state"], date: ["date", "datum"], time: ["time", "tijd"], zone: ["reachzone", "zone"], pickLocation: ["picklocation", "pick"], deadline: ["departuredeadline", "deadline", "departure"], wmsStatus: ["wmsstatus", "status"], quantity: ["quantity", "qty", "aantal", "tuonpallet", "tusonpallet", "units", "colli"] }
 Object.assign(ALIASES, SPEC_ALIASES);
+Object.entries(REJECTION_ALIASES).forEach(([k, v]) => { ALIASES[k] = [...new Set([...(ALIASES[k] || []), ...v])]; }); // union: the dock sheet owns some of these keys too
 // Two passes over the whole header: exact alias matches first (so "Priority item" beats "Priority score"), then loose matches on targets still free.
 const suggestMappings = (header, rows, targets) => {
   const norm = h => h.toLowerCase().replace(/[^a-z0-9]/g, ""); const free = new Set(targets.map(t => t[0]).filter(k => k !== "ignore")); const out = header.map(h => ({ source: h, target: "ignore", transform: "none", required: false }));
@@ -759,19 +761,22 @@ const adoptNewColumns = (existing, header, rows, targets) => {
   return header.map((h, i) => { const cur = existing.find(m => m.source === h); if (cur && cur.target && cur.target !== "ignore") return cur; const s = suggested[i]; if (s && s.target !== "ignore" && !used.has(s.target)) { used.add(s.target); return s; } return cur || { source: h, target: "ignore", transform: "none", required: false }; });
 };
 const dedupeMappings = ms => { const seen = new Set(); return ms.map(m => { if (m.target === "ignore") return m; if (seen.has(m.target)) return { ...m, target: "ignore", required: false }; seen.add(m.target); return m; }); };
-const suggestTransform = (target, sample) => target === "deadline" ? "date_iso" : target === "status" ? "status" : target === "article" || target === "articleId" ? (/^[A-Z]+\d+-\d+$/.test(String(sample || "").trim()) ? "uom_article" : "none") : target === "cusPerTu" ? (/-\d+$/.test(String(sample || "").trim()) ? "uom_cus" : "number") : target === "quantity" ? "number" : target === "blocking" || target === "skippable" || target === "sortable" ? "yesno" : target === "arrived" ? "date_dmy" : target === "priority" ? "priority" : "none";
+const suggestTransform = (target, sample) => target === "deadline" ? "date_iso" : target === "status" ? "status" : target === "article" || target === "articleId" ? (/^[A-Z]+\d+-\d+$/.test(String(sample || "").trim()) ? "uom_article" : "none") : target === "cusPerTu" ? (/-\d+$/.test(String(sample || "").trim()) ? "uom_cus" : "number") : target === "quantity" || target === "tu" ? "number" : target === "blocking" || target === "skippable" || target === "sortable" ? "yesno" : target === "arrived" ? "date_dmy" : target === "priority" ? "priority" : "none";
 // Real sheets have a title row above the header and side panels to the right: find the header row (the one with the most
 // non-empty cells among the first 10, preferring one that contains "Handling Unit"/"UOM"), then cut columns past the header's width.
-const detectTable = ({ header, rows }) => {
+const detectTable = ({ header, rows }, { bridgeGaps = false } = {}) => {
   const all = [header, ...rows];
   let best = 0, bestScore = -1;
   all.slice(0, 10).forEach((r, i) => { const cells = r.map(c => String(c).trim()); const filled = cells.filter(Boolean).length; const bonus = cells.some(c => /handling unit|uom|item name|article|sku|ean|cuname|sortable/i.test(c) && !/:\s*$/.test(c)) ? 100 : 0; /* side-panel labels ("SKU on dock:") must not make a data row look like the header */ const score = filled + bonus; if (score > bestScore) { bestScore = score; best = i; } });
-  const h = all[best].map(c => String(c).trim()); const first = Math.max(0, h.findIndex(c => !!c)); let width = h.findIndex((c, i) => i > first && !c); if (width < 0) width = h.length; // a blank cell BEFORE the first label (the spec sheet's unnamed ID column) is part of the table // the data table is the contiguous run of header cells from the left; side panels come after a gap
+  const h = all[best].map(c => String(c).trim()); const first = Math.max(0, h.findIndex(c => !!c)); let width = h.findIndex((c, i) => i > first && !c); if (width < 0) width = h.length;
+  // The rejections sheet separates its "Inbound / DC5 / Finance to fill in" sections with one blank header column; bridgeGaps keeps the whole labelled run.
+  if (bridgeGaps) { let last = -1; h.forEach((c, i) => { if (c) last = i; }); width = last + 1; } // a blank cell BEFORE the first label (the spec sheet's unnamed ID column) is part of the table // the data table is the contiguous run of header cells from the left; side panels come after a gap
   const hdr = h.slice(0, width).map((c, i) => c || `col${i + 1}`);
   const body = all.slice(best + 1).map(r => r.slice(0, width).map(c => String(c ?? "").trim())).filter(r => r.some(Boolean));
   return { header: hdr, rows: body };
 };
-const parseTsv = txt => { const lines = txt.split(/\r?\n/).filter(l => l.trim()); if (!lines.length) return { header: [], rows: [] }; const sep = lines[0].includes("\t") ? "\t" : lines[0].includes(";") ? ";" : ","; const header = lines[0].split(sep).map(h => h.trim()); const rows = lines.slice(1).map(l => l.split(sep)).filter(r => r.some(c => c.trim())); return { header, rows }; };
+// Quote-aware: a Google Sheets copy wraps multi-line cells (long rejection reasons) in quotes — splitting on newlines would break those rows.
+const parseTsv = txt => { const first = txt.split(/\r?\n/).find(l => l.trim()) || ""; const sep = first.includes("\t") ? "\t" : first.includes(";") ? ";" : ","; const rows = []; let row = [], cell = "", q = false; for (let i = 0; i < txt.length; i++) { const ch = txt[i]; if (q) { if (ch === '"') { if (txt[i + 1] === '"') { cell += '"'; i++; } else q = false; } else cell += ch; } else if (ch === '"' && cell === "") q = true; else if (ch === sep) { row.push(cell); cell = ""; } else if (ch === "\n" || ch === "\r") { if (ch === "\r" && txt[i + 1] === "\n") i++; row.push(cell); rows.push(row); row = []; cell = ""; } else cell += ch; } if (cell !== "" || row.length) { row.push(cell); rows.push(row); } const nonEmpty = rows.filter(r => r.some(c => String(c).trim())); if (!nonEmpty.length) return { header: [], rows: [] }; return { header: nonEmpty[0].map(h => h.trim()), rows: nonEmpty.slice(1) }; };
 const applyMapping = (integration, header, rows) => rows.map(r => { const out = {}; const errs = []; integration.mappings.forEach(m => { if (!m.target || m.target === "ignore") return; const idx = header.indexOf(m.source); if (idx < 0) { errs.push(`missing column ${m.source}`); return; } let v; try { v = transformOf(m.transform)(r[idx] ?? ""); } catch (e) { errs.push(`${m.source}: ${e.message}`); v = ""; } if (m.required && (v === "" || v == null)) errs.push(`${m.target} empty`); out[m.target] = v; }); return { ...out, _errors: errs }; });
 // rows mapped for the dock become the live PalletSnapshot; fall back to the built-in mock when nothing is mapped yet
 // The sheet already computes its own totals in a side panel ("SKU on dock: 40"). Read them as they are — no re-counting with guessed rules.
@@ -795,7 +800,7 @@ const computeDeadlineAlerts = (s, nowMs = Date.now()) => {
     const arrivalMs = new Date(`${r.arrived}T${r.arrivedTime || "00:00"}:00`).getTime(); if (isNaN(arrivalMs)) return;
     const deadlineAt = arrivalMs + st.rejectionWindowHours * 3600000; const hoursLeft = (deadlineAt - nowMs) / 3600000;
     const product = s.products.find(p => p.articleId === r.article);
-    const risky = product ? s.inspections.some(i => i.productId === product.id && i.status === "Completed" && isVerdictType(s, i) && i.result === "Rejected" && i.completedAt && (nowMs - new Date(i.completedAt).getTime()) <= st.riskyLookbackDays * 86400000) : false;
+    const risky = product ? s.inspections.some(i => i.productId === product.id && i.status === "Completed" && isVerdictType(s, i) && i.result === "Rejected" && i.completedAt && (nowMs - new Date(i.completedAt).getTime()) <= st.riskyLookbackDays * 86400000) || extRejectedRecently(s, r.article, st.riskyLookbackDays, nowMs) : extRejectedRecently(s, r.article, st.riskyLookbackDays, nowMs);
     const threshold = risky ? st.deadlineWarnHoursRisky : st.deadlineWarnHours;
     const level = hoursLeft <= 0 ? "breached" : hoursLeft <= threshold ? "warning" : null;
     if (!level) return;
@@ -910,7 +915,7 @@ const findPalletRow = (s, key) => {
 // Used by the portal (every 60 s on any page) and by the phone (on open / Sync now), so no device depends on the other.
 const refreshPushedIntegrations = async (getState, set, force = false) => {
   if (!window.__qcServer) return;
-  const s = getState(); const targets = (s.integrations || []).filter(i => i.pushMode && i.purpose !== "Specs");
+  const s = getState(); const targets = (s.integrations || []).filter(i => i.pushMode && i.purpose !== "Specs" && i.purpose !== "Rejections");
   for (const target of targets) {
     try {
       const r = await fetch(`${window.__qcServer}/sheet/${target.purpose.toLowerCase()}`, { cache: "no-store" }); if (r.status !== 200) continue;
@@ -954,7 +959,7 @@ function IntegrationsPage({ s, set }) {
   const [paste, setPaste] = useState(""); const [specIssuesOpen, setSpecIssuesOpen] = useState(false);
   const targets = targetsFor(it?.purpose);
   const patchIt = ch => set(x => ({ ...x, integrations: x.integrations.map(i => i.id === sel ? { ...i, ...ch } : i) }));
-  const create = purpose => { const id = uid(); set(x => ({ ...x, integrations: [...(x.integrations || []), { id, name: purpose === "Dock" ? "Dock sheet" : purpose === "Blocked" ? "Blocked pallets sheet" : purpose === "Specs" ? "Product specs sheet (commercial)" : "Product profiles sheet", purpose, ...(purpose === "Specs" ? { pushMode: true, createMissing: false } : {}), sourceUrl: "", header: [], sample: [], mappings: [], rows: [], lastSyncAt: null, lastError: null }] })); setSel(id); };
+  const create = purpose => { const id = uid(); set(x => ({ ...x, integrations: [...(x.integrations || []), { id, name: purpose === "Dock" ? "Dock sheet" : purpose === "Blocked" ? "Blocked pallets sheet" : purpose === "Specs" ? "Product specs sheet (commercial)" : purpose === "Rejections" ? "DC5 rejections sheet" : "Product profiles sheet", purpose, ...(purpose === "Specs" ? { pushMode: true, createMissing: false } : purpose === "Rejections" ? { pushMode: true } : {}), sourceUrl: "", header: [], sample: [], mappings: [], rows: [], lastSyncAt: null, lastError: null }] })); setSel(id); };
   // accepts an Apps Script JSON endpoint ({header, rows}) or a "Publish to web" CSV/TSV link
   const parseCsv = txt => { const rows = []; let row = [], cell = "", q = false; for (let i = 0; i < txt.length; i++) { const ch = txt[i]; if (q) { if (ch === '"') { if (txt[i + 1] === '"') { cell += '"'; i++; } else q = false; } else cell += ch; } else if (ch === '"') q = true; else if (ch === ",") { row.push(cell); cell = ""; } else if (ch === "\n" || ch === "\r") { if (ch === "\r" && txt[i + 1] === "\n") i++; row.push(cell); rows.push(row); row = []; cell = ""; } else cell += ch; } if (cell !== "" || row.length) { row.push(cell); rows.push(row); } const nonEmpty = rows.filter(r => r.some(c => String(c).trim())); return { header: (nonEmpty[0] || []).map(h => h.trim()), rows: nonEmpty.slice(1) }; };
   const fetchPushed = async target => { if (!window.__qcServer) { patchIt({ liveStatus: "No state server — run `npm run server` locally." }); return; } patchIt({ liveStatus: "Fetching…" }); await refreshPushedIntegrations(() => _S, set, true); const after = (_S.integrations || []).find(i => i.id === target.id); if (!after?.lastPushAt) patchIt({ liveStatus: "Nothing pushed yet — the sheet has not sent data to this server (run pushToQCteam once in Apps Script and check QC_URL)." }); };
@@ -962,12 +967,14 @@ function IntegrationsPage({ s, set }) {
       if (/user_content_key=/.test(target.sourceUrl)) throw new Error("this is a one-time redirect URL from your browser, not the deployment link — paste the …/macros/s/…/exec address");
       let j; try { j = JSON.parse(txt); } catch { j = txt.includes("\t") && !txt.includes(",") ? parseTsv(txt) : parseCsv(txt); } if (!Array.isArray(j.header) || !Array.isArray(j.rows)) throw new Error("unexpected response — expected JSON {header, rows} or CSV"); const raw = { header: j.header, rows: j.rows }; j = detectTable(j); if (!j.header.some(h => /handling unit|uom|item name|article|sku|ean|name/i.test(h))) throw new Error("no recognisable header row (expected columns like Handling Unit, UOM ID, Item Name)"); const mappings = target.mappings.length && target.header.join("|") === j.header.join("|") ? target.mappings : suggestMappings(j.header, j.rows, targets); const next = { ...target, header: j.header, sample: j.rows, mappings }; const rows = applyMapping(next, j.header, j.rows); patchIt({ header: j.header, sample: j.rows, rawHeader: raw.header, rawRows: raw.rows, mappings, rows: target.purpose !== "Products" ? rows : target.rows, summary: target.purpose !== "Products" ? extractSummary(raw.header, raw.rows) : target.summary, lastSyncAt: nowISO(), liveStatus: `OK — ${j.rows.length} rows at ${new Date().toLocaleTimeString("en-GB")}` }); } catch (e) { const local = /^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(location.hostname); patchIt({ liveStatus: local ? `Could not fetch (${e.message}). Most often the Apps Script deployment is not public: open the /exec link in an incognito window — if Google asks you to sign in, redeploy with “Who has access: Anyone”. Also make sure you copied the /exec link, not /dev.` : `Could not fetch (${e.message}). The Claude sandbox blocks cross-origin requests — run the prototype locally to test live.` }); } };
   useEffect(() => { if (!it?.autoRefresh || (!it?.sourceUrl && !it?.pushMode)) return; const id = setInterval(() => fetchLive(it), 60000); return () => clearInterval(id); }, [it?.id, it?.autoRefresh, it?.sourceUrl, it?.pushMode]);
-  const loadPaste = () => { const { header, rows } = detectTable(parseTsv(paste)); if (!header.length) return; const rawT = parseTsv(paste); const mappings = suggestMappings(header, rows, targets); patchIt({ header, sample: rows.slice(0, 500), rawHeader: rawT.header, rawRows: rawT.rows, mappings, rows: [] }); setPaste(""); };
+  const pasteFull = useRef(null); // Rejections: the whole pasted table stays here (thousands of rows) — the shared state only gets a sample
+  const loadPaste = () => { const isRej = it?.purpose === "Rejections"; const rawT = parseTsv(paste); const { header, rows } = detectTable(rawT, { bridgeGaps: isRej }); if (!header.length) return; const mappings = suggestMappings(header, rows, targets); if (isRej) { pasteFull.current = { header, rows }; patchIt({ header, sample: rows.slice(0, 20), rawHeader: rawT.header, rawRows: rawT.rows.slice(0, 30), mappings, rows: [] }); } else patchIt({ header, sample: rows.slice(0, 500), rawHeader: rawT.header, rawRows: rawT.rows, mappings, rows: [] }); setPaste(""); };
   const resuggest = () => { if (!it?.header.length) return; patchIt({ mappings: suggestMappings(it.header, it.sample, targets) }); };
   const preview = it && it.header.length ? applyMapping(it, it.header, it.sample) : [];
   const missingRequired = it ? targets.filter(t => t[2] && !it.mappings.some(m => m.target === t[0])) : [];
   const bad = preview.filter(r => r._errors.length).length;
   const apply = () => { if (!it) return;
+    if (it.purpose === "Rejections") { if (!(pasteFull.current && pasteFull.current.header.join("|") === it.header.join("|"))) return; /* never rebuild the digest from the 20-row sample */ const full = pasteFull.current.rows; const mapped = applyMapping(it, it.header, full); const digest = buildRejectionDigest(mapped, { now: nowISO() }); const { byArticle, latest, ...meta } = digest; set(x => ({ ...x, extRejections: digest, integrations: x.integrations.map(i => i.id === sel ? { ...i, rows: [], lastSyncAt: nowISO(), lastError: digest.skipped ? `${digest.skipped} row(s) skipped` : null, lastRejectionSync: meta, lastResult: `${digest.used} rejections, ${digest.articles} articles` } : i) })); return; }
     if (it.purpose === "Specs") { const res = applySpecSheet(s.products || [], preview, { createMissing: it.createMissing === true, now: nowISO(), uid }); set(x => ({ ...x, products: res.products, integrations: x.integrations.map(i => i.id === sel ? { ...i, rows: preview, lastSyncAt: nowISO(), lastError: bad ? `${bad} row(s) skipped` : null, lastSpecSync: { ...res.report, issues: res.report.issues.slice(0, 400) } } : i) })); return; }
     if (it.purpose === "Dock" || it.purpose === "Blocked") patchIt({ rows: preview, summary: extractSummary(it.rawHeader || it.header, it.rawRows || it.sample), lastSyncAt: nowISO(), lastError: bad ? `${bad} row(s) skipped` : null }); else { const good = preview.filter(r => !r._errors.length); set(x => { let products = [...x.products]; let added = 0, updated = 0; good.forEach(r => { const id = String(r.articleId || "").trim(); if (!id) return; const ex = products.find(p => p.articleId === id); const catId = r.category ? x.categories.find(c => c.name.toLowerCase() === String(r.category).toLowerCase())?.id : undefined; const patch = { name: r.name || ex?.name || id, barcodeCu: r.barcodeCu || ex?.barcodeCu || "", barcodeTu: r.barcodeTu || ex?.barcodeTu || "", cusPerTu: r.cusPerTu ? String(r.cusPerTu) : ex?.cusPerTu || "", piecesPerCu: r.piecesPerCu ? String(r.piecesPerCu) : ex?.piecesPerCu || "", weightPerCu: r.weightPerCu ? String(r.weightPerCu) : ex?.weightPerCu || "", ...(catId ? { categoryId: catId } : {}) }; if (ex) { products = products.map(p => p.id === ex.id ? { ...p, ...patch } : p); updated++; } else { products.push({ id: uid(), articleId: id, categoryId: catId || (categorySuggestion({ ...x, products }, { name: patch.name })?.conf >= 0.9 ? categorySuggestion({ ...x, products }, { name: patch.name }).categoryId : null), isBio: /\bbio\b/i.test(patch.name), specs: [], supplierIds: [], varieties: [], photos: [], attributes: [], excludedSpecNames: [], isActive: true, ...patch }); added++; } }); return { ...x, products, integrations: x.integrations.map(i => i.id === sel ? { ...i, rows: preview, lastSyncAt: nowISO(), lastError: bad ? `${bad} row(s) skipped` : null, lastResult: `${added} added, ${updated} updated` } : i) }; }); } };
   return (
@@ -976,8 +983,8 @@ function IntegrationsPage({ s, set }) {
       <p className="text-sm mb-5" style={{ color: C.muted, maxWidth: 680 }}>Map sheet columns to system fields once. In the real system the sheet pushes rows to the API and the server applies this mapping; here you paste rows to test it.</p>
       <div className="flex gap-4 items-start">
         <aside className="w-56 flex-shrink-0">
-          {list.map(i => <button key={i.id} onClick={() => setSel(i.id)} className="w-full text-left text-sm px-3 rounded-xl mb-1 flex items-center gap-2" style={{ height: 40, background: sel === i.id ? C.accentSoft : "transparent", color: sel === i.id ? C.accent : C.ink }}><Ic i={i.purpose === "Dock" ? Truck : i.purpose === "Blocked" ? LockIcon : Package} s={15} mr={0} /><span className="flex-1 truncate">{i.name}</span>{i.rows?.length ? <span className="text-[10px]" style={{ color: C.muted }}>{i.rows.length}</span> : null}</button>)}
-          <div className="mt-3 flex flex-col gap-1"><button onClick={() => create("Dock")} className="text-xs text-left px-3 py-1.5" style={{ color: C.accent }}>+ dock sheet (pallets)</button><button onClick={() => create("Blocked")} className="text-xs text-left px-3 py-1.5" style={{ color: C.accent }}>+ blocked pallets sheet</button><button onClick={() => create("Products")} className="text-xs text-left px-3 py-1.5" style={{ color: C.accent }}>+ product profiles sheet</button><button onClick={() => create("Specs")} className="text-xs text-left px-3 py-1.5" style={{ color: C.accent }}>+ specs sheet (commercial team)</button></div>
+          {list.map(i => <button key={i.id} onClick={() => setSel(i.id)} className="w-full text-left text-sm px-3 rounded-xl mb-1 flex items-center gap-2" style={{ height: 40, background: sel === i.id ? C.accentSoft : "transparent", color: sel === i.id ? C.accent : C.ink }}><Ic i={i.purpose === "Dock" ? Truck : i.purpose === "Blocked" ? LockIcon : i.purpose === "Rejections" ? AlertTriangle : Package} s={15} mr={0} /><span className="flex-1 truncate">{i.name}</span>{i.rows?.length ? <span className="text-[10px]" style={{ color: C.muted }}>{i.rows.length}</span> : null}</button>)}
+          <div className="mt-3 flex flex-col gap-1"><button onClick={() => create("Dock")} className="text-xs text-left px-3 py-1.5" style={{ color: C.accent }}>+ dock sheet (pallets)</button><button onClick={() => create("Blocked")} className="text-xs text-left px-3 py-1.5" style={{ color: C.accent }}>+ blocked pallets sheet</button><button onClick={() => create("Products")} className="text-xs text-left px-3 py-1.5" style={{ color: C.accent }}>+ product profiles sheet</button><button onClick={() => create("Specs")} className="text-xs text-left px-3 py-1.5" style={{ color: C.accent }}>+ specs sheet (commercial team)</button><button onClick={() => create("Rejections")} className="text-xs text-left px-3 py-1.5" style={{ color: C.accent }}>+ rejections sheet (DC5)</button></div>
         </aside>
         <div className="flex-1 min-w-0">
           {!it ? <Card><Empty icon="📋" title="No integrations yet" hint="Add the dock sheet first — it feeds the dashboard, the scanner and same-delivery pallets." /></Card> : <>
@@ -1040,6 +1047,19 @@ function pushToQCteam() {
             {it.header.length > 0 && (
               <Card>
                 {(it.purpose === "Dock" || it.purpose === "Blocked") && (() => { const sm = extractSummary(it.rawHeader || it.header, it.rawRows || it.sample); return Object.keys(sm).length ? <Note tone="ok">Sheet totals found: {Object.entries(sm).map(([k, v]) => `${k} ${v}`).join(" · ")} — the phone dashboard uses these as they are.</Note> : <Note tone="warn">No summary cells found (“SKU on dock:”, “Non urgent pallets on dock:”…) — the dashboard will count rows instead.</Note>; })()}
+              {it.purpose === "Rejections" && (() => { const rep = it.lastRejectionSync; const d = s.extRejections; const top = d ? Object.entries(d.byArticle).map(([a, g]) => ({ a, ...g })).sort((x, y) => y.c90 - x.c90 || y.count - x.count).slice(0, 8) : [];
+                return <div className="rounded-xl p-3 mb-3" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
+                  <div className="flex items-center gap-3 mb-1 flex-wrap"><p className="label-sm">What the apps show</p><span className="text-xs" style={{ color: C.muted }}>{rep ? `last applied ${fmtTime(rep.updatedAt)} · ${rep.rows} rows in the sheet` : "no push applied yet"}</span></div>
+                  <p className="text-xs mb-2" style={{ color: C.muted }}>These are the team's official rejections (Slack post → this sheet), kept as context next to the article: on the scan result and pallet sheet, on the product profile, in the shift-update cards (last 48 h) and as the “rejected recently” risk flag on the rejection-window countdown. QCteam never writes to this sheet and does not turn its rows into reports. Only a per-article digest is stored — the sheet itself stays where it is.</p>
+                  {rep && <>
+                    <div className="grid gap-2 mb-2" style={{ gridTemplateColumns: "repeat(5, 1fr)" }}>
+                      {[["Rejections kept", rep.used, C.ink], ["Articles", rep.articles, C.ink], ["Window", `${rep.windowDays} d`, C.muted], ["Older than window", rep.old, C.muted], ["Skipped rows", rep.skipped + (rep.undated ? ` (+${rep.undated} undated)` : ""), rep.skipped ? C.warn : C.muted]].map(([l, v, col]) => <div key={l} className="rounded-lg px-3 py-2" style={{ background: C.surface, border: `1px solid ${C.line}` }}><p className="text-[11px]" style={{ color: C.muted }}>{l}</p><p className="text-lg font-semibold" style={{ color: col }}>{v}</p></div>)}
+                    </div>
+                    {rep.from && <p className="text-xs mb-2" style={{ color: C.muted }}>Covers {rep.from} → {rep.to}.</p>}
+                    {top.length > 0 && <table className="w-full text-xs"><thead><tr className="text-left" style={{ color: C.muted }}>{["Most rejected (90 days)", "90 d", "30 d", "Year", "TU", "Last", "Mostly"].map(h => <th key={h} className="py-1 pr-3 font-medium" style={{ borderBottom: `1px solid ${C.line}` }}>{h}</th>)}</tr></thead>
+                      <tbody>{top.map(g => <tr key={g.a} style={{ borderBottom: `1px solid ${C.line}` }}><td className="py-1 pr-3">{productForArticle(s, g.a)?.name || g.name || g.a} <span className="font-mono" style={{ color: C.muted }}>{g.a}</span></td><td className="py-1 pr-3" style={{ fontVariantNumeric: "tabular-nums" }}>{g.c90}</td><td className="py-1 pr-3" style={{ fontVariantNumeric: "tabular-nums" }}>{g.c30}</td><td className="py-1 pr-3" style={{ fontVariantNumeric: "tabular-nums" }}>{g.count}</td><td className="py-1 pr-3" style={{ fontVariantNumeric: "tabular-nums" }}>{g.tu}</td><td className="py-1 pr-3">{fmtRejectionDay(g.last)}</td><td className="py-1 pr-3" style={{ color: C.muted }}>{topCats(g, 1).map(c => c.name).join("")}</td></tr>)}</tbody></table>}
+                  </>}
+                </div>; })()}
               {it.purpose === "Specs" && (() => { const rep = it.lastSpecSync; const cov = rep?.coverage || {}; const by = k => (rep?.issues || []).filter(i => i.kind === k);
                 const conflicts = by("conflict"), created = by("created"), placeholders = by("placeholder"), unreadable = [...by("unreadable"), ...by("approximate"), ...by("duplicate"), ...by("unknown")];
                 const prodName = a => productForArticle(s, a)?.name || a; const [showAll, setShowAll] = [specIssuesOpen, setSpecIssuesOpen];
@@ -1059,7 +1079,7 @@ function pushToQCteam() {
                     {(conflicts.length > 8 || created.length > 30 || placeholders.length > 40) && <button onClick={() => setShowAll(o => !o)} className="text-xs" style={{ color: C.accent }}>{showAll ? "show fewer" : "show all"}</button>}
                   </>}
                 </div>; })()}
-                <div className="flex items-center gap-3 mb-2"><p className="label-sm">3 · Preview</p><span className="text-xs" style={{ color: bad ? C.warn : C.muted }}>{preview.length} rows · {bad} with errors{bad ? " (skipped on apply)" : ""}{it.purpose === "Dock" && duplicateHuCount(preview.filter(r => !r._errors.length)) > 0 ? ` · ${duplicateHuCount(preview.filter(r => !r._errors.length))} duplicate HU row(s) in the sheet — merged, one pallet each` : ""}</span><div className="flex-1" /><Primary onClick={apply} disabled={missingRequired.length > 0 || preview.length === 0}>{it.purpose === "Dock" ? "Apply as live dock data" : it.purpose === "Blocked" ? "Apply as live blocked pallets" : it.purpose === "Specs" ? "Apply specs to the catalog" : "Create / update products"}</Primary></div>
+                <div className="flex items-center gap-3 mb-2"><p className="label-sm">3 · Preview</p><span className="text-xs" style={{ color: bad ? C.warn : C.muted }}>{preview.length} rows · {bad} with errors{bad ? " (skipped on apply)" : ""}{it.purpose === "Dock" && duplicateHuCount(preview.filter(r => !r._errors.length)) > 0 ? ` · ${duplicateHuCount(preview.filter(r => !r._errors.length))} duplicate HU row(s) in the sheet — merged, one pallet each` : ""}</span><div className="flex-1" /><Primary onClick={apply} disabled={missingRequired.length > 0 || preview.length === 0 || (it.purpose === "Rejections" && !(pasteFull.current && pasteFull.current.header.join("|") === it.header.join("|")))} title={it.purpose === "Rejections" && !pasteFull.current ? "Pushed data is applied on the server on every push — paste the full sheet here to apply it by hand." : undefined}>{it.purpose === "Dock" ? "Apply as live dock data" : it.purpose === "Blocked" ? "Apply as live blocked pallets" : it.purpose === "Specs" ? "Apply specs to the catalog" : it.purpose === "Rejections" ? "Apply as rejection history" : "Create / update products"}</Primary></div>
                 <div className="overflow-x-auto rounded-xl" style={{ border: `1px solid ${C.line}`, maxHeight: 320 }}>
                   <table className="text-xs" style={{ minWidth: 700 }}><thead><tr style={{ background: C.bg }}>{targets.filter(t => t[0] !== "ignore" && it.mappings.some(m => m.target === t[0])).map(t => <th key={t[0]} className="text-left font-medium px-2 py-1.5 whitespace-nowrap" style={{ color: C.muted }}>{t[1]}</th>)}<th className="px-2 py-1.5 text-left font-medium" style={{ color: C.muted }}>Issues</th></tr></thead><tbody>
                     {preview.slice(0, 60).map((r, i) => <tr key={i} style={{ borderTop: `1px solid ${C.line}`, background: r._errors.length ? C.badBg : "transparent" }}>{targets.filter(t => t[0] !== "ignore" && it.mappings.some(m => m.target === t[0])).map(t => <td key={t[0]} className="px-2 py-1 whitespace-nowrap font-mono">{typeof r[t[0]] === "boolean" ? (r[t[0]] ? "yes" : "no") : String(r[t[0]] ?? "")}</td>)}<td className="px-2 py-1" style={{ color: C.bad }}>{r._errors.join("; ")}</td></tr>)}
@@ -1394,6 +1414,14 @@ const markComplaintsSeen = userId => { try { localStorage.setItem(complaintsSeen
 const ComplaintChip = ({ s, articleId, size = "xs" }) => { const c = complaintsFor(s, articleId); if (!c || !c.count) return null; return <span className={`${size === "xs" ? "text-[10px]" : "text-[11px]"} px-1.5 py-0.5 rounded-full inline-flex items-center gap-1 flex-shrink-0 whitespace-nowrap`} style={{ background: C.badBg, color: C.bad }} title={`${c.count} freshness complaints${c.subType ? ` · mostly ${c.subType}` : ""}`}><Ic i={ThumbsDown} s={10} mr={0} />{c.count}</span>; };
 // One-line summary used on product profiles (portal + phone share the wording).
 const complaintsLine = (s, articleId) => { const c = complaintsFor(s, articleId); if (!c || !c.count) return null; const meta = complaintsMeta(s); return { count: c.count, sub: c.subType ? `${c.subType}${c.subCount != null ? ` (${c.subCount})` : ""}` : "", period: meta.period || "" }; };
+// What the DC5 rejections sheet says about this article: the team's official rejections (Slack → sheet), not QCteam reports.
+function ExtRejectionsNote({ s, articleId }) {
+  const l = extRejectionLine(s, articleId); if (!l) return null;
+  const [open, setOpen] = useState(false);
+  return <Note tone="bad"><span className="inline-flex items-center gap-1.5 flex-wrap"><Ic i={AlertTriangle} s={14} mr={0} /><b>Rejected on the dock {l.count}×</b><span>in {l.span}{l.tail ? ` · ${l.tail}` : ""}{l.tu ? ` · ${l.tu} TU in a year` : ""}</span><span style={{ color: C.muted }}>· last {fmtRejectionDay(l.last)} · DC5 rejections sheet</span><button onClick={() => setOpen(v => !v)} className="underline text-xs" style={{ color: C.accent }}>{open ? "hide" : "recent rows"}</button></span>
+    {open && <div className="mt-2 text-xs" style={{ color: C.ink }}>{l.recent.map((r, ix) => <div key={ix} className="py-1" style={{ borderTop: `1px solid ${C.line}` }}><span style={{ fontVariantNumeric: "tabular-nums" }}>{fmtTime(r.d)}</span>{r.tu != null && <> · {r.tu} TU</>}{r.user && <> · {r.user}</>}{r.po && <> · PO {r.po}</>}<span className="block">{r.reason || r.cat || "—"}{r.cat && r.reason ? <span style={{ color: C.muted }}> · {r.cat}</span> : null}{r.outcome && <span style={{ color: C.muted }}> · {r.outcome}</span>}{r.link && <a href={r.link} target="_blank" rel="noopener" className="underline ml-1.5" style={{ color: C.accent }}>{linkLabel(r.link)} ↗</a>}</span></div>)}</div>}
+  </Note>;
+}
 function ComplaintsNote({ s, articleId, onOpenList }) {
   const l = complaintsLine(s, articleId); if (!l) return null;
   return <Note tone="bad"><span className="inline-flex items-center gap-1.5 flex-wrap"><Ic i={ThumbsDown} s={14} mr={0} /><b>{l.count} freshness complaint{l.count === 1 ? "" : "s"}</b>{l.sub && <span>· mostly <b>{l.sub}</b></span>}{l.period && <span style={{ color: C.muted }}>· {l.period}</span>}{onOpenList && <button onClick={onOpenList} className="underline text-xs" style={{ color: C.accent }}>all complaints</button>}</span></Note>;
@@ -2187,7 +2215,7 @@ function ShiftUpdateBanner({ s, user, onOpen }) {
   const pulse = briefingUnseen(s, user.id);
   const seen = pulse.total === 0;
   const bits = [
-    pulse.rejs.length && `${pulse.rejs.length} new rejection${pulse.rejs.length === 1 ? "" : "s"}`,
+    (pulse.rejs.length + pulse.xrejs.length) && `${pulse.rejs.length + pulse.xrejs.length} new rejection${pulse.rejs.length + pulse.xrejs.length === 1 ? "" : "s"}`,
     pulse.complaints.length && `${pulse.complaints.length} new complaint${pulse.complaints.length === 1 ? "" : "s"}`,
     pulse.anns.length && `${pulse.anns.length} note${pulse.anns.length === 1 ? "" : "s"} from the Head`,
   ].filter(Boolean);
@@ -2361,7 +2389,7 @@ function BriefingPage({ s, set, user, go }) {
     setTimeout(() => { wheelLock.current = false; }, 380);
   };
   const Cta = ({ children, onClick, ghost }) => <button type="button" data-story-cta onClick={onClick} className="w-full py-2.5 rounded-2xl text-sm font-semibold inline-flex items-center justify-center gap-1" style={ghost ? { background: "transparent", color: C.ink, border: `1px solid ${C.line}` } : { background: C.ink, color: C.onDark }}>{children}</button>;
-  const edge = c => c.kind === "rej" ? C.bad : c.kind === "complaint" ? C.bad : c.kind === "ann" && c.a.isBlocking ? C.bad : C.accent;
+  const edge = c => c.kind === "rej" || c.kind === "xrej" ? C.bad : c.kind === "complaint" ? C.bad : c.kind === "ann" && c.a.isBlocking ? C.bad : C.accent;
   const trans = anim && !dragging.current ? "transform .32s cubic-bezier(.2,.8,.2,1), opacity .28s ease" : "none";
   const PAD = 10;
   const face = pos => {
@@ -2431,6 +2459,23 @@ function BriefingPage({ s, set, user, go }) {
           <Cta onClick={() => go("inspection", insp.id)}>Open this rejection<Ic i={ChevronRight} s={15} mr={0} /></Cta>
         </div>
       </>;
+    } else if (c.kind === "xrej") {
+      // A row of the DC5 rejections sheet — the team's official rejection, not a QCteam report. Links to the Slack thread.
+      const x = c.x, prod = productForArticle(s, x.a);
+      hero = <Hero product={prod} name={prod?.name || x.n} />;
+      body = <>
+        <p className="text-[11px] font-semibold uppercase tracking-[0.16em]" style={{ color: C.bad }}>Rejected on the dock · {dayLabel(x.d)}, {hhmm(x.d)}</p>
+        <p className="text-[20px] font-semibold leading-[1.15] tracking-tight mt-1">{prod?.name || x.n || x.a}</p>
+        <p className="text-[12px] mt-1" style={{ color: C.muted }}>{[`ID ${x.a}`, x.tu != null && `${x.tu} TU`, x.po && `PO ${x.po}`, x.group].filter(Boolean).join(" · ")}</p>
+        <p className="text-[13px] mt-2.5" style={{ color: C.ink }}>by {x.user || "the team"}{x.sortable != null ? ` · ${x.sortable ? "sortable" : "not sortable"}` : ""}{x.cat ? ` · ${x.cat}` : ""}</p>
+        {x.reason && <div className="mt-2.5"><p className="text-[11px] font-semibold uppercase tracking-[0.12em] mb-1" style={{ color: C.muted }}>Why</p><p className="text-[13px] leading-snug" style={{ color: C.ink }}>{x.reason}</p></div>}
+        {x.outcome && <p className="text-[12px] mt-2" style={{ color: C.muted }}>Afterwards: {x.outcome}</p>}
+        <p className="text-[11px] mt-2" style={{ color: C.muted }}>From the DC5 rejections sheet — not a QCteam report.</p>
+        <div className="mt-auto pt-3 space-y-2">
+          {x.link && <Cta onClick={() => window.open(x.link, "_blank", "noopener")}>{linkLabel(x.link)}<Ic i={ExternalLink} s={15} mr={0} /></Cta>}
+          {prod && <Cta ghost onClick={() => go("catalog", prod.id)}>Product profile<Ic i={ChevronRight} s={15} mr={0} /></Cta>}
+        </div>
+      </>;
     } else {
       const row = c.c, p = productForArticle(s, row.articleId);
       hero = <Hero product={p} name={row.name || p?.name} />;
@@ -2448,7 +2493,7 @@ function BriefingPage({ s, set, user, go }) {
       </>;
     }
     return (
-      <div key={`${c.kind}-${c.a?.id || c.i?.id || c.c?.id || "x"}-${pos}`} className="absolute flex flex-col overflow-hidden rounded-[28px]" style={{ background: C.bg, border: `1px solid ${C.line}`, boxShadow: lift(2), ...face(pos) }}>
+      <div key={`${c.kind}-${c.a?.id || c.i?.id || c.c?.id || (c.x && extRejectionKey(c.x)) || "x"}-${pos}`} className="absolute flex flex-col overflow-hidden rounded-[28px]" style={{ background: C.bg, border: `1px solid ${C.line}`, boxShadow: lift(2), ...face(pos) }}>
         <div className="absolute top-0 left-0 right-0 h-[3px]" style={{ background: edge(c), zIndex: 2 }} />
         {hero}
         <div className="flex-1 min-h-0 flex flex-col px-4 pt-3 pb-3 overflow-y-auto">{body}</div>
@@ -2456,7 +2501,7 @@ function BriefingPage({ s, set, user, go }) {
     );
   };
   const notesN = tab === "notes" ? n : unseen.anns.length;
-  const rejN = tab === "rejections" ? n : unseen.rejs.length;
+  const rejN = tab === "rejections" ? n : unseen.rejs.length + unseen.xrejs.length;
   const compN = tab === "complaints" ? n : unseen.complaints.length;
   const Tab = ({ id, label, count }) => <button type="button" data-story-cta onClick={() => setTab(id)} className="flex-1 py-2 text-[12px] font-medium whitespace-nowrap" style={{ background: tab === id ? C.ink : "transparent", color: tab === id ? C.onDark : C.ink }}>{label}{count ? ` · ${count}` : ""}</button>;
   const emptyCopy = tab === "complaints" ? "No new complaints to review." : tab === "notes" ? "No new notes to review." : "No new rejections to review.";
@@ -3535,6 +3580,7 @@ function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset, onMessag
                     <button type="button" onClick={() => setTab("refreport")} className="text-xs px-2.5 py-1 rounded-lg flex-shrink-0" style={{ color: refInsp ? C.ok : C.accent, border: `1px solid ${refInsp ? C.ok : C.line}` }}>{refInsp ? "Open" : "Set one"}</button>
                   </div>
                   <ComplaintsNote s={s} articleId={product.articleId} />
+                  <ExtRejectionsNote s={s} articleId={product.articleId} />
                   <Group title="Identity" cols={6}>
                     <Field label="Name" className="col-span-4"><FastInput value={product.name} onCommit={v => patchP({ name: v })} /></Field>
                     <Field label="Article ID"><FastInput value={product.articleId || ""} onCommit={v => patchP({ articleId: v })} className="font-mono" style={{ borderColor: product.articleId ? C.line : C.warn }} /></Field>
@@ -4667,7 +4713,7 @@ function ProductPeek({ s, user, product, onClose }) {
         <div className="flex-1 overflow-y-auto px-5 pb-6">
           {tab === "overview" && <div>
             {anns.length > 0 && <div className="mt-4">{anns.map(a => <Note key={a.id} tone="warn">📣 <b>{a.title}</b>{a.body && <> — {a.body}</>}<AnnounceFileList announcement={a} colors={C} compact /></Note>)}</div>}
-            <div className="mt-4"><ComplaintsNote s={s} articleId={product.articleId} /></div>
+            <div className="mt-4"><ComplaintsNote s={s} articleId={product.articleId} /><ExtRejectionsNote s={s} articleId={product.articleId} /></div>
             {photos.length > 0 && <><H>Photos · {photos.length}</H><Photos list={photos} size={104} /></>}
             <H>Facts</H>
             <Row k="Article ID" v={product.articleId} />
@@ -4783,6 +4829,7 @@ function CatalogPage({ s, set, user, notify, onStartInspection, onOpenInspection
               </div>
               {s.announcements.filter(a => annMatchesProduct(s, a, product)).map(a => <Note key={a.id} tone="warn">📣 <b>{a.title}</b> — {a.body}<AnnounceFileList announcement={a} colors={C} compact /></Note>)}
               <ComplaintsNote s={s} articleId={product.articleId} />
+              <ExtRejectionsNote s={s} articleId={product.articleId} />
               {openFlags.length > 0 && <Note tone="warn">🚩 {openFlags.length} open flag on this product — the Head hasn't resolved it yet.</Note>}
               {asPhotoList(product.photos).length > 1 && <div className="mb-3"><PhotoStrip photos={product.photos} size={56} /></div>}
               {effectiveAttributes(s, product).length > 0 && <div className="flex flex-wrap gap-1.5 mb-3">{effectiveAttributes(s, product).map(a => <span key={a.dictionaryId} className="text-xs px-2.5 py-1 rounded-full" style={{ background: C.bg, border: `1px solid ${C.line}` }}><span style={{ color: C.muted }}>{a.list}:</span> <b>{a.value}</b></span>)}</div>}

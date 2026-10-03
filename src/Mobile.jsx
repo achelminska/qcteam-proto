@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, Fragment } from "react";
 import { createSyncer, guardUnload } from "./sync.js";
 import { hasV, specLabel, dayLabel, typesOf, typeById, legacyTypeId, inspType, countsAs, listCheck, matchFieldSpec, numberSpecCheck, reportStatusFields, toleranceDisplay, matchesInspSearch } from "./shared/format.js";
 import { SPEC_TARGETS, SPEC_ALIASES } from "./shared/specsync.js";
+import { REJECTION_TARGETS, REJECTION_ALIASES, extRejectionsFor, extRejectedRecently, extRejectionLine, extRejectionsRecent, extRejectionKey, topCats, fmtRejectionDay, linkLabel } from "./shared/rejections.js";
 import { activeTempForSpec, applyTempSpec, closeExpiredTempSpecs, tempUntilLabel } from "./shared/tempspec.js";
 import { SpecValue } from "./shared/SpecValue.jsx";
 import { peopleOnFloor, peopleAtDock, floorWhere, floorVerb, doneTodayCount } from "./shared/floor.js";
@@ -148,7 +149,7 @@ const MCategoryPicker = ({ categories, value, onChange, placeholder = "Search ca
   );
 };
 // Notification look: one lucide icon per type in a soft circle; legacy messages get their emoji stripped on display.
-const NOTIF = { Exceeded: [AlertTriangle, "bad"], AcceptedDespite: [AlertTriangle, "warn"], Escalation: [HelpCircle, "warn"], Question: [MessageCircle, "info"], Answered: [MessageCircle, "ok"], Flag: [Flag, "warn"], Announcement: [Megaphone, "info"], EditedByOther: [Pencil, "info"], DeadlineWarning: [Clock, "warn"], DeadlineBreached: [AlertTriangle, "bad"], Lost: [Search, "warn"], Found: [Check, "ok"], MissingRequired: [AlertTriangle, "warn"], Complaints: [ThumbsDown, "warn"] };
+const NOTIF = { Exceeded: [AlertTriangle, "bad"], AcceptedDespite: [AlertTriangle, "warn"], Escalation: [HelpCircle, "warn"], Question: [MessageCircle, "info"], Answered: [MessageCircle, "ok"], Flag: [Flag, "warn"], Announcement: [Megaphone, "info"], EditedByOther: [Pencil, "info"], DeadlineWarning: [Clock, "warn"], DeadlineBreached: [AlertTriangle, "bad"], Lost: [Search, "warn"], Found: [Check, "ok"], MissingRequired: [AlertTriangle, "warn"], Complaints: [ThumbsDown, "warn"], Specs: [Database, "info"], Rejections: [AlertTriangle, "warn"] };
 const notifLook = t => { const [I, tone] = NOTIF[t] || [Bell, "info"]; const fg = tone === "bad" ? C.bad : tone === "warn" ? C.warn : tone === "ok" ? C.ok : C.accent; const bg = tone === "bad" ? C.badBg : tone === "warn" ? C.warnBg : tone === "ok" ? C.okBg : C.accentSoft; return { I, fg, bg }; };
 const cleanMsg = m => String(m || "").replace(/^[\p{Extended_Pictographic}\uFE0F\s]+/u, "");
 const NotifIcon = ({ type, size = 32 }) => { const { I, fg, bg } = notifLook(type); return <span className="rounded-full flex items-center justify-center flex-shrink-0" style={{ width: size, height: size, background: bg, color: fg }}><I size={Math.round(size * 0.5)} strokeWidth={2} /></span>; };
@@ -777,7 +778,7 @@ const DOCK_TARGETS = [
   ["cusPerTu", "CU per TU", false], ["quantity", "Quantity (TU on the pallet)", false], ["sortable", "Sortable", false], ["ignore", "— ignore —", false],
 ];
 const BLOCKED_TARGETS = [["article", "Article ID (from batch / UOM)", true], ["name", "Product name", false], ["hu", "Pallet SSCC", false], ["location", "Dock location", false], ["zone", "Reach zone", false], ["pickLocation", "Pick location", false], ["deadline", "Departure deadline", false], ["wmsStatus", "WMS status", false], ["status", "QC status (Not started / Started / Completed)", false], ["date", "Date", false], ["time", "Time", false], ["ignore", "— ignore —", false]];
-const targetsFor = purpose => purpose === "Products" ? PRODUCT_TARGETS : purpose === "Blocked" ? BLOCKED_TARGETS : purpose === "Specs" ? SPEC_TARGETS : DOCK_TARGETS;
+const targetsFor = purpose => purpose === "Products" ? PRODUCT_TARGETS : purpose === "Blocked" ? BLOCKED_TARGETS : purpose === "Specs" ? SPEC_TARGETS : purpose === "Rejections" ? REJECTION_TARGETS : DOCK_TARGETS;
 const PRODUCT_TARGETS = [["articleId", "Article ID", true], ["name", "Product name", true], ["barcodeCu", "Barcode CU (consumer pack EAN)", false], ["barcodeTu", "Barcode TU (box / case)", false], ["cusPerTu", "CU per TU", false], ["piecesPerCu", "Pieces per CU", false], ["weightPerCu", "Weight per CU (g)", false], ["category", "Category name", false], ["ignore", "— ignore —", false]];
 const TRANSFORMS = [
   ["none", "as is", v => v],
@@ -794,6 +795,7 @@ const TRANSFORMS = [
 const transformOf = k => TRANSFORMS.find(t => t[0] === k)?.[2] || (v => v);
 const ALIASES = { hu: ["handlingunit", "hu", "sscc", "pallet", "palletid"], article: ["uomid", "uom", "articleid", "article", "sku", "artikel", "batch"], articleId: ["uomid", "uom", "articleid", "article", "sku", "artikel"], name: ["itemname", "productname", "name", "product", "omschrijving", "item"], location: ["location", "locatie", "stock", "dock"], priority: ["priorityitem", "priority", "prioriteit"], blocking: ["neededtoday", "urgent"], skippable: ["skippable", "skip"], arrived: ["arrivaldate", "arrival", "date", "datum"], arrivedTime: ["arrivaltime", "time", "tijd"], transporter: ["transporter", "carrier", "vervoerder"], supplier: ["supplier", "leverancier", "dostawca", "vendor", "grower"], po: ["poid", "po", "order", "ponumber"], cusPerTu: ["cupertu", "cus", "cu"], sortable: ["sortable", "sorteerbaar"], barcodeCu: ["barcodecu", "cubarcode", "eancu", "cuean", "consumerbarcode", "barcode", "ean", "gtin"], barcodeTu: ["barcodetu", "tubarcode", "eantu", "tuean", "boxbarcode", "casebarcode", "itf14", "itf", "gtin14", "tradeunitbarcode"], piecesPerCu: ["piecespercu", "pieces", "stuks"], weightPerCu: ["weightpercu", "weight", "gewicht"], category: ["category", "categorie"], status: ["qcstatus", "status", "state"], date: ["date", "datum"], time: ["time", "tijd"], zone: ["reachzone", "zone"], pickLocation: ["picklocation", "pick"], deadline: ["departuredeadline", "deadline", "departure"], wmsStatus: ["wmsstatus", "status"], quantity: ["quantity", "qty", "aantal", "tuonpallet", "tusonpallet", "units", "colli"] }
 Object.assign(ALIASES, SPEC_ALIASES);
+Object.entries(REJECTION_ALIASES).forEach(([k, v]) => { ALIASES[k] = [...new Set([...(ALIASES[k] || []), ...v])]; }); // union: the dock sheet owns some of these keys too
 // Two passes over the whole header: exact alias matches first (so "Priority item" beats "Priority score"), then loose matches on targets still free.
 const suggestMappings = (header, rows, targets) => {
   const norm = h => h.toLowerCase().replace(/[^a-z0-9]/g, ""); const free = new Set(targets.map(t => t[0]).filter(k => k !== "ignore")); const out = header.map(h => ({ source: h, target: "ignore", transform: "none", required: false }));
@@ -818,14 +820,16 @@ const adoptNewColumns = (existing, header, rows, targets) => {
   return header.map((h, i) => { const cur = existing.find(m => m.source === h); if (cur && cur.target && cur.target !== "ignore") return cur; const s = suggested[i]; if (s && s.target !== "ignore" && !used.has(s.target)) { used.add(s.target); return s; } return cur || { source: h, target: "ignore", transform: "none", required: false }; });
 };
 const dedupeMappings = ms => { const seen = new Set(); return ms.map(m => { if (m.target === "ignore") return m; if (seen.has(m.target)) return { ...m, target: "ignore", required: false }; seen.add(m.target); return m; }); };
-const suggestTransform = (target, sample) => target === "deadline" ? "date_iso" : target === "status" ? "status" : target === "article" || target === "articleId" ? (/^[A-Z]+\d+-\d+$/.test(String(sample || "").trim()) ? "uom_article" : "none") : target === "cusPerTu" ? (/-\d+$/.test(String(sample || "").trim()) ? "uom_cus" : "number") : target === "quantity" ? "number" : target === "blocking" || target === "skippable" || target === "sortable" ? "yesno" : target === "arrived" ? "date_dmy" : target === "priority" ? "priority" : "none";
+const suggestTransform = (target, sample) => target === "deadline" ? "date_iso" : target === "status" ? "status" : target === "article" || target === "articleId" ? (/^[A-Z]+\d+-\d+$/.test(String(sample || "").trim()) ? "uom_article" : "none") : target === "cusPerTu" ? (/-\d+$/.test(String(sample || "").trim()) ? "uom_cus" : "number") : target === "quantity" || target === "tu" ? "number" : target === "blocking" || target === "skippable" || target === "sortable" ? "yesno" : target === "arrived" ? "date_dmy" : target === "priority" ? "priority" : "none";
 // Real sheets have a title row above the header and side panels to the right: find the header row (the one with the most
 // non-empty cells among the first 10, preferring one that contains "Handling Unit"/"UOM"), then cut columns past the header's width.
-const detectTable = ({ header, rows }) => {
+const detectTable = ({ header, rows }, { bridgeGaps = false } = {}) => {
   const all = [header, ...rows];
   let best = 0, bestScore = -1;
   all.slice(0, 10).forEach((r, i) => { const cells = r.map(c => String(c).trim()); const filled = cells.filter(Boolean).length; const bonus = cells.some(c => /handling unit|uom|item name|article|sku|ean|cuname|sortable/i.test(c) && !/:\s*$/.test(c)) ? 100 : 0; /* side-panel labels ("SKU on dock:") must not make a data row look like the header */ const score = filled + bonus; if (score > bestScore) { bestScore = score; best = i; } });
-  const h = all[best].map(c => String(c).trim()); const first = Math.max(0, h.findIndex(c => !!c)); let width = h.findIndex((c, i) => i > first && !c); if (width < 0) width = h.length; // a blank cell BEFORE the first label (the spec sheet's unnamed ID column) is part of the table // the data table is the contiguous run of header cells from the left; side panels come after a gap
+  const h = all[best].map(c => String(c).trim()); const first = Math.max(0, h.findIndex(c => !!c)); let width = h.findIndex((c, i) => i > first && !c); if (width < 0) width = h.length;
+  // The rejections sheet separates its "Inbound / DC5 / Finance to fill in" sections with one blank header column; bridgeGaps keeps the whole labelled run.
+  if (bridgeGaps) { let last = -1; h.forEach((c, i) => { if (c) last = i; }); width = last + 1; } // a blank cell BEFORE the first label (the spec sheet's unnamed ID column) is part of the table // the data table is the contiguous run of header cells from the left; side panels come after a gap
   const hdr = h.slice(0, width).map((c, i) => c || `col${i + 1}`);
   const body = all.slice(best + 1).map(r => r.slice(0, width).map(c => String(c ?? "").trim())).filter(r => r.some(Boolean));
   return { header: hdr, rows: body };
@@ -854,7 +858,7 @@ const computeDeadlineAlerts = (s, nowMs = Date.now()) => {
     const arrivalMs = new Date(`${r.arrived}T${r.arrivedTime || "00:00"}:00`).getTime(); if (isNaN(arrivalMs)) return;
     const deadlineAt = arrivalMs + st.rejectionWindowHours * 3600000; const hoursLeft = (deadlineAt - nowMs) / 3600000;
     const product = s.products.find(p => p.articleId === r.article);
-    const risky = product ? s.inspections.some(i => i.productId === product.id && i.status === "Completed" && isVerdictType(s, i) && i.result === "Rejected" && i.completedAt && (nowMs - new Date(i.completedAt).getTime()) <= st.riskyLookbackDays * 86400000) : false;
+    const risky = product ? s.inspections.some(i => i.productId === product.id && i.status === "Completed" && isVerdictType(s, i) && i.result === "Rejected" && i.completedAt && (nowMs - new Date(i.completedAt).getTime()) <= st.riskyLookbackDays * 86400000) || extRejectedRecently(s, r.article, st.riskyLookbackDays, nowMs) : extRejectedRecently(s, r.article, st.riskyLookbackDays, nowMs);
     const threshold = risky ? st.deadlineWarnHoursRisky : st.deadlineWarnHours;
     const level = hoursLeft <= 0 ? "breached" : hoursLeft <= threshold ? "warning" : null;
     if (!level) return;
@@ -937,7 +941,7 @@ const dockRowsLive = s => { const it = (s.integrations || []).find(i => i.purpos
 // Used by the portal (every 60 s on any page) and by the phone (on open / Sync now), so no device depends on the other.
 const refreshPushedIntegrations = async (getState, set, force = false) => {
   if (!window.__qcServer) return;
-  const s = getState(); const targets = (s.integrations || []).filter(i => i.pushMode && i.purpose !== "Specs");
+  const s = getState(); const targets = (s.integrations || []).filter(i => i.pushMode && i.purpose !== "Specs" && i.purpose !== "Rejections");
   for (const target of targets) {
     try {
       const r = await fetch(`${window.__qcServer}/sheet/${target.purpose.toLowerCase()}`, { cache: "no-store" }); if (r.status !== 200) continue;
@@ -2241,8 +2245,30 @@ function MLostControls({ s, set, user, row, compact, open, onClose }) {
 
 // Product-first header for pallet screens: what the controller is looking at (photo, name, basics, key attributes, recent
 // rejections) before the pallet's own numbers. Tapping it opens the profile. Falls back to a "no profile yet" strip.
+// What the DC5 rejections sheet says about this article — the team's official rejections (Slack → sheet), not QCteam
+// reports. Shown wherever the article is already identified: pallet sheet, scan result, product profile.
+function ExtRejectionBox({ s, articleId, onMore }) {
+  const l = extRejectionLine(s, articleId); if (!l) return null;
+  const last = l.recent[0];
+  return <div className="rounded-xl px-3 py-2 mt-2.5" style={{ background: C.badBg }}>
+    <p className="text-xs font-semibold" style={{ color: C.bad }}>Rejected on the dock {l.count}× in {l.span} · last {fmtRejectionDay(l.last)}</p>
+    <p className="text-xs" style={{ color: C.bad }}>{[l.tail, last?.reason].filter(Boolean).join(" — ")}</p>
+    <p className="text-[10px] mt-0.5" style={{ color: C.bad, opacity: .75 }}>DC5 rejections sheet{onMore ? "" : " · details on the product profile"}</p>
+  </div>;
+}
+function ExtRejectionList({ s, articleId }) {
+  const l = extRejectionLine(s, articleId); if (!l) return null;
+  return <MSection title="Rejected on the dock" count={l.total} tone="bad">
+    <p className="text-[12px] mb-1.5" style={{ color: C.muted }}>From the DC5 rejections sheet — the team's official rejections, not QCteam reports. {l.count} in the last {l.span}{l.tu ? `, ${l.tu} TU in a year` : ""}.</p>
+    {l.recent.map((r, ix) => <div key={ix} className="py-1.5" style={{ borderBottom: ix === l.recent.length - 1 ? "none" : `1px solid ${C.line}` }}>
+      <div className="flex items-baseline gap-2 text-[13px]"><span className="font-medium whitespace-nowrap" style={{ fontVariantNumeric: "tabular-nums" }}>{dayLabel(r.d)}</span><span style={{ color: C.muted }}>{[r.tu != null && `${r.tu} TU`, r.user, r.po && `PO ${r.po}`].filter(Boolean).join(" · ")}</span></div>
+      <p className="text-[13px] leading-snug mt-0.5">{r.reason || r.cat || "—"}{r.cat && r.reason ? <span style={{ color: C.muted }}> · {r.cat}</span> : null}</p>
+      <div className="flex items-center gap-2 mt-0.5 text-[12px]" style={{ color: C.muted }}>{r.outcome && <span>{r.outcome}</span>}{r.link && <a href={r.link} target="_blank" rel="noopener" className="inline-flex items-center underline" style={{ color: C.accent }}>{linkLabel(r.link)}<Ic i={ExternalLink} s={11} mr={0} style={{ marginLeft: 3 }} /></a>}</div>
+    </div>)}
+  </MSection>;
+}
 function MProductHeader({ s, product, article, name, go }) {
-  if (!product) return <div className="rounded-2xl px-3.5 py-3 mb-3" style={{ background: C.warnBg }}><p className="text-sm font-semibold leading-tight">{name || article}</p><p className="text-xs mt-0.5" style={{ color: C.warn }}>Article {article} has no product profile yet.</p></div>;
+  if (!product) return <div className="mb-3"><div className="rounded-2xl px-3.5 py-3" style={{ background: C.warnBg }}><p className="text-sm font-semibold leading-tight">{name || article}</p><p className="text-xs mt-0.5" style={{ color: C.warn }}>Article {article} has no product profile yet.</p></div><ExtRejectionBox s={s} articleId={article} /></div>;
   const catPath = id => { const c = s.categories.find(x => x.id === id); if (!c) return "uncategorised"; const p = c.parentId && s.categories.find(x => x.id === c.parentId); return p ? `${p.name} › ${c.name}` : c.name; };
   const photos = asPhotoList(product.photos); const attrs = effectiveAttributes(s, product).slice(0, 4); const hist = recentProblemsFor(s, product.id);
   return (
@@ -2261,6 +2287,7 @@ function MProductHeader({ s, product, article, name, go }) {
           any announcement about it belongs here, not only after tapping through to the full profile. */}
       {s.announcements.filter(a => annMatchesProduct(s, a, product)).map(a => <div key={a.id} className="rounded-xl px-3 py-2 mt-2.5" style={{ background: C.accentSoft }}><p className="text-xs font-semibold flex items-center" style={{ color: C.accent }}><Ic i={Megaphone} s={12} mr={4} />{a.title}</p><p className="text-xs mt-0.5" style={{ color: C.ink }}>{a.body}</p><AnnounceFileList announcement={a} colors={C} compact /></div>)}
       {hist.count > 0 && <div className="rounded-xl px-3 py-2 mt-2.5" style={{ background: C.badBg }}><p className="text-xs font-semibold" style={{ color: C.bad }}>{hist.count} rejected recently · last {dayLabel(hist.lastAt)}</p><p className="text-xs" style={{ color: C.bad }}>{hist.problems.slice(0, 3).map(p => `${p.name} ×${p.count}`).join(", ")}{hist.problems.length > 3 ? "…" : ""}</p></div>}
+      <ExtRejectionBox s={s} articleId={product.articleId} />
     </button>
   );
 }
@@ -2335,6 +2362,7 @@ function MPalletSheet({ s, set, user, go, row: r, onStart, onPickPallet, onAssig
       </div>}
       {al && !lost && <div className="rounded-xl px-3 py-2 mb-2 flex items-start gap-2" style={{ background: C.badBg, color: C.bad }}><Ic i={Clock} s={14} mr={0} style={{ marginTop: 2 }} /><div className="text-[13px] leading-snug"><b>{al.level === "breached" ? "Rejection window expired" : `Rejection window closes in ${Math.max(0, Math.round(al.hoursLeft))} h`}</b><span className="block text-[11px] mt-0.5" style={{ opacity: .85 }}>{al.level === "breached" ? "Rejecting is no longer possible — inspect anyway and note it." : al.risky ? "This product was rejected recently, so it's flagged early." : "Inspect it before the window closes."}</span></div></div>}
       {hist.count > 0 && <div className="rounded-xl px-3 py-2 mb-2 flex items-start gap-2" style={{ background: C.badBg, color: C.bad }}><Ic i={AlertTriangle} s={14} mr={0} style={{ marginTop: 2 }} /><div className="text-[13px] leading-snug"><b>{hist.count} rejected</b> in 14 days · {hist.problems.slice(0, 3).map(x => `${x.name} ×${x.count}`).join(", ")}{hist.problems.length > 3 ? "…" : ""}</div></div>}
+      {(() => { const l = extRejectionLine(s, r.article); return l && <div className="rounded-xl px-3 py-2 mb-2 flex items-start gap-2" style={{ background: C.badBg, color: C.bad }}><Ic i={AlertTriangle} s={14} mr={0} style={{ marginTop: 2 }} /><div className="min-w-0 text-[13px] leading-snug"><b>Rejected on the dock {l.count}×</b> in {l.span}{l.tail ? ` · ${l.tail}` : ""}<span className="block text-[11px] mt-0.5" style={{ opacity: .8 }}>last {fmtRejectionDay(l.last)}{l.recent[0]?.reason ? ` — ${l.recent[0].reason}` : ""} · DC5 rejections sheet</span></div></div>; })()}
       {compl && <div className="rounded-xl px-3 py-2 mb-2 flex items-start gap-2" style={{ background: C.badBg, color: C.bad }}><Ic i={ThumbsDown} s={14} mr={0} style={{ marginTop: 2 }} /><div className="text-[13px] leading-snug"><b>{compl.count} freshness complaint{compl.count === 1 ? "" : "s"}</b>{compl.sub ? <> · mostly <b>{compl.sub}</b></> : null}{compl.period ? <span style={{ opacity: .8 }}> · {compl.period}</span> : null}</div></div>}
       {anns.map(a => <div key={a.id} className="w-full text-left rounded-xl px-3 py-2 mb-2 flex items-start gap-2" style={{ background: a.isBlocking ? C.badBg : C.accentSoft, color: C.ink }}><Ic i={Megaphone} s={14} mr={0} style={{ marginTop: 2, color: a.isBlocking ? C.bad : C.accent }} /><span className="min-w-0 text-[13px] leading-snug"><button type="button" onClick={() => go("announcements")} className="text-left"><b>{a.title}</b>{a.body ? <span style={{ color: C.muted }}> — {a.body}</span> : null}{a.isBlocking && <span className="block text-[11px] mt-0.5" style={{ color: C.bad }}>Blocking — read it before you inspect</span>}</button><AnnounceFileList announcement={a} colors={C} compact /></span></div>)}
       {draft && <div className="rounded-xl px-3 py-2 mb-2 flex items-start gap-2 text-[13px] leading-snug" style={{ background: C.warnBg, color: C.warn }}><Ic i={Clock} s={14} mr={0} style={{ marginTop: 2 }} /><span><b>{s.users.find(u => u.id === draft.controllerId)?.name.split(" ")[0]}</b> has this pallet in progress ({STATUS[draft.status][0]}){draft.controllerId === user.id && <button onClick={() => go("inspection", draft.id)} className="ml-2 underline">continue</button>}</span></div>}
@@ -2529,7 +2557,7 @@ function MDashboard({ s, set, user, go, dismissed, setDismissed, onAssign }) {
       {(() => {
         const pulse = briefingUnseen(s, user.id);
         const seen = pulse.total === 0;
-        const rej = pulse.rejs.length;
+        const rej = pulse.rejs.length + pulse.xrejs.length;
         const notes = pulse.anns.length;
         const comp = pulse.complaints.length;
         const bits = [
@@ -2793,6 +2821,7 @@ function MProductInfo({ s, user, product, go, setState, embedded }) {
 
       {/* Alerts: one line each, highest priority first. */}
       {hist.count > 0 && <div className="rounded-xl px-3 py-2 mb-2 flex items-start gap-2" style={{ background: C.badBg, color: C.bad }}><Ic i={AlertTriangle} s={14} mr={0} style={{ marginTop: 2 }} /><div className="min-w-0 text-[13px] leading-snug"><b>{hist.count} rejected</b> in 14 days · {hist.problems.slice(0, 3).map(x => `${x.name} ×${x.count}`).join(", ")}{hist.problems.length > 3 ? "…" : ""}<span className="block text-[11px] mt-0.5" style={{ opacity: .8 }}>last {dayLabel(hist.lastAt)} — look for these first</span></div></div>}
+      {(() => { const l = extRejectionLine(s, product.articleId); return l && <div className="rounded-xl px-3 py-2 mb-2 flex items-start gap-2" style={{ background: C.badBg, color: C.bad }}><Ic i={AlertTriangle} s={14} mr={0} style={{ marginTop: 2 }} /><div className="min-w-0 text-[13px] leading-snug"><b>Rejected on the dock {l.count}×</b> in {l.span}{l.tail ? ` · ${l.tail}` : ""}<span className="block text-[11px] mt-0.5" style={{ opacity: .8 }}>last {fmtRejectionDay(l.last)} — DC5 rejections sheet, details below</span></div></div>; })()}
       {(() => { const l = complaintsLine(s, product.articleId); return l && <button onClick={() => go("complaints")} className="w-full text-left rounded-xl px-3 py-2 mb-2 flex items-start gap-2" style={{ background: C.badBg, color: C.bad }}><Ic i={ThumbsDown} s={14} mr={0} style={{ marginTop: 2 }} /><span className="min-w-0 text-[13px] leading-snug"><b>{l.count} freshness complaint{l.count === 1 ? "" : "s"}</b>{l.sub ? <> · mostly <b>{l.sub}</b></> : null}{l.period && <span className="block text-[11px] mt-0.5" style={{ opacity: .8 }}>{l.period} — customers noticed this, look closer</span>}</span><Ic i={ChevronRight} s={14} mr={0} style={{ marginLeft: "auto", marginTop: 2 }} /></button>; })()}
       {anns.map(a => <div key={a.id} className="rounded-xl px-3 py-2 mb-2 flex items-start gap-2 text-[13px] leading-snug" style={{ background: C.accentSoft, color: C.ink }}><Ic i={Megaphone} s={14} mr={0} style={{ marginTop: 2, color: C.accent }} /><span className="min-w-0"><b>{a.title}</b>{a.body && <span style={{ color: C.muted }}> — {a.body}</span>}<AnnounceFileList announcement={a} colors={C} compact /></span></div>)}
       {ref && <button onClick={() => go("inspection", ref.id)} className="w-full rounded-xl px-3 py-2 mb-2 text-[13px] text-left flex items-center" style={{ background: C.okBg, color: C.ok }}><Ic i={Star} s={14} />Reference inspection<span className="ml-1" style={{ opacity: .75 }}>· what a good pallet looks like</span><Ic i={ChevronRight} s={14} mr={0} style={{ marginLeft: "auto" }} /></button>}
@@ -2805,6 +2834,7 @@ function MProductInfo({ s, user, product, go, setState, embedded }) {
         </div>
       ))}</MSection>}
       {attrs.length > 0 && <MSection title="Properties" count={attrs.length}>{attrs.map((a, ix) => <MRow key={a.dictionaryId} k={a.list} v={a.value} last={ix === attrs.length - 1} />)}</MSection>}
+      <ExtRejectionList s={s} articleId={product.articleId} />
       {refNotes.length > 0 && <MSection title="Reference guide" count={refNotes.length}>
         {refNotes.map((n, ix) => { const [parent, leaf] = splitPath(n.problemId); return <MGuideNote key={n.id} note={n} parent={parent} leaf={leaf} last={ix === refNotes.length - 1} />; })}
       </MSection>}
@@ -3750,7 +3780,7 @@ function MBriefing({ s, set, user, go }) {
     setTimeout(() => { wheelLock.current = false; }, 380);
   };
   const Cta = ({ children, onClick, ghost }) => <button data-story-cta onClick={onClick} className="w-full py-2.5 rounded-2xl text-sm font-semibold inline-flex items-center justify-center gap-1" style={ghost ? { background: "transparent", color: C.ink, border: `1px solid ${C.line}` } : { background: C.ink, color: C.onDark }}>{children}</button>;
-  const edge = c => c.kind === "rej" ? C.bad : c.kind === "complaint" ? C.bad : c.kind === "ann" && c.a.isBlocking ? C.bad : C.accent;
+  const edge = c => c.kind === "rej" || c.kind === "xrej" ? C.bad : c.kind === "complaint" ? C.bad : c.kind === "ann" && c.a.isBlocking ? C.bad : C.accent;
   const trans = anim && !dragging.current ? "transform .32s cubic-bezier(.2,.8,.2,1), opacity .28s ease" : "none";
   const PAD = 10;
   const face = pos => {
@@ -3827,6 +3857,23 @@ function MBriefing({ s, set, user, go }) {
           <Cta onClick={() => go("inspection", insp.id)}>Open this rejection<Ic i={ChevronRight} s={15} mr={0} /></Cta>
         </div>
       </>;
+    } else if (c.kind === "xrej") {
+      // A row of the DC5 rejections sheet — the team's official rejection, not a QCteam report. Links to the Slack thread.
+      const x = c.x, prod = productForArticle(s, x.a);
+      hero = <Hero product={prod} name={prod?.name || x.n} />;
+      body = <>
+        <p className="text-[11px] font-semibold uppercase tracking-[0.16em]" style={{ color: C.bad }}>Rejected on the dock · {dayLabel(x.d)}, {hhmm(x.d)}</p>
+        <p className="text-[20px] font-semibold leading-[1.15] tracking-tight mt-1">{prod?.name || x.n || x.a}</p>
+        <p className="text-[12px] mt-1" style={{ color: C.muted }}>{[`ID ${x.a}`, x.tu != null && `${x.tu} TU`, x.po && `PO ${x.po}`, x.group].filter(Boolean).join(" · ")}</p>
+        <p className="text-[13px] mt-2.5" style={{ color: C.ink }}>by {x.user || "the team"}{x.sortable != null ? ` · ${x.sortable ? "sortable" : "not sortable"}` : ""}{x.cat ? ` · ${x.cat}` : ""}</p>
+        {x.reason && <div className="mt-2.5"><p className="text-[11px] font-semibold uppercase tracking-[0.12em] mb-1" style={{ color: C.muted }}>Why</p><p className="text-[13px] leading-snug" style={{ color: C.ink }}>{x.reason}</p></div>}
+        {x.outcome && <p className="text-[12px] mt-2" style={{ color: C.muted }}>Afterwards: {x.outcome}</p>}
+        <p className="text-[11px] mt-2" style={{ color: C.muted }}>From the DC5 rejections sheet — not a QCteam report.</p>
+        <div className="mt-auto pt-3 space-y-2">
+          {x.link && <Cta onClick={() => window.open(x.link, "_blank", "noopener")}>{linkLabel(x.link)}<Ic i={ExternalLink} s={15} mr={0} /></Cta>}
+          {prod && <Cta ghost onClick={() => go("catalog", prod.id)}>Product profile<Ic i={ChevronRight} s={15} mr={0} /></Cta>}
+        </div>
+      </>;
     } else {
       const row = c.c, p = productForArticle(s, row.articleId);
       hero = <Hero product={p} name={row.name || p?.name} />;
@@ -3844,7 +3891,7 @@ function MBriefing({ s, set, user, go }) {
       </>;
     }
     return (
-      <div key={`${c.kind}-${c.a?.id || c.i?.id || c.c?.id || "x"}-${pos}`} className="absolute flex flex-col overflow-hidden rounded-[28px]" style={{ background: C.bg, border: `1px solid ${C.line}`, boxShadow: lift(2), ...face(pos) }}>
+      <div key={`${c.kind}-${c.a?.id || c.i?.id || c.c?.id || (c.x && extRejectionKey(c.x)) || "x"}-${pos}`} className="absolute flex flex-col overflow-hidden rounded-[28px]" style={{ background: C.bg, border: `1px solid ${C.line}`, boxShadow: lift(2), ...face(pos) }}>
         <div className="absolute top-0 left-0 right-0 h-[3px]" style={{ background: edge(c), zIndex: 2 }} />
         {hero}
         <div className="flex-1 min-h-0 flex flex-col px-4 pt-3 pb-3 overflow-y-auto">{body}</div>
@@ -3852,7 +3899,7 @@ function MBriefing({ s, set, user, go }) {
     );
   };
   const notesN = tab === "notes" ? n : unseen.anns.length;
-  const rejN = tab === "rejections" ? n : unseen.rejs.length;
+  const rejN = tab === "rejections" ? n : unseen.rejs.length + unseen.xrejs.length;
   const compN = tab === "complaints" ? n : unseen.complaints.length;
   const Tab = ({ id, label, count }) => <button data-story-cta onClick={() => setTab(id)} className="flex-1 py-2 text-[12px] font-medium whitespace-nowrap" style={{ background: tab === id ? C.ink : "transparent", color: tab === id ? C.onDark : C.ink }}>{label}{count ? ` · ${count}` : ""}</button>;
   const emptyCopy = tab === "complaints" ? "No new complaints to review." : tab === "notes" ? "No new notes to review." : "No new rejections to review.";

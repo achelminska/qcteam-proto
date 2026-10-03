@@ -1,4 +1,5 @@
 import { SPEC_TARGETS, SPEC_ALIASES } from "../src/shared/specsync.js";
+import { REJECTION_TARGETS, REJECTION_ALIASES } from "../src/shared/rejections.js";
 // Sheet logic shared with the front-end (copied from the prototype; keep in sync). Plain JS, no DOM.
 const DOCK_TARGETS = [
   ["hu", "Handling Unit (pallet SSCC)", true], ["article", "Article ID", true], ["name", "Product name", false], ["location", "Location", false],
@@ -7,7 +8,7 @@ const DOCK_TARGETS = [
   ["cusPerTu", "CU per TU", false], ["quantity", "Quantity (TU on the pallet)", false], ["sortable", "Sortable", false], ["ignore", "— ignore —", false],
 ];
 const BLOCKED_TARGETS = [["article", "Article ID (from batch / UOM)", true], ["name", "Product name", false], ["hu", "Pallet SSCC", false], ["location", "Dock location", false], ["zone", "Reach zone", false], ["pickLocation", "Pick location", false], ["deadline", "Departure deadline", false], ["wmsStatus", "WMS status", false], ["status", "QC status (Not started / Started / Completed)", false], ["date", "Date", false], ["time", "Time", false], ["ignore", "— ignore —", false]];
-const targetsFor = purpose => purpose === "Products" ? PRODUCT_TARGETS : purpose === "Blocked" ? BLOCKED_TARGETS : purpose === "Specs" ? SPEC_TARGETS : DOCK_TARGETS;
+const targetsFor = purpose => purpose === "Products" ? PRODUCT_TARGETS : purpose === "Blocked" ? BLOCKED_TARGETS : purpose === "Specs" ? SPEC_TARGETS : purpose === "Rejections" ? REJECTION_TARGETS : DOCK_TARGETS;
 const PRODUCT_TARGETS = [["articleId", "Article ID", true], ["name", "Product name", true], ["barcodeCu", "Barcode CU (consumer pack EAN)", false], ["barcodeTu", "Barcode TU (box / case)", false], ["cusPerTu", "CU per TU", false], ["piecesPerCu", "Pieces per CU", false], ["weightPerCu", "Weight per CU (g)", false], ["category", "Category name", false], ["ignore", "— ignore —", false]];
 const TRANSFORMS = [
   ["none", "as is", v => v],
@@ -22,9 +23,10 @@ const TRANSFORMS = [
   ["status", "status → Not started / Started / Completed", v => { const t = String(v).trim().toLowerCase(); return t.startsWith("not") ? "Not started" : t.startsWith("start") ? "Started" : t.startsWith("compl") || t.startsWith("done") ? "Completed" : String(v).trim(); }],
 ];
 const transformOf = k => TRANSFORMS.find(t => t[0] === k)?.[2] || (v => v);
-const suggestTransform = (target, sample) => target === "deadline" ? "date_iso" : target === "status" ? "status" : target === "article" || target === "articleId" ? (/^[A-Z]+\d+-\d+$/.test(String(sample || "").trim()) ? "uom_article" : "none") : target === "cusPerTu" ? (/-\d+$/.test(String(sample || "").trim()) ? "uom_cus" : "number") : target === "quantity" ? "number" : target === "blocking" || target === "skippable" || target === "sortable" ? "yesno" : target === "arrived" ? "date_dmy" : target === "priority" ? "priority" : "none";
+const suggestTransform = (target, sample) => target === "deadline" ? "date_iso" : target === "status" ? "status" : target === "article" || target === "articleId" ? (/^[A-Z]+\d+-\d+$/.test(String(sample || "").trim()) ? "uom_article" : "none") : target === "cusPerTu" ? (/-\d+$/.test(String(sample || "").trim()) ? "uom_cus" : "number") : target === "quantity" || target === "tu" ? "number" : target === "blocking" || target === "skippable" || target === "sortable" ? "yesno" : target === "arrived" ? "date_dmy" : target === "priority" ? "priority" : "none";
 const ALIASES = { hu: ["handlingunit", "hu", "sscc", "pallet", "palletid"], article: ["uomid", "uom", "articleid", "article", "sku", "artikel", "batch"], articleId: ["uomid", "uom", "articleid", "article", "sku", "artikel"], name: ["itemname", "productname", "name", "product", "omschrijving", "item"], location: ["location", "locatie", "stock", "dock"], priority: ["priorityitem", "priority", "prioriteit"], blocking: ["neededtoday", "urgent"], skippable: ["skippable", "skip"], arrived: ["arrivaldate", "arrival", "date", "datum"], arrivedTime: ["arrivaltime", "time", "tijd"], transporter: ["transporter", "carrier", "vervoerder"], supplier: ["supplier", "leverancier", "dostawca", "vendor", "grower"], po: ["poid", "po", "order", "ponumber"], cusPerTu: ["cupertu", "cus", "cu"], sortable: ["sortable", "sorteerbaar"], barcodeCu: ["barcodecu", "cubarcode", "eancu", "cuean", "consumerbarcode", "barcode", "ean", "gtin"], barcodeTu: ["barcodetu", "tubarcode", "eantu", "tuean", "boxbarcode", "casebarcode", "itf14", "itf", "gtin14", "tradeunitbarcode"], piecesPerCu: ["piecespercu", "pieces", "stuks"], weightPerCu: ["weightpercu", "weight", "gewicht"], category: ["category", "categorie"], status: ["qcstatus", "status", "state"], date: ["date", "datum"], time: ["time", "tijd"], zone: ["reachzone", "zone"], pickLocation: ["picklocation", "pick"], deadline: ["departuredeadline", "deadline", "departure"], wmsStatus: ["wmsstatus", "status"], quantity: ["quantity", "qty", "aantal", "tuonpallet", "tusonpallet", "units", "colli"] }
 Object.assign(ALIASES, SPEC_ALIASES);
+Object.entries(REJECTION_ALIASES).forEach(([k, v]) => { ALIASES[k] = [...new Set([...(ALIASES[k] || []), ...v])]; }); // union: the dock sheet owns some of these keys too
 const suggestMappings = (header, rows, targets) => {
   const norm = h => h.toLowerCase().replace(/[^a-z0-9]/g, ""); const free = new Set(targets.map(t => t[0]).filter(k => k !== "ignore")); const out = header.map(h => ({ source: h, target: "ignore", transform: "none", required: false }));
   const assign = (i, k) => { const sample = rows[0]?.[i]; out[i] = { source: header[i], target: k, transform: suggestTransform(k, sample), required: !!targets.find(t => t[0] === k)?.[2] }; free.delete(k); };
@@ -50,11 +52,13 @@ const adoptNewColumns = (existing, header, rows, targets) => {
 const dedupeMappings = ms => { const seen = new Set(); return ms.map(m => { if (m.target === "ignore") return m; if (seen.has(m.target)) return { ...m, target: "ignore", required: false }; seen.add(m.target); return m; }); };
 const applyMapping = (integration, header, rows) => rows.map(r => { const out = {}; const errs = []; integration.mappings.forEach(m => { if (!m.target || m.target === "ignore") return; const idx = header.indexOf(m.source); if (idx < 0) { errs.push(`missing column ${m.source}`); return; } let v; try { v = transformOf(m.transform)(r[idx] ?? ""); } catch (e) { errs.push(`${m.source}: ${e.message}`); v = ""; } if (m.required && (v === "" || v == null)) errs.push(`${m.target} empty`); out[m.target] = v; }); return { ...out, _errors: errs }; });
 // rows mapped for the dock become the live PalletSnapshot; fall back to the built-in mock when nothing is mapped yet
-const detectTable = ({ header, rows }) => {
+const detectTable = ({ header, rows }, { bridgeGaps = false } = {}) => {
   const all = [header, ...rows];
   let best = 0, bestScore = -1;
   all.slice(0, 10).forEach((r, i) => { const cells = r.map(c => String(c).trim()); const filled = cells.filter(Boolean).length; const bonus = cells.some(c => /handling unit|uom|item name|article|sku|ean|cuname|sortable/i.test(c) && !/:\s*$/.test(c)) ? 100 : 0; /* side-panel labels ("SKU on dock:") must not make a data row look like the header */ const score = filled + bonus; if (score > bestScore) { bestScore = score; best = i; } });
-  const h = all[best].map(c => String(c).trim()); const first = Math.max(0, h.findIndex(c => !!c)); let width = h.findIndex((c, i) => i > first && !c); if (width < 0) width = h.length; // a blank cell BEFORE the first label (the spec sheet's unnamed ID column) is part of the table // the data table is the contiguous run of header cells from the left; side panels come after a gap
+  const h = all[best].map(c => String(c).trim()); const first = Math.max(0, h.findIndex(c => !!c)); let width = h.findIndex((c, i) => i > first && !c); if (width < 0) width = h.length;
+  // The rejections sheet separates its "Inbound / DC5 / Finance to fill in" sections with one blank header column; bridgeGaps keeps the whole labelled run.
+  if (bridgeGaps) { let last = -1; h.forEach((c, i) => { if (c) last = i; }); width = last + 1; } // a blank cell BEFORE the first label (the spec sheet's unnamed ID column) is part of the table // the data table is the contiguous run of header cells from the left; side panels come after a gap
   const hdr = h.slice(0, width).map((c, i) => c || `col${i + 1}`);
   const body = all.slice(best + 1).map(r => r.slice(0, width).map(c => String(c ?? "").trim())).filter(r => r.some(Boolean));
   return { header: hdr, rows: body };
