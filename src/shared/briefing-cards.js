@@ -39,6 +39,19 @@ export const briefingTabDeck = (s, tab, userId) => {
   return u.rejs.map(i => ({ kind: "rej", i }));
 };
 
+// Full desk feed (seen + unseen). The phone still uses briefingTabDeck (unseen only).
+export const briefingFeed = (s, tab) => {
+  const notes = briefingAnnouncements(s).map(a => ({ kind: "ann", a }));
+  const rejs = briefingRejections(s).map(i => ({ kind: "rej", i }));
+  const complaints = briefingComplaints(s).map(c => ({ kind: "complaint", c }));
+  if (tab === "notes") return notes;
+  if (tab === "rejections") return rejs;
+  if (tab === "complaints") return complaints;
+  return [...notes, ...rejs, ...complaints];
+};
+
+export const briefingRowId = c => c?.kind === "ann" ? `ann:${c.a?.id}` : c?.kind === "rej" ? `rej:${c.i?.id}` : c?.kind === "complaint" ? `comp:${c.c?.id}` : "";
+
 export const briefingDefaultTab = (s, userId) => {
   const u = briefingUnseen(s, userId);
   if (u.anns.length) return "notes";
