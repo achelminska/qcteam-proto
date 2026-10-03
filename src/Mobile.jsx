@@ -2724,10 +2724,11 @@ function MEncyclopediaEntry({ e, last }) {
 function MSection({ title, count, action, tone, defaultOpen = false, children }) {
   const [open, setOpen] = useState(defaultOpen);
   const fg = tone === "bad" ? C.bad : C.ink;
+  const temp = tone === "temp";
   return (
-    <div className="rounded-2xl mb-2 overflow-hidden" style={{ background: C.surface, border: `1px solid ${tone === "bad" ? C.bad : C.line}` }}>
+    <div className="rounded-2xl mb-2 overflow-hidden" style={{ background: temp ? C.badBg : C.surface, border: `1px solid ${tone === "bad" ? C.bad : temp ? (C.isDark ? "rgba(240,145,138,.4)" : "rgba(166,61,61,.32)") : C.line}` }}>
       <div className="flex items-center gap-2 pl-3.5 pr-2" style={{ minHeight: 42 }}>
-        <button onClick={() => setOpen(o => !o)} className="flex-1 flex items-center gap-2 text-left py-2" style={{ color: fg }}><span className="text-[13px] font-semibold">{title}</span>{count != null && <span className="text-[11px] px-1.5 rounded-full leading-[18px]" style={{ background: C.bg, color: C.muted, fontVariantNumeric: "tabular-nums" }}>{count}</span>}</button>
+        <button onClick={() => setOpen(o => !o)} className="flex-1 flex items-center gap-2 text-left py-2" style={{ color: fg }}><span className="text-[13px] font-semibold">{title}</span>{count != null && <span className="text-[11px] px-1.5 rounded-full leading-[18px]" style={{ background: C.bg, color: temp ? C.bad : C.muted, fontVariantNumeric: "tabular-nums" }}>{count}</span>}</button>
         {action}
         <button onClick={() => setOpen(o => !o)} className="w-8 h-8 flex items-center justify-center rounded-lg" style={{ color: C.muted }} aria-label={open ? "collapse" : "expand"}><Ic i={ChevronDown} s={16} mr={0} style={{ transform: open ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform .15s" }} /></button>
       </div>
@@ -2794,7 +2795,7 @@ function MProductInfo({ s, user, product, go, setState, embedded }) {
       {ref && <button onClick={() => go("inspection", ref.id)} className="w-full rounded-xl px-3 py-2 mb-2 text-[13px] text-left flex items-center" style={{ background: C.okBg, color: C.ok }}><Ic i={Star} s={14} />Reference inspection<span className="ml-1" style={{ opacity: .75 }}>· what a good pallet looks like</span><Ic i={ChevronRight} s={14} mr={0} style={{ marginLeft: "auto" }} /></button>}
 
       {guide.length > 0 && <MSection title="Encyclopedia" count={guide.length}>{guide.map((e, ix) => <MEncyclopediaEntry key={e.id} e={e} last={ix === guide.length - 1} />)}</MSection>}
-      {specs.length > 0 && <MSection title="Specifications" count={specs.length}>{specs.map((q, ix) => (
+      {specs.length > 0 && <MSection title="Specifications" count={specs.length} tone={specs.some(q => q.temp) ? "temp" : undefined}>{specs.map((q, ix) => (
         <div key={q.id} className="py-1.5" style={{ borderBottom: ix === specs.length - 1 ? "none" : `1px solid ${C.line}` }}>
           <div className="flex items-baseline justify-between gap-3 text-[13px]"><span style={{ color: C.muted }}>{q.name}</span><SpecValue spec={q} colors={C} /></div>
           {q.temp?.note && <p className="text-[12px] mt-1 leading-snug" style={{ color: C.bad }}>{q.temp.note}</p>}
