@@ -9,6 +9,7 @@ import { peopleOnFloor, peopleAtDock, floorWhere, floorVerb, doneTodayCount, don
 import { attachableSameDay, otherDeliveryDay, sameDeliveryRows } from "./shared/delivery-pallets.js";
 import { poRequiredOnReject, poSourceHint, sheetPoForInspection, suggestedPo } from "./shared/rejection-po.js";
 import { dockMatches } from "./shared/dock-search.js";
+import { dockMapGroupKey, dockMapOpen, dockMapRows, isBlockedMapRow, openBlockedForMap, QUEUE_STATUS } from "./shared/dock-map.js";
 import { adoptLocalBriefingSeen, briefingFp, clearBriefingSeen, markBriefingSeen, seenFingerprints } from "./shared/briefing-seen.js";
 import { briefingComplaintsMeta, briefingDefaultTab, briefingItemsKey, briefingRemark, briefingTabDeck, briefingUnseen, liveBriefingFps } from "./shared/briefing-cards.js";
 import { announceFilesOf } from "./shared/announce-files.js";
@@ -886,7 +887,11 @@ const dockRowsLive = s => { const it = (s.integrations || []).find(i => i.purpos
 const findPalletRow = (s, key) => {
   if (!key) return null;
   const dock = dockRowsLive(s); const blocked = blockedRowsLive(s);
-  const byHu = dock.find(r => samePallet(r.hu, key)); if (byHu) return { ...byHu, kind: "dock" };
+  const byHu = dock.find(r => samePallet(r.hu, key));
+  if (byHu) {
+    const alsoBlocked = blocked.find(r => r.hu && samePallet(r.hu, key));
+    return { ...byHu, kind: alsoBlocked ? "blocked" : "dock", blockedQueue: !!alsoBlocked };
+  }
   const byBlockedHu = blocked.find(r => r.hu && samePallet(r.hu, key)); if (byBlockedHu) return { ...byBlockedHu, kind: "blocked" };
   const byClaim = blocked.find(r => claimKey(r) === key); if (byClaim) return { ...byClaim, kind: "blocked" };
   const lostHit = Object.entries(s.lostPallets || {}).find(([k, m]) => k === key || samePallet(m.hu, key));
@@ -1529,20 +1534,21 @@ const DOCK_CHILLED = [13, 12, 11, 10, 9, 8, 7, 6, 5], DOCK_AMBIENT = [3, 2, 1];
 const parseDock = loc => { const m = String(loc || "").trim().match(/^D[-\s]?0*(\d+)\s*([A-Z]?)$/i); return m ? { n: Number(m[1]), sub: (m[2] || "").toUpperCase() } : null; };
 const dockZone = n => n >= 5 && n <= 14 ? "chilled" : (n >= 1 && n <= 3) || n === 0 ? "ambient" : null;
 const dockLabel = n => n === 0 ? "D-00" : String(n);
-// One colour per pallet status, most severe first. "Needed today" (the sheet's blocking flag — picking waits for the pallet)
-// trumps the priority label and gets the blood red; the rest follow the dock sheet's priority column.
+// One colour per pallet status, most severe first. "Blocked" is the blocked-sheet queue (wine). "Needed today"
+// (the dock sheet's blocking flag — picking waits for the pallet) is blood red; the rest follow the priority column.
 // [key, label, bar colour, pill text colour, dark-theme bar colour, dark-theme text colour] — hues spread around the wheel
 // so neighbours never blur together; the dark variants are lifted so they still read on the dark surfaces.
-const DOCK_STATUS = [["blocked", "Needed today", "#9b111e", "#9b111e", "#e05252", "#ff8a80"], ["Now needed", "Now needed", "#e0457b", "#b8265c", "#ff7aa8", "#ff9cbf"], ["High risk", "High risk", "#f28c28", "#b35e0a", "#ffa94d", "#ffb866"], ["High issues", "High issues", "#f2c531", "#7d6200", "#ffd75e", "#ffe07a"], ["Late inspection", "Late inspection", "#7c5cbf", "#5f42a3", "#b39ddb", "#c5b3e6"], ["Inspection due", "Inspection due", "#2a9d8f", "#1f7a6f", "#5fd0c2", "#7fe0d4"], ["Skippable", "Skippable", "#c3cad3", "#6b7480", "#4b5560", "#9aa5b1"]];
-const dockStatus = r => r.blocking ? "blocked" : DOCK_STATUS.some(([k]) => k === r.priority) ? r.priority : "Inspection due";
+const DOCK_STATUS = [[QUEUE_STATUS, "Blocked", "#6b1533", "#6b1533", "#e07088", "#f4a8b4"], ["blocked", "Needed today", "#9b111e", "#9b111e", "#e05252", "#ff8a80"], ["Now needed", "Now needed", "#e0457b", "#b8265c", "#ff7aa8", "#ff9cbf"], ["High risk", "High risk", "#f28c28", "#b35e0a", "#ffa94d", "#ffb866"], ["High issues", "High issues", "#f2c531", "#7d6200", "#ffd75e", "#ffe07a"], ["Late inspection", "Late inspection", "#7c5cbf", "#5f42a3", "#b39ddb", "#c5b3e6"], ["Inspection due", "Inspection due", "#2a9d8f", "#1f7a6f", "#5fd0c2", "#7fe0d4"], ["Skippable", "Skippable", "#c3cad3", "#6b7480", "#4b5560", "#9aa5b1"]];
+const dockStatus = r => isBlockedMapRow(r) ? QUEUE_STATUS : r.blocking ? "blocked" : DOCK_STATUS.some(([k]) => k === r.priority) ? r.priority : "Inspection due";
 // Needed today (blocking flag) and the priority label are two columns. The bar paints the more severe one, but a
 // legend click matches every status the pallet actually has — a Needed-today + Now-needed pallet stays blood-red
-// on the map and still appears when someone taps Now needed.
+// on the map and still appears when someone taps Now needed. "Blocked" is the blocked-sheet queue, not the flag.
 const dockHasStatus = (r, k) => {
+  if (k === QUEUE_STATUS) return isBlockedMapRow(r);
   if (k === "blocked") return !!r.blocking;
   if (k === "Skippable") return r.priority === "Skippable" || !!r.skippable;
   if (DOCK_STATUS.some(([x]) => x === r.priority)) return r.priority === k;
-  return !r.blocking && k === "Inspection due";
+  return !r.blocking && !isBlockedMapRow(r) && k === "Inspection due";
 };
 const dockStatusColor = k => { const e = DOCK_STATUS.find(x => x[0] === k); return e ? (C.isDark ? e[4] : e[2]) : (C.isDark ? "#5fd0c2" : "#2a9d8f"); };
 const dockStatusText = k => { const e = DOCK_STATUS.find(x => x[0] === k); return e ? (C.isDark ? e[5] : e[3]) : dockStatusColor(k); };
@@ -1585,7 +1591,7 @@ function FloorPeopleList({ people, s, user, sel, onPick, compact }) {
   );
 }
 function DockMapPage({ s, user, openPallet }) {
-  const all = dockRowsLive(s); const rows = all.filter(r => !lostOf(s, r)); const lostN = all.length - rows.length;
+  const all = dockMapRows(dockRowsLive(s), openBlockedForMap(blockedQueue(s))); const rows = all.filter(r => !lostOf(s, r)); const lostN = all.length - rows.length;
   const byDock = {}; const other = [];
   rows.forEach(r => { const d = parseDock(r.location); if (d && dockZone(d.n)) (byDock[d.n] = byDock[d.n] || []).push({ ...r, sub: d.sub }); else other.push(r); });
   const floorPeople = peopleOnFloor(s, [...all, ...blockedRowsLive(s)]);
@@ -1599,7 +1605,7 @@ function DockMapPage({ s, user, openPallet }) {
   const max = Math.max(1, ...Object.values(byDock).map(a => vis(a).length));
   const skusOf = arr => new Set(arr.map(r => r.article || r.hu)).size;
   const counts = arr => { const c = {}; arr.forEach(r => { const k = keyOf(r); c[k] = (c[k] || 0) + 1; }); return c; };
-  const zoneStats = ns => { const arr = ns.flatMap(n => byDock[n] || []); return { pallets: arr.length, skus: skusOf(arr), needed: arr.filter(r => r.blocking).length, urgent: arr.filter(dockUrgent).length, docksUsed: ns.filter(n => (byDock[n] || []).length).length }; };
+  const zoneStats = ns => { const arr = ns.flatMap(n => byDock[n] || []); return { pallets: arr.length, skus: skusOf(arr), needed: arr.filter(r => r.blocking).length, queued: arr.filter(isBlockedMapRow).length, urgent: arr.filter(dockUrgent).length, docksUsed: ns.filter(n => (byDock[n] || []).length).length }; };
   const chilled = zoneStats([14, ...DOCK_CHILLED]), ambient = zoneStats([...DOCK_AMBIENT, 0]);
   const BAR_H = 150;
   const acrossArea = Math.min(BAR_H, Math.max(24, Math.round(Math.max((byDock[14] || []).length, (byDock[0] || []).length) / max * BAR_H)));
@@ -1623,9 +1629,9 @@ function DockMapPage({ s, user, openPallet }) {
   const gridCols = `repeat(${DOCK_CHILLED.length}, minmax(0, 1fr)) 18px repeat(${DOCK_AMBIENT.length}, minmax(0, 1fr)) 18px minmax(0, 1fr)`;
   const lastCol = DOCK_CHILLED.length + DOCK_AMBIENT.length + 3;
   const selRows = vis(sel === "other" ? other : sel !== null ? (byDock[sel] || []) : []);
-  const items = (() => { const groups = {}; selRows.forEach(r => { const k = r.article || r.hu; (groups[k] = groups[k] || []).push(r); });
-    return Object.values(groups).map(g => { const first = g[0]; const product = s.products.find(p => p.articleId === first.article); const checked = g.filter(x => completedInspectionFor(s, x.hu)).length; const subs = [...new Set(g.map(r => r.sub).filter(Boolean))].sort(); const earliest = [...g].sort((x, y) => `${x.arrived || ""}${x.arrivedTime || "99"}`.localeCompare(`${y.arrived || ""}${y.arrivedTime || "99"}`))[0]; const pos = new Set(g.map(r => (r.po || "").trim()).filter(Boolean));
-      return { key: first.article || first.hu, hu: earliest.hu, name: first.name || product?.name || first.article, article: first.article, count: g.length, checked, subs, product, priority: first.priority, status: dockStatus(g.find(r => r.blocking) || first), blocking: g.some(r => r.blocking), transporter: earliest.transporter, supplier: [...new Set(g.map(r => r.supplier).filter(Boolean))].join(" "), arrived: earliest.arrived, arrivedTime: earliest.arrivedTime, po: [...pos].join(", "), mixedPO: pos.size > 1, locations: [...new Set(g.map(r => r.location).filter(Boolean))].join(", ") };
+  const items = (() => { const groups = {}; selRows.forEach(r => { const k = dockMapGroupKey(r); (groups[k] = groups[k] || []).push(r); });
+    return Object.values(groups).map(g => { const first = g[0]; const product = s.products.find(p => p.articleId === first.article); const checked = g.filter(x => x.hu && completedInspectionFor(s, x.hu)).length; const subs = [...new Set(g.map(r => r.sub).filter(Boolean))].sort(); const earliest = [...g].sort((x, y) => `${x.arrived || ""}${x.arrivedTime || "99"}`.localeCompare(`${y.arrived || ""}${y.arrivedTime || "99"}`))[0]; const pos = new Set(g.map(r => (r.po || "").trim()).filter(Boolean)); const open = dockMapOpen(g);
+      return { key: dockMapGroupKey(first), hu: earliest.hu, openKey: open.key, blockedOnly: open.blockedOnly, name: first.name || product?.name || first.article, article: first.article, count: g.length, checked, subs, product, priority: first.priority, status: dockStatus(g.find(isBlockedMapRow) || g.find(r => r.blocking) || first), blocking: g.some(r => r.blocking), transporter: earliest.transporter, supplier: [...new Set(g.map(r => r.supplier).filter(Boolean))].join(" "), arrived: earliest.arrived, arrivedTime: earliest.arrivedTime, po: [...pos].join(", "), mixedPO: pos.size > 1, locations: [...new Set(g.map(r => r.location).filter(Boolean))].join(", ") };
     }).sort((a, b) => (dockStatusRank(a.status) - dockStatusRank(b.status)) || `${a.arrived || ""}${a.arrivedTime || "99"}`.localeCompare(`${b.arrived || ""}${b.arrivedTime || "99"}`)); })();
   const shown = items.filter(it => dockMatches(it, q, s));
   const searching = !!q.trim();
@@ -1633,7 +1639,7 @@ function DockMapPage({ s, user, openPallet }) {
   const quickRows = [14, ...DOCK_CHILLED, ...DOCK_AMBIENT, 0].map(n => ({ key: n, label: n === 14 || n === 0 ? `${dockLabel(n)} · across` : dockLabel(n), zone: dockZone(n), arr: byDock[n] || [] })).filter(q => q.arr.length).concat(other.length ? [{ key: "other", label: "Other locations", zone: null, arr: other }] : []);
   const ZoneCard = ({ icon, title, st, tint }) => (
     <Card>
-      <div className="flex items-center gap-2 mb-2"><span className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: C.bg, color: tint }}><Ic i={icon} s={16} mr={0} /></span><p className="font-medium text-sm flex-1">{title}</p>{st.needed > 0 && <span className="text-[11px] px-2 py-0.5 rounded-full" style={{ background: dockStatusColor("blocked") + "1f", color: dockStatusColor("blocked") }}>{st.needed} needed today</span>}</div>
+      <div className="flex items-center gap-2 mb-2"><span className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: C.bg, color: tint }}><Ic i={icon} s={16} mr={0} /></span><p className="font-medium text-sm flex-1">{title}</p>{st.queued > 0 && <span className="text-[11px] px-2 py-0.5 rounded-full" style={{ background: dockStatusColor(QUEUE_STATUS) + "1f", color: dockStatusColor(QUEUE_STATUS) }}>{st.queued} blocked</span>}{st.needed > 0 && <span className="text-[11px] px-2 py-0.5 rounded-full" style={{ background: dockStatusColor("blocked") + "1f", color: dockStatusColor("blocked") }}>{st.needed} needed today</span>}</div>
       <div className="grid grid-cols-4 gap-2">{[["Pallets", st.pallets], ["SKUs", st.skus], ["Urgent", st.urgent], ["Docks in use", st.docksUsed]].map(([l, v]) => <div key={l}><p className="text-[22px] leading-tight font-semibold" style={{ color: l === "Urgent" && v > 0 ? C.bad : C.ink }}>{v}</p><p className="text-[11px]" style={{ color: C.muted }}>{l}</p></div>)}</div>
     </Card>
   );
@@ -1644,7 +1650,7 @@ function DockMapPage({ s, user, openPallet }) {
       <div className="flex items-center gap-3 mb-4"><h1 className="flex-1">Dock map</h1>
         {all.length > 0 && <button onClick={() => setQuick(q => !q)} className="text-xs px-3 py-1.5 rounded-lg inline-flex items-center gap-1.5" style={{ border: `1px solid ${quick ? C.accent : C.line}`, background: quick ? C.accentSoft : C.surface, color: quick ? C.accent : C.ink }}><Ic i={ListIcon} s={13} mr={0} />Quick list</button>}
       </div>
-      {all.length === 0 && <Empty icon={Warehouse} title="No dock data yet" hint="The map fills in as soon as the dock sheet syncs." />}
+      {all.length === 0 && <Empty icon={Warehouse} title="No dock data yet" hint="The map fills in as soon as the dock or blocked sheet syncs." />}
       {all.length === 0 && <FloorPeopleList people={floorPeople} s={s} user={user} sel={sel} onPick={d => setSel(sel === d ? null : d)} />}
       {all.length > 0 && <>
         <Card style={{ marginBottom: 12 }}>
@@ -1694,7 +1700,7 @@ function DockMapPage({ s, user, openPallet }) {
           <div className="flex items-center gap-2 mb-2">
             <p className="font-medium text-sm">{sel === "other" ? "Other locations" : sel === 0 ? "D-00 · opposite dock 1" : `Dock ${sel}`}</p>
             {selZone && <span className="text-[11px] px-2 py-0.5 rounded-full inline-flex items-center gap-1" style={{ background: C.bg, color: selZone === "chilled" ? C.accent : C.warn, border: `1px solid ${C.line}` }}><Ic i={selZone === "chilled" ? Snowflake : Thermometer} s={11} mr={0} />{selZone}</span>}
-            <span className="text-xs flex-1" style={{ color: C.muted }}>· {selRows.length} pallet{selRows.length === 1 ? "" : "s"} · {items.length} SKU{items.length === 1 ? "" : "s"}{selRows.filter(r => r.blocking).length ? ` · ${selRows.filter(r => r.blocking).length} needed today` : ""} · most urgent first</span>
+            <span className="text-xs flex-1" style={{ color: C.muted }}>· {selRows.length} pallet{selRows.length === 1 ? "" : "s"} · {items.length} SKU{items.length === 1 ? "" : "s"}{selRows.filter(isBlockedMapRow).length ? ` · ${selRows.filter(isBlockedMapRow).length} blocked` : ""}{selRows.filter(r => r.blocking).length ? ` · ${selRows.filter(r => r.blocking).length} needed today` : ""} · most urgent first</span>
             <SearchBox value={q} onChange={setQ} placeholder="Search name, article, supplier…" style={{ width: 260 }} inputClass="rounded-lg" size={13} />
             <button onClick={() => setSel(null)} className="text-xs" style={{ color: C.muted }}>close</button>
           </div>
@@ -1711,7 +1717,7 @@ function DockMapPage({ s, user, openPallet }) {
           {shown.length === 0 ? <p className="text-xs py-3" style={{ color: C.muted }}>{searching ? "Nothing matches." : "Nothing standing here right now."}</p> : <table className="w-full text-sm">
             <thead><tr className="text-xs text-left" style={{ color: C.muted }}>{["Product", "Pallets", sel === "other" ? "Location" : "Spot", "Status", "Article", "Arrived", "Transporter", "PO", "Report"].map(h => <th key={h} className="py-1.5 pr-3 font-medium" style={{ borderBottom: `1px solid ${C.line}` }}>{h}</th>)}</tr></thead>
             <tbody>{shown.map(it => <tr key={it.key} style={{ borderBottom: `1px solid ${C.line}` }}>
-              <td className="py-1.5 pr-3"><span className="inline-flex items-center gap-2">{openPallet && (it.hu || it.article) ? <button onClick={() => openPallet(it.hu || it.article)} className="text-left font-medium" style={{ color: C.ink }}>{it.name}</button> : <span>{it.name}</span>}<ComplaintChip s={s} articleId={it.article} /></span></td>
+              <td className="py-1.5 pr-3"><span className="inline-flex items-center gap-2">{openPallet && (it.openKey || it.hu || it.article) ? <button onClick={() => openPallet(it.openKey || it.hu || it.article)} className="text-left font-medium" style={{ color: C.ink }}>{it.name}</button> : <span>{it.name}</span>}<ComplaintChip s={s} articleId={it.article} /></span></td>
               <td className="py-1.5 pr-3 text-xs">{it.count > 1 ? <span className="px-1.5 py-0.5 rounded-full" style={{ background: C.accentSoft, color: C.accent }}>×{it.count}</span> : "1"}</td>
               <td className="py-1.5 pr-3 text-xs">{sel === "other" ? it.locations : (it.subs.join("/") || "—")}</td>
               <td className="py-1.5 pr-3 text-xs"><StatusPill k={it.status} />{it.blocking && it.priority && it.priority !== "Skippable" && <span className="ml-1 text-[10px]" style={{ color: C.muted }}>{it.priority}</span>}</td>
