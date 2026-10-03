@@ -2431,7 +2431,7 @@ function BriefingPage({ s, set, user, go }) {
       <div className="flex items-end gap-3 mb-4">
         <div className="flex-1 min-w-0">
           <h1>Shift update</h1>
-          <p className="text-sm mt-0.5" style={{ color: C.muted, maxWidth: 640 }}>Head notes, last rejections and customer complaints for the desk — pick a row, read it, move on. Opening a row marks it seen, same as on the phone.</p>
+          <p className="text-sm mt-0.5" style={{ color: C.muted, maxWidth: 640 }}>Head notes, last rejections and customer complaints — pick a row, read it, move on. Opening a row marks it seen, same as on the phone.</p>
         </div>
         {unseen.total > 0 && <span className="text-xs px-2.5 py-1 rounded-full font-medium flex-shrink-0" style={{ background: C.accentSoft, color: C.accent }}>{unseen.total} unseen</span>}
       </div>
