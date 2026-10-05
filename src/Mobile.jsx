@@ -2351,7 +2351,7 @@ function MPalletSheet({ s, set, user, go, row: r, onStart, onPickPallet, onAssig
       {!lost && <div className="mb-3">
         <p className="label-sm mb-1.5" style={{ color: C.muted }}>{done ? "Inspect again" : "Start inspection"}</p>
         <div className="flex flex-col gap-2">
-          {types.map((t, idx) => <button key={t.id} onClick={() => setStarting(t.id)} className="w-full py-3 rounded-xl text-sm font-medium inline-flex items-center justify-center gap-2 active:opacity-80" style={idx === 0 ? { background: C.ink, color: C.onDark } : { background: C.surface, color: C.ink, border: `1px solid ${C.line}` }}><span className="inline-block rounded-full" style={{ width: 8, height: 8, background: t.color }} />{t.name} inspection</button>)}
+          {types.map((t, idx) => <button key={t.id} onClick={() => setStarting(t.id)} className="qc-elev qc-tile w-full py-3 rounded-xl text-sm font-medium inline-flex items-center justify-center gap-2" style={idx === 0 ? { background: C.ink, color: C.onDark } : { background: C.surface, color: C.ink, border: `1px solid ${C.line}` }}><span className="inline-block rounded-full" style={{ width: 8, height: 8, background: t.color }} />{t.name} inspection</button>)}
           {product && types.length === 0 && <p className="text-[11px] text-center" style={{ color: C.bad }}>{typesOf(s).length ? `No inspection type is allowed for this product (${pol.source}).` : "The Head hasn't defined any inspection types yet (portal → Forms)."}</p>}
           {!product && <p className="text-[11px] text-center" style={{ color: C.muted }}>You'll pick the product in the next step — the allowed types depend on it.</p>}
         </div>
@@ -2725,7 +2725,7 @@ function MSection({ title, count, action, tone, defaultOpen = false, children })
   const [open, setOpen] = useState(defaultOpen);
   const fg = tone === "bad" ? C.bad : C.ink;
   return (
-    <div className="rounded-2xl mb-2 overflow-hidden" style={{ background: C.surface, border: `1px solid ${tone === "bad" ? C.bad : C.line}` }}>
+    <div className="qc-tile rounded-2xl mb-2.5" style={{ background: C.surface, border: `1px solid ${tone === "bad" ? C.bad : C.line}` }}>
       <div className="flex items-center gap-2 pl-3.5 pr-2" style={{ minHeight: 42 }}>
         <button onClick={() => setOpen(o => !o)} className="flex-1 flex items-center gap-2 text-left py-2" style={{ color: fg }}><span className="text-[13px] font-semibold">{title}</span>{count != null && <span className="text-[11px] px-1.5 rounded-full leading-[18px]" style={{ background: C.bg, color: C.muted, fontVariantNumeric: "tabular-nums" }}>{count}</span>}</button>
         {action}
@@ -2833,14 +2833,14 @@ function MProductCard({ s, user, product, onBack, onStart, go, setState, notify,
       <TopBar title={catPath(product.categoryId)} onBack={onBack} />
       <MProductInfo s={s} user={user} product={product} go={go} setState={setState} />
       <div className="px-4">
-        {product.consumerAppUrl && <a href={product.consumerAppUrl} target="_blank" rel="noopener noreferrer" className="w-full py-3 rounded-xl text-sm font-medium inline-flex items-center justify-center mb-3" style={{ background: C.surface, color: C.accent, border: `1px solid ${C.line}` }}><Ic i={ExternalLink} s={15} />Open in the consumer app</a>}
+        {product.consumerAppUrl && <a href={product.consumerAppUrl} target="_blank" rel="noopener noreferrer" className="qc-elev qc-tile w-full py-3 rounded-xl text-sm font-medium inline-flex items-center justify-center mb-3" style={{ background: C.surface, color: C.accent, border: `1px solid ${C.line}` }}><Ic i={ExternalLink} s={15} />Open in the consumer app</a>}
 
-        <div className="mt-2 flex flex-col gap-2">
-          {types.map((t, idx) => <button key={t.id} onClick={() => onStart(t.id)} className="w-full py-3 rounded-xl text-sm font-semibold inline-flex items-center justify-center gap-2" style={idx === 0 ? { background: C.ink, color: C.onDark } : { background: C.surface, color: C.ink, border: `1px solid ${C.line}` }}><span className="inline-block rounded-full" style={{ width: 8, height: 8, background: t.color }} />{t.name} inspection</button>)}
+        <div className="mt-2 flex flex-col gap-2.5 pb-3">
+          {types.map((t, idx) => <button key={t.id} onClick={() => onStart(t.id)} className="qc-elev qc-tile w-full py-3 rounded-xl text-sm font-semibold inline-flex items-center justify-center gap-2" style={idx === 0 ? { background: C.ink, color: C.onDark } : { background: C.surface, color: C.ink, border: `1px solid ${C.line}` }}><span className="inline-block rounded-full" style={{ width: 8, height: 8, background: t.color }} />{t.name} inspection</button>)}
           {types.length === 0 && <p className="text-[11px] text-center" style={{ color: C.bad }}>{typesOf(s).length ? `No inspection type is allowed for this product (${effectivePolicy(s, product).source}).` : "The Head hasn't defined any inspection types yet (portal → Forms)."}</p>}
-          <div className="flex gap-2 mt-1">
-            <button onClick={() => { setAskOpen(o => !o); setFlagOpen(false); }} className="flex-1 py-2.5 rounded-xl text-sm inline-flex items-center justify-center" style={{ background: C.surface, border: `1px solid ${C.line}`, color: askOpen ? C.accent : C.ink }}><Ic i={MessageSquare} s={14} />Ask the Head</button>
-            <button onClick={() => { setFlagOpen(o => !o); setAskOpen(false); }} className="flex-1 py-2.5 rounded-xl text-sm inline-flex items-center justify-center" style={{ background: C.surface, border: `1px solid ${C.line}`, color: flagOpen ? C.warn : C.ink }}><Ic i={Flag} s={14} />Report an issue</button>
+          <div className="flex gap-2.5 mt-0.5">
+            <button onClick={() => { setAskOpen(o => !o); setFlagOpen(false); }} className="qc-elev qc-tile flex-1 py-2.5 rounded-xl text-sm inline-flex items-center justify-center" style={{ background: C.surface, border: `1px solid ${C.line}`, color: askOpen ? C.accent : C.ink }}><Ic i={MessageSquare} s={14} />Ask the Head</button>
+            <button onClick={() => { setFlagOpen(o => !o); setAskOpen(false); }} className="qc-elev qc-tile flex-1 py-2.5 rounded-xl text-sm inline-flex items-center justify-center" style={{ background: C.surface, border: `1px solid ${C.line}`, color: flagOpen ? C.warn : C.ink }}><Ic i={Flag} s={14} />Report an issue</button>
           </div>
           {askOpen && <div className="flex gap-2"><input autoFocus value={ask} onChange={e => setAsk(e.target.value)} onKeyDown={e => e.key === "Enter" && askHead()} placeholder="e.g. is this calibre OK?" className="flex-1 text-sm rounded-xl px-3 py-2 outline-none" style={{ ...inp }} /><button onClick={askHead} className="px-3 rounded-xl text-sm" style={{ background: C.accent, color: C.onDark }}>Send</button></div>}
           {flagOpen && <div className="flex gap-2"><input autoFocus value={flag} onChange={e => setFlag(e.target.value)} placeholder="what's wrong in this profile?" className="flex-1 text-sm rounded-xl px-3 py-2 outline-none" style={{ ...inp }} /><button onClick={() => { if (flag.trim() && setState) { setState(x => ({ ...x, flags: [...x.flags, { id: uid(), productId: product.id, inspectionId: null, raisedBy: user.id, description: flag.trim(), status: "Open", createdAt: nowISO() }] })); notify && notify("Flag", `${user.name}: ${product.name} — ${flag.trim()}`, "ProductFlag", null); setFlag(""); setFlagOpen(false); } }} className="px-3 rounded-xl text-sm" style={{ background: C.accent, color: C.onDark }}>Send</button></div>}
@@ -2954,7 +2954,7 @@ function DockPresence({ s, set, user, product, onPickPallet, showLost, compact }
   // up front so it's seen before picking a pallet to inspect, not discovered later.
   const pos = [...new Set(rows.map(r => (r.po || "").trim()).filter(Boolean))];
   return (
-    <div className="rounded-xl mb-2" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+    <div className="qc-tile rounded-xl mb-2" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
       <button onClick={() => setOpen(o => !o)} className="w-full flex items-center gap-2 px-3 py-2.5 text-left">
         <span style={{ color: C.accent }}><Ic i={Truck} s={15} mr={0} /></span>
         <span className="text-sm flex-1"><b>On the docks now</b> — {pallets} pallet{pallets === 1 ? "" : "s"} · {rows.length} HU{rows.some(r => r.quantity != null) ? ` · ${rows.reduce((a, r) => a + (r.quantity || 0), 0)} TU` : ""}{(rows.some(r => r.blocking) || blocked.length) ? <span style={{ color: C.bad }}> · blocked for picking{blocked.length ? ` (${blocked.length})` : ""}</span> : ""}</span>
@@ -3005,7 +3005,7 @@ function MScan({ s, user, go, onStart, onVisual, onSkip, setState, notify, prese
   useEffect(() => { if (preset) scan(preset); }, []);
   const Actions = () => { const known = wmsProduct || (completed && s.products.find(p => p.id === completed.productId)); const types = known ? allowedTypes(s, known) : typesOf(s); const pol = known ? effectivePolicy(s, known) : null; return (
     <div className="flex flex-col gap-2 mt-1">
-      {types.map((t, idx) => <button key={t.id} onClick={() => setStarting({ kind: t.id })} className="w-full py-3 rounded-xl text-sm font-medium inline-flex items-center justify-center gap-2" style={idx === 0 ? { background: C.ink, color: C.onDark } : { background: C.surface, color: C.ink, border: `1px solid ${C.line}` }}><span className="inline-block rounded-full" style={{ width: 8, height: 8, background: t.color }} />{t.name} inspection</button>)}
+      {types.map((t, idx) => <button key={t.id} onClick={() => setStarting({ kind: t.id })} className="qc-elev qc-tile w-full py-3 rounded-xl text-sm font-medium inline-flex items-center justify-center gap-2" style={idx === 0 ? { background: C.ink, color: C.onDark } : { background: C.surface, color: C.ink, border: `1px solid ${C.line}` }}><span className="inline-block rounded-full" style={{ width: 8, height: 8, background: t.color }} />{t.name} inspection</button>)}
       {known && types.length === 0 && <p className="text-[11px] text-center" style={{ color: C.bad }}>{typesOf(s).length ? `No inspection type is allowed for this product (${pol.source}).` : "The Head hasn't defined any inspection types yet (portal → Forms)."}</p>}
       {!known && <p className="text-[11px] text-center" style={{ color: C.muted }}>Which types are allowed depends on the product you pick.</p>}
     </div>
