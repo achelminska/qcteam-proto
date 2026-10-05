@@ -2292,7 +2292,8 @@ function MPalletSheet({ s, set, user, go, row: r, onStart, onPickPallet, onAssig
   const Fact = ({ k, v, strong }) => <div className="min-w-0"><p className="text-[10px] uppercase tracking-wide" style={{ color: C.muted }}>{k}</p><p className={`${strong ? "text-[17px]" : "text-[13px]"} font-semibold leading-tight truncate`} style={{ fontVariantNumeric: "tabular-nums" }}>{v || "—"}</p></div>;
   return (
     <div>
-      <div className="rounded-2xl overflow-hidden mb-3 flex" style={{ background: C.bg, border: `1px solid ${C.line}`, opacity: lost ? .7 : 1 }}>
+      <div className="qc-tile rounded-2xl mb-3" style={{ opacity: lost ? .7 : 1 }}>
+      <div className="rounded-2xl overflow-hidden flex" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
         <div className="flex-shrink-0" style={{ width: 5, background: col }} />
         <div className="flex-1 min-w-0 p-3.5">
           <div className="flex items-center gap-1.5 flex-wrap mb-2.5">
@@ -2322,6 +2323,7 @@ function MPalletSheet({ s, set, user, go, row: r, onStart, onPickPallet, onAssig
             {r.cusPerTu != null && r.cusPerTu !== "" && r.quantity == null && <span className="text-[11px] px-2 py-0.5 rounded-md" style={{ background: C.surface, border: `1px solid ${C.line}`, color: C.muted }}>{r.cusPerTu} CU/TU</span>}
           </div>
         </div>
+      </div>
       </div>
       <MLostControls s={s} set={set} user={user} row={r} open={lost ? undefined : !!lostOpen} onClose={onLostClose} />
 
@@ -2781,8 +2783,10 @@ function MProductInfo({ s, user, product, go, setState, embedded }) {
       {photos.length > 1 && <div className="flex gap-1.5 mt-2 overflow-x-auto" style={{ scrollbarWidth: "none" }}>{photos.map((ph, ix) => <button key={ph.id || ix} onClick={() => setPhotoIx(ix)} className="flex-shrink-0 rounded-lg overflow-hidden" style={{ width: 44, height: 44, outline: ix === photoIx ? `2px solid ${C.accent}` : `1px solid ${C.line}`, outlineOffset: -1 }}><img src={photoSrc(ph)} alt="" className="w-full h-full object-cover" /></button>)}</div>}
       {zoom != null && photos.length > 0 && <MPhotoViewer photos={photos} index={zoom} onIndex={k => { setZoom(k); setPhotoIx(k); }} onClose={() => setZoom(null)} />}
 
-      {facts.length > 0 && <div className="grid mt-2 rounded-2xl overflow-hidden" style={{ gridTemplateColumns: `repeat(${facts.length}, 1fr)`, background: C.surface, border: `1px solid ${C.line}` }}>
-        {facts.map(([l, v], ix) => <div key={l} className="px-3 py-2" style={{ borderLeft: ix ? `1px solid ${C.line}` : "none" }}><p className="text-[15px] font-semibold leading-none" style={{ fontVariantNumeric: "tabular-nums" }}>{v}</p><p className="text-[10px] mt-1 uppercase tracking-wide" style={{ color: C.muted }}>{l}</p></div>)}
+      {facts.length > 0 && <div className="qc-tile rounded-2xl mt-2">
+        <div className="grid rounded-2xl overflow-hidden" style={{ gridTemplateColumns: `repeat(${facts.length}, 1fr)`, background: C.surface, border: `1px solid ${C.line}` }}>
+          {facts.map(([l, v], ix) => <div key={l} className="px-3 py-2" style={{ borderLeft: ix ? `1px solid ${C.line}` : "none" }}><p className="text-[15px] font-semibold leading-none" style={{ fontVariantNumeric: "tabular-nums" }}>{v}</p><p className="text-[10px] mt-1 uppercase tracking-wide" style={{ color: C.muted }}>{l}</p></div>)}
+        </div>
       </div>}
 
       <div className="mt-2"><DockPresence s={s} set={setState} user={user} product={product} onPickPallet={embedded ? null : (hu => go("palletInfo", hu))} showLost={!embedded} /></div>
@@ -3017,7 +3021,7 @@ function MScan({ s, user, go, onStart, onVisual, onSkip, setState, notify, prese
       <div className="px-4 pt-3">
         {/* Once a code resolved, the camera and input fold into one line so the result gets the screen. */}
         {mode ? (
-          <div className="flex items-center gap-1 rounded-xl pl-3 pr-1 mb-3" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
+          <div className="qc-tile flex items-center gap-1 rounded-xl pl-3 pr-1 mb-3" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
             <button type="button" data-scan-another="1" onPointerDown={onChipDown} onPointerUp={onChipUp} onClick={e => { e.preventDefault(); e.stopPropagation(); clearScan(); }} className="flex-1 min-w-0 flex items-center gap-2 text-left" style={{ minHeight: 44, color: C.ink, userSelect: "none", WebkitUserSelect: "none" }}>
               <Ic i={ScanLine} s={15} mr={0} style={{ color: C.accent }} />
               <span className="flex-1 min-w-0 text-[12px] font-mono truncate">{pallet || scanned}</span>
