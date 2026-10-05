@@ -2835,7 +2835,7 @@ function MProductCard({ s, user, product, onBack, onStart, go, setState, notify,
       <div className="px-4">
         {product.consumerAppUrl && <a href={product.consumerAppUrl} target="_blank" rel="noopener noreferrer" className="qc-elev qc-tile w-full py-3 rounded-xl text-sm font-medium inline-flex items-center justify-center mb-3" style={{ background: C.surface, color: C.accent, border: `1px solid ${C.line}` }}><Ic i={ExternalLink} s={15} />Open in the consumer app</a>}
 
-        <div className="mt-2 flex flex-col gap-2.5">
+        <div className="mt-2 flex flex-col gap-2.5 pb-3">
           {types.map((t, idx) => <button key={t.id} onClick={() => onStart(t.id)} className="qc-elev qc-tile w-full py-3 rounded-xl text-sm font-semibold inline-flex items-center justify-center gap-2" style={idx === 0 ? { background: C.ink, color: C.onDark } : { background: C.surface, color: C.ink, border: `1px solid ${C.line}` }}><span className="inline-block rounded-full" style={{ width: 8, height: 8, background: t.color }} />{t.name} inspection</button>)}
           {types.length === 0 && <p className="text-[11px] text-center" style={{ color: C.bad }}>{typesOf(s).length ? `No inspection type is allowed for this product (${effectivePolicy(s, product).source}).` : "The Head hasn't defined any inspection types yet (portal → Forms)."}</p>}
           <div className="flex gap-2.5 mt-0.5">
