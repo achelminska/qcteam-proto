@@ -2725,7 +2725,7 @@ function MSection({ title, count, action, tone, defaultOpen = false, children })
   const [open, setOpen] = useState(defaultOpen);
   const fg = tone === "bad" ? C.bad : C.ink;
   return (
-    <div className="rounded-2xl mb-2 overflow-hidden" style={{ background: C.surface, border: `1px solid ${tone === "bad" ? C.bad : C.line}` }}>
+    <div className="qc-tile rounded-2xl mb-2.5" style={{ background: C.surface, border: `1px solid ${tone === "bad" ? C.bad : C.line}` }}>
       <div className="flex items-center gap-2 pl-3.5 pr-2" style={{ minHeight: 42 }}>
         <button onClick={() => setOpen(o => !o)} className="flex-1 flex items-center gap-2 text-left py-2" style={{ color: fg }}><span className="text-[13px] font-semibold">{title}</span>{count != null && <span className="text-[11px] px-1.5 rounded-full leading-[18px]" style={{ background: C.bg, color: C.muted, fontVariantNumeric: "tabular-nums" }}>{count}</span>}</button>
         {action}
