@@ -81,3 +81,34 @@ export function photoGroupsByModule({ modules = [], fields = [], photos = {}, re
   }
   return groups;
 }
+
+// ── Thumbnails ──────────────────────────────────────────────────────────────────────────────────────────────────
+// A photo is { id, path, thumb?, at, name }. `path` is the full picture (≤ 1600 px), `thumb` a ≤ 480 px copy for
+// lists, tiles, headers and the card hero — a product screen used to pull 2–3 MB of full-size pictures to draw
+// 44 px squares. The viewer, rotation and the PDF keep using `path`. Older photos have no thumb yet: they fall
+// back to the full picture, and the Head can backfill them from the Data panel (thumbsMissing / withThumb).
+export const THUMB_EDGE = 480;
+export const thumbSrc = ph => (ph && (ph.thumb || ph.path || ph.dataUrl)) || "";
+const isStoredPhoto = v => v && typeof v === "object" && !Array.isArray(v) && typeof v.path === "string" && v.path.startsWith("/photos/");
+// Every stored photo object anywhere in the state that still has no thumbnail, with the path (keys) to reach it.
+export function thumbsMissing(state, limit = Infinity) {
+  const out = [];
+  const walk = (node, trail) => {
+    if (out.length >= limit || !node || typeof node !== "object") return;
+    if (isStoredPhoto(node) && !node.thumb) { out.push({ trail, photo: node }); return; }
+    if (Array.isArray(node)) node.forEach((x, i) => walk(x, [...trail, i]));
+    else Object.keys(node).forEach(k => walk(node[k], [...trail, k]));
+  };
+  walk(state, []);
+  return out;
+}
+// Returns a copy of `state` with the photo at `trail` given `thumb` (untouched branches keep their identity).
+export function withThumb(state, trail, thumb) {
+  const step = (node, i) => {
+    if (i === trail.length) return { ...node, thumb };
+    const k = trail[i]; const child = step(node[k], i + 1);
+    if (Array.isArray(node)) { const copy = node.slice(); copy[k] = child; return copy; }
+    return { ...node, [k]: child };
+  };
+  return step(state, 0);
+}

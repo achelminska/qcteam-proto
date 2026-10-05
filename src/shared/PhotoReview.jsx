@@ -2,6 +2,7 @@ import { useRef } from "react";
 import { RotateCcw, RotateCw, Trash2, X } from "lucide-react";
 
 const srcOf = ph => (typeof ph === "string" ? ph : (ph && (ph.dataUrl || ph.path || ph.src)) || "");
+const thumbOf = ph => (typeof ph === "string" ? ph : (ph && (ph.thumb || ph.dataUrl || ph.path || ph.src)) || "");
 
 // Full-screen review: filmstrip, rotate left/right, optional delete. Used from
 // the in-app camera (tap the last-shot thumb) and from every photo strip.
@@ -37,7 +38,7 @@ export function PhotoReview({ photos, index, onIndex, onClose, onRotate, onDelet
         <div className="flex gap-2 overflow-x-auto px-4 pb-4" style={{ paddingBottom: "max(16px, env(safe-area-inset-bottom))" }} onClick={stop}>
           {photos.map((ph, k) => (
             <button type="button" key={ph.key || ph.id || k} onClick={() => onIndex(k)} className="flex-shrink-0 rounded-md overflow-hidden" style={{ width: 64, height: 64, outline: k === ix ? "2px solid #fff" : "none", outlineOffset: 1, background: "#000" }}>
-              <img src={srcOf(ph)} alt="" className="w-full h-full object-cover" />
+              <img src={thumbOf(ph)} alt="" className="w-full h-full object-cover" loading="lazy" decoding="async" />
             </button>
           ))}
         </div>

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { asPhotoList, flattenPhotos, photoGroupsByModule, pickedPhotos, attachRemarkPhotos, replacePhoto, replaceRemarkPhoto } from "./photos.js";
+import { asPhotoList, flattenPhotos, photoGroupsByModule, pickedPhotos, attachRemarkPhotos, replacePhoto, replaceRemarkPhoto, thumbSrc, thumbsMissing, withThumb } from "./photos.js";
 
 const shot = (id) => ({ id, path: `/photos/${id}.jpg` });
 
@@ -99,5 +99,25 @@ describe("attachRemarkPhotos", () => {
   it("does nothing when the picker result is empty or the id is missing", () => {
     expect(attachRemarkPhotos(remarks, "r1", { out: [], failed: ["x"] })).toEqual(remarks);
     expect(attachRemarkPhotos(remarks, null, { out: [shot("a")], failed: [] })).toEqual(remarks);
+  });
+});
+
+describe("thumbnails", () => {
+  const s = { products: [{ id: "p1", photos: [{ id: "a", path: "/photos/a.jpg" }, { id: "b", path: "/photos/b.jpg", thumb: "/photos/bt.jpg" }, { id: "c", dataUrl: "data:image/jpeg;base64,xx" }] }],
+    inspections: [{ id: "i1", remarks: [{ id: "r1", photos: [{ id: "d", path: "/photos/d.jpg" }] }] }], extRejections: { latest: [{ a: "1", link: "/photos/not-a-photo" }] } };
+  it("prefers the thumb, falls back to the full picture or the inline data", () => {
+    expect(thumbSrc(s.products[0].photos[1])).toBe("/photos/bt.jpg"); expect(thumbSrc(s.products[0].photos[0])).toBe("/photos/a.jpg"); expect(thumbSrc(s.products[0].photos[2])).toMatch(/^data:/); expect(thumbSrc(null)).toBe("");
+  });
+  it("finds every stored photo without a thumb, wherever it sits, with a path to it", () => {
+    const m = thumbsMissing(s);
+    expect(m.map(x => x.photo.id)).toEqual(["a", "d"]);
+    expect(m[1].trail).toEqual(["inspections", 0, "remarks", 0, "photos", 0]);
+    expect(thumbsMissing(s, 1).length).toBe(1);
+  });
+  it("writes a thumb back immutably", () => {
+    const m = thumbsMissing(s)[1]; const next = withThumb(s, m.trail, "/photos/dt.jpg");
+    expect(next.inspections[0].remarks[0].photos[0]).toEqual({ id: "d", path: "/photos/d.jpg", thumb: "/photos/dt.jpg" });
+    expect(next.products).toBe(s.products); expect(s.inspections[0].remarks[0].photos[0].thumb).toBeUndefined();
+    expect(thumbsMissing(next).map(x => x.photo.id)).toEqual(["a"]);
   });
 });

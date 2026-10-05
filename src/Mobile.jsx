@@ -15,7 +15,7 @@ import { dockMapGroupKey, dockMapOpen, dockMapRows, isBlockedMapRow, openBlocked
 import { announceFilesOf } from "./shared/announce-files.js";
 import { AnnounceAttachButton, AnnounceFileList, AnnounceFileThumbs } from "./shared/AnnounceAttachments.jsx";
 import { readAsDataUrl, keepPhoto, shrinkPhoto, memoPdfPhoto, fetchPdfPhotoSrc, rotateImage } from "./shared/report-images.js";
-import { attachRemarkPhotos, photoGroupsByModule, pickedPhotos, replacePhoto, replaceRemarkPhoto } from "./shared/photos.js";
+import { attachRemarkPhotos, photoGroupsByModule, pickedPhotos, replacePhoto, replaceRemarkPhoto, THUMB_EDGE, thumbSrc, thumbsMissing, withThumb } from "./shared/photos.js";
 import { CameraSheet } from "./shared/CameraSheet.jsx";
 import { PhotoReview } from "./shared/PhotoReview.jsx";
 import { drawReportPdf } from "./shared/report-pdf.js";
@@ -508,16 +508,16 @@ const unmountPicker = i => { i.remove(); if (_pickerEl === i) _pickerEl = null; 
 // Photos are files on the state server, not base64 inside the shared state — a photo is { id, path, at, name }.
 // If the upload fails (offline, old server) the data URL stays in place, so nothing is ever lost.
 const uploadPhoto = async dataUrl => { try { const base = (typeof window !== "undefined" && window.__qcServer) || ""; const r = await fetch(`${base}/photos`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ dataUrl }) }); if (!r.ok) return null; const j = await r.json(); return j.path || null; } catch { return null; } };
+// Always shrink BEFORE uploading: a phone camera frame is 3–5 MB at full size and the whole app only ever shows it
+// at ≤ 1600 px (the old code uploaded the original and shrank only when the upload failed — that is why product
+// and inspection screens took seconds to paint). A ≤ 480 px thumb goes up alongside for lists, tiles and headers.
 const persistPicked = async (d, name) => {
-  let path = await uploadPhoto(d);
-  let dataUrl = d;
-  if (!path) {
-    const small = await shrinkPhoto(d);
-    if (small && small !== d) path = await uploadPhoto(small);
-    if (!path) dataUrl = (small && small.length < d.length) ? small : d;
-    else dataUrl = small;
-  }
-  return path ? { id: uid(), path, at: nowISO(), name } : { id: uid(), dataUrl, at: nowISO(), name, size: dataUrl.length };
+  const main = (await shrinkPhoto(d)) || d;
+  const thumbData = (await shrinkPhoto(main, THUMB_EDGE, 0.74)) || null;
+  const path = await uploadPhoto(main);
+  if (!path) return { id: uid(), dataUrl: main, at: nowISO(), name, size: main.length };   // offline / old server: the data URL stays; the server moves it to /photos on save
+  const thumb = thumbData && thumbData.length < main.length ? await uploadPhoto(thumbData) : null;
+  return { id: uid(), path, ...(thumb ? { thumb } : {}), at: nowISO(), name };
 };
 const pickPhotos = (opts = {}) => new Promise(res => {
   const i = document.createElement("input"); i.type = "file"; i.accept = "image/*,.heic,.heif"; i.multiple = !opts.capture; if (opts.capture) i.setAttribute("capture", "environment");
@@ -577,7 +577,7 @@ function PhotoStrip({ photos, onAdd, onRemove, onReplace, size = 64, addLabel = 
     <div>
       {(label || loupe) && <div className="flex items-center gap-2 mb-1.5">{label ? <p className="text-xs flex-1 min-w-0" style={{ color: C.muted }}>{label}</p> : <div className="flex-1" />}{loupe}</div>}
       <div className="flex flex-wrap gap-2 items-center">
-      {list.map(ph => <div key={ph.id} className="relative"><img src={ph.path || photoSrc(ph)} alt="" onClick={() => setView(list.indexOf(ph))} onError={e => { const fb = ph.dataUrl; if (fb && e.currentTarget.dataset.fb !== "1") { e.currentTarget.dataset.fb = "1"; e.currentTarget.src = fb; } }} className="rounded-lg cursor-pointer" style={{ width: thumb, height: thumb, objectFit: peek ? "contain" : "cover", background: peek ? C.surface : undefined, border: `1px solid ${C.line}` }} />{onRemove && <button onClick={() => onRemove(ph.id)} className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full text-[10px] leading-none" style={{ background: C.bad, color: C.onDark }} title="delete">×</button>}</div>)}
+      {list.map(ph => <div key={ph.id} className="relative"><img src={thumbSrc(ph)} loading="lazy" decoding="async" alt="" onClick={() => setView(list.indexOf(ph))} onError={e => { const fb = ph.dataUrl; if (fb && e.currentTarget.dataset.fb !== "1") { e.currentTarget.dataset.fb = "1"; e.currentTarget.src = fb; } }} className="rounded-lg cursor-pointer" style={{ width: thumb, height: thumb, objectFit: peek ? "contain" : "cover", background: peek ? C.surface : undefined, border: `1px solid ${C.line}` }} />{onRemove && <button onClick={() => onRemove(ph.id)} className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full text-[10px] leading-none" style={{ background: C.bad, color: C.onDark }} title="delete">×</button>}</div>)}
       {busy && <div className="rounded-lg flex items-center justify-center text-[10px]" style={{ width: size, height: size, background: C.bg, color: C.muted, border: `1px solid ${C.line}` }}>uploading…</div>}
       {onAdd && size < 56 && <>
         {touch && <button onClick={() => add(true)} disabled={busy} className="rounded-full inline-flex items-center gap-1.5 text-xs font-semibold px-3" style={{ height: 32, color: C.onDark, background: C.accent }}><Ic i={Camera} s={14} mr={0} />Photo</button>}
@@ -2274,7 +2274,7 @@ function MProductHeader({ s, product, article, name, go }) {
   return (
     <button onClick={() => go("catalog", product.id)} className="qc-elev qc-tile w-full text-left rounded-2xl p-3.5 mb-3" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
       <div className="flex gap-3 items-start">
-        {photos.length ? <img src={photoSrc(photos[0])} alt="" className="w-20 h-20 rounded-xl object-contain flex-shrink-0" style={{ background: PHOTO_BG }} /> : <div className="w-20 h-20 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: C.surface, color: C.muted }}><Ic i={ImageIcon} s={28} mr={0} /></div>}
+        {photos.length ? <img src={thumbSrc(photos[0])} loading="lazy" decoding="async" alt="" className="w-20 h-20 rounded-xl object-contain flex-shrink-0" style={{ background: PHOTO_BG }} /> : <div className="w-20 h-20 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: C.surface, color: C.muted }}><Ic i={ImageIcon} s={28} mr={0} /></div>}
         <div className="min-w-0 flex-1">
           <p className="font-semibold leading-tight">{product.name}</p>
           <p className="text-xs mt-1" style={{ color: C.muted }}>ID {product.articleId || "—"} · {catPath(product.categoryId)}{product.isBio && " · bio"}</p>
@@ -2331,7 +2331,7 @@ function MPalletSheet({ s, set, user, go, row: r, onStart, onPickPallet, onAssig
             <span className="ml-auto text-[11px] font-mono" style={{ color: C.muted }}>HU …{String(r.hu).slice(-8)}</span>
           </div>
           <button onClick={() => product && go("catalog", product.id)} className="w-full text-left flex items-center gap-3 active:opacity-70" disabled={!product}>
-            {photos.length ? <img src={photoSrc(photos[0])} alt="" className="rounded-xl object-cover flex-shrink-0" style={{ width: 60, height: 60, background: PHOTO_BG, border: `1px solid ${C.line}` }} /> : <div className="rounded-xl flex items-center justify-center flex-shrink-0" style={{ width: 60, height: 60, background: C.surface, color: C.muted, border: `1px solid ${C.line}` }}><Ic i={Package} s={24} mr={0} /></div>}
+            {photos.length ? <img src={thumbSrc(photos[0])} loading="lazy" decoding="async" alt="" className="rounded-xl object-cover flex-shrink-0" style={{ width: 60, height: 60, background: PHOTO_BG, border: `1px solid ${C.line}` }} /> : <div className="rounded-xl flex items-center justify-center flex-shrink-0" style={{ width: 60, height: 60, background: C.surface, color: C.muted, border: `1px solid ${C.line}` }}><Ic i={Package} s={24} mr={0} /></div>}
             <div className="min-w-0 flex-1">
               <p className="font-semibold leading-tight" style={{ fontSize: 16 }}>{product?.name || r.name || r.article}</p>
               {product ? <p className="text-[12px] mt-0.5 truncate" style={{ color: C.muted }}>ID {product.articleId} · {catPath(product.categoryId)}{product.isBio ? " · bio" : ""}</p> : <p className="text-[12px] mt-0.5" style={{ color: C.warn }}>Article {r.article} · no product profile yet</p>}
@@ -2690,7 +2690,7 @@ function MSearch({ s, user, go, onStart, setState, notify, onVisual }) {
     <div>
       <TopBar title="New inspection" onBack={() => go("back")} />
       <div className="px-4 pt-3"><input value={q} onChange={e => setQ(e.target.value)} placeholder="Product name or article ID…" className="w-full text-sm rounded-xl px-3 py-2.5 outline-none" style={{ ...inp, background: C.bg }} /></div>
-      <div className="px-4 pt-2">{list.slice(0, 40).map(p => <button key={p.id} onClick={() => setSel(p.id)} className="w-full text-left flex items-center gap-3 py-2.5" style={{ borderBottom: `1px solid ${C.line}` }}>{asPhotoList(p.photos).length ? <img src={photoSrc(asPhotoList(p.photos)[0])} alt="" className="w-10 h-10 rounded-lg object-contain" style={{ background: PHOTO_BG }} /> : <div className="w-10 h-10 rounded-lg flex items-center justify-center" style={{ background: C.bg, color: C.muted }}><Ic i={ImageIcon} s={18} mr={0} /></div>}<div className="flex-1 min-w-0"><p className="text-sm truncate">{p.name}</p><p className="text-xs" style={{ color: C.muted }}>{p.articleId || "no ID"}{p.isBio && " · bio"}</p></div><span style={{ color: C.muted }}>›</span></button>)}{list.length === 0 && <p className="text-sm py-6 text-center" style={{ color: C.muted }}>No results.</p>}</div>
+      <div className="px-4 pt-2">{list.slice(0, 40).map(p => <button key={p.id} onClick={() => setSel(p.id)} className="w-full text-left flex items-center gap-3 py-2.5" style={{ borderBottom: `1px solid ${C.line}` }}>{asPhotoList(p.photos).length ? <img src={thumbSrc(asPhotoList(p.photos)[0])} loading="lazy" decoding="async" alt="" className="w-10 h-10 rounded-lg object-contain" style={{ background: PHOTO_BG }} /> : <div className="w-10 h-10 rounded-lg flex items-center justify-center" style={{ background: C.bg, color: C.muted }}><Ic i={ImageIcon} s={18} mr={0} /></div>}<div className="flex-1 min-w-0"><p className="text-sm truncate">{p.name}</p><p className="text-xs" style={{ color: C.muted }}>{p.articleId || "no ID"}{p.isBio && " · bio"}</p></div><span style={{ color: C.muted }}>›</span></button>)}{list.length === 0 && <p className="text-sm py-6 text-center" style={{ color: C.muted }}>No results.</p>}</div>
     </div>
   );
 }
@@ -2708,7 +2708,7 @@ function MPhotoRow({ photos, size = 64 }) {
   if (!list.length) return null;
   return (
     <>
-      <div className="flex gap-1.5 overflow-x-auto" style={{ scrollbarWidth: "none", WebkitOverflowScrolling: "touch" }}>{list.map((ph, k) => <button key={ph.id || k} onClick={() => setView(k)} className="flex-shrink-0 rounded-lg overflow-hidden" style={{ width: size, height: size, border: `1px solid ${C.line}`, background: PHOTO_BG }}><img src={photoSrc(ph)} alt="" className="w-full h-full object-cover" /></button>)}</div>
+      <div className="flex gap-1.5 overflow-x-auto" style={{ scrollbarWidth: "none", WebkitOverflowScrolling: "touch" }}>{list.map((ph, k) => <button key={ph.id || k} onClick={() => setView(k)} className="flex-shrink-0 rounded-lg overflow-hidden" style={{ width: size, height: size, border: `1px solid ${C.line}`, background: PHOTO_BG }}><img src={thumbSrc(ph)} loading="lazy" decoding="async" alt="" className="w-full h-full object-cover" /></button>)}</div>
       {view != null && <MPhotoViewer photos={list} index={view} onIndex={setView} onClose={() => setView(null)} />}
     </>
   );
@@ -2792,7 +2792,7 @@ function MProductInfo({ s, user, product, go, setState, embedded }) {
       {/* Identity: photo + name + codes in one card. Tap the photo for a full-screen viewer (the controller compares the pallet to it). */}
       <div className="qc-tile rounded-2xl p-3 flex gap-3" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
         <button onClick={() => photos.length && setZoom(photoIx)} className="flex-shrink-0 rounded-xl overflow-hidden relative" style={{ width: 96, height: 96, background: PHOTO_BG, border: `1px solid ${C.line}` }} aria-label="product photo">
-          {thumb ? <img src={photoSrc(thumb)} alt="" className="w-full h-full object-cover" /> : <div className="w-full h-full flex flex-col items-center justify-center" style={{ color: C.muted }}><Ic i={Package} s={28} mr={0} /><span className="text-[10px] mt-1">no photo</span></div>}
+          {thumb ? <img src={thumbSrc(thumb)} loading="lazy" decoding="async" alt="" className="w-full h-full object-cover" /> : <div className="w-full h-full flex flex-col items-center justify-center" style={{ color: C.muted }}><Ic i={Package} s={28} mr={0} /><span className="text-[10px] mt-1">no photo</span></div>}
           {photos.length > 1 && <span className="absolute bottom-1 right-1 text-[10px] font-semibold px-1.5 rounded-full leading-[16px]" style={{ background: "rgba(0,0,0,.55)", color: "#fff" }}>{photos.length}</span>}
         </button>
         <div className="flex-1 min-w-0">
@@ -2808,7 +2808,7 @@ function MProductInfo({ s, user, product, go, setState, embedded }) {
           </div>}
         </div>
       </div>
-      {photos.length > 1 && <div className="flex gap-1.5 mt-2 overflow-x-auto" style={{ scrollbarWidth: "none" }}>{photos.map((ph, ix) => <button key={ph.id || ix} onClick={() => setPhotoIx(ix)} className="flex-shrink-0 rounded-lg overflow-hidden" style={{ width: 44, height: 44, outline: ix === photoIx ? `2px solid ${C.accent}` : `1px solid ${C.line}`, outlineOffset: -1 }}><img src={photoSrc(ph)} alt="" className="w-full h-full object-cover" /></button>)}</div>}
+      {photos.length > 1 && <div className="flex gap-1.5 mt-2 overflow-x-auto" style={{ scrollbarWidth: "none" }}>{photos.map((ph, ix) => <button key={ph.id || ix} onClick={() => setPhotoIx(ix)} className="flex-shrink-0 rounded-lg overflow-hidden" style={{ width: 44, height: 44, outline: ix === photoIx ? `2px solid ${C.accent}` : `1px solid ${C.line}`, outlineOffset: -1 }}><img src={thumbSrc(ph)} loading="lazy" decoding="async" alt="" className="w-full h-full object-cover" /></button>)}</div>}
       {zoom != null && photos.length > 0 && <MPhotoViewer photos={photos} index={zoom} onIndex={k => { setZoom(k); setPhotoIx(k); }} onClose={() => setZoom(null)} />}
 
       {facts.length > 0 && <div className="qc-tile rounded-2xl mt-2">
@@ -3279,7 +3279,7 @@ function MCatalog({ s, user, go, onStart, setState, notify, onVisual, preset }) 
   const Chip = ({ on, onClick, children }) => <button onClick={onClick} className="text-xs px-3 py-1.5 rounded-full whitespace-nowrap" style={{ background: on ? C.ink : "transparent", color: on ? C.onDark : C.ink, border: `1px solid ${on ? C.ink : C.line}` }}>{children}</button>;
   const Tile = ({ p }) => { const li = lastInsp(p.id); const openFlag = s.flags.some(x => x.productId === p.id && x.status === "Open"); return (
     <button onClick={() => setSel(p.id)} className="qc-elev qc-tile rounded-2xl p-2.5 text-left relative" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
-      {asPhotoList(p.photos).length ? <img src={photoSrc(asPhotoList(p.photos)[0])} alt="" className="w-full h-20 rounded-xl object-contain mb-2" style={{ background: PHOTO_BG }} /> : <div className="w-full h-20 rounded-xl flex items-center justify-center mb-2" style={{ background: C.surface, color: C.muted }}><Ic i={ImageIcon} s={22} mr={0} /></div>}
+      {asPhotoList(p.photos).length ? <img src={thumbSrc(asPhotoList(p.photos)[0])} loading="lazy" decoding="async" alt="" className="w-full h-20 rounded-xl object-contain mb-2" style={{ background: PHOTO_BG }} /> : <div className="w-full h-20 rounded-xl flex items-center justify-center mb-2" style={{ background: C.surface, color: C.muted }}><Ic i={ImageIcon} s={22} mr={0} /></div>}
       <p className="text-xs font-medium leading-tight" style={{ minHeight: 32 }}>{p.name}</p>
       <div className="flex items-center gap-1.5 mt-1.5"><span className="text-[10px]" style={{ color: C.muted }}>{p.articleId || "—"}</span>{p.isBio && <span className="text-[9px] px-1 rounded" style={{ background: C.okBg, color: C.ok }}>bio</span>}<div className="flex-1" />{openFlag && <Ic i={Flag} s={11} mr={0} style={{ color: C.warn }} />}{li && <span title={`last: ${li.result === "Accepted" ? "accepted" : "rejected"}, ${dayLabel(li.completedAt)}`} className="inline-block rounded-full" style={{ width: 8, height: 8, background: li.result === "Accepted" ? C.ok : C.bad }} />}</div>
     </button>
@@ -3793,7 +3793,7 @@ function MBriefing({ s, set, user, go }) {
     const photo = product && asPhotoList(product.photos)[0];
     return (
       <div className="relative flex-shrink-0 overflow-hidden flex items-center justify-center" style={{ height: 196, background: PHOTO_BG }}>
-        {photo && <img src={photoSrc(photo)} alt="" className="absolute inset-0 w-full h-full object-contain p-4" onError={e => { e.currentTarget.style.display = "none"; const el = e.currentTarget.parentElement?.querySelector("[data-letter]"); if (el) el.style.opacity = "1"; }} />}
+        {photo && <img src={thumbSrc(photo)} loading="lazy" decoding="async" alt="" className="absolute inset-0 w-full h-full object-contain p-4" onError={e => { e.currentTarget.style.display = "none"; const el = e.currentTarget.parentElement?.querySelector("[data-letter]"); if (el) el.style.opacity = "1"; }} />}
         <span data-letter className="text-[56px] font-semibold leading-none" style={{ color: "#8A9278", opacity: photo ? 0 : .55 }}>{(name || "?")[0]}</span>
       </div>
     );

@@ -16,7 +16,7 @@ import { briefingComplaintsMeta, briefingDefaultTab, briefingItemsKey, briefingR
 import { announceFilesOf } from "./shared/announce-files.js";
 import { AnnounceAttachButton, AnnounceFileList, AnnounceFileThumbs } from "./shared/AnnounceAttachments.jsx";
 import { readAsDataUrl, keepPhoto, shrinkPhoto, memoPdfPhoto, fetchPdfPhotoSrc, rotateImage } from "./shared/report-images.js";
-import { attachRemarkPhotos, photoGroupsByModule, pickedPhotos, replacePhoto, replaceRemarkPhoto } from "./shared/photos.js";
+import { attachRemarkPhotos, photoGroupsByModule, pickedPhotos, replacePhoto, replaceRemarkPhoto, THUMB_EDGE, thumbSrc, thumbsMissing, withThumb } from "./shared/photos.js";
 import { CameraSheet } from "./shared/CameraSheet.jsx";
 import { PhotoReview } from "./shared/PhotoReview.jsx";
 import { drawReportPdf } from "./shared/report-pdf.js";
@@ -454,16 +454,16 @@ const unmountPicker = i => { i.remove(); if (_pickerEl === i) _pickerEl = null; 
 // Photos are files on the state server, not base64 inside the shared state — a photo is { id, path, at, name }.
 // If the upload fails (offline, old server) the data URL stays in place, so nothing is ever lost.
 const uploadPhoto = async dataUrl => { try { const base = (typeof window !== "undefined" && window.__qcServer) || ""; const r = await fetch(`${base}/photos`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ dataUrl }) }); if (!r.ok) return null; const j = await r.json(); return j.path || null; } catch { return null; } };
+// Always shrink BEFORE uploading: a phone camera frame is 3–5 MB at full size and the whole app only ever shows it
+// at ≤ 1600 px (the old code uploaded the original and shrank only when the upload failed — that is why product
+// and inspection screens took seconds to paint). A ≤ 480 px thumb goes up alongside for lists, tiles and headers.
 const persistPicked = async (d, name) => {
-  let path = await uploadPhoto(d);
-  let dataUrl = d;
-  if (!path) {
-    const small = await shrinkPhoto(d);
-    if (small && small !== d) path = await uploadPhoto(small);
-    if (!path) dataUrl = (small && small.length < d.length) ? small : d;
-    else dataUrl = small;
-  }
-  return path ? { id: uid(), path, at: nowISO(), name } : { id: uid(), dataUrl, at: nowISO(), name, size: dataUrl.length };
+  const main = (await shrinkPhoto(d)) || d;
+  const thumbData = (await shrinkPhoto(main, THUMB_EDGE, 0.74)) || null;
+  const path = await uploadPhoto(main);
+  if (!path) return { id: uid(), dataUrl: main, at: nowISO(), name, size: main.length };   // offline / old server: the data URL stays; the server moves it to /photos on save
+  const thumb = thumbData && thumbData.length < main.length ? await uploadPhoto(thumbData) : null;
+  return { id: uid(), path, ...(thumb ? { thumb } : {}), at: nowISO(), name };
 };
 const pickPhotos = (opts = {}) => new Promise(res => {
   const i = document.createElement("input"); i.type = "file"; i.accept = "image/*,.heic,.heif"; i.multiple = !opts.capture; if (opts.capture) i.setAttribute("capture", "environment");
@@ -523,7 +523,7 @@ function PhotoStrip({ photos, onAdd, onRemove, onReplace, size = 64, addLabel = 
     <div>
       {(label || loupe) && <div className="flex items-center gap-2 mb-1.5">{label ? <p className="text-xs flex-1 min-w-0" style={{ color: C.muted }}>{label}</p> : <div className="flex-1" />}{loupe}</div>}
       <div className="flex flex-wrap gap-2 items-center">
-      {list.map(ph => <div key={ph.id} className="relative"><img src={ph.path || photoSrc(ph)} alt="" onClick={() => setView(list.indexOf(ph))} onError={e => { const fb = ph.dataUrl; if (fb && e.currentTarget.dataset.fb !== "1") { e.currentTarget.dataset.fb = "1"; e.currentTarget.src = fb; } }} className="rounded-lg cursor-pointer" style={{ width: thumb, height: thumb, objectFit: peek ? "contain" : "cover", background: peek ? C.surface : undefined, border: `1px solid ${C.line}` }} />{onRemove && <button onClick={() => onRemove(ph.id)} className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full text-[10px] leading-none" style={{ background: C.bad, color: C.onDark }} title="delete">×</button>}</div>)}
+      {list.map(ph => <div key={ph.id} className="relative"><img src={thumbSrc(ph)} loading="lazy" decoding="async" alt="" onClick={() => setView(list.indexOf(ph))} onError={e => { const fb = ph.dataUrl; if (fb && e.currentTarget.dataset.fb !== "1") { e.currentTarget.dataset.fb = "1"; e.currentTarget.src = fb; } }} className="rounded-lg cursor-pointer" style={{ width: thumb, height: thumb, objectFit: peek ? "contain" : "cover", background: peek ? C.surface : undefined, border: `1px solid ${C.line}` }} />{onRemove && <button onClick={() => onRemove(ph.id)} className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full text-[10px] leading-none" style={{ background: C.bad, color: C.onDark }} title="delete">×</button>}</div>)}
       {busy && <div className="rounded-lg flex items-center justify-center text-[10px]" style={{ width: size, height: size, background: C.bg, color: C.muted, border: `1px solid ${C.line}` }}>uploading…</div>}
       {onAdd && touch && <button onClick={() => add(true)} disabled={busy} className="rounded-lg flex flex-col items-center justify-center text-xs" style={{ width: size, height: size, border: `1px solid ${C.accent}`, color: C.onDark, background: C.accent, gap: 2 }}><Ic i={Camera} s={size >= 56 ? 18 : 14} mr={0} />{size >= 56 && <span className="text-[10px] leading-tight">Take photo</span>}</button>}
       {onAdd && <button onClick={() => add(false)} disabled={busy} className="rounded-lg flex flex-col items-center justify-center text-xs" style={{ width: size, height: size, border: `1px dashed ${C.line}`, color: C.accent, background: C.accentSoft, gap: 2 }}><Ic i={ImageIcon} s={size >= 56 ? 18 : 14} mr={0} />{size >= 56 && <span className="text-[10px] leading-tight">{touch ? "From library" : addLabel}</span>}</button>}
@@ -1818,7 +1818,7 @@ function PalletPage({ s, set, user, hu, onBack, onOpenProduct, onOpenInspection,
         <div className="flex" style={{ borderLeft: `4px solid ${col}` }}>
           <div className="flex-1 min-w-0 px-5 py-4">
             <div className="flex items-start gap-4">
-              {photos.length ? <img src={photoSrc(photos[0])} alt="" className="rounded-lg object-contain flex-shrink-0" style={{ width: 56, height: 56, background: PHOTO_BG, border: `1px solid ${C.line}` }} /> : <div className="rounded-lg flex items-center justify-center flex-shrink-0" style={{ width: 56, height: 56, background: C.bg, color: C.muted, border: `1px solid ${C.line}` }}><Ic i={Package} s={22} mr={0} /></div>}
+              {photos.length ? <img src={thumbSrc(photos[0])} loading="lazy" decoding="async" alt="" className="rounded-lg object-contain flex-shrink-0" style={{ width: 56, height: 56, background: PHOTO_BG, border: `1px solid ${C.line}` }} /> : <div className="rounded-lg flex items-center justify-center flex-shrink-0" style={{ width: 56, height: 56, background: C.bg, color: C.muted, border: `1px solid ${C.line}` }}><Ic i={Package} s={22} mr={0} /></div>}
               <div className="min-w-0 flex-1">
                 <div className="flex items-start gap-3">
                   <div className="min-w-0 flex-1">
@@ -2402,7 +2402,7 @@ function BriefingPage({ s, set, user, go }) {
     const photo = product && asPhotoList(product.photos)[0];
     return (
       <div className="relative flex-shrink-0 overflow-hidden flex items-center justify-center" style={{ height: 196, background: PHOTO_BG }}>
-        {photo && <img src={photoSrc(photo)} alt="" className="absolute inset-0 w-full h-full object-contain p-4" onError={e => { e.currentTarget.style.display = "none"; const el = e.currentTarget.parentElement?.querySelector("[data-letter]"); if (el) el.style.opacity = "1"; }} />}
+        {photo && <img src={thumbSrc(photo)} loading="lazy" decoding="async" alt="" className="absolute inset-0 w-full h-full object-contain p-4" onError={e => { e.currentTarget.style.display = "none"; const el = e.currentTarget.parentElement?.querySelector("[data-letter]"); if (el) el.style.opacity = "1"; }} />}
         <span data-letter className="text-[56px] font-semibold leading-none" style={{ color: "#8A9278", opacity: photo ? 0 : .55 }}>{(name || "?")[0]}</span>
       </div>
     );
@@ -3494,7 +3494,7 @@ function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset, onMessag
   const removeVar = id => patchP({ varieties: (product.varieties || []).filter(v => v.id !== id) });
   const allSup = s.suppliers || [];
   const visibleSup = allSup.filter(x => x.name.toLowerCase().includes(supQ.toLowerCase()));
-  const thumb = pr => { const ph = asPhotoList(pr.photos)[0]; return ph ? <img src={photoSrc(ph)} alt="" className="rounded-md object-cover flex-shrink-0" style={{ width: 30, height: 30 }} /> : <span className="rounded-md flex items-center justify-center flex-shrink-0" style={{ width: 30, height: 30, background: C.bg, color: C.muted }}><Ic i={Package} s={14} mr={0} /></span>; };
+  const thumb = pr => { const ph = asPhotoList(pr.photos)[0]; return ph ? <img src={thumbSrc(ph)} loading="lazy" decoding="async" alt="" className="rounded-md object-cover flex-shrink-0" style={{ width: 30, height: 30 }} /> : <span className="rounded-md flex items-center justify-center flex-shrink-0" style={{ width: 30, height: 30, background: C.bg, color: C.muted }}><Ic i={Package} s={14} mr={0} /></span>; };
   const refCount = product ? effectiveNotesFor(s, product).length : 0;
   const histAll = product ? s.inspections.filter(i => i.productId === product.id && i.status === "Completed" && countsAs(s, i)) : [];
   const histVerdict = histAll.filter(i => isVerdictType(s, i));
@@ -3540,7 +3540,7 @@ function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset, onMessag
         {!product ? <Card><Empty icon="📦" title="Select a product" hint="Its profile, photos, specifications, suppliers and inspection types open here." /></Card> : (
             <Card style={{ padding: 0, overflow: "hidden" }}>
               <div className="flex items-center gap-3 px-4 pt-4 pb-3">
-                {asPhotoList(product.photos)[0] ? <img src={photoSrc(asPhotoList(product.photos)[0])} alt="" className="rounded-lg object-contain flex-shrink-0" style={{ width: 52, height: 52, background: PHOTO_BG }} /> : <button onClick={() => setTab("photos")} className="rounded-lg flex items-center justify-center flex-shrink-0" style={{ width: 52, height: 52, background: C.bg, color: C.muted, border: `1px dashed ${C.line}` }}><Ic i={ImageIcon} s={18} mr={0} /></button>}
+                {asPhotoList(product.photos)[0] ? <img src={thumbSrc(asPhotoList(product.photos)[0])} loading="lazy" decoding="async" alt="" className="rounded-lg object-contain flex-shrink-0" style={{ width: 52, height: 52, background: PHOTO_BG }} /> : <button onClick={() => setTab("photos")} className="rounded-lg flex items-center justify-center flex-shrink-0" style={{ width: 52, height: 52, background: C.bg, color: C.muted, border: `1px dashed ${C.line}` }}><Ic i={ImageIcon} s={18} mr={0} /></button>}
                 <div className="flex-1 min-w-0">
                   <h2 className="truncate" style={{ fontSize: 16 }}>{product.name}</h2>
                   <div className="flex flex-wrap items-center gap-1.5 mt-1">
@@ -3733,7 +3733,7 @@ function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset, onMessag
           <div className="grid gap-2" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(170px, 1fr))" }}>
             {visible.map(p => (
               <button key={p.id} onClick={() => selectProduct(p.id)} className="qc-elev qc-tile rounded-2xl p-2.5 text-left" style={{ background: sel === p.id ? C.accentSoft : C.surface, border: `1px solid ${sel === p.id ? C.accent : C.line}`, opacity: p.isActive === false ? .55 : 1 }}>
-                {asPhotoList(p.photos).length ? <img src={photoSrc(asPhotoList(p.photos)[0])} alt="" className="w-full rounded-xl object-contain mb-2" style={{ height: 72, background: PHOTO_BG }} /> : <div className="w-full rounded-xl flex items-center justify-center mb-2" style={{ height: 72, background: C.bg, color: C.muted }}><Ic i={Package} s={20} mr={0} /></div>}
+                {asPhotoList(p.photos).length ? <img src={thumbSrc(asPhotoList(p.photos)[0])} loading="lazy" decoding="async" alt="" className="w-full rounded-xl object-contain mb-2" style={{ height: 72, background: PHOTO_BG }} /> : <div className="w-full rounded-xl flex items-center justify-center mb-2" style={{ height: 72, background: C.bg, color: C.muted }}><Ic i={Package} s={20} mr={0} /></div>}
                 <p className="text-xs font-medium leading-tight truncate" style={{ color: sel === p.id ? C.accent : C.ink }}>{p.name}</p>
                 <p className="text-[10px] mt-0.5 truncate" style={{ color: C.muted }}>{p.articleId || "no ID"} · {p.categoryId ? catPath(p.categoryId) : <span style={{ color: C.warn }}>no category</span>}</p>
                 <div className="flex items-center gap-1 mt-1">
@@ -4694,7 +4694,7 @@ function ProductPeek({ s, user, product, onClose }) {
   const tabs = [["overview", "Overview"], ["specs", `Specs${specs.length ? ` · ${specs.length}` : ""}`], ["attrs", `Properties${attrs.length ? ` · ${attrs.length}` : ""}`], ["guide", `Encyclopedia${guide.length ? ` · ${guide.length}` : ""}`], ["reference", `Reference guide${notes.length ? ` · ${notes.length}` : ""}`], ["history", `History${history.length ? ` · ${history.length}` : ""}`]];
   const Row = ({ k, v }) => v ? <div className="flex justify-between gap-3 py-1.5 text-sm" style={{ borderBottom: `1px solid ${C.line}` }}><span style={{ color: C.muted }}>{k}</span><span className="text-right font-medium">{v}</span></div> : null;
   const H = ({ children }) => <p className="text-[11px] font-semibold uppercase tracking-wide mt-4 mb-2" style={{ color: C.muted }}>{children}</p>;
-  const Photos = ({ list, size = 84 }) => list.length ? <div className="flex gap-2 flex-wrap">{list.map(ph => <button key={ph.id} onClick={() => setZoom(ph)} className="rounded-lg overflow-hidden" style={{ width: size, height: size, border: `1px solid ${C.line}`, background: C.bg }}><img src={photoSrc(ph) || ph.url || ph.src} alt="" className="w-full h-full object-cover" /></button>)}</div> : null;
+  const Photos = ({ list, size = 84 }) => list.length ? <div className="flex gap-2 flex-wrap">{list.map(ph => <button key={ph.id} onClick={() => setZoom(ph)} className="rounded-lg overflow-hidden" style={{ width: size, height: size, border: `1px solid ${C.line}`, background: C.bg }}><img src={thumbSrc(ph) || ph.url || ph.src} loading="lazy" decoding="async" alt="" className="w-full h-full object-cover" /></button>)}</div> : null;
   return (
     <>
       <div onClick={onClose} className="fixed inset-0" style={{ background: "rgba(0,0,0,.28)", zIndex: 60 }} />
@@ -4807,7 +4807,7 @@ function CatalogPage({ s, set, user, notify, onStartInspection, onOpenInspection
           </div>
           {visible.length === 0 ? <p className="text-xs" style={{ color: C.muted }}>Nothing matches.</p> : visible.slice(0, 60).map(p => { const li = lastInsp(p.id); const openFlag = s.flags.some(x => x.productId === p.id && x.status === "Open"); return (
             <button key={p.id} onClick={() => { setSel(p.id); setFlagOpen(false); setShowRef(null); }} className="w-full text-left flex items-center gap-2 px-2 py-2 rounded-lg row" style={{ background: sel === p.id ? C.accentSoft : "transparent", borderTop: `1px solid ${C.line}` }}>
-              {asPhotoList(p.photos).length ? <img src={photoSrc(asPhotoList(p.photos)[0])} alt="" className="w-8 h-8 rounded-md object-contain" style={{ background: PHOTO_BG }} /> : <span className="w-8 h-8 rounded-md flex items-center justify-center" style={{ background: C.bg, color: C.muted }}><Ic i={ImageIcon} s={14} mr={0} /></span>}
+              {asPhotoList(p.photos).length ? <img src={thumbSrc(asPhotoList(p.photos)[0])} loading="lazy" decoding="async" alt="" className="w-8 h-8 rounded-md object-contain" style={{ background: PHOTO_BG }} /> : <span className="w-8 h-8 rounded-md flex items-center justify-center" style={{ background: C.bg, color: C.muted }}><Ic i={ImageIcon} s={14} mr={0} /></span>}
               <span className="flex-1 min-w-0"><span className="block text-sm truncate" style={{ color: sel === p.id ? C.accent : C.ink }}>{p.name}{p.isBio && <span className="text-xs ml-1" style={{ color: C.ok }}>bio</span>}</span><span className="block text-[11px]" style={{ color: C.muted }}>{p.articleId || "—"} · {catPath(p.categoryId)}</span></span>
               {openFlag && <Ic i={Flag} s={12} mr={0} style={{ color: C.warn }} />}
               {li && <span className="inline-block rounded-full" title={`last: ${li.result === "Accepted" ? "accepted" : "rejected"}, ${fmtTime(li.completedAt)}`} style={{ width: 8, height: 8, background: li.result === "Accepted" ? C.ok : C.bad }} />}
@@ -4819,7 +4819,7 @@ function CatalogPage({ s, set, user, notify, onStartInspection, onOpenInspection
           {!product ? <Empty icon="📦" title="Select a product" hint="You'll see the profile, specs, suppliers, varieties and recent inspections." /> : (
             <>
               <div className="flex items-start gap-3 mb-3">
-                {asPhotoList(product.photos).length ? <img src={photoSrc(asPhotoList(product.photos)[0])} alt="" className="w-16 h-16 rounded-lg object-contain" style={{ border: `1px solid ${C.line}`, background: PHOTO_BG }} /> : <div className="w-16 h-16 rounded-lg flex items-center justify-center" style={{ background: C.bg, border: `1px solid ${C.line}`, color: C.muted }} title="ProductPhotos — reference photos"><Ic i={ImageIcon} s={24} mr={0} /></div>}
+                {asPhotoList(product.photos).length ? <img src={thumbSrc(asPhotoList(product.photos)[0])} loading="lazy" decoding="async" alt="" className="w-16 h-16 rounded-lg object-contain" style={{ border: `1px solid ${C.line}`, background: PHOTO_BG }} /> : <div className="w-16 h-16 rounded-lg flex items-center justify-center" style={{ background: C.bg, border: `1px solid ${C.line}`, color: C.muted }} title="ProductPhotos — reference photos"><Ic i={ImageIcon} s={24} mr={0} /></div>}
                 <div className="flex-1 min-w-0">
                   <p className="font-semibold">{product.name}{product.isBio && <span className="text-xs ml-2 px-1.5 py-0.5 rounded" style={{ background: C.okBg, color: C.ok }}>bio</span>}</p>
                   <p className="text-xs" style={{ color: C.muted }}>ID {product.articleId || "—"}{product.barcodeCu && ` · CU ${product.barcodeCu}`}{product.barcodeTu && ` · TU ${product.barcodeTu}`} · {catPath(product.categoryId)}{product.isActive === false && <span className="ml-2 px-1.5 py-0.5 rounded" style={{ background: C.line, color: C.muted }}>inactive</span>}</p>
@@ -5645,6 +5645,25 @@ function DataPanel({ s, set, onClose }) {
       setMsg("State loaded.");
     } catch { setMsg("This doesn't look like a valid state export."); }
   };
+  // Thumbnails for photos taken before the app made them: fetch the full picture, shrink it in the browser, upload the
+  // small copy and write its path next to the photo. Trails are re-checked at write time (the state may have moved on).
+  const [thumbJob, setThumbJob] = useState(null);
+  const missingThumbs = thumbsMissing(s).length;
+  const backfillThumbs = async () => {
+    const list = thumbsMissing(s); if (!list.length) return;
+    let done = 0, failed = 0; const base = window.__qcServer || "";
+    const at = (x, trail) => trail.reduce((n, k) => (n == null ? n : n[k]), x);
+    setThumbJob({ done, failed, total: list.length });
+    for (const m of list) {
+      try {
+        const r = await fetch(base + m.photo.path, { credentials: "include" }); if (!r.ok) throw new Error(String(r.status));
+        const d = await readAsDataUrl(await r.blob()); const t = d && await shrinkPhoto(d, THUMB_EDGE, 0.74);
+        const path = t && t.length < d.length ? await uploadPhoto(t) : null; if (!path) throw new Error("upload");
+        set(x => (at(x, m.trail)?.path === m.photo.path ? withThumb(x, m.trail, path) : x)); done++;
+      } catch { failed++; }
+      setThumbJob({ done, failed, total: list.length });
+    }
+  };
   const [confirmReset, setConfirmReset] = useState(false);
   const reset = () => { if (!confirmReset) { setConfirmReset(true); setMsg("Click again to clear ALL data — this cannot be undone."); return; } set(EMPTY, { force: true }); setIo(""); setMsg("Cleared."); setConfirmReset(false); };
   return (
@@ -5654,6 +5673,10 @@ function DataPanel({ s, set, onClose }) {
       <div className="flex gap-2 mb-2 flex-wrap"><Primary small onClick={exportState}>Export state</Primary><Ghost onClick={importState}>Import from the field below</Ghost><button onClick={reset} className="text-xs px-2.5 py-1.5 rounded-lg" style={{ background: C.badBg, color: C.bad }}>Clear everything</button></div>
       {msg && <p className="text-xs mb-2" style={{ color: C.accent }}>{msg}</p>}
       <textarea value={io} onChange={e => setIo(e.target.value)} rows={6} placeholder="The export will appear here, or paste JSON to import" className="w-full text-xs rounded px-2 py-1.5 outline-none font-mono" style={{ ...inp }} />
+      <div className="mt-3 mb-3">
+        <div className="flex items-center gap-2 mb-1"><p className="font-medium text-sm">Photo thumbnails</p>{missingThumbs > 0 && !thumbJob && <Ghost onClick={backfillThumbs}>Make thumbnails for {missingThumbs} older photo{missingThumbs === 1 ? "" : "s"}</Ghost>}</div>
+        <p className="text-[11px]" style={{ color: C.muted }}>New photos get a small copy for lists and tiles so screens open fast. Photos from before this change load full-size until a thumbnail is made — this runs in your browser, one photo at a time, and can be left open in a tab.{thumbJob ? ` Progress: ${thumbJob.done} done, ${thumbJob.failed} failed, of ${thumbJob.total}.` : missingThumbs ? "" : " All photos have one."}</p>
+      </div>
       <div className="mt-3">
         <div className="flex items-center gap-2 mb-1"><p className="font-medium text-sm">Server backups</p><button onClick={loadBackups} className="text-xs underline" style={{ color: C.accent }}>{backups ? "refresh" : "show"}</button></div>
         <p className="text-[11px] mb-2" style={{ color: C.muted }}>Snapshots of the whole state, taken on change (at most one per 10 minutes, last 48 kept). Restoring snapshots the current state first, so nothing is lost.</p>
