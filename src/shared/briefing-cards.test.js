@@ -3,8 +3,10 @@ import {
   briefingAnnouncements,
   briefingComplaints,
   briefingDefaultTab,
+  briefingFeed,
   briefingRemark,
   briefingRejections,
+  briefingRowId,
   briefingTabDeck,
   briefingUnseen,
   liveBriefingFps,
@@ -56,5 +58,12 @@ describe("briefing decks", () => {
   it("formats a remark the same way the shift-update card does", () => {
     expect(briefingRemark(s, { leafId: "rot", mode: "Presence" })).toBe("Rot");
     expect(briefingRemark(s, { leafId: "rot", mode: "PieceCount", raw: 3 })).toBe("Rot · 3 pcs");
+  });
+
+  it("builds the desk feed with seen notes still included", () => {
+    expect(briefingFeed(s, "notes").map(c => briefingRowId(c))).toEqual(["ann:a3", "ann:a1"]);
+    expect(briefingFeed(s, "rejections").map(c => briefingRowId(c))).toEqual(["rej:r1"]);
+    expect(briefingFeed(s, "complaints").map(c => briefingRowId(c))).toEqual(["comp:c1"]);
+    expect(briefingFeed(s, "all").map(c => c.kind)).toEqual(["ann", "ann", "rej", "complaint"]);
   });
 });

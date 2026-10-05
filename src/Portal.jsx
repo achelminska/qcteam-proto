@@ -11,9 +11,9 @@ import { poRequiredOnReject, poSourceHint, sheetPoForInspection, suggestedPo } f
 import { dockMatches } from "./shared/dock-search.js";
 import { dockMapGroupKey, dockMapOpen, dockMapRows, isBlockedMapRow, openBlockedForMap, QUEUE_STATUS } from "./shared/dock-map.js";
 import { adoptLocalBriefingSeen, briefingFp, clearBriefingSeen, markBriefingSeen, seenFingerprints } from "./shared/briefing-seen.js";
-import { briefingComplaintsMeta, briefingDefaultTab, briefingItemsKey, briefingRemark, briefingTabDeck, briefingUnseen, liveBriefingFps } from "./shared/briefing-cards.js";
+import { briefingAnnouncements, briefingComplaints, briefingComplaintsMeta, briefingDefaultTab, briefingFeed, briefingItemsKey, briefingRejections, briefingRemark, briefingRowId, briefingUnseen, liveBriefingFps } from "./shared/briefing-cards.js";
 import { announceFilesOf } from "./shared/announce-files.js";
-import { AnnounceAttachButton, AnnounceFileList, AnnounceFileThumbs } from "./shared/AnnounceAttachments.jsx";
+import { AnnounceAttachButton, AnnounceFileList } from "./shared/AnnounceAttachments.jsx";
 import { readAsDataUrl, keepPhoto, shrinkPhoto, memoPdfPhoto, fetchPdfPhotoSrc, rotateImage } from "./shared/report-images.js";
 import { attachRemarkPhotos, photoGroupsByModule, pickedPhotos, replacePhoto, replaceRemarkPhoto } from "./shared/photos.js";
 import { CameraSheet } from "./shared/CameraSheet.jsx";
@@ -2302,188 +2302,183 @@ const hhmm = iso => { const d = new Date(iso); return isNaN(d) ? "" : d.toLocale
 function BriefingPage({ s, set, user, go }) {
   const unseen = briefingUnseen(s, user.id);
   const [tab, setTab] = useState(() => briefingDefaultTab(s, user.id));
-  const [cards, setCards] = useState(() => briefingTabDeck(s, briefingDefaultTab(s, user.id), user.id));
-  const [i, setI] = useState(0);
-  const [dx, setDx] = useState(0);
-  const [anim, setAnim] = useState(false);
-  const start = useRef(null);
-  const dragging = useRef(false);
-  const wheelLock = useRef(false);
-  const stage = useRef(null);
-  useEffect(() => { setCards(briefingTabDeck(s, tab, user.id)); setI(0); setDx(0); }, [tab]);
-  const n = cards.length;
-  const ix = n ? Math.max(0, Math.min(i, n - 1)) : 0;
+  const [onlyUnseen, setOnlyUnseen] = useState(true);
+  const [q, setQ] = useState("");
+  const [sel, setSel] = useState("");
+  const seen = seenFingerprints(s, user.id);
+  const notesAll = briefingAnnouncements(s);
+  const rejsAll = briefingRejections(s);
+  const compsAll = briefingComplaints(s);
+  const catPath = id => { const c = s.categories.find(x => x.id === id); if (!c) return null; const p = c.parentId && s.categories.find(x => x.id === c.parentId); return p ? `${p.name} › ${c.name}` : c.name; };
+  const who = id => s.users.find(u => u.id === id)?.name.split(" ")[0];
+  const factsOf = p => p ? [p.articleId && `ID ${p.articleId}`, catPath(p.categoryId), p.piecesPerCu && `${p.piecesPerCu} pcs / CU`, p.weightPerCu && `${p.weightPerCu} g / CU`].filter(Boolean) : [];
+  const titleOf = c => {
+    if (c.kind === "ann") { const p = c.a.productId && s.products.find(x => x.id === c.a.productId); return p?.name || c.a.title || "Note"; }
+    if (c.kind === "rej") return s.products.find(x => x.id === c.i.productId)?.name || "Rejection";
+    return c.c.name || productForArticle(s, c.c.articleId)?.name || c.c.articleId || "Complaint";
+  };
+  const hayOf = c => {
+    if (c.kind === "ann") return [c.a.title, c.a.body, titleOf(c), who(c.a.createdBy)].filter(Boolean).join(" ").toLowerCase();
+    if (c.kind === "rej") return [titleOf(c), c.i.comment, c.i.supplier, who(c.i.controllerId), ...(c.i.pallets || [])].filter(Boolean).join(" ").toLowerCase();
+    return [titleOf(c), c.c.articleId, c.c.subType].filter(Boolean).join(" ").toLowerCase();
+  };
+  const matched = briefingFeed(s, tab).filter(c => !q.trim() || hayOf(c).includes(q.trim().toLowerCase()));
+  const feed = matched.filter(c => briefingRowId(c) === sel || !onlyUnseen || !seen.has(briefingFp(c)));
+  const current = feed.find(c => briefingRowId(c) === sel) || null;
+  const currentId = current ? briefingRowId(current) : "";
   useEffect(() => {
-    const fp = briefingFp(cards[ix]);
-    if (!fp || seenFingerprints(s, user.id).has(fp)) return;
+    if (sel && matched.some(c => briefingRowId(c) === sel)) return;
+    const first = matched.find(c => !onlyUnseen || !seen.has(briefingFp(c)));
+    setSel(first ? briefingRowId(first) : "");
+  }, [tab, onlyUnseen, q]);
+  useEffect(() => {
+    const fp = briefingFp(current);
+    if (!fp || seen.has(fp)) return;
     const t = setTimeout(() => set(x => markBriefingSeen(x, user.id, fp, nowISO(), liveBriefingFps(x))), 400);
     return () => clearTimeout(t);
-  }, [ix, tab, cards, user.id]);
-  const goTo = nI => { if (!n) return; setAnim(true); setDx(0); setI(Math.max(0, Math.min(n - 1, nI))); };
+  }, [currentId, user.id]);
   useEffect(() => {
     const onKey = e => {
-      if (e.key === "ArrowRight" || e.key === "ArrowDown") { e.preventDefault(); goTo(ix + 1); }
-      if (e.key === "ArrowLeft" || e.key === "ArrowUp") { e.preventDefault(); goTo(ix - 1); }
+      if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+      if (!feed.length) return;
+      e.preventDefault();
+      const ix = Math.max(0, feed.findIndex(c => briefingRowId(c) === currentId));
+      const next = feed[e.key === "ArrowDown" ? Math.min(feed.length - 1, ix + 1) : Math.max(0, ix - 1)];
+      if (next) setSel(briefingRowId(next));
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [ix, n]);
-  const catPath = id => { const c = s.categories.find(x => x.id === id); if (!c) return null; const p = c.parentId && s.categories.find(x => x.id === c.parentId); return p ? `${p.name} › ${c.name}` : c.name; };
-  const who = id => s.users.find(u => u.id === id)?.name.split(" ")[0];
-  const onDown = e => {
-    if (e.target.closest("[data-story-cta]")) return;
-    dragging.current = true;
-    start.current = { y: e.clientY, x: e.clientX };
-    setAnim(false);
-    try { e.currentTarget.setPointerCapture(e.pointerId); } catch {}
+  }, [feed, currentId]);
+  const kindMeta = c => c.kind === "ann"
+    ? { label: c.a.isBlocking ? "Blocking note" : "Head note", color: c.a.isBlocking ? C.bad : C.accent, bg: c.a.isBlocking ? C.badBg : C.accentSoft }
+    : c.kind === "rej" ? { label: "Rejected", color: C.bad, bg: C.badBg } : { label: "Complaint", color: C.bad, bg: C.badBg };
+  const whenOf = c => c.kind === "ann" ? c.a.createdAt : c.kind === "rej" ? c.i.completedAt : (c.c.updatedAt || briefingComplaintsMeta(s).updatedAt);
+  const previewOf = c => {
+    if (c.kind === "ann") return truncate(c.a.body || announceFilesOf(c.a).map(f => f.name).join(", ") || "Open to read", 90);
+    if (c.kind === "rej") { const rem = (c.i.remarks || []).map(r => briefingRemark(s, r)).filter(Boolean); return rem[0] || truncate(c.i.comment, 90) || "Open the report"; }
+    return `${c.c.count} freshness complaint${c.c.count === 1 ? "" : "s"}${c.c.subType ? ` · ${c.c.subType}` : ""}`;
   };
-  const onMove = e => { if (!dragging.current || !start.current) return; setDx(e.clientX - start.current.x); };
-  const onUp = e => {
-    if (!dragging.current || !start.current) return;
-    dragging.current = false;
-    const d = e.clientX - start.current.x, dy = e.clientY - start.current.y;
-    const tap = Math.abs(d) < 12 && Math.abs(dy) < 12;
-    if (tap && stage.current) {
-      const rect = stage.current.getBoundingClientRect();
-      goTo(e.clientX > rect.left + rect.width * 0.55 ? ix + 1 : ix - 1);
-    } else if (d < -56) goTo(ix + 1);
-    else if (d > 56) goTo(ix - 1);
-    else { setAnim(true); setDx(0); }
-    start.current = null;
-  };
-  const onWheel = e => {
-    e.stopPropagation();
-    if (wheelLock.current) return;
-    const delta = Math.abs(e.deltaX) >= Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
-    if (Math.abs(delta) < 18) return;
-    wheelLock.current = true;
-    goTo(ix + (delta > 0 ? 1 : -1));
-    setTimeout(() => { wheelLock.current = false; }, 380);
-  };
-  const Cta = ({ children, onClick, ghost }) => <button type="button" data-story-cta onClick={onClick} className="w-full py-2.5 rounded-2xl text-sm font-semibold inline-flex items-center justify-center gap-1" style={ghost ? { background: "transparent", color: C.ink, border: `1px solid ${C.line}` } : { background: C.ink, color: C.onDark }}>{children}</button>;
-  const edge = c => c.kind === "rej" ? C.bad : c.kind === "complaint" ? C.bad : c.kind === "ann" && c.a.isBlocking ? C.bad : C.accent;
-  const trans = anim && !dragging.current ? "transform .32s cubic-bezier(.2,.8,.2,1), opacity .28s ease" : "none";
-  const PAD = 10;
-  const face = pos => {
-    const box = { top: PAD, bottom: PAD, left: PAD, right: PAD, overflow: "hidden" };
-    if (pos < 0) return { ...box, zIndex: 1, transform: `translateX(calc(-100% - ${PAD}px + ${Math.max(0, dx)}px))`, transition: trans, pointerEvents: "none" };
-    if (pos > 0) return { ...box, zIndex: 1, transform: `translateX(calc(100% + ${PAD}px + ${Math.min(0, dx)}px))`, transition: trans, pointerEvents: "none" };
-    return { ...box, zIndex: 4, transform: `translateX(${dx}px)`, opacity: Math.abs(dx) > 8 ? Math.max(.45, 1 - Math.abs(dx) / 280) : 1, transition: trans, pointerEvents: "auto" };
-  };
-  const Hero = ({ product, name }) => {
+  const emptyCopy = onlyUnseen
+    ? (tab === "complaints" ? "No new complaints to review." : tab === "notes" ? "No new notes to review." : "No new rejections to review.")
+    : (tab === "complaints" ? "No complaints in this period." : tab === "notes" ? "No Head notes on the dashboard." : "No rejections yet.");
+  const Tile = ({ id, label, total, fresh }) => (
+    <button type="button" onClick={() => { setTab(id); setSel(""); }} className="qc-elev qc-tile rounded-2xl p-3.5 text-left" style={{ background: tab === id ? C.accentSoft : C.surface, border: `1px solid ${tab === id ? C.accent : C.line}` }}>
+      <p className="text-xs" style={{ color: C.muted }}>{label}</p>
+      <p className="text-[26px] leading-tight font-semibold mt-0.5" style={{ fontVariantNumeric: "tabular-nums" }}>{total}</p>
+      <p className="text-[11px] mt-0.5" style={{ color: fresh ? C.accent : C.muted }}>{fresh ? `${fresh} unseen` : "all seen"}</p>
+    </button>
+  );
+  const ProdStrip = ({ product, name, extra }) => {
+    if (!product && !name) return null;
     const photo = product && asPhotoList(product.photos)[0];
     return (
-      <div className="relative flex-shrink-0 overflow-hidden flex items-center justify-center" style={{ height: 196, background: PHOTO_BG }}>
-        {photo && <img src={photoSrc(photo)} alt="" className="absolute inset-0 w-full h-full object-contain p-4" onError={e => { e.currentTarget.style.display = "none"; const el = e.currentTarget.parentElement?.querySelector("[data-letter]"); if (el) el.style.opacity = "1"; }} />}
-        <span data-letter className="text-[56px] font-semibold leading-none" style={{ color: "#8A9278", opacity: photo ? 0 : .55 }}>{(name || "?")[0]}</span>
+      <div className="flex items-center gap-3 rounded-xl px-3 py-2.5 mb-4" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
+        {photo ? <img src={photoSrc(photo)} alt="" className="rounded-lg object-contain flex-shrink-0" style={{ width: 48, height: 48, background: PHOTO_BG }} /> : <span className="rounded-lg flex items-center justify-center flex-shrink-0" style={{ width: 48, height: 48, background: C.surface, color: C.muted, border: `1px solid ${C.line}` }}><Ic i={Package} s={18} mr={0} /></span>}
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-semibold truncate">{name || product?.name}</p>
+          {product && <p className="text-[11px] truncate" style={{ color: C.muted }}>{factsOf(product).join(" · ")}</p>}
+          {extra}
+        </div>
       </div>
     );
   };
-  const factsOf = p => {
-    if (!p) return [];
-    return [p.articleId && `ID ${p.articleId}`, catPath(p.categoryId), p.piecesPerCu && `${p.piecesPerCu} pcs / CU`, p.weightPerCu && `${p.weightPerCu} g / CU`].filter(Boolean);
-  };
-  const renderCard = (c, pos) => {
-    if (!c) return null;
-    let hero = null, body = null;
-    if (c.kind === "ann") {
-      const a = c.a, prod = a.productId && s.products.find(p => p.id === a.productId);
+  const detail = (() => {
+    if (!current) return null;
+    if (current.kind === "ann") {
+      const a = current.a, prod = a.productId && s.products.find(p => p.id === a.productId);
       const author = s.users.find(u => u.id === a.createdBy);
       const files = announceFilesOf(a);
-      hero = prod ? <Hero product={prod} name={prod.name} /> : null;
-      body = <>
-        <div className="flex items-start gap-3">
+      return <>
+        <div className="flex items-start gap-3 mb-3">
           <div className="flex-1 min-w-0">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.16em]" style={{ color: a.isBlocking ? C.bad : C.accent }}>{a.isBlocking ? "Blocking note" : "From the Head"}</p>
-            <p className="text-[20px] font-semibold leading-[1.15] tracking-tight mt-1">{prod?.name || a.title}</p>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.14em]" style={{ color: a.isBlocking ? C.bad : C.accent }}>{a.isBlocking ? "Blocking note" : "From the Head"}</p>
+            <h2 className="mt-1">{a.title}</h2>
+            <p className="text-xs mt-1" style={{ color: C.muted }}>{dayLabel(a.createdAt)}{who(a.createdBy) ? ` · ${who(a.createdBy)}` : ""}{a.categoryId && !prod ? ` · ${catPath(a.categoryId)}` : ""}</p>
           </div>
-          {!prod && author && <span className="flex-shrink-0 mt-0.5"><Avatar user={author} size={36} /></span>}
+          {author && <Avatar user={author} size={40} />}
         </div>
-        {prod && <p className="text-[12px] mt-1" style={{ color: C.muted }}>{factsOf(prod).join(" · ")}</p>}
-        {prod && a.title !== prod.name && <p className="text-[15px] font-semibold mt-2">{a.title}</p>}
-        {a.categoryId && !prod && <p className="text-[12px] mt-1" style={{ color: C.ok }}>{catPath(a.categoryId)}</p>}
-        {a.body && <p className={`text-[14px] mt-2 leading-snug ${prod ? "line-clamp-2" : "line-clamp-5"}`} style={{ color: C.ink }}>{truncate(a.body, prod ? 140 : 280)}</p>}
-        {files.length ? <AnnounceFileThumbs files={files} colors={C} cta /> : null}
-        <p className="text-[12px] mt-2" style={{ color: C.muted }}>{dayLabel(a.createdAt)}{who(a.createdBy) ? ` · ${who(a.createdBy)}` : ""}</p>
-        <div className="mt-auto pt-3 space-y-2">
-          {prod && <Cta ghost onClick={() => go("catalog", prod.id)}>Product profile<Ic i={ChevronRight} s={15} mr={0} /></Cta>}
-          {!prod && <Cta ghost onClick={() => go("announcements")}>Read full note<Ic i={ChevronRight} s={15} mr={0} /></Cta>}
-        </div>
-      </>;
-    } else if (c.kind === "rej") {
-      const insp = c.i, prod = s.products.find(p => p.id === insp.productId);
-      const remarks = (insp.remarks || []).map(r => briefingRemark(s, r)).filter(Boolean);
-      hero = <Hero product={prod} name={prod?.name} />;
-      body = <>
-        <p className="text-[11px] font-semibold uppercase tracking-[0.16em]" style={{ color: C.bad }}>Rejected · {dayLabel(insp.completedAt)}, {hhmm(insp.completedAt)}</p>
-        <p className="text-[20px] font-semibold leading-[1.15] tracking-tight mt-1">{prod?.name || "Product"}</p>
-        {prod && <p className="text-[12px] mt-1" style={{ color: C.muted }}>{factsOf(prod).join(" · ")}</p>}
-        <p className="text-[13px] mt-2.5" style={{ color: C.ink }}>by {who(insp.controllerId) || "controller"}{insp.supplier ? ` · ${insp.supplier}` : ""}{(insp.pallets || []).filter(Boolean).length ? ` · ${insp.pallets.filter(Boolean).join(", ")}` : ""}</p>
-        {remarks.length > 0 && (
-          <div className="mt-2.5">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] mb-1" style={{ color: C.muted }}>Why</p>
-            {remarks.slice(0, 4).map((line, ri) => <p key={ri} className="text-[13px] leading-snug py-0.5" style={{ color: C.ink }}>{line}</p>)}
-            {remarks.length > 4 && <p className="text-[12px]" style={{ color: C.muted }}>+{remarks.length - 4} more</p>}
-          </div>
-        )}
-        {insp.comment && <p className="text-[13px] mt-2 leading-relaxed" style={{ color: C.muted }}>{insp.comment}</p>}
-        <div className="mt-auto pt-3">
-          <Cta onClick={() => go("inspection", insp.id)}>Open this rejection<Ic i={ChevronRight} s={15} mr={0} /></Cta>
-        </div>
-      </>;
-    } else {
-      const row = c.c, p = productForArticle(s, row.articleId);
-      hero = <Hero product={p} name={row.name || p?.name} />;
-      body = <>
-        <p className="text-[11px] font-semibold uppercase tracking-[0.16em]" style={{ color: C.bad }}>Complaint{briefingComplaintsMeta(s).period ? ` · ${briefingComplaintsMeta(s).period}` : ""}</p>
-        <p className="text-[20px] font-semibold leading-[1.15] tracking-tight mt-1">{row.name || p?.name || row.articleId}</p>
-        <p className="text-[12px] mt-1" style={{ color: C.muted }}>{[row.articleId && `ID ${row.articleId}`, p && catPath(p.categoryId)].filter(Boolean).join(" · ")}</p>
-        <p className="text-[34px] font-semibold leading-none tracking-tight mt-2.5" style={{ color: C.bad, fontVariantNumeric: "tabular-nums" }}>{row.count}</p>
-        <p className="text-[14px] mt-1" style={{ color: C.bad }}>freshness complaint{row.count === 1 ? "" : "s"}{row.subType ? ` · mostly ${row.subType}` : ""}</p>
-        <p className="text-[13px] mt-2 leading-snug" style={{ color: C.muted }}>{p ? "Customers already noticed. Look closer today." : "No catalog profile yet."}</p>
-        <div className="mt-auto pt-3 space-y-2">
-          {p && <Cta ghost onClick={() => go("catalog", p.id)}>Product profile<Ic i={ChevronRight} s={15} mr={0} /></Cta>}
-          {!p && <Cta onClick={() => go("complaints")}>See all complaints</Cta>}
+        {prod && <ProdStrip product={prod} name={prod.name} />}
+        {a.body && <p className="text-sm leading-relaxed whitespace-pre-wrap mb-4">{a.body}</p>}
+        {files.length ? <div className="mb-4"><AnnounceFileList announcement={a} colors={C} /></div> : null}
+        <div className="flex flex-wrap gap-2">
+          {prod && <Ghost onClick={() => go("catalog", prod.id)}>Product profile<Ic i={ChevronRight} s={13} mr={0} /></Ghost>}
+          <Ghost onClick={() => go("announcements")}>All announcements<Ic i={ChevronRight} s={13} mr={0} /></Ghost>
         </div>
       </>;
     }
-    return (
-      <div key={`${c.kind}-${c.a?.id || c.i?.id || c.c?.id || "x"}-${pos}`} className="absolute flex flex-col overflow-hidden rounded-[28px]" style={{ background: C.bg, border: `1px solid ${C.line}`, boxShadow: lift(2), ...face(pos) }}>
-        <div className="absolute top-0 left-0 right-0 h-[3px]" style={{ background: edge(c), zIndex: 2 }} />
-        {hero}
-        <div className="flex-1 min-h-0 flex flex-col px-4 pt-3 pb-3 overflow-y-auto">{body}</div>
+    if (current.kind === "rej") {
+      const insp = current.i, prod = s.products.find(p => p.id === insp.productId);
+      const remarks = (insp.remarks || []).map(r => briefingRemark(s, r)).filter(Boolean);
+      return <>
+        <p className="text-[11px] font-semibold uppercase tracking-[0.14em]" style={{ color: C.bad }}>Rejected · {dayLabel(insp.completedAt)} {hhmm(insp.completedAt)}</p>
+        <h2 className="mt-1 mb-3">{prod?.name || "Product"}</h2>
+        <ProdStrip product={prod} name={prod?.name} extra={<p className="text-[11px]" style={{ color: C.muted }}>by {who(insp.controllerId) || "controller"}{insp.supplier ? ` · ${insp.supplier}` : ""}{(insp.pallets || []).filter(Boolean).length ? ` · ${(insp.pallets || []).filter(Boolean).join(", ")}` : ""}</p>} />
+        {remarks.length > 0 && <div className="mb-4"><p className="label-sm mb-1.5" style={{ color: C.muted }}>Why</p>{remarks.map((line, ri) => <p key={ri} className="text-sm py-1.5" style={{ borderTop: `1px solid ${C.line}` }}>{line}</p>)}</div>}
+        {insp.comment && <p className="text-sm leading-relaxed mb-4" style={{ color: C.muted }}>{insp.comment}</p>}
+        <Ghost onClick={() => go("inspection", insp.id)}>Open this rejection<Ic i={ChevronRight} s={13} mr={0} /></Ghost>
+      </>;
+    }
+    const row = current.c, p = productForArticle(s, row.articleId);
+    return <>
+      <p className="text-[11px] font-semibold uppercase tracking-[0.14em]" style={{ color: C.bad }}>Complaint{briefingComplaintsMeta(s).period ? ` · ${briefingComplaintsMeta(s).period}` : ""}</p>
+      <h2 className="mt-1 mb-3">{row.name || p?.name || row.articleId}</h2>
+      <ProdStrip product={p} name={row.name || p?.name} extra={<p className="text-[11px]" style={{ color: C.muted }}>{[row.articleId && `ID ${row.articleId}`, p && catPath(p.categoryId)].filter(Boolean).join(" · ")}</p>} />
+      <p className="text-[40px] font-semibold leading-none tracking-tight" style={{ color: C.bad, fontVariantNumeric: "tabular-nums" }}>{row.count}</p>
+      <p className="text-sm mt-1 mb-4" style={{ color: C.bad }}>freshness complaint{row.count === 1 ? "" : "s"}{row.subType ? ` · mostly ${row.subType}` : ""}</p>
+      <p className="text-sm mb-4" style={{ color: C.muted }}>{p ? "Customers already noticed. Look closer today." : "No catalog profile yet."}</p>
+      <div className="flex flex-wrap gap-2">
+        {p && <Ghost onClick={() => go("catalog", p.id)}>Product profile<Ic i={ChevronRight} s={13} mr={0} /></Ghost>}
+        <Ghost onClick={() => go("complaints")}>All complaints<Ic i={ChevronRight} s={13} mr={0} /></Ghost>
       </div>
-    );
-  };
-  const notesN = tab === "notes" ? n : unseen.anns.length;
-  const rejN = tab === "rejections" ? n : unseen.rejs.length;
-  const compN = tab === "complaints" ? n : unseen.complaints.length;
-  const Tab = ({ id, label, count }) => <button type="button" data-story-cta onClick={() => setTab(id)} className="flex-1 py-2 text-[12px] font-medium whitespace-nowrap" style={{ background: tab === id ? C.ink : "transparent", color: tab === id ? C.onDark : C.ink }}>{label}{count ? ` · ${count}` : ""}</button>;
-  const emptyCopy = tab === "complaints" ? "No new complaints to review." : tab === "notes" ? "No new notes to review." : "No new rejections to review.";
+    </>;
+  })();
   return (
     <div>
-      <div className="flex items-baseline gap-3 mb-1"><h1>Shift update</h1>{n > 0 && <span className="text-[11px] font-medium" style={{ color: C.muted, fontVariantNumeric: "tabular-nums" }}>{ix + 1} / {n}</span>}</div>
-      <p className="text-sm mb-4" style={{ color: C.muted, maxWidth: 640 }}>Same cards as on the phone — swipe or use the arrow keys. Opening a card marks it seen for the whole team view of your shift.</p>
-      <div className="flex rounded-xl overflow-hidden mb-3" style={{ border: `1px solid ${C.line}`, maxWidth: 440 }}>
-        <Tab id="notes" label="Notes" count={notesN} />
-        <Tab id="rejections" label="Rejections" count={rejN} />
-        <Tab id="complaints" label="Complaints" count={compN} />
-      </div>
-      {n === 0 ? (
-        <Card style={{ maxWidth: 440 }}><Empty icon={BookOpen} title="You're up to date." hint={emptyCopy} /></Card>
-      ) : (
-        <div style={{ maxWidth: 440 }}>
-          <div className="h-[3px] rounded-full overflow-hidden mb-2" style={{ background: C.line }}>
-            <span className="block h-full rounded-full" style={{ width: `${Math.round((ix + 1) / n * 100)}%`, background: C.ink }} />
-          </div>
-          <div ref={stage} className="relative overflow-hidden" style={{ height: 560, touchAction: "none" }}
-            onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp} onWheel={onWheel}>
-            {renderCard(cards[ix - 1], -1)}
-            {renderCard(cards[ix + 1], 1)}
-            {renderCard(cards[ix], 0)}
-          </div>
+      <div className="flex items-end gap-3 mb-4">
+        <div className="flex-1 min-w-0">
+          <h1>Shift update</h1>
+          <p className="text-sm mt-0.5" style={{ color: C.muted, maxWidth: 640 }}>Head notes, last rejections and customer complaints — pick a row, read it, move on. Opening a row marks it seen, same as on the phone.</p>
         </div>
-      )}
+        {unseen.total > 0 && <span className="text-xs px-2.5 py-1 rounded-full font-medium flex-shrink-0" style={{ background: C.accentSoft, color: C.accent }}>{unseen.total} unseen</span>}
+      </div>
+      <div className="grid gap-3 mb-4" style={{ gridTemplateColumns: "repeat(3, minmax(0, 1fr))" }}>
+        <Tile id="notes" label="Notes from the Head" total={notesAll.length} fresh={unseen.anns.length} />
+        <Tile id="rejections" label="Rejections" total={rejsAll.length} fresh={unseen.rejs.length} />
+        <Tile id="complaints" label="Complaints" total={compsAll.length} fresh={unseen.complaints.length} />
+      </div>
+      <div className="flex items-center gap-2 mb-3 flex-wrap">
+        <SearchBox value={q} onChange={setQ} placeholder="Search this list" className="flex-1" style={{ minWidth: 220, maxWidth: 360 }} size={13} inputClass="rounded-lg" />
+        <label className="flex items-center gap-1.5 text-xs cursor-pointer" style={{ color: C.muted }}><input type="checkbox" checked={onlyUnseen} onChange={e => setOnlyUnseen(e.target.checked)} />unseen only</label>
+        <span className="text-xs ml-auto" style={{ color: C.muted }}>{feed.length} shown</span>
+      </div>
+      <div className="grid gap-4 items-start" style={{ gridTemplateColumns: "minmax(280px, 380px) minmax(0, 1fr)" }}>
+        <Card style={{ padding: 0, overflow: "hidden" }}>
+          {feed.length === 0 ? <Empty icon={BookOpen} title={onlyUnseen ? "You're up to date." : "Nothing here."} hint={q.trim() ? "Nothing matches this search." : emptyCopy} action={onlyUnseen && !q.trim() ? <button type="button" onClick={() => setOnlyUnseen(false)} className="text-xs" style={{ color: C.accent }}>Show already seen</button> : null} /> : (
+            <div style={{ maxHeight: 640, overflowY: "auto" }}>
+              {feed.map(c => {
+                const id = briefingRowId(c);
+                const on = id === currentId;
+                const fresh = !seen.has(briefingFp(c));
+                const km = kindMeta(c);
+                return (
+                  <button key={id} type="button" onClick={() => setSel(id)} className="w-full text-left px-3.5 py-2.5 flex items-start gap-2.5" style={{ background: on ? C.accentSoft : "transparent", borderBottom: `1px solid ${C.line}` }}>
+                    <span className="mt-1.5 rounded-full flex-shrink-0" style={{ width: 8, height: 8, background: fresh ? C.accent : C.line }} />
+                    <span className="min-w-0 flex-1">
+                      <span className="flex items-center gap-1.5 mb-0.5">
+                        <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium" style={{ background: km.bg, color: km.color }}>{km.label}</span>
+                        <span className="text-[10px] ml-auto flex-shrink-0" style={{ color: C.muted }}>{dayLabel(whenOf(c))}</span>
+                      </span>
+                      <span className="block text-sm font-medium truncate" style={{ color: on ? C.accent : C.ink }}>{titleOf(c)}</span>
+                      <span className="block text-[11px] truncate mt-0.5" style={{ color: C.muted }}>{previewOf(c)}</span>
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </Card>
+        <Card>{current ? detail : <Empty icon={BookOpen} title="Pick a row" hint="The full note, rejection or complaint opens here." />}</Card>
+      </div>
     </div>
   );
 }
@@ -3419,17 +3414,12 @@ function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset, onMessag
   // whatever is visible, so "No category" + a search term + Assign is the fast way through a fresh import.
   const [catSel, setCatSel] = useState(""); const [onlyBio, setOnlyBio] = useState(false); const [showInactive, setShowInactive] = useState(false); const [sortBy, setSortBy] = useState("az");
   const inCat = (p, cid) => cid === "none" ? !p.categoryId : cid ? (p.categoryId === cid || s.categories.some(c => c.id === p.categoryId && c.parentId === cid)) : true;
-  const roots = s.categories.filter(c => !c.parentId); const children = pid => s.categories.filter(c => c.parentId === pid);
   const countIn = cid => s.products.filter(p => inCat(p, cid) && (showInactive || p.isActive !== false)).length;
   const unassigned = s.products.filter(p => !p.categoryId).length;
   const catFilterOptions = [
     ...(unassigned > 0 ? [{ value: "none", label: `No category · ${countIn("none")}` }] : []),
-    ...roots.map(c => ({ value: c.id, label: `${c.name} · ${countIn(c.id)}` })),
+    ...s.categories.map(c => ({ value: c.id, label: `${catPath(c.id)} · ${countIn(c.id)}` })),
   ];
-  if (catSel && catSel !== "none" && !catFilterOptions.some(o => o.value === catSel)) {
-    const cur = s.categories.find(c => c.id === catSel);
-    if (cur) catFilterOptions.push({ value: cur.id, label: `${cur.name} · ${countIn(cur.id)}` });
-  }
   const visible = s.products.filter(p => (showInactive || p.isActive !== false) && inCat(p, catSel) && (!onlyBio || p.isBio) && (!filter || (p.name + " " + (p.articleId || "")).toLowerCase().includes(filter.toLowerCase())))
     .sort((a, b) => sortBy === "az" ? a.name.localeCompare(b.name) : sortBy === "id" ? String(a.articleId || "").localeCompare(String(b.articleId || "")) : sortBy === "cat" ? catPath(a.categoryId).localeCompare(catPath(b.categoryId)) || a.name.localeCompare(b.name) : 0);
   const [bulkCat, setBulkCat] = useState("");
@@ -3672,8 +3662,6 @@ function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset, onMessag
           <label className="flex items-center gap-1 cursor-pointer text-xs" style={{ color: C.muted }}><input type="checkbox" checked={showInactive} onChange={e => setShowInactive(e.target.checked)} />inactive</label>
           <span className="text-xs ml-auto" style={{ color: C.muted }}>{visible.length} of {s.products.length}</span>
         </div>
-        {catSel && catSel !== "none" && children(catSel).length > 0 && <div className="flex flex-wrap gap-1.5 mb-2" style={{ maxHeight: 64, overflowY: "auto" }}>{children(catSel).map(c => <button key={c.id} onClick={() => setCatSel(c.id)} className="text-[11px] px-2 py-0.5 rounded-full flex-shrink-0" style={{ background: C.bg, border: `1px solid ${C.line}` }}>{c.name} · {countIn(c.id)}</button>)}</div>}
-        {catSel && catSel !== "none" && s.categories.find(c => c.id === catSel)?.parentId && <p className="text-[11px] mb-2" style={{ color: C.muted }}>{catPath(catSel)} · <button onClick={() => setCatSel(s.categories.find(c => c.id === catSel).parentId)} className="underline">up</button></p>}
         {unassigned > 0 && catSel !== "none" && <button onClick={() => setCatSel("none")} className="w-full text-left text-xs rounded-lg px-2.5 py-2 mb-2" style={{ background: C.warnBg, color: C.warn }}>{unassigned} product{unassigned === 1 ? "" : "s"} without a category — they get no category specs. Show them →</button>}
         {catSel === "none" && unassigned > 0 && <CategorySuggestPanel s={s} set={set} products={s.products.filter(p => !p.categoryId)} />}
         {visibleUnassigned.length > 0 && (
@@ -4722,89 +4710,196 @@ function FoldNote({ title, chip, children }) {
     </div>
   );
 }
-function CatalogPage({ s, set, user, notify, onStartInspection, onOpenInspection, presetSel, clearPresetSel, presetFilter, clearPreset }) {
-  const [q, setQ] = useState(""); const [sel, setSel] = useBackSel("catalogSel", null); const [flagText, setFlagText] = useState(""); const [flagOpen, setFlagOpen] = useState(false); const [showRef, setShowRef] = useState(null);
+function CatalogPage({ s, set, user, notify, onOpenInspection, presetSel, clearPresetSel, presetFilter, clearPreset }) {
+  const [q, setQ] = useState(""); const [sel, setSel] = useBackSel("catalogSel", null); const [flagText, setFlagText] = useState(""); const [flagOpen, setFlagOpen] = useState(false);
+  const [tab, setTab] = useState("profile");
   useEffect(() => { if (presetSel) { setSel(presetSel); clearPresetSel && clearPresetSel(); } }, [presetSel]);
   useEffect(() => { if (presetFilter) { setQ(presetFilter); clearPreset && clearPreset(); } }, [presetFilter]);
-  const [cat, setCat] = useBackSel("catalogCat", null); const [f, setF] = useState({ bio: "", supplier: "", flagged: false, sort: "name" });
+  useEffect(() => { setTab("profile"); setFlagOpen(false); }, [sel]);
+  const [catSel, setCatSel] = useBackSel("catalogCat", "");
+  const [bio, setBio] = useState("");
+  const [supplier, setSupplier] = useState("");
+  const [sortBy, setSortBy] = useState("az");
+  const [flagged, setFlagged] = useState(false);
   const catPath = id => { const c = s.categories.find(x => x.id === id); if (!c) return "uncategorised"; const p = c.parentId && s.categories.find(x => x.id === c.parentId); return p ? `${p.name} › ${c.name}` : c.name; };
   const catChain = id => { const out = []; let c = s.categories.find(x => x.id === id); while (c) { out.unshift(c); c = c.parentId ? s.categories.find(x => x.id === c.parentId) : null; } return out; };
   const lastInsp = pid => s.inspections.filter(i => i.productId === pid && i.status === "Completed").sort((a, b) => (b.completedAt || "").localeCompare(a.completedAt || ""))[0];
   const haystack = p => [p.name, p.articleId, p.barcodeCu, p.barcodeTu, ...catChain(p.categoryId).map(c => c.name), ...(p.supplierIds || []).map(id => (s.suppliers || []).find(x => x.id === id)?.name || ""), ...effectiveVarieties(s, p).map(v => v.name)].join(" ").toLowerCase();
+  const inCat = (p, cid) => !cid ? true : cid === "none" ? !p.categoryId : catChain(p.categoryId).some(c => c.id === cid);
+  const countIn = cid => s.products.filter(p => p.isActive !== false && inCat(p, cid)).length;
+  const unassigned = s.products.filter(p => !p.categoryId && p.isActive !== false).length;
+  const catFilterOptions = [
+    ...(unassigned > 0 ? [{ value: "none", label: `No category · ${countIn("none")}` }] : []),
+    ...s.categories.map(c => ({ value: c.id, label: `${catPath(c.id)} · ${countIn(c.id)}` })),
+  ];
   const qq = q.trim().toLowerCase();
-  const visible = s.products.filter(p => p.isActive !== false).filter(p => (!cat || catChain(p.categoryId).some(c => c.id === cat)) && (!f.bio || (f.bio === "bio" ? p.isBio : !p.isBio)) && (!f.supplier || (p.supplierIds || []).includes(f.supplier)) && (!f.flagged || s.flags.some(x => x.productId === p.id && x.status === "Open")) && (!qq || haystack(p).includes(qq)))
-    .sort((a, b) => f.sort === "recent" ? ((lastInsp(b.id)?.completedAt || "").localeCompare(lastInsp(a.id)?.completedAt || "")) : a.name.localeCompare(b.name, "en"));
-  const topCats = s.categories.filter(c => !c.parentId);
-  const countIn = cid => s.products.filter(p => catChain(p.categoryId).some(c => c.id === cid)).length;
-  const Chip = ({ on, onClick, children }) => <button onClick={onClick} className="text-xs px-3 py-1.5 rounded-full whitespace-nowrap" style={{ background: on ? C.ink : "transparent", color: on ? C.onDark : C.ink, border: `1px solid ${on ? C.ink : C.line}` }}>{children}</button>;
+  const visible = s.products.filter(p => p.isActive !== false)
+    .filter(p => inCat(p, catSel) && (!bio || (bio === "bio" ? p.isBio : !p.isBio)) && (!supplier || (p.supplierIds || []).includes(supplier)) && (!flagged || s.flags.some(x => x.productId === p.id && x.status === "Open")) && (!qq || haystack(p).includes(qq)))
+    .sort((a, b) => sortBy === "recent" ? ((lastInsp(b.id)?.completedAt || "").localeCompare(lastInsp(a.id)?.completedAt || "")) : sortBy === "cat" ? catPath(a.categoryId).localeCompare(catPath(b.categoryId)) || a.name.localeCompare(b.name) : a.name.localeCompare(b.name, "en"));
   const product = s.products.find(p => p.id === sel);
   const specs = product ? effectiveSpecs(s, product) : [];
+  const attrs = product ? effectiveAttributes(s, product) : [];
   const assigned = product ? (product.supplierIds || []).map(id => (s.suppliers || []).find(x => x.id === id)).filter(Boolean) : [];
-  const suppliers = assigned.length ? assigned : (s.suppliers || []);
-  const history = product ? s.inspections.filter(i => i.productId === product.id && i.status === "Completed").sort((a, b) => (b.completedAt || "").localeCompare(a.completedAt || "")).slice(0, 5) : [];
+  const varieties = product ? effectiveVarieties(s, product) : [];
+  const notes = product ? effectiveNotesFor(s, product) : [];
+  const guide = product ? effectiveGuide(s, product) : [];
+  const histAll = product ? s.inspections.filter(i => i.productId === product.id && i.status === "Completed" && isVerdictType(s, i)).sort((a, b) => (b.completedAt || "").localeCompare(a.completedAt || "")) : [];
   const openFlags = product ? s.flags.filter(f => f.productId === product.id && f.status === "Open") : [];
-  const raise = () => { if (!flagText.trim()) return; set(x => ({ ...x, flags: [...x.flags, { id: uid(), productId: product.id, inspectionId: null, raisedBy: user.id, description: flagText.trim(), status: "Open", createdAt: nowISO() }] })); notify("Flag", `${user.name}: ${product.name} — ${flagText.trim()}`, "ProductFlag", null); setFlagText(""); setFlagOpen(false); };
+  const refInsp = product ? referenceOf(s, product.id) : null;
+  const selectProduct = id => { setSel(id); try { window.scrollTo({ top: 0, behavior: "smooth" }); } catch {} };
+  const raise = () => { if (!flagText.trim() || !product) return; set(x => ({ ...x, flags: [...x.flags, { id: uid(), productId: product.id, inspectionId: null, raisedBy: user.id, description: flagText.trim(), status: "Open", createdAt: nowISO() }] })); notify("Flag", `${user.name}: ${product.name} — ${flagText.trim()}`, "ProductFlag", null); setFlagText(""); setFlagOpen(false); };
+  const Static = ({ children }) => <div className="text-[13px] rounded-md px-2.5 flex items-center min-h-[32px]" style={{ background: C.bg, border: `1px solid ${C.line}` }}>{children || <span style={{ color: C.muted }}>—</span>}</div>;
+  const tabs = product ? [
+    ["profile", "Profile"],
+    ["photos", `Photos${asPhotoList(product.photos).length ? ` · ${asPhotoList(product.photos).length}` : ""}`],
+    ["specs", `Specifications${specs.length ? ` · ${specs.length}` : ""}`],
+    ["attrs", `Properties${attrs.length ? ` · ${attrs.length}` : ""}`],
+    ["supply", `Suppliers${assigned.length ? ` · ${assigned.length}` : ""}`],
+    ["reference", `Reference guide${notes.length ? ` · ${notes.length}` : ""}`],
+    ["guide", `Encyclopedia${guide.length ? ` · ${guide.length}` : ""}`],
+    ["history", `Inspection history${histAll.length ? ` · ${histAll.length}` : ""}`],
+  ] : [];
   return (
     <div>
-      <h1 className="mb-1">Products</h1>
-      <p className="text-sm mb-5" style={{ color: C.muted, maxWidth: 640 }}>Knowledge source on the dock: what the product is, its specs, who delivers it. Read-only — if something is off, raise a flag.</p>
-      <div className="grid gap-4" style={{ gridTemplateColumns: "1fr 1.3fr" }}>
-        <Card>
-          <input value={q} onChange={e => setQ(e.target.value)} placeholder="product, ID, category, supplier, variety…" autoFocus className="w-full text-sm mb-2" />
-          <div className="flex gap-1.5 flex-wrap mb-2"><Chip on={!cat} onClick={() => setCat(null)}>Wszystkie · {s.products.length}</Chip>{topCats.map(c => <Chip key={c.id} on={cat === c.id} onClick={() => setCat(c.id)}>{c.name} · {countIn(c.id)}</Chip>)}</div>
-          {cat && s.categories.some(c => c.parentId === cat) && <div className="flex gap-1.5 flex-wrap mb-2 pl-2">{s.categories.filter(c => c.parentId === cat).map(c => <Chip key={c.id} on={false} onClick={() => setCat(c.id)}>↳ {c.name} · {countIn(c.id)}</Chip>)}</div>}
-          <div className="flex gap-1.5 flex-wrap mb-3 items-center text-xs" style={{ color: C.muted }}>
-            <select value={f.bio} onChange={e => setF(x => ({ ...x, bio: e.target.value }))} className="text-xs" style={{ minHeight: 30 }}><option value="">bio and standard</option><option value="bio">bio only</option><option value="std">standard only</option></select>
-            <select value={f.supplier} onChange={e => setF(x => ({ ...x, supplier: e.target.value }))} className="text-xs" style={{ minHeight: 30 }}><option value="">any supplier</option>{(s.suppliers || []).map(x => <option key={x.id} value={x.id}>{x.name}</option>)}</select>
-            <Chip on={f.flagged} onClick={() => setF(x => ({ ...x, flagged: !x.flagged }))}>with open flag</Chip>
-            <select value={f.sort} onChange={e => setF(x => ({ ...x, sort: e.target.value }))} className="text-xs" style={{ minHeight: 30 }}><option value="name">A–Z</option><option value="recent">recently inspected</option></select>
-          </div>
-          {visible.length === 0 ? <p className="text-xs" style={{ color: C.muted }}>Nothing matches.</p> : visible.slice(0, 60).map(p => { const li = lastInsp(p.id); const openFlag = s.flags.some(x => x.productId === p.id && x.status === "Open"); return (
-            <button key={p.id} onClick={() => { setSel(p.id); setFlagOpen(false); setShowRef(null); }} className="w-full text-left flex items-center gap-2 px-2 py-2 rounded-lg row" style={{ background: sel === p.id ? C.accentSoft : "transparent", borderTop: `1px solid ${C.line}` }}>
-              {asPhotoList(p.photos).length ? <img src={photoSrc(asPhotoList(p.photos)[0])} alt="" className="w-8 h-8 rounded-md object-contain" style={{ background: PHOTO_BG }} /> : <span className="w-8 h-8 rounded-md flex items-center justify-center" style={{ background: C.bg, color: C.muted }}><Ic i={ImageIcon} s={14} mr={0} /></span>}
-              <span className="flex-1 min-w-0"><span className="block text-sm truncate" style={{ color: sel === p.id ? C.accent : C.ink }}>{p.name}{p.isBio && <span className="text-xs ml-1" style={{ color: C.ok }}>bio</span>}</span><span className="block text-[11px]" style={{ color: C.muted }}>{p.articleId || "—"} · {catPath(p.categoryId)}</span></span>
-              {openFlag && <Ic i={Flag} s={12} mr={0} style={{ color: C.warn }} />}
-              {li && <span className="inline-block rounded-full" title={`last: ${li.result === "Accepted" ? "accepted" : "rejected"}, ${fmtTime(li.completedAt)}`} style={{ width: 8, height: 8, background: li.result === "Accepted" ? C.ok : C.bad }} />}
-            </button>
-          ); })}
-          {visible.length > 60 && <p className="text-xs mt-1" style={{ color: C.muted }}>…and {visible.length - 60} more — narrow the search.</p>}
-        </Card>
-        <Card>
-          {!product ? <Empty icon="📦" title="Select a product" hint="You'll see the profile, specs, suppliers, varieties and recent inspections." /> : (
-            <>
-              <div className="flex items-start gap-3 mb-3">
-                {asPhotoList(product.photos).length ? <img src={photoSrc(asPhotoList(product.photos)[0])} alt="" className="w-16 h-16 rounded-lg object-contain" style={{ border: `1px solid ${C.line}`, background: PHOTO_BG }} /> : <div className="w-16 h-16 rounded-lg flex items-center justify-center" style={{ background: C.bg, border: `1px solid ${C.line}`, color: C.muted }} title="ProductPhotos — reference photos"><Ic i={ImageIcon} s={24} mr={0} /></div>}
-                <div className="flex-1 min-w-0">
-                  <p className="font-semibold">{product.name}{product.isBio && <span className="text-xs ml-2 px-1.5 py-0.5 rounded" style={{ background: C.okBg, color: C.ok }}>bio</span>}</p>
-                  <p className="text-xs" style={{ color: C.muted }}>ID {product.articleId || "—"}{product.barcodeCu && ` · CU ${product.barcodeCu}`}{product.barcodeTu && ` · TU ${product.barcodeTu}`} · {catPath(product.categoryId)}{product.isActive === false && <span className="ml-2 px-1.5 py-0.5 rounded" style={{ background: C.line, color: C.muted }}>inactive</span>}</p>
-                  <p className="text-xs mt-1" style={{ color: C.muted }}>{product.cusPerTu || "?"} CU/TU · {product.piecesPerCu || "?"} pcs/CU · {product.weightPerCu || "?"} g/CU</p>
-                  {product.consumerAppUrl && <button className="text-xs mt-1 underline" style={{ color: C.accent }} title="ConsumerAppUrl — phone only">open in the consumer app ↗</button>}
+      <div className="flex items-end gap-3 mb-4">
+        <div className="flex-1"><h1>Products</h1><p className="text-sm mt-0.5" style={{ color: C.muted }}>{s.products.filter(p => p.isActive !== false).length} product{s.products.length === 1 ? "" : "s"} · read-only on the web — raise a flag if something is off</p></div>
+      </div>
+
+      <div className="mb-4">
+        {!product ? <Card><Empty icon="📦" title="Select a product" hint="Its profile, photos, specifications, suppliers and inspection history open here." /></Card> : (
+          <Card style={{ padding: 0, overflow: "hidden" }}>
+            <div className="flex items-center gap-3 px-4 pt-4 pb-3">
+              {asPhotoList(product.photos)[0] ? <img src={photoSrc(asPhotoList(product.photos)[0])} alt="" className="rounded-lg object-contain flex-shrink-0" style={{ width: 52, height: 52, background: PHOTO_BG }} /> : <span className="rounded-lg flex items-center justify-center flex-shrink-0" style={{ width: 52, height: 52, background: C.bg, color: C.muted, border: `1px dashed ${C.line}` }}><Ic i={ImageIcon} s={18} mr={0} /></span>}
+              <div className="flex-1 min-w-0">
+                <h2 className="truncate" style={{ fontSize: 16 }}>{product.name}</h2>
+                <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                  <span className="text-[11px] px-2 py-0.5 rounded-full font-mono" style={{ background: C.bg, border: `1px solid ${C.line}` }}>{product.articleId || "no ID"}</span>
+                  <span className="text-[11px] px-2 py-0.5 rounded-full" style={{ background: C.bg, border: `1px solid ${C.line}` }}>{catPath(product.categoryId)}</span>
+                  {product.isBio && <span className="text-[11px] px-2 py-0.5 rounded-full" style={{ background: C.okBg, color: C.ok }}>bio</span>}
+                  {refInsp && <span className="text-[11px] px-2 py-0.5 rounded-full inline-flex items-center" style={{ background: C.okBg, color: C.ok }}><Ic i={Star} s={11} mr={3} />Reference report</span>}
+                  {product.isActive === false && <span className="text-[11px] px-2 py-0.5 rounded-full" style={{ background: C.line, color: C.muted }}>inactive</span>}
                 </div>
               </div>
-              {s.announcements.filter(a => annMatchesProduct(s, a, product)).map(a => <Note key={a.id} tone="warn">📣 <b>{a.title}</b> — {a.body}<AnnounceFileList announcement={a} colors={C} compact /></Note>)}
-              <ComplaintsNote s={s} articleId={product.articleId} />
-              {openFlags.length > 0 && <Note tone="warn">🚩 {openFlags.length} open flag on this product — the Head hasn't resolved it yet.</Note>}
-              {asPhotoList(product.photos).length > 1 && <div className="mb-3"><PhotoStrip photos={product.photos} size={56} /></div>}
-              {effectiveAttributes(s, product).length > 0 && <div className="flex flex-wrap gap-1.5 mb-3">{effectiveAttributes(s, product).map(a => <span key={a.dictionaryId} className="text-xs px-2.5 py-1 rounded-full" style={{ background: C.bg, border: `1px solid ${C.line}` }}><span style={{ color: C.muted }}>{a.list}:</span> <b>{a.value}</b></span>)}</div>}
-              {(() => { const ref = s.inspections.find(i => i.productId === product.id && i.isReference); return ref ? <div className="rounded-lg p-2 mb-3 flex items-center gap-2" style={{ background: C.okBg }}><span className="text-sm inline-flex items-center" style={{ color: C.ok }}><Ic i={Star} s={14} />This product has a reference inspection</span><div className="flex-1" /><Ghost onClick={() => setShowRef(r => r ? null : ref.id)}>{showRef ? "hide" : "see how it should look"}</Ghost></div> : null; })()}
-              {showRef && (() => { const ref = s.inspections.find(i => i.id === showRef); return ref ? <div className="rounded-lg p-3 mb-3" style={{ border: `1px solid ${C.ok}` }}><ReportView insp={ref} s={s} user={user} onEdit={() => {}} onAnswer={() => {}} /></div> : null; })()}
-              <p className="label-sm mb-1" style={{ color: C.muted }}>Specs (specifications)</p>
-              {specs.length === 0 ? <p className="text-xs mb-3" style={{ color: C.muted }}>None.</p> : specs.map(sp => <div key={sp.id} className="flex items-center gap-2 text-sm py-1" style={{ borderTop: `1px solid ${C.line}` }}><span className="flex-1">{sp.name}</span><SpecValue spec={sp} colors={C} />{sp.source !== "product" && <span className="text-[10px]" style={{ color: C.muted }}>{sp.source}</span>}</div>)}
-              <div className="grid grid-cols-2 gap-3 mt-3">
-                <div><p className="label-sm mb-1" style={{ color: C.muted }}>Dostawcy{assigned.length === 0 && suppliers.length > 0 && " (all)"}</p><div className="flex flex-wrap gap-1">{suppliers.length ? suppliers.map(x => <span key={x.id} className="text-xs px-2 py-0.5 rounded-full" style={{ background: C.accentSoft, color: C.accent }}>{x.name}</span>) : <span className="text-xs" style={{ color: C.muted }}>none</span>}</div></div>
-                <div><p className="label-sm mb-1" style={{ color: C.muted }}>Varieties</p><div className="flex flex-wrap gap-1">{effectiveVarieties(s, product).length ? effectiveVarieties(s, product).map(v => <span key={v.id} className="text-xs px-2 py-0.5 rounded-full" style={{ background: C.bg, border: `1px solid ${C.line}` }} title={v.source}>{v.name}</span>) : <span className="text-xs" style={{ color: C.muted }}>none</span>}</div></div>
-              </div>
-              <p className="label-sm mt-3 mb-1" style={{ color: C.muted }}>Recent inspections</p>
-              {history.length === 0 ? <p className="text-xs" style={{ color: C.muted }}>None yet.</p> : history.map(i => <button key={i.id} type="button" onClick={() => onOpenInspection && onOpenInspection(i.id)} className="w-full flex items-center gap-2 text-xs py-1 text-left" style={{ borderTop: `1px solid ${C.line}` }}><span className="px-2 py-0.5 rounded-full" style={{ background: i.result === "Accepted" ? C.okBg : C.badBg, color: i.result === "Accepted" ? C.ok : C.bad }}>{i.result === "Accepted" ? "Accepted" : "Rejected"}</span><span className="flex-1 truncate" style={{ color: C.muted }}>{i.comment || "—"}</span><span style={{ color: C.muted }}>{fmtTime(i.completedAt)}</span></button>)}
-              <div className="flex gap-2 mt-4 flex-wrap">
-                {onStartInspection && <Primary small onClick={() => onStartInspection(product.id)}><Ic i={ClipboardList} />Start inspection</Primary>}
-                <button onClick={() => setFlagOpen(o => !o)} className="text-xs px-2.5 py-1.5 rounded-lg" style={{ background: C.warnBg, color: C.warn }}><Ic i={Flag} />Something's off</button>
-              </div>
-              {flagOpen && <div className="flex gap-2 mt-2"><input value={flagText} onChange={e => setFlagText(e.target.value)} placeholder="e.g. supplier changed, spec outdated…" className="flex-1 text-xs rounded px-2 py-1 outline-none" style={{ ...inp }} /><Primary small onClick={raise}>Send</Primary></div>}
-            </>
-          )}
-        </Card>
+              <button onClick={() => setFlagOpen(o => !o)} className="text-xs px-2.5 py-1.5 rounded-lg flex-shrink-0" style={{ background: C.warnBg, color: C.warn }}><Ic i={Flag} />Something's off</button>
+            </div>
+            {flagOpen && <div className="mx-4 mb-3 flex gap-2"><input value={flagText} onChange={e => setFlagText(e.target.value)} placeholder="e.g. supplier changed, spec outdated…" className="flex-1 text-xs rounded px-2 py-1.5 outline-none" style={{ ...inp }} /><Primary small onClick={raise}>Send</Primary></div>}
+            <div className="flex gap-0.5 px-4 overflow-x-auto" style={{ borderBottom: `1px solid ${C.line}` }}>
+              {tabs.map(([k, l]) => <button key={k} onClick={() => setTab(k)} className="text-[13px] px-2.5 py-2 -mb-px whitespace-nowrap" style={{ color: tab === k ? C.ink : C.muted, fontWeight: tab === k ? 600 : 400, borderBottom: `2px solid ${tab === k ? C.ink : "transparent"}` }}>{l}</button>)}
+            </div>
+            <div className="px-4 py-4">
+              {tab === "profile" && <div style={{ maxWidth: 760 }}>
+                {s.announcements.filter(a => annMatchesProduct(s, a, product)).map(a => <Note key={a.id} tone="warn"><b>{a.title}</b> — {a.body}<AnnounceFileList announcement={a} colors={C} compact /></Note>)}
+                <ComplaintsNote s={s} articleId={product.articleId} />
+                {openFlags.length > 0 && <Note tone="warn">{openFlags.length} open flag on this product — the Head hasn't resolved it yet.</Note>}
+                {refInsp && <div className="rounded-xl px-3 py-2.5 mb-4 flex items-center gap-2" style={{ background: C.okBg }}><Ic i={Star} s={14} mr={0} style={{ color: C.ok }} /><div className="flex-1 min-w-0 text-sm" style={{ color: C.ok }}>Reference report · {s.users.find(u => u.id === refInsp.controllerId)?.name} · {fmtTime(refInsp.completedAt)}</div><button type="button" onClick={() => setTab("history")} className="text-xs px-2.5 py-1 rounded-lg flex-shrink-0" style={{ color: C.ok, border: `1px solid ${C.ok}` }}>Open</button></div>}
+                <Group title="Identity" cols={6}>
+                  <Field label="Name" className="col-span-4"><Static>{product.name}</Static></Field>
+                  <Field label="Article ID"><Static><span className="font-mono">{product.articleId || "—"}</span></Static></Field>
+                  <Field label="Bio"><Static>{product.isBio ? "bio" : "no"}</Static></Field>
+                  <Field label="Category" className="col-span-3"><Static>{catPath(product.categoryId)}</Static></Field>
+                  <Field label="Consumer app link" className="col-span-3">{product.consumerAppUrl ? <a href={product.consumerAppUrl} target="_blank" rel="noreferrer" className="text-[13px] underline" style={{ color: C.accent }}>open ↗</a> : <Static>—</Static>}</Field>
+                </Group>
+                <Group title="Codes" cols={2}>
+                  <Field label="Barcode CU · consumer pack"><Static><span className="font-mono">{product.barcodeCu || "—"}</span></Static></Field>
+                  <Field label="Barcode TU · box / case"><Static><span className="font-mono">{product.barcodeTu || "—"}</span></Static></Field>
+                </Group>
+                <Group title="Packaging" cols={3}>
+                  <Field label="CU per TU"><Static>{product.cusPerTu || "—"}</Static></Field>
+                  <Field label="Pieces per CU"><Static>{product.piecesPerCu || "—"}</Static></Field>
+                  <Field label="Weight per CU · g"><Static>{product.weightPerCu || "—"}</Static></Field>
+                </Group>
+              </div>}
+              {tab === "photos" && <div style={{ maxWidth: 720 }}>
+                {asPhotoList(product.photos).length === 0 ? <Empty icon="📦" title="No photos" hint="The Head adds reference photos on the product." /> : <PhotoStrip photos={product.photos} size={96} />}
+              </div>}
+              {tab === "specs" && <div style={{ maxWidth: 720 }}>
+                {specs.length === 0 ? <Empty icon="📏" title="No specifications" hint="Nothing inherited from the category yet." /> : specs.map(sp => <div key={sp.id} className="flex items-center gap-2 text-sm py-2" style={{ borderTop: `1px solid ${C.line}` }}><span className="flex-1">{sp.name}</span><SpecValue spec={sp} colors={C} />{sp.source !== "product" && <span className="text-[10px]" style={{ color: C.muted }}>{sp.source}</span>}</div>)}
+              </div>}
+              {tab === "attrs" && <div style={{ maxWidth: 720 }}>
+                {attrs.length === 0 ? <p className="text-xs" style={{ color: C.muted }}>No properties from lists.</p> : attrs.map(a => <div key={a.dictionaryId} className="flex items-center gap-2 text-sm py-2" style={{ borderTop: `1px solid ${C.line}` }}><span className="flex-1">{a.list}</span><b>{a.value}</b>{a.source !== "product" && <span className="text-[10px]" style={{ color: C.muted }}>{a.source}</span>}</div>)}
+              </div>}
+              {tab === "supply" && <div className="grid gap-6" style={{ gridTemplateColumns: "1fr 1fr", maxWidth: 800 }}>
+                <div>
+                  <p className="text-sm font-medium mb-1">Suppliers</p>
+                  <p className="text-xs mb-2" style={{ color: C.muted }}>{assigned.length ? "Assigned to this product." : "None assigned — any supplier may deliver it."}</p>
+                  {assigned.length ? assigned.map(x => <div key={x.id} className="text-sm py-1.5" style={{ borderTop: `1px solid ${C.line}` }}>{x.name}</div>) : <p className="text-xs" style={{ color: C.muted }}>All suppliers.</p>}
+                </div>
+                <div>
+                  <p className="text-sm font-medium mb-1">Varieties</p>
+                  {varieties.length ? varieties.map(v => <div key={v.id} className="text-sm py-1.5" style={{ borderTop: `1px solid ${C.line}` }}>{v.name}{v.source !== "product" && <span className="text-xs ml-1.5" style={{ color: C.muted }}>· {v.source}</span>}</div>) : <p className="text-xs" style={{ color: C.muted }}>None.</p>}
+                </div>
+              </div>}
+              {tab === "reference" && <div style={{ maxWidth: 720 }}>
+                {notes.length === 0 ? <Empty icon="📖" title="No reference notes" hint="The Head describes each problem type on the product or its category." /> : notes.map(n => {
+                  const name = (s.problems || []).find(p => p.id === n.problemId)?.name || "Note";
+                  return (
+                    <div key={n.id || n.problemId} className="py-3" style={{ borderTop: `1px solid ${C.line}` }}>
+                      <p className="text-sm font-medium">{name}{n.source !== "product" && <span className="text-[11px] font-normal ml-1.5" style={{ color: C.muted }}>· {n.source}</span>}</p>
+                      {n.description && <p className="text-sm mt-1 whitespace-pre-wrap">{n.description}</p>}
+                      {asPhotoList(n.photos).length > 0 && <div className="mt-2"><PhotoStrip photos={n.photos} size={64} /></div>}
+                    </div>
+                  );
+                })}
+              </div>}
+              {tab === "guide" && <div style={{ maxWidth: 720 }}>
+                {guide.length === 0 ? <Empty icon="📖" title="No encyclopedia entries" hint="The Head writes what a good pallet looks like, packaging, ripeness and typical faults." /> : guide.map(e => (
+                  <div key={e.id} className="py-3" style={{ borderTop: `1px solid ${C.line}` }}>
+                    <p className="text-sm font-medium">{e.title || "Untitled"}{e.source !== "product" && <span className="text-[11px] font-normal ml-1.5" style={{ color: C.muted }}>· {e.source}</span>}</p>
+                    {e.body && <p className="text-sm mt-1 whitespace-pre-wrap">{e.body}</p>}
+                    {asPhotoList(e.photos).length > 0 && <div className="mt-2"><PhotoStrip photos={e.photos} size={64} /></div>}
+                  </div>
+                ))}
+              </div>}
+              {tab === "history" && <div style={{ maxWidth: 720 }}>
+                {refInsp && <div className="rounded-xl p-3 mb-3" style={{ border: `1px solid ${C.ok}` }}><p className="text-xs mb-2" style={{ color: C.ok }}>Reference report</p><ReportView insp={refInsp} s={s} user={user} onEdit={() => {}} onAnswer={() => {}} /></div>}
+                {histAll.length === 0 ? <Empty icon="📋" title="No inspections yet" hint="Completed inspections for this product show up here." /> : histAll.map(i => {
+                  const rem = (i.remarks || []).map(r => (s.problems || []).find(p => p.id === r.leafId)?.name).filter(Boolean);
+                  const [fg, bg] = i.result === "Accepted" ? [C.ok, C.okBg] : [C.bad, C.badBg];
+                  return (
+                    <button key={i.id} type="button" onClick={() => onOpenInspection && onOpenInspection(i.id)} className="w-full text-left flex items-center gap-3 px-2 py-2 rounded-lg" style={{ borderTop: `1px solid ${C.line}`, background: i.isReference ? C.okBg : "transparent" }}>
+                      <span className="text-xs px-2.5 py-0.5 rounded-full whitespace-nowrap" style={{ background: bg, color: fg }}>{i.result}</span>
+                      <span className="flex-1 text-xs min-w-0 truncate">{i.isReference && <Ic i={Star} s={11} mr={4} style={{ color: C.ok }} />}{rem.length ? rem.join(", ") : "no remarks"}</span>
+                      <span className="text-xs whitespace-nowrap" style={{ color: C.muted }}>{s.users.find(u => u.id === i.controllerId)?.name} · {fmtTime(i.completedAt)}</span>
+                    </button>
+                  );
+                })}
+              </div>}
+            </div>
+          </Card>
+        )}
       </div>
+
+      <Card style={{ padding: 12 }}>
+        <SearchBox value={q} onChange={setQ} placeholder="Search name, ID, category, supplier, variety" className="mb-2" inputClass="rounded-lg" size={13} />
+        <div className="flex items-center gap-1.5 mb-3 flex-wrap">
+          <span style={{ minWidth: 220, display: "inline-block" }}><SearchSelect value={catSel || ""} onChange={setCatSel} options={catFilterOptions} empty={`All categories · ${countIn("")}`} placeholder="Search categories…" searchFrom={6} /></span>
+          <span style={{ minWidth: 180, display: "inline-block" }}><SearchSelect value={supplier} onChange={setSupplier} options={(s.suppliers || []).map(x => ({ value: x.id, label: x.name }))} empty="Any supplier" placeholder="Search suppliers…" searchFrom={6} /></span>
+          <span style={{ minWidth: 140, display: "inline-block" }}><SearchSelect value={bio} onChange={setBio} options={[{ value: "bio", label: "Bio only" }, { value: "std", label: "Standard only" }]} empty="Bio and standard" /></span>
+          <span style={{ minWidth: 140, display: "inline-block" }}><SearchSelect value={sortBy === "az" ? "" : sortBy} onChange={v => setSortBy(v || "az")} options={[{ value: "recent", label: "Recently inspected" }, { value: "cat", label: "By category" }]} empty="A–Z" /></span>
+          <label className="flex items-center gap-1.5 cursor-pointer text-xs ml-1" style={{ color: C.muted }}><input type="checkbox" checked={flagged} onChange={e => setFlagged(e.target.checked)} />open flag</label>
+          <span className="text-xs ml-auto" style={{ color: C.muted }}>{visible.length} of {s.products.filter(p => p.isActive !== false).length}</span>
+        </div>
+        {s.products.length === 0 ? <Empty icon="📦" title="No products yet" hint="The Head adds them in the catalog." /> : visible.length === 0 ? <p className="text-xs py-6 text-center" style={{ color: C.muted }}>Nothing matches.</p> : (
+          <div className="grid gap-2" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(170px, 1fr))" }}>
+            {visible.map(p => {
+              const li = lastInsp(p.id);
+              const openFlag = s.flags.some(x => x.productId === p.id && x.status === "Open");
+              return (
+                <button key={p.id} onClick={() => selectProduct(p.id)} className="qc-elev qc-tile rounded-2xl p-2.5 text-left" style={{ background: sel === p.id ? C.accentSoft : C.surface, border: `1px solid ${sel === p.id ? C.accent : C.line}` }}>
+                  {asPhotoList(p.photos).length ? <img src={photoSrc(asPhotoList(p.photos)[0])} alt="" className="w-full rounded-xl object-contain mb-2" style={{ height: 72, background: PHOTO_BG }} /> : <div className="w-full rounded-xl flex items-center justify-center mb-2" style={{ height: 72, background: C.bg, color: C.muted }}><Ic i={Package} s={20} mr={0} /></div>}
+                  <p className="text-xs font-medium leading-tight truncate" style={{ color: sel === p.id ? C.accent : C.ink }}>{p.name}</p>
+                  <p className="text-[10px] mt-0.5 truncate" style={{ color: C.muted }}>{p.articleId || "no ID"} · {catPath(p.categoryId)}</p>
+                  <div className="flex items-center gap-1 mt-1">
+                    {p.isBio && <span className="text-[9px] px-1.5 py-0.5 rounded-full" style={{ background: C.okBg, color: C.ok }}>bio</span>}
+                    {openFlag && <Ic i={Flag} s={10} mr={0} style={{ color: C.warn }} />}
+                    {li && <span className="ml-auto inline-block rounded-full" title={`last: ${li.result === "Accepted" ? "accepted" : "rejected"}, ${fmtTime(li.completedAt)}`} style={{ width: 7, height: 7, background: li.result === "Accepted" ? C.ok : C.bad }} />}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </Card>
     </div>
   );
 }
