@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseRejectionTime, parseSortableCell, normArticle, buildRejectionDigest, extRejectionsFor, extRejectedRecently, extRejectionLine, extRejectionsRecent, topCats, personName, linkLabel } from "./rejections.js";
+import { parseRejectionTime, parseSortableCell, normArticle, buildRejectionDigest, extRejectionsFor, extRejectedRecently, extRejectionLine, extRejectionsRecent, topCats, personName, linkLabel, parseReportName, indexReports, attachReports } from "./rejections.js";
 
 describe("reading one cell — the formats the DC5 sheet uses today", () => {
   it("both timestamp styles, ISO, and junk", () => {
@@ -84,5 +84,44 @@ describe("building the digest", () => {
   it("empty push → empty digest, nothing throws", () => {
     expect(buildRejectionDigest([], { now: NOW })).toMatchObject({ used: 0, articles: 0, from: null, latest: [] });
     expect(buildRejectionDigest(undefined, { now: NOW }).rows).toBe(0);
+  });
+});
+
+describe("QC One inspection PDFs from the Drive folder", () => {
+  it("reads the file name", () => {
+    expect(parseReportName("8628561_1150837_11295128.pdf")).toEqual({ inspId: "8628561", po: "1150837", article: "11295128" });
+    expect(parseReportName("8774806 (1)_1162817_90006049.pdf")).toEqual({ inspId: "8774806", po: "1162817", article: "90006049" });
+    expect(parseReportName("8774806_1162817_HE90006049-16.pdf").article).toBe("90006049");
+    expect(parseReportName("notes.pdf")).toBe(null); expect(parseReportName("")).toBe(null);
+  });
+  it("links a file to the sheet row by PO + article; pairs duplicates in time order; keeps all when unsure", () => {
+    const rows = [
+      row({ article: "11295128", po: "1150837", time: "Mar 31, 2026, 12:34:14", reason: "first" }),
+      row({ article: "11295128", po: "1150837", time: "Mar 31, 2026, 12:56:15", reason: "second" }),
+      row({ article: "90006049", po: "1162817", time: "Apr 20, 2026, 16:46:02" }),
+      row({ article: "10462008", po: "1095993 and 1096382", time: "Apr 2, 2026, 09:00:00" }),   // two POs in one cell
+      row({ article: "90006104", po: "1159320", time: "Apr 14, 2026, 17:10:23" }),            // one row, two files → both kept
+    ];
+    const reports = [
+      { id: "A", name: "8628561_1150837_11295128.pdf", created: "2026-03-31T12:40:00Z" },
+      { id: "B", name: "8628999_1150837_11295128.pdf", created: "2026-03-31T13:00:00Z" },
+      { id: "C", name: "8774806 (1)_1162817_90006049.pdf" },
+      { id: "D", name: "8700000_1096382_10462008.pdf" },
+      { id: "E", name: "8733311_1159320_90006104.pdf" }, { id: "F", name: "8733399_1159320_90006104.pdf" },
+      { id: "X", name: "readme.pdf" },
+    ];
+    const d = buildRejectionDigest(rows, { now: "2026-05-01T00:00:00.000Z", reports });
+    expect(d.reports).toBe(7);
+    const pm = extRejectionsFor({ extRejections: d }, "11295128").recent;
+    expect(pm.find(r => r.reason === "first").pdf).toBe("https://drive.google.com/file/d/A/view");
+    expect(pm.find(r => r.reason === "second").pdf).toBe("https://drive.google.com/file/d/B/view");
+    expect(extRejectionsFor({ extRejections: d }, "90006049").recent[0].pdf).toMatch(/\/C\//);
+    expect(extRejectionsFor({ extRejections: d }, "10462008").recent[0].pdf).toMatch(/\/D\//);
+    const two = extRejectionsFor({ extRejections: d }, "90006104").recent[0]; expect(two.pdf).toBeUndefined(); expect(two.pdfs).toEqual(["https://drive.google.com/file/d/E/view", "https://drive.google.com/file/d/F/view"]);
+    expect(d.latest.find(e => e.a === "11295128" && e.reason === "second").pdf).toMatch(/\/B\//); // the latest list is linked too
+    expect(indexReports(reports)["1150837:11295128"].map(f => f.id)).toEqual(["A", "B"]);
+  });
+  it("no reports → nothing added, nothing breaks", () => {
+    const d = buildRejectionDigest(rows, { now: NOW }); expect(d.reports).toBeUndefined(); expect(attachReports(d, [])).toBe(0);
   });
 });

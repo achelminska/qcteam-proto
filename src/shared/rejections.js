@@ -67,9 +67,45 @@ const numOf = v => { const m = /-?\d+(?:[.,]\d+)?/.exec(String(v ?? "")); return
 const dayOf = t => t ? t.slice(0, 10) : "";
 const daysBetween = (a, b) => Math.round((new Date(a + "T00:00").getTime() - new Date(b + "T00:00").getTime()) / 86400000);
 
+// ── QC One inspection reports (PDFs in the Inbound "Rejections QR" Drive folder) ──
+// File names follow "<QC One inspection id>_<PO>_<Product ID>.pdf" (e.g. "8628561_1150837_11295128.pdf"; a browser's
+// "(1)" copy suffix may sit after the first number). PO + article ties a file to a sheet row. The same article off the
+// same PO is occasionally rejected twice; when the counts match they are paired oldest-to-oldest, otherwise every row of
+// the pair gets all of its files — never a silent wrong guess.
+export function parseReportName(name) {
+  const m = /^(\d{5,})(?:\s*\(\d+\))?_(\d{5,})_(?:HE)?(\d{5,})(?:-\d+)?\.pdf$/i.exec(String(name || "").trim());
+  return m ? { inspId: m[1], po: m[2], article: normArticle(m[3]) } : null;
+}
+export const reportUrl = id => `https://drive.google.com/file/d/${id}/view`;
+// reports: [{ id, name, created? }] as the Apps Script lists the folder → { "po:article": [{ id, inspId, created }] } sorted oldest first.
+export function indexReports(reports) {
+  const idx = {};
+  for (const f of reports || []) { const p = parseReportName(f?.name); if (!p || !f.id) continue; (idx[`${p.po}:${p.article}`] ||= []).push({ id: String(f.id), inspId: p.inspId, created: f.created || "" }); }
+  for (const k of Object.keys(idx)) idx[k].sort((a, b) => (a.created || "").localeCompare(b.created || "") || a.inspId.localeCompare(b.inspId, undefined, { numeric: true }));
+  return idx;
+}
+const poDigits = cell => (String(cell || "").match(/\d{5,}/g) || []);   // "1095993 and 1096382" → both
+// Mutates the digest: every entry (per-article recent rows and the latest list) that has a report gets `pdf` (one url)
+// or `pdfs` (several, when the pairing is ambiguous). Returns how many entries were linked.
+export function attachReports(digest, reports) {
+  const idx = indexReports(reports); let linked = 0; if (!Object.keys(idx).length) return 0;
+  const groups = {}; // "po:article" → entries, oldest first, so a 1:1 pairing lines up with the files
+  const collect = (e, article) => { for (const po of poDigits(e.po)) { const k = `${po}:${article}`; if (idx[k]) (groups[k] ||= []).push(e); } };
+  for (const [a, g] of Object.entries(digest.byArticle || {})) for (const e of g.recent || []) collect(e, a);
+  for (const e of digest.latest || []) collect(e, e.a);
+  for (const [k, entries] of Object.entries(groups)) {
+    const files = idx[k];
+    // the same sheet row appears in recent AND latest as two objects — dedupe by (d, po) before pairing
+    const uniq = [...new Map(entries.map(e => [`${e.d}|${e.po}`, e])).values()].sort((x, y) => (x.d || "").localeCompare(y.d || ""));
+    uniq.forEach((u, i) => { const urls = files.length === uniq.length ? [reportUrl(files[i].id)] : files.map(f => reportUrl(f.id));
+      entries.filter(e => e.d === u.d && e.po === u.po).forEach(e => { if (urls.length === 1) e.pdf = urls[0]; else e.pdfs = urls; linked++; }); });
+  }
+  return linked;
+}
+
 // rows: already mapped by the integration (applyMapping): { article, name?, tu?, reason?, sortable?, user?, time?, po?, outcome?, orderGroup?, link?, _errors }.
 // Returns the digest stored at state.extRejections. Rebuilt whole on every push — the sheet is the source, nothing accumulates here.
-export function buildRejectionDigest(rows, { now = new Date().toISOString(), windowDays = 365, recentPerArticle = 3, latestCount = 60 } = {}) {
+export function buildRejectionDigest(rows, { now = new Date().toISOString(), windowDays = 365, recentPerArticle = 3, latestCount = 60, reports = null } = {}) {
   const today = now.slice(0, 10); const cutoff = new Date(new Date(today + "T00:00").getTime() - windowDays * 86400000).toISOString().slice(0, 10);
   const byArticle = {}; let used = 0, skipped = 0, undated = 0, old = 0; let from = null, to = null;
   const all = [];
@@ -95,7 +131,9 @@ export function buildRejectionDigest(rows, { now = new Date().toISOString(), win
     if (g.recent.length < recentPerArticle) { const { a, n, ...rest } = e; g.recent.push(rest); }
   }
   const latest = all.filter(e => e.d).slice(0, latestCount);
-  return { updatedAt: now, windowDays, rows: (rows || []).length, used, skipped, undated, old, from, to, articles: Object.keys(byArticle).length, byArticle, latest };
+  const digest = { updatedAt: now, windowDays, rows: (rows || []).length, used, skipped, undated, old, from, to, articles: Object.keys(byArticle).length, byArticle, latest };
+  if (reports) { digest.reports = (reports || []).length; digest.reportsLinked = attachReports(digest, reports); }
+  return digest;
 }
 
 // ── Reading the digest ──────────────────────────────────────────────────────────────────────────────────────────
@@ -122,4 +160,5 @@ export function extRejectionLine(s, articleId, nowMs = Date.now(), days = EXT_RE
 export const extRejectionsRecent = (s, days = 7, nowMs = Date.now()) => (s?.extRejections?.latest || []).filter(e => e.d && nowMs - new Date(e.d).getTime() <= days * 86400000);
 export const extRejectionKey = e => `${e.a}:${e.d}:${e.po || ""}`;
 export const fmtRejectionDay = (t, now = new Date()) => { if (!t) return "—"; const d = new Date(t); const day = x => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime(); const diff = Math.round((day(now) - day(d)) / 86400000); return diff === 0 ? "today" : diff === 1 ? "yesterday" : diff < 7 ? `${diff} days ago` : d.toLocaleDateString("en-GB", { day: "numeric", month: "short" }); };
+export const reportUrls = e => e?.pdfs?.length ? e.pdfs : e?.pdf ? [e.pdf] : [];
 export const linkLabel = url => /slack\.com/i.test(url || "") ? "Slack thread" : /drive\.google|docs\.google/i.test(url || "") ? "Attached file" : "Open link";

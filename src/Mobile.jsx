@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, Fragment } from "react";
 import { createSyncer, guardUnload } from "./sync.js";
 import { hasV, specLabel, dayLabel, typesOf, typeById, legacyTypeId, inspType, countsAs, listCheck, matchFieldSpec, numberSpecCheck, reportStatusFields, toleranceDisplay, matchesInspSearch } from "./shared/format.js";
 import { SPEC_TARGETS, SPEC_ALIASES } from "./shared/specsync.js";
-import { REJECTION_TARGETS, REJECTION_ALIASES, extRejectionsFor, extRejectedRecently, extRejectionLine, extRejectionsRecent, extRejectionKey, topCats, fmtRejectionDay, linkLabel } from "./shared/rejections.js";
+import { REJECTION_TARGETS, REJECTION_ALIASES, extRejectionsFor, extRejectedRecently, extRejectionLine, extRejectionsRecent, extRejectionKey, topCats, fmtRejectionDay, linkLabel, reportUrls } from "./shared/rejections.js";
 import { activeTempForSpec, applyTempSpec, closeExpiredTempSpecs, tempUntilLabel } from "./shared/tempspec.js";
 import { SpecValue } from "./shared/SpecValue.jsx";
 import { peopleOnFloor, peopleAtDock, floorWhere, floorVerb, doneTodayCount } from "./shared/floor.js";
@@ -2274,7 +2274,10 @@ function ExtRejectionRow({ r }) {
         {r.user && <Chip>{r.user}</Chip>}
         {r.po && <Chip><span className="font-mono">PO {r.po}</span></Chip>}
       </div>}
-      {r.link && <a href={r.link} target="_blank" rel="noopener" className="inline-flex items-center gap-1 text-[11px] mt-1.5" style={{ color: C.accent }}>{linkLabel(r.link)}<Ic i={ExternalLink} s={11} mr={0} /></a>}
+      {(reportUrls(r).length > 0 || r.link) && <div className="flex flex-wrap gap-3 mt-1.5">
+        {reportUrls(r).map((u, i, arr) => <a key={u} href={u} target="_blank" rel="noopener" className="inline-flex items-center gap-1 text-[11px]" style={{ color: C.accent }}>{arr.length > 1 ? `Inspection report ${i + 1}` : "Inspection report"}<Ic i={ExternalLink} s={11} mr={0} /></a>)}
+        {r.link && <a href={r.link} target="_blank" rel="noopener" className="inline-flex items-center gap-1 text-[11px]" style={{ color: C.accent }}>{linkLabel(r.link)}<Ic i={ExternalLink} s={11} mr={0} /></a>}
+      </div>}
     </div>
   );
 }
@@ -3898,7 +3901,7 @@ function MBriefing({ s, set, user, go }) {
         {x.reason && <div className="mt-2.5"><p className="text-[11px] font-semibold uppercase tracking-[0.12em] mb-1" style={{ color: C.muted }}>Why</p><p className="text-[13px] leading-snug" style={{ color: C.ink }}>{x.reason}</p></div>}
         <p className="text-[11px] mt-2" style={{ color: C.muted }}>From the DC5 rejections sheet — not a QCteam report.</p>
         <div className="mt-auto pt-3 space-y-2">
-          {x.link && <Cta onClick={() => window.open(x.link, "_blank", "noopener")}>{linkLabel(x.link)}<Ic i={ExternalLink} s={15} mr={0} /></Cta>}
+          {reportUrls(x).slice(0, 1).map(u => <Cta key={u} onClick={() => window.open(u, "_blank", "noopener")}>Inspection report<Ic i={ExternalLink} s={15} mr={0} /></Cta>)}{x.link && <Cta onClick={() => window.open(x.link, "_blank", "noopener")}>{linkLabel(x.link)}<Ic i={ExternalLink} s={15} mr={0} /></Cta>}
           {prod && <Cta ghost onClick={() => go("catalog", prod.id)}>Product profile<Ic i={ChevronRight} s={15} mr={0} /></Cta>}
         </div>
       </>;

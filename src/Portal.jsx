@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, Fragment } from "react";
 import { createSyncer, guardUnload } from "./sync.js";
 import { applySpecEdit, hasV, specFieldsFromForm, specFormKind, specLabel, dayLabel, problemPath, typesOf, typeById, legacyTypeId, inspType, countsAs, listCheck, matchFieldSpec, numberSpecCheck, reportStatusFields, toleranceDisplay, matchesInspSearch } from "./shared/format.js";
 import { SPEC_TARGETS, SPEC_ALIASES, SPEC_COLUMNS, applySpecSheet, fmtRange } from "./shared/specsync.js";
-import { REJECTION_TARGETS, REJECTION_ALIASES, buildRejectionDigest, extRejectionsFor, extRejectedRecently, extRejectionLine, extRejectionsRecent, extRejectionKey, topCats, fmtRejectionDay, linkLabel } from "./shared/rejections.js";
+import { REJECTION_TARGETS, REJECTION_ALIASES, buildRejectionDigest, extRejectionsFor, extRejectedRecently, extRejectionLine, extRejectionsRecent, extRejectionKey, topCats, fmtRejectionDay, linkLabel, reportUrls } from "./shared/rejections.js";
 import { normArticle, isoWeekOf, todayISO, weekLabel, weekRange, shiftWeek, sortSnapshots, latestSnapshot, snapshotTotal, upsertSnapshot, snapshotsOfWeek, previousInWeek, deltaRows, subTypeMix, weekSeries, articleTrend, topArticles, asLegacyMeta, migrateLegacy, rowFor, parseComplaintRows, fmtPer1k } from "./shared/complaints.js";
 import { activeTempForSpec, applyTempSpec, clearTempSpec, closeExpiredTempSpecs, tempOwnerLabel, tempUntilLabel, upsertTempSpec } from "./shared/tempspec.js";
 import { SpecValue } from "./shared/SpecValue.jsx";
@@ -1439,6 +1439,7 @@ function ExtRejectionsNote({ s, articleId }) {
         <p className="text-sm font-semibold leading-snug">{reason}</p>
         <p className="text-xs mt-0.5" style={{ color: C.muted, fontVariantNumeric: "tabular-nums" }}>{fmtRejectionDay(r.d)}{r.tu != null ? ` · ${r.tu} TU` : ""}</p>
         {(r.user || r.po) && <p className="text-xs mt-1" style={{ color: C.muted }}>{[r.user, r.po && `PO ${r.po}`].filter(Boolean).join(" · ")}</p>}
+        {reportUrls(r).map((u, i, arr) => <a key={u} href={u} target="_blank" rel="noopener" className="inline-block text-xs mt-1 mr-3 underline" style={{ color: C.accent }}>{arr.length > 1 ? `Inspection report ${i + 1}` : "Inspection report"} ↗</a>)}
         {r.link && <a href={r.link} target="_blank" rel="noopener" className="inline-block text-xs mt-1 underline" style={{ color: C.accent }}>{linkLabel(r.link)} ↗</a>}
       </div>;
     })}</div>}
@@ -2496,7 +2497,7 @@ function BriefingPage({ s, set, user, go }) {
         {x.reason && <div className="mt-2.5"><p className="text-[11px] font-semibold uppercase tracking-[0.12em] mb-1" style={{ color: C.muted }}>Why</p><p className="text-[13px] leading-snug" style={{ color: C.ink }}>{x.reason}</p></div>}
         <p className="text-[11px] mt-2" style={{ color: C.muted }}>From the DC5 rejections sheet — not a QCteam report.</p>
         <div className="mt-auto pt-3 space-y-2">
-          {x.link && <Cta onClick={() => window.open(x.link, "_blank", "noopener")}>{linkLabel(x.link)}<Ic i={ExternalLink} s={15} mr={0} /></Cta>}
+          {reportUrls(x).slice(0, 1).map(u => <Cta key={u} onClick={() => window.open(u, "_blank", "noopener")}>Inspection report<Ic i={ExternalLink} s={15} mr={0} /></Cta>)}{x.link && <Cta onClick={() => window.open(x.link, "_blank", "noopener")}>{linkLabel(x.link)}<Ic i={ExternalLink} s={15} mr={0} /></Cta>}
           {prod && <Cta ghost onClick={() => go("catalog", prod.id)}>Product profile<Ic i={ChevronRight} s={15} mr={0} /></Cta>}
         </div>
       </>;
