@@ -1433,7 +1433,15 @@ function ExtRejectionsNote({ s, articleId }) {
   const l = extRejectionLine(s, articleId); if (!l) return null;
   const [open, setOpen] = useState(false);
   return <Note tone="bad"><span className="inline-flex items-center gap-1.5 flex-wrap"><Ic i={AlertTriangle} s={14} mr={0} /><b>Rejected on the dock {l.count}×</b><span>in {l.span}</span><span style={{ color: C.muted }}>· last {fmtRejectionDay(l.last)} · DC5 rejections sheet</span><button onClick={() => setOpen(v => !v)} className="underline text-xs" style={{ color: C.accent }}>{open ? "hide" : "recent rows"}</button></span>
-    {open && <div className="mt-2 text-xs" style={{ color: C.ink }}>{l.recent.map((r, ix) => <div key={ix} className="py-1" style={{ borderTop: `1px solid ${C.line}` }}><span style={{ fontVariantNumeric: "tabular-nums" }}>{fmtTime(r.d)}</span>{r.tu != null && <> · {r.tu} TU</>}{r.user && <> · {r.user}</>}{r.po && <> · PO {r.po}</>}<span className="block">{r.reason || "—"}{r.link && <a href={r.link} target="_blank" rel="noopener" className="underline ml-1.5" style={{ color: C.accent }}>{linkLabel(r.link)} ↗</a>}</span></div>)}</div>}
+    {open && <div className="mt-2" style={{ color: C.ink }}>{l.recent.map((r, ix) => {
+      const reason = String(r.reason || "Rejected").replace(/^./, c => c.toUpperCase());
+      return <div key={ix} className="py-2.5" style={{ borderTop: `1px solid ${C.line}` }}>
+        <p className="text-sm font-semibold leading-snug">{reason}</p>
+        <p className="text-xs mt-1" style={{ color: C.muted, fontVariantNumeric: "tabular-nums" }}>{fmtRejectionDay(r.d)}{r.tu != null ? ` · ${r.tu} TU` : ""}</p>
+        {(r.user || r.po) && <p className="text-xs mt-1" style={{ color: C.muted }}>{[r.user, r.po && `PO ${r.po}`].filter(Boolean).join(" · ")}</p>}
+        {r.link && <a href={r.link} target="_blank" rel="noopener" className="inline-block text-xs mt-1 underline" style={{ color: C.accent }}>{linkLabel(r.link)} ↗</a>}
+      </div>;
+    })}</div>}
   </Note>;
 }
 function ComplaintsNote({ s, articleId, onOpenList }) {

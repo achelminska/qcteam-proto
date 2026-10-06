@@ -2261,14 +2261,28 @@ function ExtRejectionBox({ s, articleId, onMore }) {
     <p className="text-[10px] mt-0.5" style={{ color: C.bad, opacity: .75 }}>DC5 rejections sheet{onMore ? "" : " · details on the product profile"}</p>
   </div>;
 }
+function ExtRejectionRow({ r, last }) {
+  const reason = String(r.reason || "Rejected").replace(/^./, c => c.toUpperCase());
+  const Chip = ({ children }) => <span className="text-[11px] px-1.5 rounded-md leading-[20px]" style={{ background: C.bg, border: `1px solid ${C.line}` }}>{children}</span>;
+  return (
+    <div className="py-3" style={{ borderBottom: last ? "none" : `1px solid ${C.line}` }}>
+      <p className="text-[14px] font-semibold leading-snug">{reason}</p>
+      <p className="text-[12px] mt-1 leading-snug" style={{ color: C.muted, fontVariantNumeric: "tabular-nums" }}>
+        {fmtRejectionDay(r.d)}{r.tu != null ? ` · ${r.tu} TU` : ""}
+      </p>
+      {(r.user || r.po) && <div className="flex flex-wrap gap-1.5 mt-2">
+        {r.user && <Chip>{r.user}</Chip>}
+        {r.po && <Chip><span className="font-mono">PO {r.po}</span></Chip>}
+      </div>}
+      {r.link && <a href={r.link} target="_blank" rel="noopener" className="inline-flex items-center gap-1 text-[12px] mt-2" style={{ color: C.accent }}>{linkLabel(r.link)}<Ic i={ExternalLink} s={11} mr={0} /></a>}
+    </div>
+  );
+}
 function ExtRejectionList({ s, articleId }) {
   const l = extRejectionLine(s, articleId); if (!l) return null;
-  return <MSection title="Rejected on the dock" count={l.total} tone="bad">
-    {l.recent.map((r, ix) => <div key={ix} className="py-1.5" style={{ borderBottom: ix === l.recent.length - 1 ? "none" : `1px solid ${C.line}` }}>
-      <div className="flex items-baseline gap-2 text-[13px]"><span className="font-medium whitespace-nowrap" style={{ fontVariantNumeric: "tabular-nums" }}>{dayLabel(r.d)}</span><span style={{ color: C.muted }}>{[r.tu != null && `${r.tu} TU`, r.user, r.po && `PO ${r.po}`].filter(Boolean).join(" · ")}</span></div>
-      <p className="text-[13px] leading-snug mt-0.5">{r.reason || "—"}</p>
-      <div className="flex items-center gap-2 mt-0.5 text-[12px]" style={{ color: C.muted }}>{r.link && <a href={r.link} target="_blank" rel="noopener" className="inline-flex items-center underline" style={{ color: C.accent }}>{linkLabel(r.link)}<Ic i={ExternalLink} s={11} mr={0} style={{ marginLeft: 3 }} /></a>}</div>
-    </div>)}
+  return <MSection title="Rejected on the dock" count={l.total} tone="bad" defaultOpen>
+    <p className="text-[11px] mb-0.5 leading-snug" style={{ color: C.muted }}>Last {fmtRejectionDay(l.last)} · {l.span} · DC5 sheet</p>
+    {l.recent.map((r, ix) => <ExtRejectionRow key={`${r.d || ""}-${r.po || ""}-${ix}`} r={r} last={ix === l.recent.length - 1} />)}
   </MSection>;
 }
 function MProductHeader({ s, product, article, name, go }) {
@@ -2825,7 +2839,6 @@ function MProductInfo({ s, user, product, go, setState, embedded }) {
 
       {/* Alerts: one line each, highest priority first. */}
       {hist.count > 0 && <div className="rounded-xl px-3 py-2 mb-2 flex items-start gap-2" style={{ background: C.badBg, color: C.bad }}><Ic i={AlertTriangle} s={14} mr={0} style={{ marginTop: 2 }} /><div className="min-w-0 text-[13px] leading-snug"><b>{hist.count} rejected</b> in 14 days · {hist.problems.slice(0, 3).map(x => `${x.name} ×${x.count}`).join(", ")}{hist.problems.length > 3 ? "…" : ""}<span className="block text-[11px] mt-0.5" style={{ opacity: .8 }}>last {dayLabel(hist.lastAt)} — look for these first</span></div></div>}
-      {(() => { const l = extRejectionLine(s, product.articleId); return l && <div className="rounded-xl px-3 py-2 mb-2 flex items-start gap-2" style={{ background: C.badBg, color: C.bad }}><Ic i={AlertTriangle} s={14} mr={0} style={{ marginTop: 2 }} /><div className="min-w-0 text-[13px] leading-snug"><b>Rejected on the dock {l.count}×</b> in {l.span}<span className="block text-[11px] mt-0.5" style={{ opacity: .8 }}>last {fmtRejectionDay(l.last)} — DC5 rejections sheet, details below</span></div></div>; })()}
       {(() => { const l = complaintsLine(s, product.articleId); return l && <button onClick={() => go("complaints")} className="w-full text-left rounded-xl px-3 py-2 mb-2 flex items-start gap-2" style={{ background: C.badBg, color: C.bad }}><Ic i={ThumbsDown} s={14} mr={0} style={{ marginTop: 2 }} /><span className="min-w-0 text-[13px] leading-snug"><b>{l.count} freshness complaint{l.count === 1 ? "" : "s"}</b>{l.sub ? <> · mostly <b>{l.sub}</b></> : null}{l.rate ? <> · {l.rate}</> : null}{l.period && <span className="block text-[11px] mt-0.5" style={{ opacity: .8 }}>{l.period} — customers noticed this, look closer</span>}</span><Ic i={ChevronRight} s={14} mr={0} style={{ marginLeft: "auto", marginTop: 2 }} /></button>; })()}
       {anns.map(a => <div key={a.id} className="rounded-xl px-3 py-2 mb-2 flex items-start gap-2 text-[13px] leading-snug" style={{ background: C.accentSoft, color: C.ink }}><Ic i={Megaphone} s={14} mr={0} style={{ marginTop: 2, color: C.accent }} /><span className="min-w-0"><b>{a.title}</b>{a.body && <span style={{ color: C.muted }}> — {a.body}</span>}<AnnounceFileList announcement={a} colors={C} compact /></span></div>)}
       {ref && <button onClick={() => go("inspection", ref.id)} className="w-full rounded-xl px-3 py-2 mb-2 text-[13px] text-left flex items-center" style={{ background: C.okBg, color: C.ok }}><Ic i={Star} s={14} />Reference inspection<span className="ml-1" style={{ opacity: .75 }}>· what a good pallet looks like</span><Ic i={ChevronRight} s={14} mr={0} style={{ marginLeft: "auto" }} /></button>}
