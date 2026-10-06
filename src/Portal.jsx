@@ -1418,8 +1418,8 @@ const complaintsLine = (s, articleId) => { const c = complaintsFor(s, articleId)
 function ExtRejectionsNote({ s, articleId }) {
   const l = extRejectionLine(s, articleId); if (!l) return null;
   const [open, setOpen] = useState(false);
-  return <Note tone="bad"><span className="inline-flex items-center gap-1.5 flex-wrap"><Ic i={AlertTriangle} s={14} mr={0} /><b>Rejected on the dock {l.count}×</b><span>in {l.span}{l.tail ? ` · ${l.tail}` : ""}{l.tu ? ` · ${l.tu} TU` : ""}</span><span style={{ color: C.muted }}>· last {fmtRejectionDay(l.last)} · DC5 rejections sheet</span><button onClick={() => setOpen(v => !v)} className="underline text-xs" style={{ color: C.accent }}>{open ? "hide" : "recent rows"}</button></span>
-    {open && <div className="mt-2 text-xs" style={{ color: C.ink }}>{l.recent.map((r, ix) => <div key={ix} className="py-1" style={{ borderTop: `1px solid ${C.line}` }}><span style={{ fontVariantNumeric: "tabular-nums" }}>{fmtTime(r.d)}</span>{r.tu != null && <> · {r.tu} TU</>}{r.user && <> · {r.user}</>}{r.po && <> · PO {r.po}</>}<span className="block">{r.reason || r.cat || "—"}{r.cat && r.reason ? <span style={{ color: C.muted }}> · {r.cat}</span> : null}{r.outcome && <span style={{ color: C.muted }}> · {r.outcome}</span>}{r.link && <a href={r.link} target="_blank" rel="noopener" className="underline ml-1.5" style={{ color: C.accent }}>{linkLabel(r.link)} ↗</a>}</span></div>)}</div>}
+  return <Note tone="bad"><span className="inline-flex items-center gap-1.5 flex-wrap"><Ic i={AlertTriangle} s={14} mr={0} /><b>Rejected on the dock {l.count}×</b><span>in {l.span}</span><span style={{ color: C.muted }}>· last {fmtRejectionDay(l.last)} · DC5 rejections sheet</span><button onClick={() => setOpen(v => !v)} className="underline text-xs" style={{ color: C.accent }}>{open ? "hide" : "recent rows"}</button></span>
+    {open && <div className="mt-2 text-xs" style={{ color: C.ink }}>{l.recent.map((r, ix) => <div key={ix} className="py-1" style={{ borderTop: `1px solid ${C.line}` }}><span style={{ fontVariantNumeric: "tabular-nums" }}>{fmtTime(r.d)}</span>{r.tu != null && <> · {r.tu} TU</>}{r.user && <> · {r.user}</>}{r.po && <> · PO {r.po}</>}<span className="block">{r.reason || "—"}{r.link && <a href={r.link} target="_blank" rel="noopener" className="underline ml-1.5" style={{ color: C.accent }}>{linkLabel(r.link)} ↗</a>}</span></div>)}</div>}
   </Note>;
 }
 function ComplaintsNote({ s, articleId, onOpenList }) {
@@ -2467,9 +2467,8 @@ function BriefingPage({ s, set, user, go }) {
         <p className="text-[11px] font-semibold uppercase tracking-[0.16em]" style={{ color: C.bad }}>Rejected on the dock · {dayLabel(x.d)}, {hhmm(x.d)}</p>
         <p className="text-[20px] font-semibold leading-[1.15] tracking-tight mt-1">{prod?.name || x.n || x.a}</p>
         <p className="text-[12px] mt-1" style={{ color: C.muted }}>{[`ID ${x.a}`, x.tu != null && `${x.tu} TU`, x.po && `PO ${x.po}`, x.group].filter(Boolean).join(" · ")}</p>
-        <p className="text-[13px] mt-2.5" style={{ color: C.ink }}>by {x.user || "the team"}{x.sortable != null ? ` · ${x.sortable ? "sortable" : "not sortable"}` : ""}{x.cat ? ` · ${x.cat}` : ""}</p>
+        <p className="text-[13px] mt-2.5" style={{ color: C.ink }}>by {x.user || "the team"}{x.sortable != null ? ` · ${x.sortable ? "sortable" : "not sortable"}` : ""}</p>
         {x.reason && <div className="mt-2.5"><p className="text-[11px] font-semibold uppercase tracking-[0.12em] mb-1" style={{ color: C.muted }}>Why</p><p className="text-[13px] leading-snug" style={{ color: C.ink }}>{x.reason}</p></div>}
-        {x.outcome && <p className="text-[12px] mt-2" style={{ color: C.muted }}>Afterwards: {x.outcome}</p>}
         <p className="text-[11px] mt-2" style={{ color: C.muted }}>From the DC5 rejections sheet — not a QCteam report.</p>
         <div className="mt-auto pt-3 space-y-2">
           {x.link && <Cta onClick={() => window.open(x.link, "_blank", "noopener")}>{linkLabel(x.link)}<Ic i={ExternalLink} s={15} mr={0} /></Cta>}
