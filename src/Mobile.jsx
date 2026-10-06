@@ -2261,29 +2261,41 @@ function ExtRejectionBox({ s, articleId, onMore }) {
     <p className="text-[10px] mt-0.5" style={{ color: C.bad, opacity: .75 }}>DC5 rejections sheet{onMore ? "" : " · details on the product profile"}</p>
   </div>;
 }
-function ExtRejectionRow({ r, last }) {
+function ExtRejectionRow({ r }) {
   const reason = String(r.reason || "Rejected").replace(/^./, c => c.toUpperCase());
-  const Chip = ({ children }) => <span className="text-[11px] px-1.5 rounded-md leading-[20px]" style={{ background: C.bg, border: `1px solid ${C.line}` }}>{children}</span>;
+  const Chip = ({ children }) => <span className="text-[11px] px-1.5 rounded-md leading-[18px]" style={{ background: C.bg, border: `1px solid ${C.line}` }}>{children}</span>;
   return (
-    <div className="py-3" style={{ borderBottom: last ? "none" : `1px solid ${C.line}` }}>
-      <p className="text-[14px] font-semibold leading-snug">{reason}</p>
-      <p className="text-[12px] mt-1 leading-snug" style={{ color: C.muted, fontVariantNumeric: "tabular-nums" }}>
+    <div className="qc-tile rounded-2xl px-3 py-2.5" style={{ background: C.surface, border: `1px solid ${C.line}`, borderLeft: `3px solid ${C.bad}` }}>
+      <p className="text-[13px] font-semibold leading-snug">{reason}</p>
+      <p className="text-[11px] mt-0.5 leading-snug" style={{ color: C.muted, fontVariantNumeric: "tabular-nums" }}>
         {fmtRejectionDay(r.d)}{r.tu != null ? ` · ${r.tu} TU` : ""}
       </p>
-      {(r.user || r.po) && <div className="flex flex-wrap gap-1.5 mt-2">
+      {(r.user || r.po) && <div className="flex flex-wrap gap-1 mt-1.5">
         {r.user && <Chip>{r.user}</Chip>}
         {r.po && <Chip><span className="font-mono">PO {r.po}</span></Chip>}
       </div>}
-      {r.link && <a href={r.link} target="_blank" rel="noopener" className="inline-flex items-center gap-1 text-[12px] mt-2" style={{ color: C.accent }}>{linkLabel(r.link)}<Ic i={ExternalLink} s={11} mr={0} /></a>}
+      {r.link && <a href={r.link} target="_blank" rel="noopener" className="inline-flex items-center gap-1 text-[11px] mt-1.5" style={{ color: C.accent }}>{linkLabel(r.link)}<Ic i={ExternalLink} s={11} mr={0} /></a>}
     </div>
   );
 }
 function ExtRejectionList({ s, articleId }) {
   const l = extRejectionLine(s, articleId); if (!l) return null;
-  return <MSection title="Rejected on the dock" count={l.total} tone="bad" defaultOpen>
-    <p className="text-[11px] mb-0.5 leading-snug" style={{ color: C.muted }}>Last {fmtRejectionDay(l.last)} · {l.span} · DC5 sheet</p>
-    {l.recent.map((r, ix) => <ExtRejectionRow key={`${r.d || ""}-${r.po || ""}-${ix}`} r={r} last={ix === l.recent.length - 1} />)}
-  </MSection>;
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="mb-2.5">
+      <button type="button" onClick={() => setOpen(o => !o)} className="qc-tile w-full rounded-2xl px-3.5 flex items-center gap-2 text-left" style={{ background: C.surface, border: `1px solid ${C.bad}`, minHeight: 42, color: C.bad }} aria-expanded={open}>
+        <span className="text-[13px] font-semibold flex-1">Rejected on the dock</span>
+        <span className="text-[11px] px-1.5 rounded-full leading-[18px]" style={{ background: C.bg, color: C.muted, fontVariantNumeric: "tabular-nums" }}>{l.total}</span>
+        <Ic i={ChevronDown} s={16} mr={0} style={{ color: C.muted, transform: open ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform .15s" }} />
+      </button>
+      {open && <div className="mt-2">
+        <p className="text-[11px] mb-1.5 leading-snug" style={{ color: C.muted }}>Last {fmtRejectionDay(l.last)} · {l.span} · DC5 sheet</p>
+        <div className="flex flex-col gap-2">
+          {l.recent.map((r, ix) => <ExtRejectionRow key={`${r.d || ""}-${r.po || ""}-${ix}`} r={r} />)}
+        </div>
+      </div>}
+    </div>
+  );
 }
 function MProductHeader({ s, product, article, name, go }) {
   if (!product) return <div className="mb-3"><div className="rounded-2xl px-3.5 py-3" style={{ background: C.warnBg }}><p className="text-sm font-semibold leading-tight">{name || article}</p><p className="text-xs mt-0.5" style={{ color: C.warn }}>Article {article} has no product profile yet.</p></div><ExtRejectionBox s={s} articleId={article} /></div>;
