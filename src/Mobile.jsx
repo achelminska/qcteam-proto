@@ -2280,13 +2280,20 @@ function ExtRejectionRow({ r }) {
 }
 function ExtRejectionList({ s, articleId }) {
   const l = extRejectionLine(s, articleId); if (!l) return null;
+  const [open, setOpen] = useState(false);
   return (
     <div className="mb-2.5">
-      <p className="label-sm mb-0.5" style={{ color: C.bad }}>Rejected on the dock · {l.total}</p>
-      <p className="text-[11px] mb-1.5 leading-snug" style={{ color: C.muted }}>Last {fmtRejectionDay(l.last)} · {l.span} · DC5 sheet</p>
-      <div className="flex flex-col gap-2">
-        {l.recent.map((r, ix) => <ExtRejectionRow key={`${r.d || ""}-${r.po || ""}-${ix}`} r={r} />)}
-      </div>
+      <button type="button" onClick={() => setOpen(o => !o)} className="qc-tile w-full rounded-2xl px-3.5 flex items-center gap-2 text-left" style={{ background: C.surface, border: `1px solid ${C.bad}`, minHeight: 42, color: C.bad }} aria-expanded={open}>
+        <span className="text-[13px] font-semibold flex-1">Rejected on the dock</span>
+        <span className="text-[11px] px-1.5 rounded-full leading-[18px]" style={{ background: C.bg, color: C.muted, fontVariantNumeric: "tabular-nums" }}>{l.total}</span>
+        <Ic i={ChevronDown} s={16} mr={0} style={{ color: C.muted, transform: open ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform .15s" }} />
+      </button>
+      {open && <div className="mt-2">
+        <p className="text-[11px] mb-1.5 leading-snug" style={{ color: C.muted }}>Last {fmtRejectionDay(l.last)} · {l.span} · DC5 sheet</p>
+        <div className="flex flex-col gap-2">
+          {l.recent.map((r, ix) => <ExtRejectionRow key={`${r.d || ""}-${r.po || ""}-${ix}`} r={r} />)}
+        </div>
+      </div>}
     </div>
   );
 }
