@@ -22,7 +22,7 @@ import { PhotoReview } from "./shared/PhotoReview.jsx";
 import { drawReportPdf } from "./shared/report-pdf.js";
 import { needsShareToSave, savePdfFile, triggerAnchorDownload } from "./shared/pdf-save.js";
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceArea, ReferenceLine, Legend } from "recharts";
-import { Clock, MessageCircle, Link2, List as ListIcon, BarChart3, Printer, SlidersHorizontal, SkipForward, LayoutDashboard, ClipboardList, Flag, Bell, FolderTree, ListTree, Package, LayoutTemplate, Truck, Globe, Megaphone, MessageSquare, Users, Search, Sun, Moon, Database, Home, Menu as MenuIcon, ScanLine, Plus, ChevronLeft, ChevronDown, ChevronRight, User, Camera, Image as ImageIcon, Paperclip, Send, Star, Pencil, Sparkles, HelpCircle, Download, Lock as LockIcon, AlertTriangle, Inbox, FileText, ShieldAlert, Tag, Layers, BookOpen, Filter, Check, X, Ruler, Boxes, Warehouse, Snowflake, Thermometer, ThumbsDown, ClipboardPaste, Trash2, Eye, ExternalLink } from "lucide-react";
+import { GripVertical, Clock, MessageCircle, Link2, List as ListIcon, BarChart3, Printer, SlidersHorizontal, SkipForward, LayoutDashboard, ClipboardList, Flag, Bell, FolderTree, ListTree, Package, LayoutTemplate, Truck, Globe, Megaphone, MessageSquare, Users, Search, Sun, Moon, Database, Home, Menu as MenuIcon, ScanLine, Plus, ChevronLeft, ChevronDown, ChevronRight, User, Camera, Image as ImageIcon, Paperclip, Send, Star, Pencil, Sparkles, HelpCircle, Download, Lock as LockIcon, AlertTriangle, Inbox, FileText, ShieldAlert, Tag, Layers, BookOpen, Filter, Check, X, Ruler, Boxes, Warehouse, Snowflake, Thermometer, ThumbsDown, ClipboardPaste, Trash2, Eye, ExternalLink } from "lucide-react";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // QCteam — portal Head of Quality (mini-aplikacja, stan startowy pusty)
@@ -114,6 +114,17 @@ const uid = () => Math.random().toString(36).slice(2, 9);
 const fmt = n => n.toLocaleString("en-GB", { maximumFractionDigits: 2 });
 const inp = { get border() { return `1px solid ${C.line}`; }, get backgroundColor() { return C.surface; }, get color() { return C.ink; } };
 const FIELD_TYPES = [["Text", "Text"], ["Number", "Number"], ["SingleChoice", "Single choice"], ["List", "Choice from list"], ["MultiChoice", "Multiple choice"], ["Date", "Date"], ["Scale", "Scale"]];
+// One-line explanations shown in the "+ field" type picker, so the Head chooses the right kind of field up front.
+const FIELD_TYPE_HINTS = { Text: "free text, e.g. a remark", Number: "a measurement checked against the specification — weight, brix, size", SingleChoice: "pick one of a few options", List: "pick one entry from a shared list, e.g. country", MultiChoice: "tick everything that applies", Date: "e.g. a best-before date", Scale: "a rating from 1 up to a maximum you set" };
+// Short facts shown on a collapsed field card, so a long form can be scanned without opening every field.
+const fieldSummary = (f, dictionaries) => {
+  const out = [];
+  if (f.type === "Number") { const sp = (f.specName || "").trim(); if (sp) out.push(`spec: ${sp}`); else if (f.specId) out.push("spec: explicit"); else if (f.min != null && f.min !== "" || f.max != null && f.max !== "") out.push(`${f.min ?? "…"} – ${f.max ?? "…"}`); if (f.problemBelowId || f.problemAboveId) out.push("raises problem"); }
+  else if (f.type === "List") { const d = (dictionaries || []).find(x => x.id === f.dictionaryId); out.push(d ? `list: ${d.name}` : "no list yet"); if (f.problemMismatchId) out.push("raises problem"); }
+  else if (f.type === "SingleChoice" || f.type === "MultiChoice") out.push(`${(f.options || []).length} options`);
+  else if (f.type === "Scale") out.push(`1 – ${f.scaleMax ?? 5}`);
+  return out;
+};
 // Klocki system: Head umieszcza je w module jak pola, ale nie konfiguruje — system renderuje i zapisuje w kolumnach Inspections/InspectionPallet/InspectionPhoto.
 const SYSTEM_TYPES = {
   ProductInfo: { label: "Product info", desc: "read-only header: name, bio, specs — can sit at the top of every module", once: false },
@@ -3751,8 +3762,7 @@ function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset, onMessag
   );
 }
 
-function FieldEditor({ f, onPatch, onRemove, onMove, problems, catalog, specs, specsHint, dictionaries, sctxForNames }) {
-  const arrows = <><button onClick={() => onMove(-1)} className="text-xs px-1" style={{ color: C.muted }} title="up">↑</button><button onClick={() => onMove(1)} className="text-xs px-1" style={{ color: C.muted }} title="down">↓</button></>;
+function FieldEditor({ f, onPatch, onRemove, problems, catalog, specs, specsHint, dictionaries, sctxForNames, grip, open, onToggle, justAdded }) {
   const leaves = problems.filter(p => isLeaf(problems, p.id));
   // catalog = what this form's scope actually sees; a linked problem outside it (other category, or hidden here) still fires — flag it so the Head knows.
   const inScope = id => !catalog || catalog.some(p => p.id === id);
@@ -3762,10 +3772,9 @@ function FieldEditor({ f, onPatch, onRemove, onMove, problems, catalog, specs, s
     const st = SYSTEM_TYPES[f.type];
     return (
       <div className="rounded-lg p-2.5 mb-1.5 flex items-center gap-2" style={{ background: C.accentSoft, border: `1px solid ${C.accentSoft}` }}>
-        <span className="label-sm px-1.5 py-0.5 rounded" style={{ background: C.accent, color: C.onDark }}>system</span>
+        {grip}<span className="label-sm px-1.5 py-0.5 rounded" style={{ background: C.accent, color: C.onDark }}>system</span>
         <input value={f.label} onChange={e => onPatch({ label: e.target.value })} className="text-sm font-medium bg-transparent outline-none w-44" style={{ color: C.accent }} />
         <span className="flex-1 text-xs" style={{ color: C.muted }}>{st.desc}</span>
-        {arrows}
         <button onClick={onRemove} className="text-xs px-1" style={{ color: C.muted }}>×</button>
       </div>
     );
@@ -3773,24 +3782,40 @@ function FieldEditor({ f, onPatch, onRemove, onMove, problems, catalog, specs, s
   // Still the builder's placeholder text (and no specification name to fall back to) — this exact label is what
   // will show up in the "Parameters" section of the PDF report, so make it impossible to miss here.
   const unrenamed = fieldLabel(f) === "New field";
-  const [details, setDetails] = useState(unrenamed);
   const hasDetails = ["List", "SingleChoice", "MultiChoice", "Scale", "Number"].includes(f.type);
+  const typeLabel = FIELD_TYPES.find(([k]) => k === f.type)?.[1] || f.type;
+  // Collapsed: one scannable line — what it is, what it's called, the few settings that matter. Click to edit.
+  if (!open) return (
+    <div className="rounded-lg mb-1.5 flex items-center gap-2 px-2.5 py-2" style={{ background: C.bg, border: `1px solid ${unrenamed ? C.warn : C.line}` }}>
+      {grip}
+      <span className="text-[10px] px-1.5 py-0.5 rounded whitespace-nowrap" style={{ background: C.accentSoft, color: C.accent }}>{typeLabel}</span>
+      <button type="button" onClick={onToggle} className="flex-1 min-w-0 text-left text-sm font-medium truncate" style={{ color: unrenamed ? C.warn : C.ink }} title={unrenamed ? "Still the default name — this prints on the PDF" : undefined}>{unrenamed ? "⚠ unnamed field — click to name it" : fieldLabel(f)}</button>
+      {f.required && <span className="text-[10px] px-1.5 py-0.5 rounded-full whitespace-nowrap" style={{ background: C.warnBg, color: C.warn }}>required</span>}
+      {f.allowPhotos && <span className="inline-flex items-center" style={{ color: C.accent }} title="the controller can attach photos"><Ic i={Camera} s={12} mr={0} /></span>}
+      {fieldSummary(f, dictionaries).map(t => <span key={t} className="text-[10px] px-1.5 py-0.5 rounded whitespace-nowrap hidden md:inline" style={{ background: C.line, color: C.muted }}>{t}</span>)}
+      <button type="button" onClick={onToggle} className="text-xs px-2 py-1 rounded-lg" style={{ background: C.accentSoft, color: C.accent }}>edit</button>
+      <button onClick={onRemove} className="text-xs px-1" style={{ color: C.muted }} title="delete field">×</button>
+    </div>
+  );
+  // Expanded: grouped — identity first, then rules, then type-specific options and the rarely-needed extras.
   return (
-    <div className="rounded-lg p-2.5 mb-1.5" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
-      <div className="flex items-center flex-wrap gap-2 mb-1.5">
-        <select value={f.type} onChange={e => onPatch({ type: e.target.value })} className="text-xs rounded px-1.5 py-1 outline-none" style={{ ...inp }}>{FIELD_TYPES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>
-        <input value={f.label} onChange={e => onPatch({ label: e.target.value })} placeholder="field name — shown in the PDF" title={unrenamed ? "Still the default \"New field\" label — this is what will print on the report" : undefined} className="flex-1 text-sm rounded px-2 py-1 outline-none" style={{ ...inp, fontWeight: 500, minWidth: 140, borderColor: unrenamed ? C.warn : C.line }} />
-        {unrenamed && <span className="text-[10px] px-1.5 py-0.5 rounded-full" style={{ background: C.warnBg, color: C.warn }} title="Rename it — this is what prints on the PDF">⚠ unnamed</span>}
-        <input value={f.helper || ""} onChange={e => onPatch({ helper: e.target.value })} placeholder="helper text for the controller (optional)" title="FormField.HelperText" className="flex-1 text-xs rounded px-2 py-1 outline-none" style={{ ...inp, minWidth: 160 }} />
-        {f.type === "Number" && <select value={f.measureBasis || "piece"} onChange={e => onPatch({ measureBasis: e.target.value })} title="what the controller measures — one piece or a whole CU" className="text-xs" style={{ minHeight: 28 }}><option value="piece">measure per piece</option><option value="cu">measure per CU</option></select>}
-        {f.type === "Number" && <input value={f.key || ""} onChange={e => onPatch({ key: slugKey(e.target.value) || null })} placeholder={`key: ${metricKey(f)}`} title="FormField.Key — stable metric key for analytics across templates (defaults to the specification name)" className="w-28 text-xs rounded px-2 py-1 outline-none font-mono" style={{ ...inp }} />}
-        <label className="flex items-center gap-1 text-xs" style={{ color: C.muted }}><input type="checkbox" checked={!!f.required} onChange={e => onPatch({ required: e.target.checked })} />req.</label>
-        <label className="flex items-center gap-1 text-xs" style={{ color: f.allowPhotos ? C.accent : C.muted }} title="the controller can attach photos to this answer (InspectionPhoto.AnswerId)"><input type="checkbox" checked={!!f.allowPhotos} onChange={e => onPatch({ allowPhotos: e.target.checked })} />📷</label>
-        {arrows}
-        {hasDetails && <button type="button" onClick={() => setDetails(d => !d)} className="text-[11px] px-1.5 py-0.5 rounded" style={{ background: C.accentSoft, color: C.accent }}>{details ? "hide" : "options"}</button>}
-        <button onClick={onRemove} className="text-xs px-1" style={{ color: C.muted }}>×</button>
+    <div className="rounded-lg p-3 mb-1.5" style={{ background: C.surface, border: `1px solid ${C.accent}` }}>
+      <div className="flex items-center gap-2 mb-2">
+        {grip}
+        <select value={f.type} onChange={e => onPatch({ type: e.target.value })} className="text-xs rounded px-1.5 py-1 outline-none" style={{ ...inp }} title="field type">{FIELD_TYPES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>
+        <input autoFocus={!!justAdded} onFocus={e => { if (justAdded) e.target.select(); }} value={f.label} onChange={e => onPatch({ label: e.target.value })} placeholder="field name — shown in the PDF" title={unrenamed ? "Still the default \"New field\" label — this is what will print on the report" : undefined} className="flex-1 text-sm rounded px-2 py-1 outline-none" style={{ ...inp, fontWeight: 500, minWidth: 140, borderColor: unrenamed ? C.warn : C.line }} />
+        {unrenamed && <span className="text-[10px] px-1.5 py-0.5 rounded-full whitespace-nowrap" style={{ background: C.warnBg, color: C.warn }} title="Rename it — this is what prints on the PDF">⚠ unnamed</span>}
+        <button type="button" onClick={onToggle} className="text-xs px-2.5 py-1 rounded-lg font-semibold" style={{ background: C.accentSoft, color: C.accent }}>done</button>
+        <button onClick={onRemove} className="text-xs px-1" style={{ color: C.muted }} title="delete field">×</button>
       </div>
-      {details && hasDetails && <>
+      <input value={f.helper || ""} onChange={e => onPatch({ helper: e.target.value })} placeholder="helper text for the controller (optional)" title="FormField.HelperText" className="w-full text-xs rounded px-2 py-1.5 outline-none mb-2" style={{ ...inp }} />
+      <div className="flex items-center flex-wrap gap-x-5 gap-y-1.5 text-xs mb-1" style={{ color: C.muted }}>
+        <label className="flex items-center gap-1.5" style={{ color: f.required ? C.ink : C.muted }}><input type="checkbox" checked={!!f.required} onChange={e => onPatch({ required: e.target.checked })} />Required</label>
+        <label className="flex items-center gap-1.5" style={{ color: f.allowPhotos ? C.accent : C.muted }} title="the controller can attach photos to this answer (InspectionPhoto.AnswerId)"><input type="checkbox" checked={!!f.allowPhotos} onChange={e => onPatch({ allowPhotos: e.target.checked })} /><Ic i={Camera} s={12} mr={0} />Photos allowed</label>
+        {f.type === "Number" && <select value={f.measureBasis || "piece"} onChange={e => onPatch({ measureBasis: e.target.value })} title="what the controller measures — one piece or a whole CU" className="text-xs" style={{ minHeight: 28 }}><option value="piece">measure per piece</option><option value="cu">measure per CU</option></select>}
+      </div>
+      {f.type === "Number" && <details className="text-xs mb-1" style={{ color: C.muted }}><summary className="cursor-pointer select-none">Advanced</summary><span className="flex items-center gap-2 mt-1.5">metric key <input value={f.key || ""} onChange={e => onPatch({ key: slugKey(e.target.value) || null })} placeholder={metricKey(f)} title="FormField.Key — stable metric key for analytics across templates (defaults to the specification name)" className="w-40 text-xs rounded px-2 py-1 outline-none font-mono" style={{ ...inp }} /></span></details>}
+      {hasDetails && <div className="mt-2 pt-2" style={{ borderTop: `1px solid ${C.line}` }}><>
       {f.type === "List" && <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 mb-1 text-xs" style={{ color: C.muted }}>
         <span className="flex items-center gap-1">list: <select value={f.dictionaryId || ""} onChange={e => onPatch({ dictionaryId: e.target.value || null })} className="text-xs" style={{ minHeight: 28 }}><option value="">— pick a list —</option>{(dictionaries || []).map(d => <option key={d.id} value={d.id}>{d.name} ({d.items.length})</option>)}</select>{!(dictionaries || []).length && <span style={{ color: C.warn }}>no lists yet — Dictionaries → Lists</span>}</span>
         <span className="flex items-center gap-1 flex-wrap w-full" title="When the product (or its category) has a property from this list, an answer that differs from it raises this problem. Leave empty for a warning only.">doesn't match the specification → raises: <span style={{ flex: "1 1 180px", minWidth: 0 }}><SearchSelect size="xs" value={f.problemMismatchId || ""} onChange={v => onPatch({ problemMismatchId: v || null })} options={leaves.map(l => ({ value: l.id, label: pathOf(problems, l.id) + (inScope(l.id) ? "" : " · outside this scope") }))} empty="— warning —" placeholder="Search problems…" style={{ borderColor: f.problemMismatchId ? C.accent : C.line }} /></span>{scopeNote(f.problemMismatchId)}</span>
@@ -3815,7 +3840,7 @@ function FieldEditor({ f, onPatch, onRemove, onMove, problems, catalog, specs, s
           <span className="flex items-center gap-1">above raises: <span style={{ minWidth: 180, display: "inline-block" }}><SearchSelect size="xs" value={f.problemAboveId || ""} onChange={v => onPatch({ problemAboveId: v || null })} options={leaves.map(l => ({ value: l.id, label: pathOf(problems, l.id) + (inScope(l.id) ? "" : " · outside this scope") }))} empty="— warning —" placeholder="Search problems…" style={{ borderColor: f.problemAboveId ? C.accent : C.line }} /></span>{scopeNote(f.problemAboveId)}</span>
         </div>
       )}
-      </>}
+      </></div>}
     </div>
   );
 }
@@ -3872,7 +3897,7 @@ function Builder({ eff, own, setOwn, problems, specs, specsHint, readOnly, s, sc
   const removeOwnModule = id => up(x => ({ ...x, modules: x.modules.filter(m => m.id !== id), fields: x.fields.filter(f => f.moduleId !== id), problemRefs: x.problemRefs.filter(r => r.moduleId !== id) }));
   const suppress = id => up(x => ({ ...x, suppressed: [...new Set([...(x.suppressed || []), id])] }));
   const unsuppress = id => up(x => ({ ...x, suppressed: (x.suppressed || []).filter(i => i !== id) }));
-  const addField = mid => { reveal(mid); up(x => ({ ...x, fields: [...x.fields, { id: uid(), moduleId: mid, sort: Math.max(-1, ...eff.allFields.filter(f => f.moduleId === mid).map(f => f.sort)) + 1, type: "Text", label: "New field", required: false, measurementCount: 1, problemBelowId: null, problemAboveId: null, specId: null, min: null, max: null }] })); };
+  const addField = (mid, ftype = "Text") => { const nid_ = uid(); setJustAdded(nid_); setOpenFields(c => new Set(c).add(nid_)); reveal(mid); up(x => ({ ...x, fields: [...x.fields, { id: nid_, moduleId: mid, sort: Math.max(-1, ...eff.allFields.filter(f => f.moduleId === mid).map(f => f.sort)) + 1, type: ftype, label: "New field", required: false, measurementCount: 1, problemBelowId: null, problemAboveId: null, specId: null, min: null, max: null }] })); };
   const patchField = (id, p) => up(x => ({ ...x, fields: x.fields.map(f => f.id === id ? { ...f, ...p } : f) }));
   const removeOwnField = id => up(x => ({ ...x, fields: x.fields.filter(f => f.id !== id) }));
   const addSystem = (mid, type) => { if (!type) return; reveal(mid); up(x => ({ ...x, fields: [...x.fields, { id: uid(), moduleId: mid, sort: Math.max(-1, ...eff.allFields.filter(f => f.moduleId === mid).map(f => f.sort)) + 1, type, label: SYSTEM_TYPES[type].label, required: !["Photos", "Escalate"].includes(type) }] })); };
@@ -3887,6 +3912,9 @@ function Builder({ eff, own, setOwn, problems, specs, specsHint, readOnly, s, sc
     const sib = list.filter(i => key === "modules" ? true : i.moduleId === item.moduleId).sort(bySort);
     const i = sib.findIndex(q => q.id === id), j = i + dir; if (j < 0 || j >= sib.length) return;
     const reordered = [...sib]; [reordered[i], reordered[j]] = [reordered[j], reordered[i]];
+    applyOrder(key, reordered);
+  };
+  const applyOrder = (key, reordered) => {
     up(x => {
       let nx = { ...x, fieldOverrides: { ...(x.fieldOverrides || {}) } };
       reordered.forEach((it, idx) => {
@@ -3896,6 +3924,23 @@ function Builder({ eff, own, setOwn, problems, specs, specsHint, readOnly, s, sc
       return nx;
     });
   };
+  // Drag & drop reordering (fields within their module, modules among themselves). Only the grip is draggable, so
+  // typing in a field never starts a drag; the card under the pointer shows an accent line where the item will land.
+  const [openFields, setOpenFields] = useState(() => new Set()); const [justAdded, setJustAdded] = useState(null);
+  const [pickerFor, setPickerFor] = useState(null); const [dragOver, setDragOver] = useState(null); const dragRef = useRef(null);
+  const toggleField = id => setOpenFields(c => { const n = new Set(c); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const dropOn = (key, targetId) => {
+    const d = dragRef.current; dragRef.current = null; setDragOver(null);
+    if (!d || d.key !== key || d.id === targetId || !own) return;
+    const list = eff[key]; const item = list.find(i => i.id === d.id), tgt = list.find(i => i.id === targetId); if (!item || !tgt) return;
+    if (key !== "modules" && item.moduleId !== tgt.moduleId) return;
+    const sib = list.filter(i => key === "modules" ? true : i.moduleId === item.moduleId).sort(bySort);
+    const from = sib.findIndex(q => q.id === d.id), to = sib.findIndex(q => q.id === targetId); if (from < 0 || to < 0) return;
+    const re = [...sib]; const [mv] = re.splice(from, 1); re.splice(to, 0, mv); applyOrder(key, re);
+  };
+  const grip = (key, id) => own ? <span draggable onDragStart={e => { dragRef.current = { key, id }; try { e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", id); const card = e.currentTarget.closest("[data-card]"); if (card) e.dataTransfer.setDragImage(card, 12, 12); } catch {} }} onDragEnd={() => { dragRef.current = null; setDragOver(null); }} className="flex-shrink-0 cursor-grab select-none inline-flex" style={{ color: C.muted }} title="drag to reorder"><Ic i={GripVertical} s={14} mr={0} /></span> : null;
+  const dropProps = (key, id) => own ? { "data-card": "1", onDragOver: e => { if (dragRef.current?.key === key) { e.preventDefault(); if (dragOver !== id) setDragOver(id); } }, onDrop: e => { e.preventDefault(); dropOn(key, id); } } : {};
+  const dropStyle = id => dragOver === id ? { boxShadow: `0 -3px 0 0 ${C.accent}` } : {};
   const usedIds = new Set(eff.problemRefs.map(r => r.problemTypeId));
   const usedSystem = new Set(eff.fields.filter(f => isSystem(f.type) && SYSTEM_TYPES[f.type].once).map(f => f.type));
   const hasProblems = eff.problemRefs.length > 0, hasSample = eff.fields.some(f => f.type === "SampleSize");
@@ -3915,9 +3960,9 @@ function Builder({ eff, own, setOwn, problems, specs, specsHint, readOnly, s, sc
       {orphanLinks.map(({ f, id }) => <Note key={f.id + id} tone="warn">Field “{f.label}“ raises problem <b>{pm[id]?.name}</b>, but no branch containing it is attached to a module.</Note>)}
       {modules.length > 0 && <div className="flex justify-end gap-3 mb-2"><button type="button" onClick={() => setOpenMods(new Set(modules.map(m => m.id)))} className="text-xs" style={{ color: C.accent }}>Expand all</button><button type="button" onClick={() => setOpenMods(new Set())} className="text-xs" style={{ color: C.muted }}>Collapse all</button></div>}
       {modules.map((m, i) => (
-        <div key={m.id} className="rounded-xl p-3 mb-3" style={{ background: C.surface, border: `1px solid ${isOwn(m) ? C.accent : C.line}` }}>
+        <div key={m.id} {...dropProps("modules", m.id)} className="rounded-xl p-3 mb-3" style={{ background: C.surface, border: `1px solid ${isOwn(m) ? C.accent : C.line}`, ...dropStyle(m.id) }}>
           <div className="flex items-center gap-2 mb-2">
-            <button type="button" onClick={() => toggleMod(m.id)} className="flex-shrink-0" style={{ color: C.muted }} title={openMods.has(m.id) ? "collapse" : "expand"}><Ic i={openMods.has(m.id) ? ChevronDown : ChevronRight} s={14} mr={0} /></button>
+            {grip("modules", m.id)}<button type="button" onClick={() => toggleMod(m.id)} className="flex-shrink-0" style={{ color: C.muted }} title={openMods.has(m.id) ? "collapse" : "expand"}><Ic i={openMods.has(m.id) ? ChevronDown : ChevronRight} s={14} mr={0} /></button>
             <span className="text-xs w-5 h-5 rounded-full flex items-center justify-center" style={{ background: C.accentSoft, color: C.accent }}>{i + 1}</span>
             {isOwn(m) ? <input value={m.name} onChange={e => patchModule(m.id, { name: e.target.value })} className="flex-1 text-sm font-semibold rounded px-2 py-1 outline-none" style={{ ...inp }} /> : <span className="flex-1 text-sm font-semibold px-2">{m.name}</span>}
             {!openMods.has(m.id) && <span className="text-[10px] px-1.5 py-0.5 rounded whitespace-nowrap" style={{ background: C.line, color: C.muted }}>{eff.fields.filter(f => f.moduleId === m.id).length} fields · {eff.problemRefs.filter(r => r.moduleId === m.id).length} problems</span>}
@@ -3928,16 +3973,16 @@ function Builder({ eff, own, setOwn, problems, specs, specsHint, readOnly, s, sc
           </div>
           {openMods.has(m.id) && <>
           {eff.fields.filter(f => f.moduleId === m.id).sort(bySort).map(f => isOwn(f)
-            ? <FieldEditor key={f.id} f={f} onPatch={p => patchField(f.id, p)} onRemove={() => removeOwnField(f.id)} onMove={dir => moveItem("fields", f.id, dir)} problems={problems} catalog={catalog} specs={specs} specsHint={specsHint} dictionaries={s.dictionaries || []} sctxForNames={s} />
+            ? <div key={f.id} {...dropProps("fields", f.id)} style={dropStyle(f.id)}><FieldEditor f={f} grip={grip("fields", f.id)} open={openFields.has(f.id)} onToggle={() => toggleField(f.id)} justAdded={justAdded === f.id} onPatch={p => patchField(f.id, p)} onRemove={() => removeOwnField(f.id)} problems={problems} catalog={catalog} specs={specs} specsHint={specsHint} dictionaries={s.dictionaries || []} sctxForNames={s} /></div>
             : (
-              <div key={f.id} className="rounded-lg p-2.5 mb-1.5" style={{ background: C.bg, border: `1px dashed ${C.line}` }}>
+              <div key={f.id} {...dropProps("fields", f.id)} className="rounded-lg p-2.5 mb-1.5" style={{ background: C.bg, border: `1px dashed ${C.line}`, ...dropStyle(f.id) }}>
                 <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium">{f.label}</span>
+                  {grip("fields", f.id)}<span className="text-sm font-medium">{f.label}</span>
                   <span className="text-xs" style={{ color: C.muted }}>{isSystem(f.type) ? "system" : FIELD_TYPES.find(([k]) => k === f.type)?.[1]}</span>
                   <Tag item={f} />
                   {f.overriddenBy && <span className="text-[10px] px-1 rounded" style={{ background: C.accentSoft, color: C.accent }}>overridden: {f.overriddenLabel}</span>}
                   <div className="flex-1" />
-                  {own && <><button onClick={() => moveItem("fields", f.id, -1)} className="text-xs px-1" style={{ color: C.muted }}>↑</button><button onClick={() => moveItem("fields", f.id, 1)} className="text-xs px-1" style={{ color: C.muted }}>↓</button><button onClick={() => suppress(f.id)} className="text-xs px-1.5" style={{ color: C.muted }} title="hide at this level">hide</button></>}
+                  {own && <><button onClick={() => suppress(f.id)} className="text-xs px-1.5" style={{ color: C.muted }} title="hide at this level">hide</button></>}
                 </div>
                 {own && <InheritedFieldOverride f={f} own={own} problems={problems} specs={specs} onOverride={p => setFieldOverride(f.id, p)} onReset={() => resetFieldOverride(f.id)} />}
               </div>
@@ -3957,7 +4002,7 @@ function Builder({ eff, own, setOwn, problems, specs, specsHint, readOnly, s, sc
           )}
           {own && (
             <div className="flex gap-1.5 mt-1 items-center flex-wrap">
-              <Ghost onClick={() => addField(m.id)}>+ field</Ghost>
+              <Ghost onClick={() => setPickerFor(pickerFor === m.id ? null : m.id)}>{pickerFor === m.id ? "× cancel" : "+ field"}</Ghost>
               <Ghost onClick={() => addSystem(m.id, "Photos")}><Ic i={Camera} s={12} mr={4} />+ photos block</Ghost>
               <select value="" onChange={e => addSystem(m.id, e.target.value)} className="text-xs rounded px-2 py-1.5 outline-none" style={{ ...inp, background: C.accentSoft, color: C.accent, border: "none" }}>
                 <option value="">+ system block…</option>
@@ -3966,6 +4011,7 @@ function Builder({ eff, own, setOwn, problems, specs, specsHint, readOnly, s, sc
               {problems.length === 0 ? <span className="text-xs" style={{ color: C.muted }}>problem catalog empty</span> : <span style={{ minWidth: 220, display: "inline-block" }}><SearchSelect size="xs" value="" onChange={v => v && addRef(m.id, v)} options={catalog.filter(p => !usedIds.has(p.id)).map(p => ({ value: p.id, label: pathOf(catalog, p.id) }))} empty="+ problem branch from catalog…" placeholder="Search problems…" /></span>}
             </div>
           )}
+          {own && pickerFor === m.id && <div className="grid gap-1.5 mt-2" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))" }}>{FIELD_TYPES.map(([k, l]) => <button key={k} type="button" onClick={() => { addField(m.id, k); setPickerFor(null); }} className="text-left rounded-lg px-2.5 py-2" style={{ background: C.bg, border: `1px solid ${C.line}` }}><span className="block text-sm font-medium">{l}</span><span className="block text-[11px]" style={{ color: C.muted }}>{FIELD_TYPE_HINTS[k]}</span></button>)}</div>}
           </>}
         </div>
       ))}
@@ -4053,7 +4099,7 @@ function FormsPage({ s, set }) {
           <div className="mt-4 flex items-center gap-3"><button onClick={deleteType} disabled={s.inspections.some(i => (i.typeId || legacyTypeId(i.type)) === typeId) || types.length <= 1} className="text-xs px-3 py-1.5 rounded-lg" style={{ border: `1px solid ${C.line}`, color: C.bad }}>Delete type</button><span className="text-[11px]" style={{ color: C.muted }}>{s.inspections.some(i => (i.typeId || legacyTypeId(i.type)) === typeId) ? "Used by existing inspections — cannot be deleted." : "Deletes its form layers too."}</span></div>
         </Card>
       )}
-}</>}
+</>}
       {type && <div className="flex gap-5 items-start w-full" style={{ display: tab === "build" ? "flex" : "none" }}>
         <aside className="flex-shrink-0" style={{ width: layersOpen ? 208 : 44 }}>
           <div className="flex items-center gap-1 mb-1">{layersOpen && <p className="label-sm px-2 flex-1" style={{ color: C.muted }}>Layer</p>}<button onClick={() => setLayersOpen(v => !v)} className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{ color: C.muted }} title={layersOpen ? "Hide layers" : "Show layers"}><Ic i={layersOpen ? ChevronLeft : ChevronRight} s={14} mr={0} /></button></div>
@@ -4528,7 +4574,7 @@ function ReportView({ insp, s, onEdit, onAnswer, user, onMarkReference, onProduc
       {savingPdf && <PdfSaveOverlay phase={savingPdf.phase} err={savingPdf.err} blob={savingPdf.blob} url={savingPdf.url} fileName={savingPdf.fileName} onClose={() => { if (savingPdf.url) URL.revokeObjectURL(savingPdf.url); setSavingPdf(null); }} />}
       <div className="text-xs mb-3 flex flex-wrap gap-x-4 gap-y-1" style={{ color: C.muted }}>
         <span>controller <b style={{ color: C.ink }}>{s.users.find(u => u.id === insp.controllerId)?.name}</b></span><span>start {fmtTime(insp.startedAt)}</span>{insp.completedAt && <span>finished {fmtTime(insp.completedAt)}</span>}
-        {insp.supplier && <span>supplier <b style={{ color: C.ink }}>{insp.supplier}</b></span>}{insp.variety && <span>variety <b style={{ color: C.ink }}>{insp.variety}</b></span>}{insp.country && <span>country <b style={{ color: C.ink }}>{insp.country}</b></span>}{(insp.pallets || []).filter(Boolean).length > 0 && <span>pallets <b style={{ color: C.ink }}>{insp.pallets.filter(Boolean).join(", ")}</b></span>}{insp.po && <span>PO <b style={{ color: C.ink }}>{insp.po}</b></span>}{insp.dateISO && <span>date code <b style={{ color: C.ink }}>{dateCode(insp.dateISO)}</b></span>}<span>sample <b style={{ color: C.ink }}>{totals.cu} CU</b></span>}
+        {insp.supplier && <span>supplier <b style={{ color: C.ink }}>{insp.supplier}</b></span>}{insp.variety && <span>variety <b style={{ color: C.ink }}>{insp.variety}</b></span>}{insp.country && <span>country <b style={{ color: C.ink }}>{insp.country}</b></span>}{(insp.pallets || []).filter(Boolean).length > 0 && <span>pallets <b style={{ color: C.ink }}>{insp.pallets.filter(Boolean).join(", ")}</b></span>}{insp.po && <span>PO <b style={{ color: C.ink }}>{insp.po}</b></span>}{insp.dateISO && <span>date code <b style={{ color: C.ink }}>{dateCode(insp.dateISO)}</b></span>}<span>sample <b style={{ color: C.ink }}>{totals.cu} CU</b></span>
       </div>
       {insp.status === "PendingReview" && (
         <div className="rounded-lg p-3 mb-3" style={{ background: C.warnBg }}>
