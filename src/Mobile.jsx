@@ -357,7 +357,10 @@ const scopeTag = (p, s) => p.productId ? `product: ${s.products.find(x => x.id =
 // Inspection types are Head-defined (InspectionTypes). Behaviour comes from flags, not from the name.
 // No default inspection types: the Head defines them (Forms → + new type). Legacy ids below only keep old records readable.
 const SEED_TYPES = () => [];
-const SKIP_REASONS = ["no time", "stable product", "same delivery as earlier", "checked at the supplier"];
+// Reasons a controller can pick when finishing an inspection of a type whose "Reason on finish" is on. The Head edits the
+// list per type in Forms → Type settings (type.reasons); a type that never had its list edited falls back to these defaults.
+const DEFAULT_REASONS = ["no time", "stable product", "same delivery as earlier", "checked at the supplier"];
+const typeReasons = t => Array.isArray(t?.reasons) ? t.reasons : DEFAULT_REASONS;
 const isVerdictType = (s, insp) => !inspType(s, insp).autoAccept;
 const settingsOf = s => ({ companyName: "Picnic Technologies", qcEmail: "qc@picnic.nl", rejectionWindowHours: 24, deadlineWarnHours: 6, deadlineWarnHoursRisky: 10, riskyLookbackDays: 14, requirePoOnReject: false, resultIcons: {}, ...(s.settings || {}) });
 // Policy = the set of allowed inspection types. Product → category chain → types allowed by default. A product always has one.
@@ -1564,6 +1567,8 @@ function ProblemOverview({ t, problems, remarks, totals }) {
 
 function InspectionRunner({ insp, patch, t, problems, product, suppliers, dictionaries, sctx, user, onFinish, onEscalate, onRaiseFlag, onCancel }) {
   const itype = sctx ? inspType(sctx, insp) : { autoAccept: false, reason: "none", name: "Full", color: C.accent };
+  // An empty list must never trap the controller behind a "required" reason with nothing to pick.
+  const reasonList = typeReasons(itype); const reasonShown = !!itype.reason && itype.reason !== "none" && reasonList.length > 0; const reasonRequired = itype.reason === "required" && reasonList.length > 0;
   const modules = [...t.modules].sort(bySort);
   const [tab, setTab] = useState(0);
   const [question, setQuestion] = useState(""); const [flagText, setFlagText] = useState(""); const [flagOpen, setFlagOpen] = useState(false); const [askCancel, setAskCancel] = useState(false);
@@ -1618,7 +1623,7 @@ function InspectionRunner({ insp, patch, t, problems, product, suppliers, dictio
   }, [insp.result, (insp.pallets || []).join("|")]);
   const finishControls = (
     <>
-      {itype.reason && itype.reason !== "none" && <div className="mt-4"><p className="text-sm font-medium mb-1">Reason {itype.reason === "required" ? <span style={{ color: C.bad }}>*</span> : <span className="text-xs font-normal" style={{ color: C.muted }}>(optional)</span>}</p><div className="flex flex-wrap gap-1.5">{SKIP_REASONS.map(r => <button key={r} onClick={() => set({ skipReason: insp.skipReason === r ? null : r })} className="text-xs px-3 py-1.5 rounded-full" style={{ background: insp.skipReason === r ? C.ink : "transparent", color: insp.skipReason === r ? C.onDark : C.ink, border: `1px solid ${insp.skipReason === r ? C.ink : C.line}` }}>{r}</button>)}</div></div>}
+      {reasonShown && <div className="mt-4"><p className="text-sm font-medium mb-1">Reason {reasonRequired ? <span style={{ color: C.bad }}>*</span> : <span className="text-xs font-normal" style={{ color: C.muted }}>(optional)</span>}</p><div className="flex flex-wrap gap-1.5">{reasonList.map(r => <button key={r} onClick={() => set({ skipReason: insp.skipReason === r ? null : r })} className="text-xs px-3 py-1.5 rounded-full" style={{ background: insp.skipReason === r ? C.ink : "transparent", color: insp.skipReason === r ? C.onDark : C.ink, border: `1px solid ${insp.skipReason === r ? C.ink : C.line}` }}>{r}</button>)}</div></div>}
       {itype.autoAccept && <Note tone="ok">{itype.name}: finishing records “Accepted” — no verdict needed. Problems you report still go to the Head.</Note>}
       {!itype.autoAccept && <div className="flex gap-2 mt-4">{[["Accepted", "Accept", C.ok, C.okBg, Check], ["Rejected", "Reject", C.bad, C.badBg, X]].map(([v, l, fg, bg, I]) => { const on = insp.result === v; return <button key={v} onClick={() => !escalated && set({ result: v })} disabled={escalated} className="flex-1 py-3 rounded-xl text-sm font-semibold inline-flex items-center justify-center gap-1.5" style={{ background: escalated ? C.line : on ? fg : bg, color: escalated ? C.muted : on ? C.onDark : fg, border: `1px solid ${escalated ? C.line : on ? fg : "transparent"}` }}><Ic i={I} s={15} mr={0} />{l}</button>; })}</div>}
       {wantPo && insp.result === "Rejected" && <div className="mt-3"><p className="text-[13px] font-semibold mb-1">PO{poMissing ? <span style={{ color: C.bad }}> *</span> : null}</p><input value={insp.po || ""} onChange={e => set({ po: e.target.value })} placeholder="Purchase order" className="w-full text-sm rounded-xl px-3 py-2.5 outline-none font-mono" style={{ ...inp, borderColor: poMissing ? C.bad : C.line }} /><p className="text-xs mt-1.5" style={{ color: poMissing ? C.warn : C.muted }}>{poSourceHint(sheetPo)}</p></div>}
@@ -1629,9 +1634,9 @@ function InspectionRunner({ insp, patch, t, problems, product, suppliers, dictio
         <p className="text-xs mt-2" style={{ color: C.ink }}>Tap a field to fill it in, or press <b>Finish anyway</b> — the report will say which fields were left empty and the Head gets a notification.</p>
       </div>}
       <div className="mt-3">
-        {(() => { const off = escalated || (!itype.autoAccept && !insp.result) || (itype.reason === "required" && !insp.skipReason) || poMissing; return <button onClick={tryFinish} disabled={off} className="w-full py-3 rounded-xl text-sm font-semibold" style={{ background: off ? C.line : C.accent, color: off ? C.muted : C.onDark }}>{remind && missingRequired.length ? "Finish anyway" : editingCompleted ? "Save changes (audited)" : itype.autoAccept ? `Finish — ${itype.name.toLowerCase()} done` : "Finish inspection"}</button>; })()}
+        {(() => { const off = escalated || (!itype.autoAccept && !insp.result) || (reasonRequired && !insp.skipReason) || poMissing; return <button onClick={tryFinish} disabled={off} className="w-full py-3 rounded-xl text-sm font-semibold" style={{ background: off ? C.line : C.accent, color: off ? C.muted : C.onDark }}>{remind && missingRequired.length ? "Finish anyway" : editingCompleted ? "Save changes (audited)" : itype.autoAccept ? `Finish — ${itype.name.toLowerCase()} done` : "Finish inspection"}</button>; })()}
         {!itype.autoAccept && !insp.result && !escalated && <p className="text-xs text-center mt-1.5" style={{ color: C.muted }}>choose a result to finish</p>}
-        {itype.reason === "required" && !insp.skipReason && <p className="text-xs text-center mt-1.5" style={{ color: C.muted }}>pick a reason to finish</p>}
+        {reasonRequired && !insp.skipReason && <p className="text-xs text-center mt-1.5" style={{ color: C.muted }}>pick a reason to finish</p>}
         {poMissing && <p className="text-xs text-center mt-1.5" style={{ color: C.muted }}>enter the PO to finish</p>}
       </div>
     </>
