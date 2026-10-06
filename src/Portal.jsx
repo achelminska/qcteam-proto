@@ -1429,18 +1429,29 @@ const ComplaintChip = ({ s, articleId, size = "xs" }) => { const c = complaintsF
 // One-line summary used on product profiles (portal + phone share the wording).
 const complaintsLine = (s, articleId) => { const c = complaintsFor(s, articleId); if (!c || !c.count) return null; const meta = complaintsMeta(s); return { count: c.count, sub: c.subType ? `${c.subType}${c.subCount != null ? ` (${c.subCount})` : ""}` : "", rate: fmtPer1k(c.per1k), delivered: c.delivered ?? null, period: meta.period || "" }; };
 // What the DC5 rejections sheet says about this article: the team's official rejections (Slack → sheet), not QCteam reports.
+function RejectionLink({ href, label }) {
+  const Icon = /^Inspection report/i.test(label) ? FileText : /slack\.com/i.test(href) ? MessageSquare : /drive\.google|docs\.google/i.test(href) ? Paperclip : ExternalLink;
+  return (
+    <a href={href} target="_blank" rel="noopener" className="qc-elev qc-tile inline-flex items-center gap-1.5 text-[11px] font-semibold rounded-lg px-2.5 no-underline" style={{ height: 28, background: C.ink, color: C.onDark }}>
+      <Ic i={Icon} s={12} mr={0} />{label}
+    </a>
+  );
+}
 function ExtRejectionsNote({ s, articleId }) {
   const l = extRejectionLine(s, articleId); if (!l) return null;
   const [open, setOpen] = useState(false);
   return <Note tone="bad"><span className="inline-flex items-center gap-1.5 flex-wrap"><Ic i={AlertTriangle} s={14} mr={0} /><b>Rejected on the dock {l.count}×</b><span>in {l.span}</span><span style={{ color: C.muted }}>· last {fmtRejectionDay(l.last)} · DC5 rejections sheet</span><button onClick={() => setOpen(v => !v)} className="underline text-xs" style={{ color: C.accent }}>{open ? "hide" : "recent rows"}</button></span>
     {open && <div className="mt-2 flex flex-col gap-2" style={{ color: C.ink }}>{l.recent.map((r, ix) => {
       const reason = String(r.reason || "Rejected").replace(/^./, c => c.toUpperCase());
+      const reports = reportUrls(r);
       return <div key={ix} className="rounded-xl px-3 py-2" style={{ background: C.bg, border: `1px solid ${C.line}`, borderLeft: `3px solid ${C.bad}` }}>
         <p className="text-sm font-semibold leading-snug">{reason}</p>
         <p className="text-xs mt-0.5" style={{ color: C.muted, fontVariantNumeric: "tabular-nums" }}>{fmtRejectionDay(r.d)}{r.tu != null ? ` · ${r.tu} TU` : ""}</p>
         {(r.user || r.po) && <p className="text-xs mt-1" style={{ color: C.muted }}>{[r.user, r.po && `PO ${r.po}`].filter(Boolean).join(" · ")}</p>}
-        {reportUrls(r).map((u, i, arr) => <a key={u} href={u} target="_blank" rel="noopener" className="inline-block text-xs mt-1 mr-3 underline" style={{ color: C.accent }}>{arr.length > 1 ? `Inspection report ${i + 1}` : "Inspection report"} ↗</a>)}
-        {r.link && <a href={r.link} target="_blank" rel="noopener" className="inline-block text-xs mt-1 underline" style={{ color: C.accent }}>{linkLabel(r.link)} ↗</a>}
+        {(reports.length > 0 || r.link) && <div className="flex flex-wrap gap-1.5 mt-2">
+          {reports.map((u, i) => <RejectionLink key={u} href={u} label={reports.length > 1 ? `Inspection report ${i + 1}` : "Inspection report"} />)}
+          {r.link && <RejectionLink href={r.link} label={linkLabel(r.link)} />}
+        </div>}
       </div>;
     })}</div>}
   </Note>;
