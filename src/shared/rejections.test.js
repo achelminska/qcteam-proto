@@ -6,6 +6,8 @@ describe("reading one cell — the formats the DC5 sheet uses today", () => {
     expect(parseRejectionTime("Jan 1, 2026, 16:48:39")).toBe("2026-01-01T16:48");
     expect(parseRejectionTime("Sept 30, 2026, 07:34:01")).toBe("2026-09-30T07:34");
     expect(parseRejectionTime("18/05/2026 16:43:47")).toBe("2026-05-18T16:43");
+    expect(parseRejectionTime("Thu Jan 01 2026 16:48:39 GMT+0100 (Central European Standard Time)")).toBe("2026-01-01T16:48"); // Apps Script Date.toString()
+    expect(parseRejectionTime("Sat Oct 03 2026 14:12:00 GMT+0200 (Central European Summer Time)")).toBe("2026-10-03T14:12");
     expect(parseRejectionTime("2026-05-18T16:43:47.000Z")).toBe("2026-05-18T16:43");
     expect(parseRejectionTime("2026-05-18")).toBe("2026-05-18T00:00");
     expect(parseRejectionTime("")).toBe(null); expect(parseRejectionTime("Time")).toBe(null); expect(parseRejectionTime("45/13/2026")).toBe(null);

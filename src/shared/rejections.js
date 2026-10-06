@@ -44,6 +44,8 @@ const iso = (y, mo, d, h = 0, mi = 0) => { const Y = Number(y), M = Number(mo), 
 export function parseRejectionTime(raw) {
   const v = String(raw ?? "").trim(); if (!v) return null; let m;
   if ((m = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2}))?/.exec(v))) return iso(m[1], Number(m[2]) - 1, m[3], m[4] || 0, m[5] || 0);
+  // Apps Script's getValues() dates arrive as Date.toString(): "Thu Jan 01 2026 16:48:39 GMT+0100 (Central European Standard Time)"
+  if ((m = /^[A-Za-z]{3},? ([A-Za-z]{3}) (\d{1,2}) (\d{4})(?: (\d{2}):(\d{2}))?/.exec(v))) { const mo = MONTHS[m[1].toLowerCase()]; return mo == null ? null : iso(m[3], mo, m[2], m[4] || 0, m[5] || 0); }
   if ((m = /^([A-Za-z]{3,4})\.? (\d{1,2}),? (\d{4})(?:,? (\d{1,2}):(\d{2}))?/.exec(v))) { const mo = MONTHS[m[1].toLowerCase()]; return mo == null ? null : iso(m[3], mo, m[2], m[4] || 0, m[5] || 0); }
   if ((m = /^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})(?:,? (\d{1,2}):(\d{2}))?/.exec(v))) return iso(m[3], Number(m[2]) - 1, m[1], m[4] || 0, m[5] || 0);
   return null;
