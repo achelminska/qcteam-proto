@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { isoWeekOf, weekRange, shiftWeek, weekLabel, weekFromLabel, upsertSnapshot, latestSnapshot, previousInWeek, deltaRows, weekSeries, articleTrend, topArticles, subTypeMix, asLegacyMeta, migrateLegacy, snapshotTotal } from "./complaints.js";
+import { isoWeekOf, weekRange, shiftWeek, weekLabel, weekFromLabel, upsertSnapshot, latestSnapshot, previousInWeek, deltaRows, weekSeries, articleTrend, topArticles, subTypeMix, asLegacyMeta, migrateLegacy, snapshotTotal, parseComplaintRows, fmtPer1k } from "./complaints.js";
 
 // Jasper's posts, week 39 → 40 (Sept 2026), as pasted from the screenshots.
 const w39a = { id: "a", week: "2026-W39", asOf: "2026-09-22", importedAt: "2026-09-22T10:20:00Z", byUserId: "u-head", rows: [
@@ -91,5 +91,27 @@ describe("what the rest of the app reads", () => {
     expect(snapshotTotal(out[0])).toBe(161);
     expect(migrateLegacy({ period: "", updatedAt: "2026-09-25T14:12:00Z", rows: w39c.rows }, () => "m2")[0].week).toBe("2026-W39"); // no label → from the date
     expect(migrateLegacy(null, () => "x")).toEqual([]); expect(migrateLegacy({ rows: [] }, () => "x")).toEqual([]);
+  });
+});
+
+describe("reading the pasted table", () => {
+  it("the old four-column post", () => {
+    const rows = parseComplaintRows("Article ID\tArticle\tFreshness complaints\tTop sub-type\n10573488\tMerkloos komkommer (1 st)\t39\tSpoiled (36)\n2\t11539732\tMerkloos kiwibessen (125 gram)\t36\tOverripe (35)");
+    expect(rows).toEqual([
+      { articleId: "10573488", name: "Merkloos komkommer (1 st)", count: 39, subType: "Spoiled", subCount: 36 },
+      { articleId: "11539732", name: "Merkloos kiwibessen (125 gram)", count: 36, subType: "Overripe", subCount: 35 },
+    ]);
+  });
+  it("the six-column post: rate per 1k delivered and the items delivered", () => {
+    const rows = parseComplaintRows("Article ID\tArticle\tFreshness complaints\tTop sub-type\tFreshness per 1k\tDelivered items\n11979641\tMerkloos cherrytomaatjes (500 gram)\t30\tSpoiled (29)\t8.89\t3376\n11426586\tMerkloos avocado eetrijp (2 st)\t5\tUnderripe (4)\t1\t5022\n90006132\tMerkloos bananen (5 st)\t19\tOverripe (7)\t1,01\t18796");
+    expect(rows[0]).toEqual({ articleId: "11979641", name: "Merkloos cherrytomaatjes (500 gram)", count: 30, subType: "Spoiled", subCount: 29, per1k: 8.89, delivered: 3376 });
+    expect(rows[1]).toMatchObject({ count: 5, subType: "Underripe", subCount: 4, per1k: 1, delivered: 5022 }); // a whole-number rate is still the rate
+    expect(rows[2]).toMatchObject({ per1k: 1.01, delivered: 18796 });                                           // decimal comma
+    expect(fmtPer1k(8.89)).toBe("8.9 per 1k"); expect(fmtPer1k(null)).toBe("");
+  });
+  it("a sub-type without a count, and only one trailing number", () => {
+    expect(parseComplaintRows("11979641\tCherry\t30\tSpoiled\t3376")[0]).toMatchObject({ subType: "Spoiled", subCount: null, delivered: 3376 });
+    expect(parseComplaintRows("11979641\tCherry\t30\tSpoiled\t8.9")[0]).toMatchObject({ per1k: 8.9 });
+    expect(parseComplaintRows("11979641\tCherry\t30\tSpoiled\t8.9")[0]).not.toHaveProperty("delivered");
   });
 });

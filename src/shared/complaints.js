@@ -9,6 +9,45 @@
 
 export const normArticle = x => String(x || "").trim().replace(/^HE/i, "").split("-")[0].replace(/\D/g, "").replace(/^0+/, "");
 
+// ── Reading the Head of Quality's table ──
+// Pasted straight from the post / sheet, tab-, semicolon- or comma-separated. Two shapes are in use:
+//   Article ID · Article · Freshness complaints · Top sub-type
+//   Article ID · Article · Freshness complaints · Top sub-type · Freshness per 1k · Delivered items
+// A header row and a leading row number are ignored; "Spoiled (29)" splits into the sub-type and its count. Columns after
+// the sub-type are read by position: the complaint rate per 1 000 delivered items, then the items delivered. Unknown extra
+// columns are kept out of the way rather than glued onto the sub-type.
+const isInt = c => /^\d+$/.test(c);
+const isNum = c => /^\d+([.,]\d+)?$/.test(c);
+const num = c => Number(String(c).replace(",", "."));
+export function parseComplaintRows(text) {
+  const out = [];
+  String(text || "").split(/\r?\n/).forEach(line => {
+    if (!line.trim()) return;
+    const sep = line.includes("\t") ? "\t" : line.includes(";") ? ";" : ",";
+    let cells = line.split(sep).map(c => c.trim().replace(/^"|"$/g, ""));
+    if (cells.length >= 4 && /^\d{1,4}$/.test(cells[0]) && /^(HE)?\d{5,}/i.test(cells[1])) cells = cells.slice(1); // leading row number
+    const idIx = cells.findIndex(c => /^(HE)?\d{5,}(-\d+)?$/i.test(c)); if (idIx < 0) return;              // header / junk line
+    const articleId = cells[idIx]; const rest = cells.slice(idIx + 1);
+    const countIx = rest.findIndex((c, i) => i > 0 && isInt(c));
+    const name = rest.slice(0, countIx > 0 ? countIx : 1).join(" ").trim();
+    const count = countIx > 0 ? Number(rest[countIx]) : Number(rest.find(isInt) || 0);
+    const after = rest.slice(countIx > 0 ? countIx + 1 : 1).filter(c => c !== "");
+    // the sub-type is the first non-numeric cell after the count ("Spoiled (29)", or just "Spoiled")
+    const subIx = after.findIndex(c => !isNum(c));
+    const subRaw = subIx >= 0 ? after[subIx] : ""; const m = subRaw.match(/^(.*?)\s*\((\d+)\)\s*$/);
+    const nums = (subIx >= 0 ? after.slice(subIx + 1) : after).filter(isNum);
+    let per1k = null, delivered = null;
+    if (nums.length >= 2) { per1k = num(nums[0]); delivered = Math.round(num(nums[1])); }
+    else if (nums.length === 1) { if (/[.,]/.test(nums[0])) per1k = num(nums[0]); else delivered = Number(nums[0]); }
+    const row = { articleId, name, count: isFinite(count) ? count : 0, subType: m ? m[1].trim() : subRaw, subCount: m ? Number(m[2]) : null };
+    if (per1k != null) row.per1k = per1k; if (delivered != null) row.delivered = delivered;
+    out.push(row);
+  });
+  return out;
+}
+// "8.9 per 1k" — one decimal, as the Head's table shows it.
+export const fmtPer1k = v => v == null || !isFinite(v) ? "" : `${Math.round(v * 10) / 10} per 1k`;
+
 // ── ISO weeks (the same calendar as the date code on inspections: week 40 = 28 Sep – 4 Oct 2026) ──
 const pad = n => String(n).padStart(2, "0");
 export const dayISO = d => { const x = d instanceof Date ? d : new Date(d); return `${x.getFullYear()}-${pad(x.getMonth() + 1)}-${pad(x.getDate())}`; };
