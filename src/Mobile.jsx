@@ -2259,7 +2259,7 @@ function ExtRejectionBox({ s, articleId, onMore }) {
 function ExtRejectionList({ s, articleId }) {
   const l = extRejectionLine(s, articleId); if (!l) return null;
   return <MSection title="Rejected on the dock" count={l.total} tone="bad">
-    <p className="text-[12px] mb-1.5" style={{ color: C.muted }}>From the DC5 rejections sheet — the team's official rejections, not QCteam reports. {l.count} in the last {l.span}{l.tu ? `, ${l.tu} TU in a year` : ""}.</p>
+    <p className="text-[12px] mb-1.5" style={{ color: C.muted }}>From the DC5 rejections sheet — the team's official rejections, not QCteam reports. {l.count} in the last {l.span}{l.tu ? `, ${l.tu} TU` : ""}{l.yearCount > l.count ? ` (${l.yearCount} in a year)` : ""}.</p>
     {l.recent.map((r, ix) => <div key={ix} className="py-1.5" style={{ borderBottom: ix === l.recent.length - 1 ? "none" : `1px solid ${C.line}` }}>
       <div className="flex items-baseline gap-2 text-[13px]"><span className="font-medium whitespace-nowrap" style={{ fontVariantNumeric: "tabular-nums" }}>{dayLabel(r.d)}</span><span style={{ color: C.muted }}>{[r.tu != null && `${r.tu} TU`, r.user, r.po && `PO ${r.po}`].filter(Boolean).join(" · ")}</span></div>
       <p className="text-[13px] leading-snug mt-0.5">{r.reason || r.cat || "—"}{r.cat && r.reason ? <span style={{ color: C.muted }}> · {r.cat}</span> : null}</p>

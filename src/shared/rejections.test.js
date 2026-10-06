@@ -60,9 +60,12 @@ describe("building the digest", () => {
   it("recently-rejected flag and the one-line summary", () => {
     const nowMs = new Date(NOW).getTime();
     expect(extRejectedRecently(s, "90006116", 14, nowMs)).toBe(true); expect(extRejectedRecently(s, "90006116", 1, nowMs)).toBe(false); expect(extRejectedRecently(s, "123", 14, nowMs)).toBe(false);
-    expect(extRejectionLine(s, "90006116")).toMatchObject({ count: 2, span: "90 days", total: 3, last: "2026-10-01T16:48", tail: "3 in a year, mostly Quality (according to list)" });
-    expect(extRejectionLine(s, "11295128")).toMatchObject({ count: 1, span: "90 days", total: 2 });
-    expect(extRejectionLine(s, "x")).toBe(null);
+    const l = extRejectionLine(s, "90006116", nowMs);
+    expect(l).toMatchObject({ count: 2, span: "30 days", total: 2, tu: 35, last: "2026-10-01T16:48", tail: "", yearCount: 3 });
+    expect(l.recent.map(r => r.po)).toEqual(["1094749", "1095000"]); // the January row is not shown on the floor
+    expect(extRejectionLine(s, "11295128", nowMs)).toMatchObject({ count: 1, span: "30 days", total: 1 });
+    expect(extRejectionLine(s, "x", nowMs)).toBe(null);
+    expect(extRejectionLine(s, "90006116", nowMs + 40 * 86400000)).toBe(null); // 40 days later: nothing in the window → nothing shown
   });
   it("latest list for the shift-update cards, newest first, dated only", () => {
     expect(d.latest.map(e => e.po)).toEqual(["1094749", "1093779", "1095000", "1000001"]);
@@ -72,6 +75,8 @@ describe("building the digest", () => {
     const big = Array.from({ length: 50 }, (_, i) => row({ po: String(i), time: `Sep ${1 + (i % 28)}, 2026, 08:00:00` }));
     const g = extRejectionsFor({ extRejections: buildRejectionDigest(big, { now: NOW }) }, "90006116");
     expect(g.count).toBe(50); expect(g.recent.length).toBe(3); expect(g.recent[0].d >= g.recent[1].d).toBe(true);
+    // window saturated (3 recent rows all inside 30 days) → the digest's 30-day count is used, not just the 3 kept rows
+    expect(extRejectionLine({ extRejections: buildRejectionDigest(big, { now: NOW }) }, "90006116", new Date(NOW).getTime())).toMatchObject({ count: g.c30, tail: "mostly Quality (according to list)" });
     expect(buildRejectionDigest(big, { now: NOW, latestCount: 10 }).latest.length).toBe(10);
   });
   it("empty push → empty digest, nothing throws", () => {

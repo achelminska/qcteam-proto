@@ -100,14 +100,21 @@ export function buildRejectionDigest(rows, { now = new Date().toISOString(), win
 export const extRejectionsFor = (s, articleId) => { const k = normArticle(articleId); return k && s?.extRejections?.byArticle ? s.extRejections.byArticle[k] || null : null; };
 export const extRejectedRecently = (s, articleId, days, nowMs = Date.now()) => { const g = extRejectionsFor(s, articleId); if (!g?.last) return false; return nowMs - new Date(g.last).getTime() <= days * 86400000; };
 export const topCats = (g, n = 2) => Object.entries(g?.cats || {}).sort((a, b) => b[1] - a[1]).slice(0, n).map(([name, count]) => ({ name, count }));
-// One line for the pallet header / scan result. Prefers the 90-day count; falls back to the window total.
-export function extRejectionLine(s, articleId) {
+// One line for the pallet header / scan result / product profile. The apps only care about the last 30 days: an article
+// rejected in spring says nothing about today's pallet. Nothing in 30 days → null → nothing shown. (The Head's Integrations
+// panel still sees the whole year in the digest.) Counted from the digest's 30-day count when its recent rows show the
+// window is saturated (3 kept per article), otherwise from the recent rows themselves — so an aging digest never over-reports.
+export const EXT_REJECTION_DAYS = 30;
+export function extRejectionLine(s, articleId, nowMs = Date.now(), days = EXT_REJECTION_DAYS) {
   const g = extRejectionsFor(s, articleId); if (!g || !g.count) return null;
-  const n = g.c90 || g.count; const span = g.c90 ? "90 days" : `${s.extRejections.windowDays} days`;
-  const cats = topCats(g); const mostly = cats[0] ? `mostly ${cats[0].name}` : "";
-  // "6× in 90 days · 48 in a year, mostly Underweight" — the reason classes are counted over the whole year.
-  const tail = g.count > n ? [`${g.count} in a year`, mostly].filter(Boolean).join(", ") : mostly;
-  return { count: n, span, total: g.count, tu: g.tu, last: g.last, cats, mostly, tail, recent: g.recent, name: g.name };
+  const cutoff = nowMs - days * 86400000;
+  const recent = (g.recent || []).filter(e => e.d && new Date(e.d).getTime() >= cutoff);
+  if (!recent.length) return null;
+  const count = recent.length >= (g.recent || []).length && g.c30 > recent.length ? g.c30 : recent.length;
+  const catsMap = {}; recent.forEach(e => { if (e.cat) catsMap[e.cat] = (catsMap[e.cat] || 0) + 1; });
+  const cats = topCats({ cats: catsMap }); const mostly = cats[0] && count > 1 && cats[0].count * 2 > recent.length ? `mostly ${cats[0].name}` : "";
+  const tu = recent.reduce((a, e) => a + (e.tu || 0), 0);
+  return { count, span: `${days} days`, total: count, tu, last: recent[0].d, cats, mostly, tail: mostly, recent, name: g.name, yearCount: g.count };
 }
 // Shift-update cards: sheet rejections from the last `days` days, newest first (latest holds the newest 60 rows).
 export const extRejectionsRecent = (s, days = 7, nowMs = Date.now()) => (s?.extRejections?.latest || []).filter(e => e.d && nowMs - new Date(e.d).getTime() <= days * 86400000);
