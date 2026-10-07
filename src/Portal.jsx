@@ -1308,7 +1308,7 @@ function LoginScreen({ s, onLogin, allowRoles, subtitle }) {
   );
 }
 // ═══════════════════ BLOCKED PALLET QUEUE ROW (shared) ═══════════════════
-function QueueRow({ s, set, user, b, onOpen }) {
+function QueueRow({ s, set, user, b, onOpen, tile }) {
   const c = b.claim; const me = c && c.userId === user.id; const who = c && s.users.find(u => u.id === c.userId);
   const done = b.status === "Completed"; const stacked = c?.status === "stacked"; const lost = b.lost; const lostBy = lost && s.users.find(u => u.id === lost.byUserId);
   const col = done ? C.ok : lost ? C.line : stacked ? C.muted : b.status === "Started" ? C.warn : C.bad;
@@ -1317,17 +1317,17 @@ function QueueRow({ s, set, user, b, onOpen }) {
   const release = () => setClaim(set, b, null);
   const ago = t => { const m = Math.round((Date.now() - new Date(t).getTime()) / 60000); return m < 1 ? "now" : m < 60 ? `${m} min` : `${Math.round(m / 60)} h`; };
   return (
-    <div className="py-2.5" style={{ borderBottom: `1px solid ${C.line}`, opacity: done ? .5 : lost ? .45 : stacked ? .7 : 1 }}>
+    <div className={tile ? "qc-tile rounded-xl px-3 py-2.5" : "py-2.5"} style={tile ? { background: C.bg, border: `1px solid ${C.line}`, borderLeft: `3px solid ${col}`, opacity: done ? .5 : lost ? .45 : stacked ? .7 : 1 } : { borderBottom: `1px solid ${C.line}`, opacity: done ? .5 : lost ? .45 : stacked ? .7 : 1 }}>
       <div className="flex items-center gap-2">
-        <span className="inline-block rounded-full flex-shrink-0" style={{ width: 8, height: 8, background: col }} />
+        {!tile && <span className="inline-block rounded-full flex-shrink-0" style={{ width: 8, height: 8, background: col }} />}
         <button onClick={onOpen} className="text-sm flex-1 truncate font-medium text-left">{b.name || b.article}</button>
         {who && <span className="flex items-center gap-1 text-[11px]" style={{ color: me ? C.accent : C.muted }}><Avatar user={who} size={18} />{me ? "you" : who.name.split(" ")[0]} · {ago(c.at)}</span>}
         {stacked && !lost && <span className="text-[10px] px-1.5 py-0.5 rounded inline-flex items-center" style={{ background: C.line, color: C.muted }}><Ic i={Layers} s={10} mr={3} />in stack</span>}
         {lost && <span className="text-[10px] px-1.5 py-0.5 rounded inline-flex items-center" style={{ background: C.line, color: C.muted }}><Ic i={Search} s={10} mr={3} />lost · {lostBy ? lostBy.name.split(" ")[0] : "?"} · {ago(lost.at)}</span>}
       </div>
-      <p className="text-xs mt-0.5 ml-4" style={{ color: C.muted }}>{[b.location && `Dock ${b.location}`, b.deadline && `departure ${b.deadline}`, b.hu && `HU …${b.hu.slice(-6)}`].filter(Boolean).join(" · ")}</p>
-      {lost && !done && <div className="flex gap-1.5 mt-1.5 ml-4"><button onClick={() => markFound(set, b, user)} className="text-xs px-3 py-1.5 rounded-lg font-semibold" style={{ background: C.ink, color: C.onDark }}>Found — back in queue</button>{lost.note && <span className="text-[11px] self-center" style={{ color: C.muted }}>{lost.note}</span>}</div>}
-      {!done && !lost && <div className="flex gap-1.5 mt-1.5 ml-4">
+      <p className={tile ? "text-xs mt-0.5" : "text-xs mt-0.5 ml-4"} style={{ color: C.muted }}>{[b.location && `Dock ${b.location}`, b.deadline && `departure ${b.deadline}`, b.hu && `HU …${b.hu.slice(-6)}`].filter(Boolean).join(" · ")}</p>
+      {lost && !done && <div className={tile ? "flex gap-1.5 mt-2 flex-wrap" : "flex gap-1.5 mt-1.5 ml-4"}><button onClick={() => markFound(set, b, user)} className="text-xs px-3 py-1.5 rounded-lg font-semibold" style={{ background: C.ink, color: C.onDark }}>Found — back in queue</button>{lost.note && <span className="text-[11px] self-center" style={{ color: C.muted }}>{lost.note}</span>}</div>}
+      {!done && !lost && <div className={tile ? "flex gap-1.5 mt-2 flex-wrap" : "flex gap-1.5 mt-1.5 ml-4"}>
         {!c && <><button onClick={take} className="text-xs px-3 py-1.5 rounded-lg font-semibold" style={{ background: C.ink, color: C.onDark }}>Take</button><button onClick={stack} className="text-xs px-3 py-1.5 rounded-lg inline-flex items-center" style={{ border: `1px solid ${C.line}` }}><Ic i={Layers} s={12} />In stack</button></>}
         {c && me && <>{stacked ? <button onClick={take} className="text-xs px-3 py-1.5 rounded-lg font-semibold" style={{ background: C.ink, color: C.onDark }}>Reachable now — take</button> : <button onClick={stack} className="text-xs px-3 py-1.5 rounded-lg inline-flex items-center" style={{ border: `1px solid ${C.line}` }}><Ic i={Layers} s={12} />In stack</button>}<button onClick={release} className="text-xs px-3 py-1.5 rounded-lg" style={{ color: C.muted, border: `1px solid ${C.line}` }}>Release</button></>}
         {c && !me && <>{stacked ? <button onClick={take} className="text-xs px-3 py-1.5 rounded-lg" style={{ border: `1px solid ${C.line}` }}>Reachable now — take</button> : <button onClick={take} className="text-xs px-3 py-1.5 rounded-lg" style={{ color: C.warn, border: `1px solid ${C.line}` }}>Take over</button>}</>}
@@ -2465,7 +2465,7 @@ function ControllerDashboard({ s, user, set, setPage, setOpenId, openProduct, op
       {blOpen && <Card style={{ marginBottom: 12, borderLeft: `4px solid ${C.bad}` }}>
         <div className="flex items-center gap-2 mb-1"><p className="font-semibold text-sm flex-1">Blocked pallets · {blockedOpen.length} waiting</p><button type="button" onClick={() => setBlOpen(false)} className="text-xs" style={{ color: C.muted }}>close</button></div>
         <p className="text-[12px] mb-2" style={{ color: C.muted }}>Picking is waiting for these. Take one to claim it, or mark it in stack if it can't be reached yet.</p>
-        {blockedOpen.length === 0 ? <p className="text-sm py-3" style={{ color: C.muted }}>Nothing in the blocked queue.</p> : blockedOpen.map(b => <QueueRow key={b.key} s={s} set={set} user={user} b={b} onOpen={() => openPallet && openPallet(b.hu || claimKey(b))} />)}
+        {blockedOpen.length === 0 ? <p className="text-sm py-3" style={{ color: C.muted }}>Nothing in the blocked queue.</p> : <div className="grid gap-2" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))" }}>{blockedOpen.map(b => <QueueRow key={b.key} tile s={s} set={set} user={user} b={b} onOpen={() => openPallet && openPallet(b.hu || claimKey(b))} />)}</div>}
       </Card>}
       {/* ── What the Head sent + who is where ── */}
       <div className="grid gap-3 mb-3 mt-4" style={{ gridTemplateColumns: "minmax(0,1fr) minmax(0,1.6fr) minmax(0,1.2fr)" }}>
