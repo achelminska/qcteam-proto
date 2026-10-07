@@ -2542,80 +2542,23 @@ const hhmm = iso => { const d = new Date(iso); return isNaN(d) ? "" : d.toLocale
 function BriefingPage({ s, set, user, go }) {
   const unseen = briefingUnseen(s, user.id);
   const [tab, setTab] = useState(() => briefingDefaultTab(s, user.id));
+  // Snapshot of the unseen cards for this tab: marking one read keeps it on screen (ticked) until the tab changes.
   const [cards, setCards] = useState(() => briefingTabDeck(s, briefingDefaultTab(s, user.id), user.id));
-  const [i, setI] = useState(0);
-  const [dx, setDx] = useState(0);
-  const [anim, setAnim] = useState(false);
-  const start = useRef(null);
-  const dragging = useRef(false);
-  const wheelLock = useRef(false);
-  const stage = useRef(null);
-  useEffect(() => { setCards(briefingTabDeck(s, tab, user.id)); setI(0); setDx(0); }, [tab]);
+  useEffect(() => { setCards(briefingTabDeck(s, tab, user.id)); }, [tab]);
   const n = cards.length;
-  const ix = n ? Math.max(0, Math.min(i, n - 1)) : 0;
-  useEffect(() => {
-    const fp = briefingFp(cards[ix]);
-    if (!fp || seenFingerprints(s, user.id).has(fp)) return;
-    const t = setTimeout(() => set(x => markBriefingSeen(x, user.id, fp, nowISO(), liveBriefingFps(x))), 400);
-    return () => clearTimeout(t);
-  }, [ix, tab, cards, user.id]);
-  const goTo = nI => { if (!n) return; setAnim(true); setDx(0); setI(Math.max(0, Math.min(n - 1, nI))); };
-  useEffect(() => {
-    const onKey = e => {
-      if (e.key === "ArrowRight" || e.key === "ArrowDown") { e.preventDefault(); goTo(ix + 1); }
-      if (e.key === "ArrowLeft" || e.key === "ArrowUp") { e.preventDefault(); goTo(ix - 1); }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [ix, n]);
+  const seen = seenFingerprints(s, user.id);
+  const markOne = c => { const fp = briefingFp(c); if (!fp || seen.has(fp)) return; set(x => markBriefingSeen(x, user.id, fp, nowISO(), liveBriefingFps(x))); };
+  const markAll = () => { const fps = cards.map(briefingFp).filter(fp => fp && !seen.has(fp)); if (!fps.length) return; set(x => fps.reduce((acc, fp) => markBriefingSeen(acc, user.id, fp, nowISO(), liveBriefingFps(acc)), x)); };
   const catPath = id => { const c = s.categories.find(x => x.id === id); if (!c) return null; const p = c.parentId && s.categories.find(x => x.id === c.parentId); return p ? `${p.name} › ${c.name}` : c.name; };
   const who = id => s.users.find(u => u.id === id)?.name.split(" ")[0];
-  const onDown = e => {
-    if (e.target.closest("[data-story-cta]")) return;
-    dragging.current = true;
-    start.current = { y: e.clientY, x: e.clientX };
-    setAnim(false);
-    try { e.currentTarget.setPointerCapture(e.pointerId); } catch {}
-  };
-  const onMove = e => { if (!dragging.current || !start.current) return; setDx(e.clientX - start.current.x); };
-  const onUp = e => {
-    if (!dragging.current || !start.current) return;
-    dragging.current = false;
-    const d = e.clientX - start.current.x, dy = e.clientY - start.current.y;
-    const tap = Math.abs(d) < 12 && Math.abs(dy) < 12;
-    if (tap && stage.current) {
-      const rect = stage.current.getBoundingClientRect();
-      goTo(e.clientX > rect.left + rect.width * 0.55 ? ix + 1 : ix - 1);
-    } else if (d < -56) goTo(ix + 1);
-    else if (d > 56) goTo(ix - 1);
-    else { setAnim(true); setDx(0); }
-    start.current = null;
-  };
-  const onWheel = e => {
-    e.stopPropagation();
-    if (wheelLock.current) return;
-    const delta = Math.abs(e.deltaX) >= Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
-    if (Math.abs(delta) < 18) return;
-    wheelLock.current = true;
-    goTo(ix + (delta > 0 ? 1 : -1));
-    setTimeout(() => { wheelLock.current = false; }, 380);
-  };
-  const Cta = ({ children, onClick, ghost }) => <button type="button" data-story-cta onClick={onClick} className="w-full py-2.5 rounded-2xl text-sm font-semibold inline-flex items-center justify-center gap-1" style={ghost ? { background: "transparent", color: C.ink, border: `1px solid ${C.line}` } : { background: C.ink, color: C.onDark }}>{children}</button>;
+  const Cta = ({ children, onClick, ghost }) => <button type="button" data-story-cta onClick={onClick} className="px-3 py-2 rounded-xl text-xs font-semibold inline-flex items-center justify-center gap-1" style={ghost ? { background: "transparent", color: C.ink, border: `1px solid ${C.line}` } : { background: C.ink, color: C.onDark }}>{children}</button>;
   const edge = c => c.kind === "rej" || c.kind === "xrej" ? C.bad : c.kind === "complaint" ? C.bad : c.kind === "ann" && c.a.isBlocking ? C.bad : C.accent;
-  const trans = anim && !dragging.current ? "transform .32s cubic-bezier(.2,.8,.2,1), opacity .28s ease" : "none";
-  const PAD = 10;
-  const face = pos => {
-    const box = { top: PAD, bottom: PAD, left: PAD, right: PAD, overflow: "hidden" };
-    if (pos < 0) return { ...box, zIndex: 1, transform: `translateX(calc(-100% - ${PAD}px + ${Math.max(0, dx)}px))`, transition: trans, pointerEvents: "none" };
-    if (pos > 0) return { ...box, zIndex: 1, transform: `translateX(calc(100% + ${PAD}px + ${Math.min(0, dx)}px))`, transition: trans, pointerEvents: "none" };
-    return { ...box, zIndex: 4, transform: `translateX(${dx}px)`, opacity: Math.abs(dx) > 8 ? Math.max(.45, 1 - Math.abs(dx) / 280) : 1, transition: trans, pointerEvents: "auto" };
-  };
   const Hero = ({ product, name }) => {
     const photo = product && asPhotoList(product.photos)[0];
     return (
-      <div className="relative flex-shrink-0 overflow-hidden flex items-center justify-center" style={{ height: 196, background: PHOTO_BG }}>
+      <div className="relative flex-shrink-0 overflow-hidden flex items-center justify-center" style={{ width: 120, background: PHOTO_BG }}>
         {photo && <img src={thumbSrc(photo)} loading="lazy" decoding="async" alt="" className="absolute inset-0 w-full h-full object-contain p-4" onError={e => { e.currentTarget.style.display = "none"; const el = e.currentTarget.parentElement?.querySelector("[data-letter]"); if (el) el.style.opacity = "1"; }} />}
-        <span data-letter className="text-[56px] font-semibold leading-none" style={{ color: "#8A9278", opacity: photo ? 0 : .55 }}>{(name || "?")[0]}</span>
+        <span data-letter className="text-[40px] font-semibold leading-none" style={{ color: "#8A9278", opacity: photo ? 0 : .55 }}>{(name || "?")[0]}</span>
       </div>
     );
   };
@@ -2623,7 +2566,7 @@ function BriefingPage({ s, set, user, go }) {
     if (!p) return [];
     return [p.articleId && `ID ${p.articleId}`, catPath(p.categoryId), p.piecesPerCu && `${p.piecesPerCu} pcs / CU`, p.weightPerCu && `${p.weightPerCu} g / CU`].filter(Boolean);
   };
-  const renderCard = (c, pos) => {
+  const renderCard = c => {
     if (!c) return null;
     let hero = null, body = null;
     if (c.kind === "ann") {
@@ -2635,7 +2578,7 @@ function BriefingPage({ s, set, user, go }) {
         <div className="flex items-start gap-3">
           <div className="flex-1 min-w-0">
             <p className="text-[11px] font-semibold uppercase tracking-[0.16em]" style={{ color: a.isBlocking ? C.bad : C.accent }}>{a.isBlocking ? "Blocking note" : "From the Head"}</p>
-            <p className="text-[20px] font-semibold leading-[1.15] tracking-tight mt-1">{prod?.name || a.title}</p>
+            <p className="text-[17px] font-semibold leading-tight mt-1">{prod?.name || a.title}</p>
           </div>
           {!prod && author && <span className="flex-shrink-0 mt-0.5"><Avatar user={author} size={36} /></span>}
         </div>
@@ -2645,7 +2588,7 @@ function BriefingPage({ s, set, user, go }) {
         {a.body && <p className={`text-[14px] mt-2 leading-snug ${prod ? "line-clamp-2" : "line-clamp-5"}`} style={{ color: C.ink }}>{truncate(a.body, prod ? 140 : 280)}</p>}
         {files.length ? <AnnounceFileThumbs files={files} colors={C} cta /> : null}
         <p className="text-[12px] mt-2" style={{ color: C.muted }}>{dayLabel(a.createdAt)}{who(a.createdBy) ? ` · ${who(a.createdBy)}` : ""}</p>
-        <div className="mt-auto pt-3 space-y-2">
+        <div className="mt-auto pt-3 flex flex-wrap gap-1.5">
           {prod && <Cta ghost onClick={() => go("catalog", prod.id)}>Product profile<Ic i={ChevronRight} s={15} mr={0} /></Cta>}
           {!prod && <Cta ghost onClick={() => go("announcements")}>Read full note<Ic i={ChevronRight} s={15} mr={0} /></Cta>}
         </div>
@@ -2656,7 +2599,7 @@ function BriefingPage({ s, set, user, go }) {
       hero = <Hero product={prod} name={prod?.name} />;
       body = <>
         <p className="text-[11px] font-semibold uppercase tracking-[0.16em]" style={{ color: C.bad }}>Rejected · {dayLabel(insp.completedAt)}, {hhmm(insp.completedAt)}</p>
-        <p className="text-[20px] font-semibold leading-[1.15] tracking-tight mt-1">{prod?.name || "Product"}</p>
+        <p className="text-[17px] font-semibold leading-tight mt-1">{prod?.name || "Product"}</p>
         {prod && <p className="text-[12px] mt-1" style={{ color: C.muted }}>{factsOf(prod).join(" · ")}</p>}
         <p className="text-[13px] mt-2.5" style={{ color: C.ink }}>by {who(insp.controllerId) || "controller"}{insp.supplier ? ` · ${insp.supplier}` : ""}{(insp.pallets || []).filter(Boolean).length ? ` · ${insp.pallets.filter(Boolean).join(", ")}` : ""}</p>
         {remarks.length > 0 && (
@@ -2667,7 +2610,7 @@ function BriefingPage({ s, set, user, go }) {
           </div>
         )}
         {insp.comment && <p className="text-[13px] mt-2 leading-relaxed" style={{ color: C.muted }}>{insp.comment}</p>}
-        <div className="mt-auto pt-3">
+        <div className="mt-auto pt-3 flex flex-wrap gap-1.5">
           <Cta onClick={() => go("inspection", insp.id)}>Open this rejection<Ic i={ChevronRight} s={15} mr={0} /></Cta>
         </div>
       </>;
@@ -2677,12 +2620,12 @@ function BriefingPage({ s, set, user, go }) {
       hero = <Hero product={prod} name={prod?.name || x.n} />;
       body = <>
         <p className="text-[11px] font-semibold uppercase tracking-[0.16em]" style={{ color: C.bad }}>Rejected on the dock · {dayLabel(x.d)}, {hhmm(x.d)}</p>
-        <p className="text-[20px] font-semibold leading-[1.15] tracking-tight mt-1">{prod?.name || x.n || x.a}</p>
+        <p className="text-[17px] font-semibold leading-tight mt-1">{prod?.name || x.n || x.a}</p>
         <p className="text-[12px] mt-1" style={{ color: C.muted }}>{[`ID ${x.a}`, x.tu != null && `${x.tu} TU`, x.po && `PO ${x.po}`, x.group].filter(Boolean).join(" · ")}</p>
         <p className="text-[13px] mt-2.5" style={{ color: C.ink }}>by {x.user || "the team"}{x.sortable != null ? ` · ${x.sortable ? "sortable" : "not sortable"}` : ""}</p>
         {x.reason && <div className="mt-2.5"><p className="text-[11px] font-semibold uppercase tracking-[0.12em] mb-1" style={{ color: C.muted }}>Why</p><p className="text-[13px] leading-snug" style={{ color: C.ink }}>{x.reason}</p></div>}
         <p className="text-[11px] mt-2" style={{ color: C.muted }}>From the DC5 rejections sheet — not a QCteam report.</p>
-        <div className="mt-auto pt-3 space-y-2">
+        <div className="mt-auto pt-3 flex flex-wrap gap-1.5">
           {reportUrls(x).slice(0, 1).map(u => <Cta key={u} onClick={() => window.open(u, "_blank", "noopener")}>Inspection report<Ic i={ExternalLink} s={15} mr={0} /></Cta>)}{x.link && <Cta onClick={() => window.open(x.link, "_blank", "noopener")}>{linkLabel(x.link)}<Ic i={ExternalLink} s={15} mr={0} /></Cta>}
           {prod && <Cta ghost onClick={() => go("catalog", prod.id)}>Product profile<Ic i={ChevronRight} s={15} mr={0} /></Cta>}
         </div>
@@ -2692,52 +2635,48 @@ function BriefingPage({ s, set, user, go }) {
       hero = <Hero product={p} name={row.name || p?.name} />;
       body = <>
         <p className="text-[11px] font-semibold uppercase tracking-[0.16em]" style={{ color: C.bad }}>Complaint{briefingComplaintsMeta(s).period ? ` · ${briefingComplaintsMeta(s).period}` : ""}</p>
-        <p className="text-[20px] font-semibold leading-[1.15] tracking-tight mt-1">{row.name || p?.name || row.articleId}</p>
+        <p className="text-[17px] font-semibold leading-tight mt-1">{row.name || p?.name || row.articleId}</p>
         <p className="text-[12px] mt-1" style={{ color: C.muted }}>{[row.articleId && `ID ${row.articleId}`, p && catPath(p.categoryId)].filter(Boolean).join(" · ")}</p>
-        <p className="text-[34px] font-semibold leading-none tracking-tight mt-2.5" style={{ color: C.bad, fontVariantNumeric: "tabular-nums" }}>{row.count}</p>
+        <p className="text-[28px] font-semibold leading-none tracking-tight mt-2.5" style={{ color: C.bad, fontVariantNumeric: "tabular-nums" }}>{row.count}</p>
         <p className="text-[14px] mt-1" style={{ color: C.bad }}>freshness complaint{row.count === 1 ? "" : "s"}{row.subType ? ` · mostly ${row.subType}` : ""}</p>
         <p className="text-[13px] mt-2 leading-snug" style={{ color: C.muted }}>{p ? "Customers already noticed. Look closer today." : "No catalog profile yet."}</p>
-        <div className="mt-auto pt-3 space-y-2">
+        <div className="mt-auto pt-3 flex flex-wrap gap-1.5">
           {p && <Cta ghost onClick={() => go("catalog", p.id)}>Product profile<Ic i={ChevronRight} s={15} mr={0} /></Cta>}
           {!p && <Cta onClick={() => go("complaints")}>See all complaints</Cta>}
         </div>
       </>;
     }
+    const fp = briefingFp(c); const isSeen = fp && seen.has(fp);
     return (
-      <div key={`${c.kind}-${c.a?.id || c.i?.id || c.c?.id || (c.x && extRejectionKey(c.x)) || "x"}-${pos}`} className="absolute flex flex-col overflow-hidden rounded-[28px]" style={{ background: C.bg, border: `1px solid ${C.line}`, boxShadow: lift(2), ...face(pos) }}>
-        <div className="absolute top-0 left-0 right-0 h-[3px]" style={{ background: edge(c), zIndex: 2 }} />
+      <div key={`${c.kind}-${c.a?.id || c.i?.id || c.c?.id || (c.x && extRejectionKey(c.x)) || "x"}`} className="qc-elev flex overflow-hidden rounded-2xl" style={{ background: C.surface, border: `1px solid ${C.line}`, borderTop: `3px solid ${edge(c)}`, boxShadow: lift(), opacity: isSeen ? .6 : 1, minHeight: 200 }}>
         {hero}
-        <div className="flex-1 min-h-0 flex flex-col px-4 pt-3 pb-3 overflow-y-auto">{body}</div>
+        <div className="flex-1 min-w-0 flex flex-col px-4 pt-3 pb-3">
+          <div className="flex items-start gap-2"><div className="flex-1 min-w-0 flex flex-col">{body}</div>
+            <button type="button" data-story-cta onClick={() => markOne(c)} disabled={isSeen} title={isSeen ? "Read" : "Mark as read"} className="flex-shrink-0 w-7 h-7 rounded-full inline-flex items-center justify-center" style={{ background: isSeen ? C.okBg : C.bg, color: isSeen ? C.ok : C.muted, border: `1px solid ${isSeen ? "transparent" : C.line}` }}><Ic i={Check} s={13} mr={0} /></button></div>
+        </div>
       </div>
     );
   };
-  const notesN = tab === "notes" ? n : unseen.anns.length;
-  const rejN = tab === "rejections" ? n : unseen.rejs.length + unseen.xrejs.length;
-  const compN = tab === "complaints" ? n : unseen.complaints.length;
-  const Tab = ({ id, label, count }) => <button type="button" data-story-cta onClick={() => setTab(id)} className="flex-1 py-2 text-[12px] font-medium whitespace-nowrap" style={{ background: tab === id ? C.ink : "transparent", color: tab === id ? C.onDark : C.ink }}>{label}{count ? ` · ${count}` : ""}</button>;
+  const notesN = unseen.anns.length, rejN = unseen.rejs.length + unseen.xrejs.length, compN = unseen.complaints.length;
+  const Tab = ({ id, label, count }) => <button type="button" onClick={() => setTab(id)} className="text-xs font-medium px-3 rounded-full inline-flex items-center gap-1.5" style={{ height: 30, background: tab === id ? C.ink : C.surface, color: tab === id ? C.onDark : C.ink, border: `1px solid ${tab === id ? C.ink : C.line}` }}>{label}<span className="font-semibold" style={{ color: tab === id ? C.onDark : count ? C.accent : C.muted, fontVariantNumeric: "tabular-nums" }}>{count}</span></button>;
   const emptyCopy = tab === "complaints" ? "No new complaints to review." : tab === "notes" ? "No new notes to review." : "No new rejections to review.";
+  const unread = cards.filter(c => { const fp = briefingFp(c); return fp && !seen.has(fp); }).length;
   return (
     <div>
-      <div className="flex items-baseline gap-3 mb-1"><h1>Shift update</h1>{n > 0 && <span className="text-[11px] font-medium" style={{ color: C.muted, fontVariantNumeric: "tabular-nums" }}>{ix + 1} / {n}</span>}</div>
-      <p className="text-sm mb-4" style={{ color: C.muted, maxWidth: 640 }}>Same cards as on the phone — swipe or use the arrow keys. Opening a card marks it seen for the whole team view of your shift.</p>
-      <div className="flex rounded-xl overflow-hidden mb-3" style={{ border: `1px solid ${C.line}`, maxWidth: 440 }}>
+      <div className="flex items-baseline gap-3 mb-1 flex-wrap"><h1>Shift update</h1><span className="text-xs" style={{ color: C.muted }}>{unseen.total ? `${unseen.total} new since you last looked` : "you're up to date"}</span></div>
+      <p className="text-sm mb-4" style={{ color: C.muted, maxWidth: 680 }}>What changed since your last shift: notes from the Head, rejections on the dock and fresh complaints. Tick a card once you've read it — the team view of your shift shows what you've seen.</p>
+      <div className="flex items-center gap-1.5 mb-4 flex-wrap">
         <Tab id="notes" label="Notes" count={notesN} />
         <Tab id="rejections" label="Rejections" count={rejN} />
         <Tab id="complaints" label="Complaints" count={compN} />
+        <div className="flex-1" />
+        {unread > 0 && <button type="button" onClick={markAll} className="text-xs font-semibold px-3 rounded-xl inline-flex items-center" style={{ height: 30, background: C.accentSoft, color: C.accent }}><Ic i={Check} s={13} />Mark all {unread} as read</button>}
       </div>
       {n === 0 ? (
-        <Card style={{ maxWidth: 440 }}><Empty icon={BookOpen} title="You're up to date." hint={emptyCopy} /></Card>
+        <Card><Empty icon={BookOpen} title="You're up to date." hint={emptyCopy} /></Card>
       ) : (
-        <div style={{ maxWidth: 440 }}>
-          <div className="h-[3px] rounded-full overflow-hidden mb-2" style={{ background: C.line }}>
-            <span className="block h-full rounded-full" style={{ width: `${Math.round((ix + 1) / n * 100)}%`, background: C.ink }} />
-          </div>
-          <div ref={stage} className="relative overflow-hidden" style={{ height: 560, touchAction: "none" }}
-            onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp} onWheel={onWheel}>
-            {renderCard(cards[ix - 1], -1)}
-            {renderCard(cards[ix + 1], 1)}
-            {renderCard(cards[ix], 0)}
-          </div>
+        <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(380px, 1fr))" }}>
+          {cards.map(c => renderCard(c))}
         </div>
       )}
     </div>
