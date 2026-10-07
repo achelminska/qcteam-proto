@@ -2548,18 +2548,25 @@ function BriefingPage({ s, set, user, go }) {
   useEffect(() => { setCards(briefingTabDeck(s, tab, user.id)); }, [tab]);
   const n = cards.length;
   const seen = seenFingerprints(s, user.id);
+  // Deck mode: one card at a time on a dimmed backdrop, like flipping through on the phone.
+  const [deck, setDeck] = useState(null); // null | { ix, dir }
+  const openDeck = (ix = 0) => setDeck({ ix: Math.max(0, Math.min(n - 1, ix)), dir: 0 });
+  const stepDeck = d => setDeck(x => { if (!x) return x; const ix = x.ix + d; return ix < 0 || ix >= n ? x : { ix, dir: d }; });
+  useEffect(() => { if (!deck) return; const onKey = e => { if (e.key === "Escape") setDeck(null); if (e.key === "ArrowRight") stepDeck(1); if (e.key === "ArrowLeft") stepDeck(-1); }; window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey); }, [deck, n]);
+  useEffect(() => { if (!deck) return; const c = cards[deck.ix]; const fp = briefingFp(c); if (!fp || seen.has(fp)) return; const tm = setTimeout(() => set(x => markBriefingSeen(x, user.id, fp, nowISO(), liveBriefingFps(x))), 500); return () => clearTimeout(tm); }, [deck?.ix, cards]);
+  useEffect(() => { if (deck && n === 0) setDeck(null); }, [n]);
   const markOne = c => { const fp = briefingFp(c); if (!fp || seen.has(fp)) return; set(x => markBriefingSeen(x, user.id, fp, nowISO(), liveBriefingFps(x))); };
   const markAll = () => { const fps = cards.map(briefingFp).filter(fp => fp && !seen.has(fp)); if (!fps.length) return; set(x => fps.reduce((acc, fp) => markBriefingSeen(acc, user.id, fp, nowISO(), liveBriefingFps(acc)), x)); };
   const catPath = id => { const c = s.categories.find(x => x.id === id); if (!c) return null; const p = c.parentId && s.categories.find(x => x.id === c.parentId); return p ? `${p.name} › ${c.name}` : c.name; };
   const who = id => s.users.find(u => u.id === id)?.name.split(" ")[0];
   const Cta = ({ children, onClick, ghost }) => <button type="button" data-story-cta onClick={onClick} className="px-3 py-2 rounded-xl text-xs font-semibold inline-flex items-center justify-center gap-1" style={ghost ? { background: "transparent", color: C.ink, border: `1px solid ${C.line}` } : { background: C.ink, color: C.onDark }}>{children}</button>;
   const edge = c => c.kind === "rej" || c.kind === "xrej" ? C.bad : c.kind === "complaint" ? C.bad : c.kind === "ann" && c.a.isBlocking ? C.bad : C.accent;
-  const Hero = ({ product, name }) => {
+  const Hero = ({ product, name, vertical }) => {
     const photo = product && asPhotoList(product.photos)[0];
     return (
-      <div className="relative flex-shrink-0 overflow-hidden flex items-center justify-center" style={{ width: 120, background: PHOTO_BG }}>
+      <div className="relative flex-shrink-0 overflow-hidden flex items-center justify-center" style={vertical ? { height: 200, background: PHOTO_BG } : { width: 120, background: PHOTO_BG }}>
         {photo && <img src={thumbSrc(photo)} loading="lazy" decoding="async" alt="" className="absolute inset-0 w-full h-full object-contain p-4" onError={e => { e.currentTarget.style.display = "none"; const el = e.currentTarget.parentElement?.querySelector("[data-letter]"); if (el) el.style.opacity = "1"; }} />}
-        <span data-letter className="text-[40px] font-semibold leading-none" style={{ color: "#8A9278", opacity: photo ? 0 : .55 }}>{(name || "?")[0]}</span>
+        <span data-letter className={vertical ? "text-[56px] font-semibold leading-none" : "text-[40px] font-semibold leading-none"} style={{ color: "#8A9278", opacity: photo ? 0 : .55 }}>{(name || "?")[0]}</span>
       </div>
     );
   };
@@ -2567,14 +2574,14 @@ function BriefingPage({ s, set, user, go }) {
     if (!p) return [];
     return [p.articleId && `ID ${p.articleId}`, catPath(p.categoryId), p.piecesPerCu && `${p.piecesPerCu} pcs / CU`, p.weightPerCu && `${p.weightPerCu} g / CU`].filter(Boolean);
   };
-  const renderCard = c => {
-    if (!c) return null;
+  const parts = (c, vertical) => {
+    if (!c) return { hero: null, body: null };
     let hero = null, body = null;
     if (c.kind === "ann") {
       const a = c.a, prod = a.productId && s.products.find(p => p.id === a.productId);
       const author = s.users.find(u => u.id === a.createdBy);
       const files = announceFilesOf(a);
-      hero = prod ? <Hero product={prod} name={prod.name} /> : null;
+      hero = prod ? <Hero product={prod} name={prod.name} vertical={vertical} /> : null;
       body = <>
         <div className="flex items-start gap-3">
           <div className="flex-1 min-w-0">
@@ -2597,7 +2604,7 @@ function BriefingPage({ s, set, user, go }) {
     } else if (c.kind === "rej") {
       const insp = c.i, prod = s.products.find(p => p.id === insp.productId);
       const remarks = (insp.remarks || []).map(r => briefingRemark(s, r)).filter(Boolean);
-      hero = <Hero product={prod} name={prod?.name} />;
+      hero = <Hero product={prod} name={prod?.name} vertical={vertical} />;
       body = <>
         <p className="text-[11px] font-semibold uppercase tracking-[0.16em]" style={{ color: C.bad }}>Rejected · {dayLabel(insp.completedAt)}, {hhmm(insp.completedAt)}</p>
         <p className="text-[17px] font-semibold leading-tight mt-1">{prod?.name || "Product"}</p>
@@ -2618,7 +2625,7 @@ function BriefingPage({ s, set, user, go }) {
     } else if (c.kind === "xrej") {
       // A row of the DC5 rejections sheet — the team's official rejection, not a QCteam report. Links to the Slack thread.
       const x = c.x, prod = productForArticle(s, x.a);
-      hero = <Hero product={prod} name={prod?.name || x.n} />;
+      hero = <Hero product={prod} name={prod?.name || x.n} vertical={vertical} />;
       body = <>
         <p className="text-[11px] font-semibold uppercase tracking-[0.16em]" style={{ color: C.bad }}>Rejected on the dock · {dayLabel(x.d)}, {hhmm(x.d)}</p>
         <p className="text-[17px] font-semibold leading-tight mt-1">{prod?.name || x.n || x.a}</p>
@@ -2633,7 +2640,7 @@ function BriefingPage({ s, set, user, go }) {
       </>;
     } else {
       const row = c.c, p = productForArticle(s, row.articleId);
-      hero = <Hero product={p} name={row.name || p?.name} />;
+      hero = <Hero product={p} name={row.name || p?.name} vertical={vertical} />;
       body = <>
         <p className="text-[11px] font-semibold uppercase tracking-[0.16em]" style={{ color: C.bad }}>Complaint{briefingComplaintsMeta(s).period ? ` · ${briefingComplaintsMeta(s).period}` : ""}</p>
         <p className="text-[17px] font-semibold leading-tight mt-1">{row.name || p?.name || row.articleId}</p>
@@ -2647,14 +2654,45 @@ function BriefingPage({ s, set, user, go }) {
         </div>
       </>;
     }
-    const fp = briefingFp(c); const isSeen = fp && seen.has(fp);
+    return { hero, body };
+  };
+  const cardKey = c => `${c.kind}-${c.a?.id || c.i?.id || c.c?.id || (c.x && extRejectionKey(c.x)) || "x"}`;
+  const renderCard = (c, ix) => {
+    const { hero, body } = parts(c, false); const fp = briefingFp(c); const isSeen = fp && seen.has(fp);
     return (
-      <div key={`${c.kind}-${c.a?.id || c.i?.id || c.c?.id || (c.x && extRejectionKey(c.x)) || "x"}`} className="qc-elev flex overflow-hidden rounded-2xl" style={{ background: C.surface, border: `1px solid ${C.line}`, borderTop: `3px solid ${edge(c)}`, boxShadow: lift(), opacity: isSeen ? .6 : 1, minHeight: 200 }}>
+      <div key={cardKey(c)} className="qc-elev flex overflow-hidden rounded-2xl" style={{ background: C.surface, border: `1px solid ${C.line}`, borderTop: `3px solid ${edge(c)}`, boxShadow: lift(), opacity: isSeen ? .6 : 1, minHeight: 200 }}>
         {hero}
         <div className="flex-1 min-w-0 flex flex-col px-4 pt-3 pb-3">
           <div className="flex items-start gap-2"><div className="flex-1 min-w-0 flex flex-col">{body}</div>
-            <button type="button" data-story-cta onClick={() => markOne(c)} disabled={isSeen} title={isSeen ? "Read" : "Mark as read"} className="flex-shrink-0 w-7 h-7 rounded-full inline-flex items-center justify-center" style={{ background: isSeen ? C.okBg : C.bg, color: isSeen ? C.ok : C.muted, border: `1px solid ${isSeen ? "transparent" : C.line}` }}><Ic i={Check} s={13} mr={0} /></button></div>
+            <div className="flex flex-col gap-1 flex-shrink-0">
+              <button type="button" data-story-cta onClick={() => markOne(c)} disabled={isSeen} title={isSeen ? "Read" : "Mark as read"} className="w-7 h-7 rounded-full inline-flex items-center justify-center" style={{ background: isSeen ? C.okBg : C.bg, color: isSeen ? C.ok : C.muted, border: `1px solid ${isSeen ? "transparent" : C.line}` }}><Ic i={Check} s={13} mr={0} /></button>
+              <button type="button" data-story-cta onClick={() => openDeck(ix)} title="Open in the deck" className="w-7 h-7 rounded-full inline-flex items-center justify-center" style={{ background: C.bg, color: C.muted, border: `1px solid ${C.line}` }}><Ic i={Layers} s={13} mr={0} /></button>
+            </div></div>
         </div>
+      </div>
+    );
+  };
+  const renderDeck = () => {
+    if (!deck || !cards[deck.ix]) return null;
+    const c = cards[deck.ix]; const { hero, body } = parts(c, true); const fp = briefingFp(c); const isSeen = fp && seen.has(fp);
+    const Arrow = ({ dir, disabled }) => <button type="button" onClick={e => { e.stopPropagation(); stepDeck(dir); }} disabled={disabled} className="w-12 h-12 rounded-full inline-flex items-center justify-center flex-shrink-0" style={{ background: disabled ? "rgba(255,255,255,.06)" : "rgba(255,255,255,.14)", color: disabled ? "rgba(255,255,255,.3)" : "#fff", border: "1px solid rgba(255,255,255,.18)", backdropFilter: "blur(6px)", cursor: disabled ? "default" : "pointer" }}><Ic i={dir < 0 ? ChevronLeft : ChevronRight} s={22} mr={0} /></button>;
+    return (
+      <div className="fixed inset-0 flex items-center justify-center gap-8 p-6" style={{ background: "rgba(14,20,16,.78)", zIndex: 60, backdropFilter: "blur(3px)" }} onClick={() => setDeck(null)}>
+        <style>{`@keyframes qcDeckR{from{transform:translateX(56px) rotate(1.5deg);opacity:0}to{transform:none;opacity:1}}@keyframes qcDeckL{from{transform:translateX(-56px) rotate(-1.5deg);opacity:0}to{transform:none;opacity:1}}`}</style>
+        <Arrow dir={-1} disabled={deck.ix === 0} />
+        <div className="relative" style={{ width: 440, height: "min(680px, 86vh)" }} onClick={e => e.stopPropagation()}>
+          <button type="button" onClick={() => setDeck(null)} className="absolute w-9 h-9 rounded-full inline-flex items-center justify-center" style={{ top: -14, right: -14, background: "#fff", color: "#1f2a24", zIndex: 5, boxShadow: "0 4px 14px rgba(0,0,0,.35)" }}><Ic i={X} s={16} mr={0} /></button>
+          {cards[deck.ix + 1] && <div className="absolute inset-0 rounded-[26px]" style={{ background: C.surface, border: `1px solid ${C.line}`, transform: "translate(10px, 10px) rotate(1.2deg)", opacity: .55 }} />}
+          {cards[deck.ix + 2] && <div className="absolute inset-0 rounded-[26px]" style={{ background: C.surface, border: `1px solid ${C.line}`, transform: "translate(20px, 20px) rotate(2.4deg)", opacity: .3 }} />}
+          <div key={cardKey(c)} className="absolute inset-0 flex flex-col overflow-hidden rounded-[26px]" style={{ background: C.surface, border: `1px solid ${C.line}`, boxShadow: "0 24px 60px rgba(0,0,0,.45)", animation: `${deck.dir < 0 ? "qcDeckL" : "qcDeckR"} .32s cubic-bezier(.2,.8,.2,1)` }}>
+            <div className="absolute top-0 left-0 right-0 h-[3px]" style={{ background: edge(c), zIndex: 2 }} />
+            
+            {hero}
+            <div className="flex-1 min-h-0 flex flex-col px-5 pt-4 pb-4 overflow-y-auto">{body}</div>
+            <div className="px-5 pb-3 flex items-center gap-2 text-[11px]" style={{ color: C.muted }}><span style={{ fontVariantNumeric: "tabular-nums" }}>{deck.ix + 1} / {n}</span><span className="flex-1 h-[3px] rounded-full overflow-hidden" style={{ background: C.line }}><span className="block h-full rounded-full" style={{ width: `${Math.round((deck.ix + 1) / n * 100)}%`, background: C.ink }} /></span>{isSeen && <span style={{ color: C.ok }}>✓ read</span>}</div>
+          </div>
+        </div>
+        <Arrow dir={1} disabled={deck.ix >= n - 1} />
       </div>
     );
   };
@@ -2671,15 +2709,17 @@ function BriefingPage({ s, set, user, go }) {
         <Tab id="rejections" label="Rejections" count={rejN} />
         <Tab id="complaints" label="Complaints" count={compN} />
         <div className="flex-1" />
+        {n > 0 && <button type="button" onClick={() => openDeck(Math.max(0, cards.findIndex(c => { const fp = briefingFp(c); return fp && !seen.has(fp); })))} className="text-xs font-semibold px-3 rounded-xl inline-flex items-center" style={{ height: 30, border: `1px solid ${C.line}`, color: C.ink }}><Ic i={Layers} s={13} />Browse one by one</button>}
         {unread > 0 && <button type="button" onClick={markAll} className="text-xs font-semibold px-3 rounded-xl inline-flex items-center" style={{ height: 30, background: C.accentSoft, color: C.accent }}><Ic i={Check} s={13} />Mark all {unread} as read</button>}
       </div>
       {n === 0 ? (
         <Card><Empty icon={BookOpen} title="You're up to date." hint={emptyCopy} /></Card>
       ) : (
         <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(380px, 1fr))" }}>
-          {cards.map(c => renderCard(c))}
+          {cards.map((c, ix) => renderCard(c, ix))}
         </div>
       )}
+      {renderDeck()}
     </div>
   );
 }
