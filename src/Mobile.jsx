@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, Fragment } from "react";
 import { createSyncer, guardUnload } from "./sync.js";
 import { hasV, specLabel, dayLabel, typesOf, typeById, legacyTypeId, inspType, countsAs, listCheck, matchFieldSpec, numberSpecCheck, reportStatusFields, toleranceDisplay, matchesInspSearch } from "./shared/format.js";
 import { SPEC_TARGETS, SPEC_ALIASES } from "./shared/specsync.js";
-import { REJECTION_TARGETS, REJECTION_ALIASES, extRejectionsFor, extRejectedRecently, extRejectionLine, extRejectionsRecent, extRejectionKey, topCats, fmtRejectionDay, linkLabel, reportUrls } from "./shared/rejections.js";
+import { REJECTION_TARGETS, REJECTION_ALIASES, extRejectionsFor, extRejectedRecently, extRejectionLine, extRejectionsAll, extRejectionsRecent, extRejectionKey, topCats, fmtRejectionDay, linkLabel, reportUrls } from "./shared/rejections.js";
 import { activeTempForSpec, applyTempSpec, closeExpiredTempSpecs, tempUntilLabel } from "./shared/tempspec.js";
 import { SpecValue } from "./shared/SpecValue.jsx";
 import { peopleOnFloor, peopleAtDock, floorWhere, floorVerb, doneTodayCount } from "./shared/floor.js";
@@ -2290,22 +2290,44 @@ function ExtRejectionRow({ r }) {
     </div>
   );
 }
-function ExtRejectionList({ s, articleId }) {
+function ExtRejectionList({ s, articleId, go }) {
   const l = extRejectionLine(s, articleId); if (!l) return null;
   const [open, setOpen] = useState(false);
+  const more = l.total > (l.preview || l.recent).length;
+  const openAll = e => { e.preventDefault(); e.stopPropagation(); go && go("dockRejections", articleId); };
   return (
     <div className="mb-2.5">
       <button type="button" onClick={() => setOpen(o => !o)} className="qc-tile w-full rounded-2xl px-3.5 flex items-center gap-2 text-left" style={{ background: C.surface, border: `1px solid ${C.bad}`, minHeight: 42, color: C.bad }} aria-expanded={open}>
         <span className="text-[13px] font-semibold flex-1">Rejected on the dock</span>
         <span className="text-[11px] px-1.5 rounded-full leading-[18px]" style={{ background: C.bg, color: C.muted, fontVariantNumeric: "tabular-nums" }}>{l.total}</span>
+        {more && go && <span onClick={openAll} className="text-[12px] px-2 py-1 rounded-lg font-semibold" style={{ background: C.bg, color: C.ink }}>all ›</span>}
         <Ic i={ChevronDown} s={16} mr={0} style={{ color: C.muted, transform: open ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform .15s" }} />
       </button>
       {open && <div className="mt-2">
         <p className="text-[11px] mb-1.5 leading-snug" style={{ color: C.muted }}>Last {fmtRejectionDay(l.last)} · {l.span} · DC5 sheet</p>
         <div className="flex flex-col gap-2">
-          {l.recent.map((r, ix) => <ExtRejectionRow key={`${r.d || ""}-${r.po || ""}-${ix}`} r={r} />)}
+          {(l.preview || l.recent).map((r, ix) => <ExtRejectionRow key={`${r.d || ""}-${r.po || ""}-${ix}`} r={r} />)}
+          {more && go && <button type="button" onClick={openAll} className="qc-elev qc-tile w-full rounded-2xl px-3.5 inline-flex items-center justify-center gap-1.5 text-[13px] font-semibold" style={{ height: 42, background: C.ink, color: C.onDark }}>All {l.total} dock rejections<Ic i={ChevronRight} s={15} mr={0} /></button>}
         </div>
       </div>}
+    </div>
+  );
+}
+function MExtRejectionHistory({ s, go, articleId }) {
+  const product = s.products.find(p => normArticle(p.articleId) === normArticle(articleId));
+  const l = extRejectionLine(s, articleId);
+  const rows = extRejectionsAll(s, articleId);
+  return (
+    <div className="pb-4">
+      <TopBar title="Rejected on the dock" onBack={() => go("catalog", product?.id || null)} />
+      <div className="px-4 pt-3">
+        <p className="text-[15px] font-semibold leading-snug">{product?.name || l?.name || articleId}</p>
+        <p className="text-[12px] mt-1 mb-3" style={{ color: C.muted }}>{l ? `${l.total} in ${l.span} · last ${fmtRejectionDay(l.last)} · DC5 sheet` : "DC5 rejections sheet"}</p>
+        {l && rows.length < l.total && <p className="text-[11px] mb-2 leading-snug" style={{ color: C.muted }}>Showing {rows.length} of {l.total} — the rest land after the next sheet push.</p>}
+        {rows.length === 0 ? <p className="text-sm py-8 text-center" style={{ color: C.muted }}>No dock rejections on this phone yet.</p> : (
+          <div className="flex flex-col gap-2">{rows.map((r, ix) => <ExtRejectionRow key={`${r.d || ""}-${r.po || ""}-${ix}`} r={r} />)}</div>
+        )}
+      </div>
     </div>
   );
 }
@@ -2866,7 +2888,7 @@ function MProductInfo({ s, user, product, go, setState, embedded }) {
         </div>
       ))}</MSection>}
       {attrs.length > 0 && <MSection title="Properties" count={attrs.length}>{attrs.map((a, ix) => <MRow key={a.dictionaryId} k={a.list} v={a.value} last={ix === attrs.length - 1} />)}</MSection>}
-      <ExtRejectionList s={s} articleId={product.articleId} />
+      <ExtRejectionList s={s} articleId={product.articleId} go={go} />
       {refNotes.length > 0 && <MSection title="Reference guide" count={refNotes.length}>
         {refNotes.map((n, ix) => { const [parent, leaf] = splitPath(n.problemId); return <MGuideNote key={n.id} note={n} parent={parent} leaf={leaf} last={ix === refNotes.length - 1} />; })}
       </MSection>}
@@ -4355,7 +4377,7 @@ export default function App() {
   // Leaving a running inspection this way is safe — it stays a Draft and can be resumed from History or by scanning the
   // pallet again. Sub-screens light up the tab they were opened from (menu pages → Menu, product history → Catalog).
   const MENU_PAGES = ["briefing", "profile", "notifications", "announcements", "flags", "history", "unreported", "docks", "complaints", "head-escalations", "head-flags", "head-announce"];
-  const navPage = ["home", "chat", "catalog", "menu"].includes(page) ? page : MENU_PAGES.includes(page) ? "menu" : page === "productHistory" ? "catalog" : null;
+  const navPage = ["home", "chat", "catalog", "menu"].includes(page) ? page : MENU_PAGES.includes(page) ? "menu" : page === "productHistory" || page === "dockRejections" ? "catalog" : null;
   const unreadMsgs = s.conversations.filter(c => c.participantIds.includes(user.id)).reduce((a, c) => a + unreadIn(c, user.id), 0);
   const withNav = true;
   return (
@@ -4378,6 +4400,7 @@ export default function App() {
       {page === "palletInfo" && <MPalletInfo s={s} set={set} user={user} go={go} hu={param} onStart={(pid, palletNo, typeId) => startInspection(pid, palletNo, false, typeId)} onAssign={r => { setPendingChatContext({ kind: "pallet", id: r.hu, label: `${r.name || r.article} · ${r.location}` }); go("chat"); }} />}
       {page === "catalog" && <MCatalog key={param || "catalog"} s={s} user={user} go={go} onStart={(pid, palletNo, typeId) => startInspection(pid, palletNo, false, typeId)} setState={set} notify={notify} onVisual={visualInspection} preset={param} />}
       {page === "productHistory" && <MProductHistory s={s} user={user} go={go} productId={param && typeof param === "object" ? param.id : param} initialResult={param && typeof param === "object" ? param.result : undefined} />}
+      {page === "dockRejections" && <MExtRejectionHistory s={s} go={go} articleId={param} />}
       {page === "chat" && <MChat s={s} set={set} user={user} go={go} initialContext={pendingChatContext} clearInitialContext={() => setPendingChatContext(null)} />}
       {page === "menu" && <MMenu s={s} set={set} user={user} go={go} users={s.users} setUser={id => { setUserId(id); go("home"); }} onLogout={() => { writeSession(null); setUserId(null); }} dark={dark} onTheme={toggleTheme} simOffline={simOffline} onSimOffline={() => setSimOffline(o => !o)} onSync={() => pullState(true)} syncMsg={syncMsg} />}
       {page === "profile" && <MProfile s={s} set={set} user={user} go={go} />}

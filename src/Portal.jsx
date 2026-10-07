@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, Fragment } from "react";
 import { createSyncer, guardUnload } from "./sync.js";
 import { applySpecEdit, hasV, specFieldsFromForm, specFormKind, specLabel, dayLabel, problemPath, typesOf, typeById, legacyTypeId, inspType, countsAs, listCheck, matchFieldSpec, numberSpecCheck, reportStatusFields, toleranceDisplay, matchesInspSearch } from "./shared/format.js";
 import { SPEC_TARGETS, SPEC_ALIASES, SPEC_COLUMNS, applySpecSheet, fmtRange } from "./shared/specsync.js";
-import { REJECTION_TARGETS, REJECTION_ALIASES, buildRejectionDigest, extRejectionsFor, extRejectedRecently, extRejectionLine, extRejectionsRecent, extRejectionKey, topCats, fmtRejectionDay, linkLabel, reportUrls } from "./shared/rejections.js";
+import { REJECTION_TARGETS, REJECTION_ALIASES, buildRejectionDigest, extRejectionsFor, extRejectedRecently, extRejectionLine, extRejectionsAll, extRejectionsRecent, extRejectionKey, topCats, fmtRejectionDay, linkLabel, reportUrls } from "./shared/rejections.js";
 import { normArticle, isoWeekOf, todayISO, weekLabel, weekRange, shiftWeek, sortSnapshots, latestSnapshot, snapshotTotal, upsertSnapshot, snapshotsOfWeek, previousInWeek, deltaRows, subTypeMix, weekSeries, articleTrend, topArticles, asLegacyMeta, migrateLegacy, rowFor, parseComplaintRows, fmtPer1k } from "./shared/complaints.js";
 import { activeTempForSpec, applyTempSpec, clearTempSpec, closeExpiredTempSpecs, tempOwnerLabel, tempUntilLabel, upsertTempSpec } from "./shared/tempspec.js";
 import { SpecValue } from "./shared/SpecValue.jsx";
@@ -1440,8 +1440,9 @@ function RejectionLink({ href, label }) {
 function ExtRejectionsNote({ s, articleId }) {
   const l = extRejectionLine(s, articleId); if (!l) return null;
   const [open, setOpen] = useState(false);
-  return <Note tone="bad"><span className="inline-flex items-center gap-1.5 flex-wrap"><Ic i={AlertTriangle} s={14} mr={0} /><b>Rejected on the dock {l.count}×</b><span>in {l.span}</span><span style={{ color: C.muted }}>· last {fmtRejectionDay(l.last)} · DC5 rejections sheet</span><button onClick={() => setOpen(v => !v)} className="underline text-xs" style={{ color: C.accent }}>{open ? "hide" : "recent rows"}</button></span>
-    {open && <div className="mt-2 flex flex-col gap-2" style={{ color: C.ink }}>{l.recent.map((r, ix) => {
+  const rows = extRejectionsAll(s, articleId);
+  return <Note tone="bad"><span className="inline-flex items-center gap-1.5 flex-wrap"><Ic i={AlertTriangle} s={14} mr={0} /><b>Rejected on the dock {l.count}×</b><span>in {l.span}</span><span style={{ color: C.muted }}>· last {fmtRejectionDay(l.last)} · DC5 rejections sheet</span><button onClick={() => setOpen(v => !v)} className="underline text-xs" style={{ color: C.accent }}>{open ? "hide" : rows.length > 3 ? `all ${l.total}` : "recent rows"}</button></span>
+    {open && <div className="mt-2 flex flex-col gap-2" style={{ color: C.ink }}>{(rows.length ? rows : l.recent).map((r, ix) => {
       const reason = String(r.reason || "Rejected").replace(/^./, c => c.toUpperCase());
       const reports = reportUrls(r);
       return <div key={ix} className="rounded-xl px-3 py-2" style={{ background: C.bg, border: `1px solid ${C.line}`, borderLeft: `3px solid ${C.bad}` }}>

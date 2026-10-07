@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseRejectionTime, parseSortableCell, normArticle, buildRejectionDigest, extRejectionsFor, extRejectedRecently, extRejectionLine, extRejectionsRecent, topCats, personName, linkLabel, parseReportName, indexReports, attachReports } from "./rejections.js";
+import { parseRejectionTime, parseSortableCell, normArticle, buildRejectionDigest, extRejectionsFor, extRejectedRecently, extRejectionLine, extRejectionsAll, extRejectionsRecent, topCats, personName, linkLabel, parseReportName, indexReports, attachReports } from "./rejections.js";
 
 describe("reading one cell — the formats the DC5 sheet uses today", () => {
   it("both timestamp styles, ISO, and junk", () => {
@@ -73,13 +73,21 @@ describe("building the digest", () => {
     expect(d.latest.map(e => e.po)).toEqual(["1094749", "1093779", "1095000", "1000001"]);
     expect(extRejectionsRecent(s, 7, new Date(NOW).getTime()).map(e => e.a)).toEqual(["90006116", "11295128", "90006116"]);
   });
-  it("is small: recent capped per article, the raw rows never copied", () => {
+  it("keeps a month of recent rows per article, not the raw year-long sheet", () => {
     const big = Array.from({ length: 50 }, (_, i) => row({ po: String(i), time: `Sep ${1 + (i % 28)}, 2026, 08:00:00` }));
     const g = extRejectionsFor({ extRejections: buildRejectionDigest(big, { now: NOW }) }, "90006116");
-    expect(g.count).toBe(50); expect(g.recent.length).toBe(3); expect(g.recent[0].d >= g.recent[1].d).toBe(true);
-    // window saturated (3 recent rows all inside 30 days) → the digest's 30-day count is used, not just the 3 kept rows
-    expect(extRejectionLine({ extRejections: buildRejectionDigest(big, { now: NOW }) }, "90006116", new Date(NOW).getTime())).toMatchObject({ count: g.c30, tail: "mostly Quality (according to list)" });
+    expect(g.count).toBe(50); expect(g.recent.length).toBe(30); expect(g.recent[0].d >= g.recent[1].d).toBe(true);
+    const line = extRejectionLine({ extRejections: buildRejectionDigest(big, { now: NOW }) }, "90006116", new Date(NOW).getTime());
+    expect(line).toMatchObject({ count: g.c30, tail: "mostly Quality (according to list)" });
+    expect(line.preview.length).toBe(3); expect(line.recent.length).toBeGreaterThan(line.preview.length);
     expect(buildRejectionDigest(big, { now: NOW, latestCount: 10 }).latest.length).toBe(10);
+  });
+  it("all-rows list merges latest leftovers from a 3-row digest", () => {
+    const d = buildRejectionDigest(rows, { now: NOW, recentPerArticle: 1 });
+    const s = { extRejections: d };
+    const all = extRejectionsAll(s, "90006116", new Date(NOW).getTime());
+    expect(d.byArticle["90006116"].recent.length).toBe(1);
+    expect(all.map(e => e.po)).toEqual(["1094749", "1095000"]);
   });
   it("empty push → empty digest, nothing throws", () => {
     expect(buildRejectionDigest([], { now: NOW })).toMatchObject({ used: 0, articles: 0, from: null, latest: [] });
