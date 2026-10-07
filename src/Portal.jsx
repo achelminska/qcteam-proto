@@ -1844,7 +1844,7 @@ function PalletPage({ s, set, user, hu, onBack, onOpenProduct, onOpenInspection,
         <span className="inline-flex items-center gap-1.5 flex-wrap">
           <Pill bg={col + "22"} fg={dockStatusText(status)}>{statusLabel}</Pill>
           {r.blocking && status !== "blocked" && <Pill bg={dockStatusColor("blocked") + "22"} fg={dockStatusColor("blocked")}>Needed today</Pill>}
-          {r.skippable && <Pill bg={C.line} fg={C.muted}>Skippable</Pill>}
+          {r.skippable && status !== "Skippable" && <Pill bg={C.line} fg={C.muted}>Skippable</Pill>}
           {lost && <Pill bg={C.line} fg={C.muted}>Lost</Pill>}
           {r.kind === "blocked" && <Pill bg={C.badBg} fg={C.bad}>Blocked queue</Pill>}
           {r.kind === "unreported" && <Pill bg={C.badBg} fg={C.bad}>Unreported</Pill>}
