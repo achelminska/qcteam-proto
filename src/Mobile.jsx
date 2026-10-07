@@ -2409,16 +2409,7 @@ function MPalletSheet({ s, set, user, go, row: r, onStart, onPickPallet, onAssig
       {anns.map(a => <div key={a.id} className="w-full text-left rounded-xl px-3 py-2 mb-2 flex items-start gap-2" style={{ background: a.isBlocking ? C.badBg : C.accentSoft, color: C.ink }}><Ic i={Megaphone} s={14} mr={0} style={{ marginTop: 2, color: a.isBlocking ? C.bad : C.accent }} /><span className="min-w-0 text-[13px] leading-snug"><button type="button" onClick={() => go("announcements")} className="text-left"><b>{a.title}</b>{a.body ? <span style={{ color: C.muted }}> — {a.body}</span> : null}{a.isBlocking && <span className="block text-[11px] mt-0.5" style={{ color: C.bad }}>Blocking — read it before you inspect</span>}</button><AnnounceFileList announcement={a} colors={C} compact /></span></div>)}
       {draft && <div className="rounded-xl px-3 py-2 mb-2 flex items-start gap-2 text-[13px] leading-snug" style={{ background: C.warnBg, color: C.warn }}><Ic i={Clock} s={14} mr={0} style={{ marginTop: 2 }} /><span><b>{s.users.find(u => u.id === draft.controllerId)?.name.split(" ")[0]}</b> has this pallet in progress ({STATUS[draft.status][0]}){draft.controllerId === user.id && <button onClick={() => go("inspection", draft.id)} className="ml-2 underline">continue</button>}</span></div>}
 
-      {others.length > 0 && <MSection title="Same article on the docks" count={others.length} defaultOpen>
-        {pos.length > 1 && <p className="mb-2 px-2.5 py-1.5 rounded-lg text-[11px] flex items-center" style={{ background: C.warnBg, color: C.warn }}><Ic i={AlertTriangle} s={11} mr={4} />Different PO numbers ({pos.join(", ")}) — likely separate deliveries, one inspection doesn't cover all.</p>}
-        {others.map((x, ix) => { const st = dockStatus(x); return (
-          <button key={x.hu} type="button" onClick={e => { e.preventDefault(); e.stopPropagation(); if (!onPickPallet || gestureLocked()) return; armGestureLock(); armClickGuard(); onPickPallet(x.hu); }} className="w-full text-left flex items-center gap-2.5 py-2 active:opacity-60" style={{ borderBottom: ix === others.length - 1 ? "none" : `1px solid ${C.line}` }}>
-            <span className="inline-block rounded-full flex-shrink-0" style={{ width: 8, height: 8, background: dockStatusColor(st) }} />
-            <span className="flex-1 min-w-0"><span className="block text-sm font-medium">{x.location} <span className="font-normal text-xs" style={{ color: C.muted }}>· HU …{String(x.hu).slice(-8)}</span></span><span className="block text-[11px]" style={{ color: C.muted }}>{DOCK_STATUS.find(d => d[0] === st)?.[1]} · {x.transporter} {x.arrivedTime}{x.po ? ` · PO ${x.po}` : ""}{completedInspectionFor(s, x.hu) ? " · inspected" : ""}</span></span>
-            {onPickPallet && <Ic i={ChevronRight} s={15} mr={0} style={{ color: C.muted }} />}
-          </button>
-        ); })}
-      </MSection>}
+      {others.length > 0 && <SameArticleDocks others={others} pos={pos} s={s} onPickPallet={onPickPallet} />}
 
       {!lost && <div className="mb-3">
         <p className="label-sm mb-1.5" style={{ color: C.muted }}>{done ? "Inspect again" : "Start inspection"}</p>
@@ -3019,26 +3010,45 @@ const completedInspectionFor = (s, hu) => (s.inspections || []).filter(i => i.st
 const dockRowsFor = product => product ? dockRowsLive(_S).filter(r => r.article === product.articleId) : [];
 // showLost (only passed from the product profile, not from inside the scan flow) also renders Mark-as-lost inline per
 // pallet, so acting on a specific pallet from here never needs a hop through a separate info screen first.
-function DockPalletTile({ r, onPick }) {
+function DockPalletTile({ r, onPick, inspected }) {
   const status = dockStatus(r); const col = dockStatusColor(status);
   const label = DOCK_STATUS.find(x => x[0] === status)?.[1] || r.priority;
-  const Chip = ({ children, tone }) => <span className="text-[11px] px-1.5 rounded-md leading-[18px]" style={{ background: tone === "bad" ? C.badBg : C.bg, color: tone === "bad" ? C.bad : C.ink, border: `1px solid ${tone === "bad" ? "transparent" : C.line}` }}>{children}</span>;
+  const Chip = ({ children, tone }) => <span className="text-[11px] px-1.5 rounded-md leading-[18px]" style={{ background: tone === "bad" ? C.badBg : tone === "ok" ? C.okBg : C.bg, color: tone === "bad" ? C.bad : tone === "ok" ? C.ok : C.ink, border: `1px solid ${tone === "bad" || tone === "ok" ? "transparent" : C.line}` }}>{children}</span>;
   return (
-    <button type="button" onClick={() => onPick && onPick(r.hu)} disabled={!onPick} className="qc-tile w-full text-left rounded-2xl px-3 py-2.5" style={{ background: C.surface, border: `1px solid ${C.line}`, borderLeft: `3px solid ${col}` }}>
+    <button type="button" onClick={e => { e.preventDefault(); e.stopPropagation(); onPick && onPick(r.hu); }} disabled={!onPick} className="qc-tile w-full text-left rounded-2xl px-3 py-2.5" style={{ background: C.surface, border: `1px solid ${C.line}`, borderLeft: `3px solid ${col}` }}>
       <div className="flex items-start gap-2">
         <div className="min-w-0 flex-1">
           <p className="text-[13px] font-semibold leading-snug">{r.location || "—"}</p>
           <p className="text-[11px] mt-0.5 font-mono leading-snug truncate" style={{ color: C.muted }}>HU {r.hu}</p>
           <p className="text-[11px] mt-0.5 leading-snug" style={{ color: C.muted, fontVariantNumeric: "tabular-nums" }}>{[label, r.quantity != null && `${r.quantity} TU`, r.arrivedTime].filter(Boolean).join(" · ")}</p>
-          {(r.transporter || r.po || r.blocking) && <div className="flex flex-wrap gap-1 mt-1.5">
+          {(r.transporter || r.po || r.blocking || inspected) && <div className="flex flex-wrap gap-1 mt-1.5">
             {r.transporter && <Chip>{r.transporter}</Chip>}
             {r.po && <Chip><span className="font-mono">PO {r.po}</span></Chip>}
             {r.blocking && <Chip tone="bad">needed today</Chip>}
+            {inspected && <Chip tone="ok">inspected</Chip>}
           </div>}
         </div>
         {onPick && <Ic i={ChevronRight} s={15} mr={0} style={{ color: C.muted, marginTop: 2 }} />}
       </div>
     </button>
+  );
+}
+function SameArticleDocks({ others, pos, s, onPickPallet }) {
+  const [open, setOpen] = useState(true);
+  return (
+    <div className="mb-2.5">
+      <button type="button" onClick={() => setOpen(o => !o)} className="qc-tile w-full rounded-2xl px-3.5 flex items-center gap-2 text-left" style={{ background: C.surface, border: `1px solid ${C.line}`, minHeight: 42 }} aria-expanded={open}>
+        <span className="text-[13px] font-semibold flex-1">Same article on the docks</span>
+        <span className="text-[11px] px-1.5 rounded-full leading-[18px]" style={{ background: C.bg, color: C.muted, fontVariantNumeric: "tabular-nums" }}>{others.length}</span>
+        <Ic i={ChevronDown} s={16} mr={0} style={{ color: C.muted, transform: open ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform .15s" }} />
+      </button>
+      {open && <div className="mt-2">
+        {pos.length > 1 && <p className="mb-2 px-2.5 py-1.5 rounded-lg text-[11px] flex items-center" style={{ background: C.warnBg, color: C.warn }}><Ic i={AlertTriangle} s={11} mr={4} />Different PO numbers ({pos.join(", ")}) — likely separate deliveries, one inspection doesn't cover all.</p>}
+        <div className="flex flex-col gap-2">
+          {others.map(x => <DockPalletTile key={x.hu} r={x} inspected={!!completedInspectionFor(s, x.hu)} onPick={onPickPallet && (hu => { if (gestureLocked()) return; armGestureLock(); armClickGuard(); onPickPallet(hu); })} />)}
+        </div>
+      </div>}
+    </div>
   );
 }
 function DockPresence({ s, set, user, product, onPickPallet, showLost, compact }) {

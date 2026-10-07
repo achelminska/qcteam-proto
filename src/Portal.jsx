@@ -1895,20 +1895,31 @@ function PalletPage({ s, set, user, hu, onBack, onOpenProduct, onOpenInspection,
           <div className="px-5 pb-4" style={{ borderTop: `1px solid ${C.line}`, paddingTop: 12 }}>
             <p className="label-sm mb-2">Same article on the docks · {others.length}</p>
             {pos.length > 1 && <p className="mb-2 text-[11px] flex items-center" style={{ color: C.warn }}><Ic i={AlertTriangle} s={11} mr={4} />Different PO numbers ({pos.join(", ")})</p>}
-            <table className="w-full text-sm">
-              <thead><tr className="text-xs text-left" style={{ color: C.muted }}>{["Location", "HU", "Status", "Arrived", "Transporter", "PO", "Report"].map(h => <th key={h} className="py-1 pr-3 font-medium">{h}</th>)}</tr></thead>
-              <tbody>{others.map(x => { const st = dockStatus(x); return (
-                <tr key={x.hu} onClick={() => onPickPallet && onPickPallet(x.hu)} style={{ borderTop: `1px solid ${C.line}`, cursor: onPickPallet ? "pointer" : "default" }}>
-                  <td className="py-1.5 pr-3 font-medium">{x.location || "—"}</td>
-                  <td className="py-1.5 pr-3 font-mono text-xs" style={{ color: C.muted }}>…{String(x.hu).slice(-8)}</td>
-                  <td className="py-1.5 pr-3 text-xs">{DOCK_STATUS.find(d => d[0] === st)?.[1] || st}</td>
-                  <td className="py-1.5 pr-3 text-xs">{x.arrivedTime || "—"}</td>
-                  <td className="py-1.5 pr-3 text-xs">{x.transporter || "—"}</td>
-                  <td className="py-1.5 pr-3 text-xs">{x.po || "—"}</td>
-                  <td className="py-1.5 text-xs">{completedInspectionFor(s, x.hu) ? <span style={{ color: C.ok }}>inspected</span> : <span style={{ color: C.muted }}>not yet</span>}</td>
-                </tr>
-              ); })}</tbody>
-            </table>
+            <div className="flex flex-col gap-2">
+              {others.map(x => {
+                const st = dockStatus(x); const col = dockStatusColor(st);
+                const inspected = !!completedInspectionFor(s, x.hu);
+                const Chip = ({ children, tone }) => <span className="text-[11px] px-1.5 rounded-md leading-[18px]" style={{ background: tone === "bad" ? C.badBg : tone === "ok" ? C.okBg : C.bg, color: tone === "bad" ? C.bad : tone === "ok" ? C.ok : C.ink, border: `1px solid ${tone === "bad" || tone === "ok" ? "transparent" : C.line}` }}>{children}</span>;
+                return (
+                  <button key={x.hu} type="button" onClick={() => onPickPallet && onPickPallet(x.hu)} className="qc-tile w-full text-left rounded-2xl px-3 py-2.5" style={{ background: C.surface, border: `1px solid ${C.line}`, borderLeft: `3px solid ${col}` }}>
+                    <div className="flex items-start gap-2">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[13px] font-semibold leading-snug">{x.location || "—"}</p>
+                        <p className="text-[11px] mt-0.5 font-mono leading-snug truncate" style={{ color: C.muted }}>HU {x.hu}</p>
+                        <p className="text-[11px] mt-0.5 leading-snug" style={{ color: C.muted, fontVariantNumeric: "tabular-nums" }}>{[DOCK_STATUS.find(d => d[0] === st)?.[1] || st, x.quantity != null && `${x.quantity} TU`, x.arrivedTime].filter(Boolean).join(" · ")}</p>
+                        {(x.transporter || x.po || x.blocking || inspected) && <div className="flex flex-wrap gap-1 mt-1.5">
+                          {x.transporter && <Chip>{x.transporter}</Chip>}
+                          {x.po && <Chip><span className="font-mono">PO {x.po}</span></Chip>}
+                          {x.blocking && <Chip tone="bad">needed today</Chip>}
+                          {inspected && <Chip tone="ok">inspected</Chip>}
+                        </div>}
+                      </div>
+                      {onPickPallet && <Ic i={ChevronRight} s={15} mr={0} style={{ color: C.muted, marginTop: 2 }} />}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
           </div>
         )}
 
