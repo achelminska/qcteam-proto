@@ -179,6 +179,8 @@ const metricKey = f => f.key || slugKey(f.specName || f.label);
 const fieldLabel = f => { const l = (f.label || "").trim(); return (l && l.toLowerCase() !== "new field") ? l : ((f.specName || "").trim() || l || "New field"); };
 const STATUS = { Draft: ["Draft", C.muted, C.line], PendingReview: ["Awaiting Head", C.warn, C.warnBg], Completed: ["Completed", C.ok, C.okBg], Cancelled: ["Cancelled", C.muted, C.line] };
 const nowISO = () => new Date().toISOString();
+// *bold* the way the Head types it in a note.
+const richText = txt => String(txt || "").split(/(\*[^*\n]+\*)/g).map((part, i) => /^\*[^*]+\*$/.test(part) ? <b key={i}>{part.slice(1, -1)}</b> : <Fragment key={i}>{part}</Fragment>);
 const fmtTime = iso => { const d = new Date(iso); return isNaN(d) ? "" : d.toLocaleString("en-GB", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }); };
 const truncate = (t, n = 90) => t && t.length > n ? t.slice(0, n).trimEnd() + "…" : t;
 
@@ -5008,7 +5010,7 @@ function FoldNote({ title, chip, children }) {
   );
 }
 function CatalogPage({ s, set, user, notify, onStartInspection, onOpenInspection, presetSel, clearPresetSel, presetFilter, clearPreset, openPallet }) {
-  const [q, setQ] = useState(""); const [sel, setSel] = useBackSel("catalogSel", null); const [flagText, setFlagText] = useState(""); const [flagOpen, setFlagOpen] = useState(false); const [showRef, setShowRef] = useState(null);
+  const [q, setQ] = useState(""); const [sel, setSel] = useBackSel("catalogSel", null); const [flagText, setFlagText] = useState(""); const [flagOpen, setFlagOpen] = useState(false); const [showRef, setShowRef] = useState(null); const [sec, setSec] = useState(null);
   useEffect(() => { if (presetSel) { setSel(presetSel); clearPresetSel && clearPresetSel(); } }, [presetSel]);
   useEffect(() => { if (presetFilter) { setQ(presetFilter); clearPreset && clearPreset(); } }, [presetFilter]);
   const [cat, setCat] = useBackSel("catalogCat", ""); const [f, setF] = useState({ bio: "", supplier: "", only: "", sort: "dock" }); const [limit, setLimit] = useState(80);
@@ -5047,7 +5049,7 @@ function CatalogPage({ s, set, user, notify, onStartInspection, onOpenInspection
   const policy = product ? effectivePolicy(s, product) : null; const allowedTypes = policy ? typesOf(s).filter(tp => policy.typeIds.includes(tp.id)) : [];
   const raise = () => { if (!flagText.trim()) return; set(x => ({ ...x, flags: [...x.flags, { id: uid(), productId: product.id, inspectionId: null, raisedBy: user.id, description: flagText.trim(), status: "Open", createdAt: nowISO() }] })); notify("Flag", `${user.name}: ${product.name} — ${flagText.trim()}`, "ProductFlag", null); setFlagText(""); setFlagOpen(false); };
   const Row = ({ p }) => { const li = lastInsp(p.id); const openFlag = s.flags.some(x => x.productId === p.id && x.status === "Open"); const d = dockOf(p); const on = sel === p.id; const ext = extRejectionLine(s, p.articleId, now); return (
-    <button type="button" onClick={() => { setSel(p.id); setFlagOpen(false); setShowRef(null); }} className="w-full text-left flex items-center gap-3 px-3 py-2 rounded-xl" style={{ background: on ? C.accentSoft : "transparent", border: `1px solid ${on ? C.accent : "transparent"}` }}>
+    <button type="button" onClick={() => { setSel(p.id); setFlagOpen(false); setShowRef(null); setSec(null); }} className="w-full text-left flex items-center gap-3 px-3 py-2 rounded-xl" style={{ background: on ? C.accentSoft : "transparent", border: `1px solid ${on ? C.accent : "transparent"}` }}>
       {asPhotoList(p.photos).length ? <img src={thumbSrc(asPhotoList(p.photos)[0])} loading="lazy" decoding="async" alt="" className="w-10 h-10 rounded-lg object-contain flex-shrink-0" style={{ background: PHOTO_BG }} /> : <span className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: C.bg, color: C.muted }}><Ic i={ImageIcon} s={16} mr={0} /></span>}
       <span className="flex-1 min-w-0"><span className="block text-sm font-medium truncate leading-tight" style={{ color: on ? C.accent : C.ink }}>{p.name}</span><span className="block text-[11px] truncate mt-0.5" style={{ color: C.muted }}><span className="font-mono">{p.articleId || "—"}</span>{p.isBio ? " · bio" : ""}{catPath(p.categoryId) ? ` · ${catPath(p.categoryId)}` : ""}</span></span>
       <span className="flex items-center gap-1.5 flex-shrink-0">
@@ -5120,7 +5122,7 @@ function CatalogPage({ s, set, user, notify, onStartInspection, onOpenInspection
               </div>}
               {/* Notes that change how you inspect */}
               <div className="mt-4">
-                {s.announcements.filter(a => annMatchesProduct(s, a, product)).map(a => <Note key={a.id} tone="warn">📣 <b>{a.title}</b>{a.body ? <> — {a.body}</> : null}<AnnounceFileList announcement={a} colors={C} compact /></Note>)}
+                {s.announcements.filter(a => annMatchesProduct(s, a, product)).map(a => <Note key={a.id} tone="warn">📣 <b>{a.title}</b>{a.body ? <> — {richText(a.body)}</> : null}<AnnounceFileList announcement={a} colors={C} compact /></Note>)}
                 <LiveNote product={product} /><ComplaintsNote s={s} articleId={product.articleId} /><ExtRejectionsNote s={s} articleId={product.articleId} />
                 {hist?.count > 0 && <Note tone="bad"><b>{hist.count} rejected by the team in the last 14 days</b>{hist.problems.length ? <> — {hist.problems.slice(0, 3).map(p => `${p.name} ×${p.count}`).join(", ")}</> : null}</Note>}
                 {openFlags.length > 0 && <Note tone="warn">🚩 {openFlags.length} open flag{openFlags.length === 1 ? "" : "s"} on this product — the Head hasn't resolved {openFlags.length === 1 ? "it" : "them"} yet.</Note>}
@@ -5132,26 +5134,37 @@ function CatalogPage({ s, set, user, notify, onStartInspection, onOpenInspection
                 </tbody></table>}
                 {showRef && (() => { const ref = s.inspections.find(i => i.id === showRef); return ref ? <div className="rounded-xl p-3 mt-3" style={{ border: `1px solid ${C.ok}` }}><ReportView insp={ref} s={s} user={user} onEdit={() => {}} onAnswer={() => {}} /></div> : null; })()}
               </Section>
-              {asPhotoList(product.photos).length > 1 && <Section title="Reference photos"><PhotoStrip photos={product.photos} size={72} /></Section>}
-              {refNotes.length > 0 && <Section title={`Reference guide · ${refNotes.length}`}>
-                <p className="text-[12px] mb-1.5" style={{ color: C.muted }}>What each defect looks like on this product — notes and photos from the Head.</p>
-                {refNotes.map(n => <FoldNote key={n.id} title={problemPath(s.problems, n.problemId) || "Defect"} chip={n.inherited ? <InheritChip label={n.source} /> : null}>{n.description && <p className="text-sm whitespace-pre-wrap mb-2">{n.description}</p>}<PhotoStrip photos={n.photos} size={84} /></FoldNote>)}
-              </Section>}
-              {guide.length > 0 && <Section title={`Encyclopedia · ${guide.length}`}>
-                {guide.map(g => <FoldNote key={g.id} title={g.title || "Untitled entry"} chip={g.inherited ? <InheritChip label={g.source} /> : null}>{g.body && <p className="text-sm whitespace-pre-wrap mb-2">{g.body}</p>}<PhotoStrip photos={g.photos} size={84} /></FoldNote>)}
-              </Section>}
-              {(allowedTypes.length > 0 || product.consumerAppUrl) && <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 mt-5 text-xs" style={{ color: C.muted }}>
-                {allowedTypes.length > 0 && <span>Inspection types: {allowedTypes.map(tp => <span key={tp.id} className="inline-block px-2 py-0.5 rounded-full ml-1" style={{ background: C.bg, border: `1px solid ${C.line}`, color: C.ink }}>{tp.name}</span>)}</span>}
-                {product.consumerAppUrl && <a href={product.consumerAppUrl} target="_blank" rel="noopener noreferrer" className="underline inline-flex items-center" style={{ color: C.accent }}>Open in the consumer app<Ic i={ExternalLink} s={11} mr={0} style={{ marginLeft: 3 }} /></a>}
-              </div>}
-              {(assigned.length > 0 || effectiveVarieties(s, product).length > 0) && <div className="grid gap-4 mt-5" style={{ gridTemplateColumns: "1fr 1fr" }}>
-                {assigned.length > 0 && <div><p className="label-sm mb-1.5" style={{ color: C.muted }}>Suppliers</p><div className="flex flex-wrap gap-1">{assigned.map(x => <span key={x.id} className="text-xs px-2.5 py-1 rounded-full" style={{ background: C.accentSoft, color: C.accent }}>{x.name}</span>)}</div></div>}
-                {effectiveVarieties(s, product).length > 0 && <div><p className="label-sm mb-1.5" style={{ color: C.muted }}>Varieties</p><div className="flex flex-wrap gap-1">{effectiveVarieties(s, product).map(v => <span key={v.id} className="text-xs px-2.5 py-1 rounded-full" style={{ background: C.bg, border: `1px solid ${C.line}` }} title={v.source}>{v.name}</span>)}</div></div>}
-              </div>}
-              {/* History */}
-              <Section title={`Inspections${history.length ? ` · ${history.length}` : ""}`} right={history.length > 5 && onOpenInspection ? <button type="button" onClick={() => onOpenInspection(history[0].id)} className="text-xs" style={{ color: C.accent }}>open history ›</button> : null}>
-                {history.length === 0 ? <p className="text-sm" style={{ color: C.muted }}>Not inspected yet.</p> : history.slice(0, 5).map(i => { const who = s.users.find(u => u.id === i.controllerId); const rej = i.result === "Rejected"; return <button key={i.id} type="button" onClick={() => onOpenInspection && onOpenInspection(i.id)} className="w-full flex items-center gap-3 text-sm py-2 text-left" style={{ borderTop: `1px solid ${C.line}` }}><span className="text-[11px] font-semibold px-2 py-0.5 rounded-full" style={{ background: rej ? C.badBg : C.okBg, color: rej ? C.bad : C.ok, minWidth: 66, textAlign: "center" }}>{rej ? "Rejected" : "Accepted"}</span><span className="flex-1 truncate" style={{ color: i.comment ? C.ink : C.muted }}>{i.comment || "no comment"}</span><span className="text-xs whitespace-nowrap" style={{ color: C.muted }}>{who ? `${who.name.split(" ")[0]} · ` : ""}{fmtTime(i.completedAt)}</span></button>; })}
-              </Section>
+              {(() => {
+                const photosAll = asPhotoList(product.photos); const vars = effectiveVarieties(s, product);
+                const tiles = [
+                  ["photos", ImageIcon, "Photos", photosAll.length, "how it should look"],
+                  ["guide", Eye, "Reference guide", refNotes.length, "what each defect looks like"],
+                  ["ency", BookOpen, "Encyclopedia", guide.length, "notes about the product"],
+                  ["history", ClipboardList, "Inspections", history.length, "what the team found"],
+                  ["supply", Truck, "Suppliers & varieties", assigned.length + vars.length, "who delivers it"],
+                  ["types", Layers, "Inspection types", allowedTypes.length, "how it may be inspected"],
+                ].filter(([, , , n]) => n > 0);
+                if (!tiles.length && !product.consumerAppUrl) return null;
+                return <div className="mt-5">
+                  <div className="grid gap-2" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))" }}>
+                    {tiles.map(([k, I, label, n, hint]) => <button key={k} type="button" onClick={() => setSec(x => x === k ? null : k)} className="qc-tile text-left rounded-xl px-3 py-2.5 flex items-center gap-2.5" style={{ background: sec === k ? C.accentSoft : C.bg, border: `1px solid ${sec === k ? C.accent : C.line}` }}>
+                      <span className="w-8 h-8 rounded-lg inline-flex items-center justify-center flex-shrink-0" style={{ background: sec === k ? C.accent : C.surface, color: sec === k ? C.onDark : C.accent, border: sec === k ? "none" : `1px solid ${C.line}` }}><Ic i={I} s={15} mr={0} /></span>
+                      <span className="min-w-0"><span className="block text-sm font-medium leading-tight truncate" style={{ color: sec === k ? C.accent : C.ink }}>{label} <span style={{ color: C.muted, fontVariantNumeric: "tabular-nums" }}>· {n}</span></span><span className="block text-[11px] truncate" style={{ color: C.muted }}>{hint}</span></span>
+                    </button>)}
+                    {product.consumerAppUrl && <a href={product.consumerAppUrl} target="_blank" rel="noopener noreferrer" className="qc-tile rounded-xl px-3 py-2.5 flex items-center gap-2.5 no-underline" style={{ background: C.bg, border: `1px solid ${C.line}` }}><span className="w-8 h-8 rounded-lg inline-flex items-center justify-center flex-shrink-0" style={{ background: C.surface, color: C.accent, border: `1px solid ${C.line}` }}><Ic i={ExternalLink} s={15} mr={0} /></span><span className="min-w-0"><span className="block text-sm font-medium leading-tight truncate">Consumer app</span><span className="block text-[11px] truncate" style={{ color: C.muted }}>how customers see it</span></span></a>}
+                  </div>
+                  {sec && <div className="rounded-xl p-4 mt-2" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
+                    {sec === "photos" && <div className="grid gap-2" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(120px, 1fr))" }}>{photosAll.map((ph, ix) => <img key={ph.id || ix} src={thumbSrc(ph)} loading="lazy" decoding="async" alt="" className="w-full rounded-lg object-contain" style={{ aspectRatio: "1 / 1", background: PHOTO_BG, border: `1px solid ${C.line}` }} />)}</div>}
+                    {sec === "guide" && <><p className="text-[12px] mb-2" style={{ color: C.muted }}>What each defect looks like on this product — notes and photos from the Head.</p>{refNotes.map(n => <FoldNote key={n.id} title={problemPath(s.problems, n.problemId) || "Defect"} chip={n.inherited ? <InheritChip label={n.source} /> : null}>{n.description && <p className="text-sm whitespace-pre-wrap mb-2">{n.description}</p>}<PhotoStrip photos={n.photos} size={84} /></FoldNote>)}</>}
+                    {sec === "ency" && guide.map(g => <FoldNote key={g.id} title={g.title || "Untitled entry"} chip={g.inherited ? <InheritChip label={g.source} /> : null}>{g.body && <p className="text-sm whitespace-pre-wrap mb-2">{g.body}</p>}<PhotoStrip photos={g.photos} size={84} /></FoldNote>)}
+                    {sec === "history" && history.slice(0, 10).map(i => { const who = s.users.find(u => u.id === i.controllerId); const rej = i.result === "Rejected"; return <button key={i.id} type="button" onClick={() => onOpenInspection && onOpenInspection(i.id)} className="w-full flex items-center gap-3 text-sm py-2 text-left" style={{ borderTop: `1px solid ${C.line}` }}><span className="text-[11px] font-semibold px-2 py-0.5 rounded-full" style={{ background: rej ? C.badBg : C.okBg, color: rej ? C.bad : C.ok, minWidth: 66, textAlign: "center" }}>{rej ? "Rejected" : "Accepted"}</span><span className="flex-1 truncate" style={{ color: i.comment ? C.ink : C.muted }}>{i.comment || "no comment"}</span><span className="text-xs whitespace-nowrap" style={{ color: C.muted }}>{who ? `${who.name.split(" ")[0]} · ` : ""}{fmtTime(i.completedAt)}</span></button>; })}
+                    {sec === "supply" && <div className="grid gap-4" style={{ gridTemplateColumns: "1fr 1fr" }}>
+                      <div><p className="label-sm mb-1.5" style={{ color: C.muted }}>Suppliers</p>{assigned.length ? <div className="flex flex-wrap gap-1">{assigned.map(x => <span key={x.id} className="text-xs px-2.5 py-1 rounded-full" style={{ background: C.accentSoft, color: C.accent }}>{x.name}</span>)}</div> : <p className="text-xs" style={{ color: C.muted }}>none assigned</p>}</div>
+                      <div><p className="label-sm mb-1.5" style={{ color: C.muted }}>Varieties</p>{vars.length ? <div className="flex flex-wrap gap-1">{vars.map(v => <span key={v.id} className="text-xs px-2.5 py-1 rounded-full" style={{ background: C.surface, border: `1px solid ${C.line}` }} title={v.source}>{v.name}</span>)}</div> : <p className="text-xs" style={{ color: C.muted }}>none</p>}</div>
+                    </div>}
+                    {sec === "types" && <div className="flex flex-wrap gap-1.5">{allowedTypes.map(tp => <span key={tp.id} className="text-xs px-2.5 py-1 rounded-full" style={{ background: C.surface, border: `1px solid ${C.line}` }}>{tp.name}</span>)}<span className="text-[11px] self-center" style={{ color: C.muted }}>· set on {policy.source}</span></div>}
+                  </div>}
+                </div>; })()}
             </>
           )}
         </Card>
