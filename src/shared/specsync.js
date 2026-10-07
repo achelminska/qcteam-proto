@@ -88,6 +88,8 @@ export function parseLiveCell(raw, untilRaw, now = new Date().toISOString()) {
   if (minWeight != null && /^(?:no\b|geen\b)/i.test(body)) minWeight = null;
   return { text, body, expiresAt, cuPerTu, minWeight, pureWeight: minWeight != null && cuPerTu == null && /^[\d.,\s]*(kg|gram|gr|g)?$/i.test(body) };
 }
+// "until 25 Oct" for a live value with an end date.
+export const fmtUntil = iso => { if (!iso) return ""; const d = new Date(`${String(iso).slice(0, 10)}T12:00:00`); return isNaN(d) ? String(iso) : d.toLocaleDateString("en-GB", { day: "numeric", month: "short" }); };
 export const liveActive = (expiresAt, today = new Date().toISOString().slice(0, 10)) => !expiresAt || String(expiresAt) >= today;
 // What the apps show on the product: the sheet's live note while it lasts.
 export const liveNoteOf = (product, today = new Date().toISOString().slice(0, 10)) => { const n = product?.liveNote; return n && n.text && liveActive(n.until, today) ? n : null; };

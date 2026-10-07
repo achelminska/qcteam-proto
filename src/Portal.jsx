@@ -1,10 +1,10 @@
 import { useState, useEffect, useRef, Fragment } from "react";
 import { createSyncer, guardUnload } from "./sync.js";
 import { applySpecEdit, hasV, specFieldsFromForm, specFormKind, specLabel, dayLabel, problemPath, typesOf, typeById, legacyTypeId, inspType, countsAs, listCheck, matchFieldSpec, numberSpecCheck, reportStatusFields, toleranceDisplay, matchesInspSearch } from "./shared/format.js";
-import { SPEC_TARGETS, SPEC_ALIASES, SPEC_COLUMNS, applySpecSheet, fmtRange, liveNoteOf, resolveSpecConflict } from "./shared/specsync.js";
+import { SPEC_TARGETS, SPEC_ALIASES, SPEC_COLUMNS, applySpecSheet, fmtRange, liveNoteOf, fmtUntil, resolveSpecConflict } from "./shared/specsync.js";
 import { REJECTION_TARGETS, REJECTION_ALIASES, buildRejectionDigest, extRejectionsFor, extRejectedRecently, extRejectionLine, extRejectionsAll, extRejectionsRecent, extRejectionKey, topCats, fmtRejectionDay, linkLabel, reportUrls } from "./shared/rejections.js";
 import { normArticle, isoWeekOf, todayISO, weekLabel, weekRange, shiftWeek, sortSnapshots, latestSnapshot, snapshotTotal, upsertSnapshot, snapshotsOfWeek, previousInWeek, deltaRows, subTypeMix, weekSeries, articleTrend, topArticles, asLegacyMeta, migrateLegacy, rowFor, parseComplaintRows, fmtPer1k } from "./shared/complaints.js";
-import { activeTempForSpec, applyTempSpec, clearTempSpec, closeExpiredTempSpecs, tempOwnerLabel, tempUntilLabel, upsertTempSpec } from "./shared/tempspec.js";
+import { activeTempForSpec, applyTempSpec, tempSpecIsActive, clearTempSpec, closeExpiredTempSpecs, tempOwnerLabel, tempUntilLabel, upsertTempSpec } from "./shared/tempspec.js";
 import { SpecValue } from "./shared/SpecValue.jsx";
 import { peopleOnFloor, peopleAtDock, floorWhere, floorVerb, doneTodayCount, doneTodayByUser } from "./shared/floor.js";
 import { attachableSameDay, otherDeliveryDay, sameDeliveryRows } from "./shared/delivery-pallets.js";
@@ -1481,7 +1481,7 @@ const complaintsLine = (s, articleId) => { const c = complaintsFor(s, articleId)
 // What the DC5 rejections sheet says about this article: the team's official rejections (Slack → sheet), not QCteam reports.
 function LiveNote({ product }) {
   const n = liveNoteOf(product); if (!n) return null;
-  return <Note tone="warn"><span className="inline-flex items-center gap-1.5 flex-wrap"><Ic i={AlertTriangle} s={14} mr={0} /><b>Live spec</b><span>{n.text}</span>{n.until && <span style={{ color: C.muted }}>· until {fmtRejectionDay(n.until)}</span>}<span style={{ color: C.muted }}>· from the specs sheet</span></span></Note>;
+  return <Note tone="warn"><span className="inline-flex items-center gap-1.5 flex-wrap"><Ic i={AlertTriangle} s={14} mr={0} /><b>Live spec</b><span>{n.text}</span>{n.until && <span style={{ color: C.muted }}>· until {fmtUntil(n.until)}</span>}<span style={{ color: C.muted }}>· from the specs sheet</span></span></Note>;
 }
 function RejectionLink({ href, label }) {
   const Icon = /^Inspection report/i.test(label) ? FileText : /slack\.com/i.test(href) ? MessageSquare : /drive\.google|docs\.google/i.test(href) ? Paperclip : ExternalLink;
@@ -2372,14 +2372,12 @@ function ControllerDashboard({ s, user, set, setPage, setOpenId, openProduct, op
       return { key: rows[0].article || rows[0].hu, article: rows[0].article, name: rows[0].name || product?.name || rows[0].article, product, rows, open, u, lead, locs, pos, mixedPO: pos.length > 1, hours: Math.max(...rows.map(r => r.hours ?? -1)), why, whyPlus, risky, draft: rows.find(r => r.draft)?.draft || null, taken: rows.map(r => r.claim).find(c => c?.status === "taken") || null, earliest: rows.map(r => `${r.arrived} ${r.arrivedTime || ""}`).sort()[0] };
     }).sort((a, b) => a.u - b.u || (b.hours - a.hours)); })();
   const counts = { todo: groups.filter(g => g.open.length && g.u < 9).length, needed: groups.filter(g => g.u <= 2 && g.open.length).length, risky: groups.filter(g => g.risky && g.open.length).length, skippable: groups.filter(g => g.u === 9 && g.open.length).length, done: groups.filter(g => g.rows.some(r => r.done)).length, all: groups.length };
-  const shown = groups.filter(g => filter === "all" ? true : filter === "done" ? g.rows.some(r => r.done) : filter === "needed" ? g.u <= 2 && g.open.length : filter === "risky" ? g.risky && g.open.length : filter === "skippable" ? g.u === 9 && g.open.length : g.open.length && g.u < 9)
+  const shown = groups.filter(g => filter === "all" ? true : filter === "done" ? g.rows.some(r => r.done) : filter === "needed" ? g.u <= 2 && g.open.length : filter === "risky" ? g.risky && g.open.length : filter === "skippable" ? g.u === 9 && g.open.length : filter === "deadline" ? g.rows.some(r => r.alert && !r.done) : PRIO_ORDER.includes(filter) ? g.rows.some(r => r.priority === filter && !r.done) : g.open.length && g.u < 9)
     .filter(g => dockMatches({ ...g.lead, name: g.name }, q, s));
   const Chip = ({ id, label, n, tone }) => <button type="button" onClick={() => setFilter(id)} className="text-xs font-medium px-3 rounded-full inline-flex items-center gap-1.5" style={{ height: 30, background: filter === id ? C.ink : C.surface, color: filter === id ? C.onDark : C.ink, border: `1px solid ${filter === id ? C.ink : C.line}` }}>{label}<span className="font-semibold" style={{ color: filter === id ? C.onDark : tone && n ? tone : C.muted, fontVariantNumeric: "tabular-nums" }}>{n}</span></button>;
   const toneCol = t => t === "bad" ? C.bad : t === "warn" ? C.warn : t === "info" ? C.accent : C.muted;
-  const mineDrafts = (s.inspections || []).filter(i => i.controllerId === user.id && ["Draft", "PendingReview"].includes(i.status)).sort((a, b) => (b.startedAt || "").localeCompare(a.startedAt || ""));
   const myDone = doneTodayByUser(s, user.id, now); const myToday = (s.inspections || []).filter(i => i.controllerId === user.id && i.status === "Completed" && i.completedAt && dayLabel(i.completedAt) === "today");
   const myRejected = myToday.filter(i => i.result === "Rejected").length;
-  const recent = (s.inspections || []).filter(i => i.status === "Completed").sort((a, b) => (b.completedAt || "").localeCompare(a.completedAt || "")).slice(0, 6);
   const blockedOpen = blockedQueue(s).filter(b => b.status !== "Completed" && !b.lost).sort((a, b) => ({ "Not started": 0, "Started": 1 }[a.status] ?? 9) - ({ "Not started": 0, "Started": 1 }[b.status] ?? 9));
   const RowStatus = ({ g }) => { const done = g.rows.filter(r => r.done).length;
     if (done === g.rows.length) return <span className="inline-flex items-center gap-1 text-xs font-medium" style={{ color: C.ok }}><Ic i={Check} s={13} mr={0} />inspected</span>;
@@ -2387,79 +2385,85 @@ function ControllerDashboard({ s, user, set, setPage, setOpenId, openProduct, op
     if (g.taken) { const who = s.users.find(u => u.id === g.taken.userId); return <span className="text-xs" style={{ color: C.muted }}>taken{who ? ` by ${who.name.split(" ")[0]}` : ""}</span>; }
     if (done) return <span className="text-xs" style={{ color: C.muted }}>{done} of {g.rows.length} inspected</span>;
     return <span className="text-xs" style={{ color: C.muted }}>not yet</span>; };
+  const worklist = useRef(null);
+  const pick = id => { setFilter(f => f === id ? "todo" : id); setQ(""); setTimeout(() => worklist.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 0); };
+  const Tile = ({ label, value, sub, color, onClick, active, accent }) => <button type="button" onClick={onClick} disabled={!onClick} className="qc-elev qc-tile rounded-2xl p-4 text-left" style={{ background: active ? C.accentSoft : C.surface, border: `1px solid ${active ? C.accent : C.line}`, borderLeft: `4px solid ${accent || (value ? color : C.line)}`, boxShadow: lift(), cursor: onClick ? "pointer" : "default" }}><p className="text-xs" style={{ color: C.muted }}>{label}</p><p className="text-2xl font-semibold leading-tight mt-0.5" style={{ color: value ? color : C.muted, fontVariantNumeric: "tabular-nums" }}>{value}</p>{sub && <p className="text-[11px] mt-0.5" style={{ color: C.muted }}>{sub}</p>}</button>;
+  const filterLabel = { todo: "To inspect", needed: "Needed today", risky: "Rejected recently", skippable: "Skippable", done: "Inspected", all: "All", deadline: "Rejection window closing" }[filter] || filter;
   return (
     <div>
-      <div className="flex items-baseline gap-3 mb-4 flex-wrap"><h1>Hi, {user.name.split(" ")[0]}</h1><span className="text-xs" style={{ color: C.muted }}>{new Date(now).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "short" })}{f.fresh.length ? ` · ${f.fresh.map(x => `${x.purpose === "Dock" ? "dock" : "blocked"} sheet ${agoShort(x.at)}`).join(" · ")}` : " · no dock sheet yet"}</span></div>
-      <div className="flex gap-4 items-start">
-        {/* ── Worklist ── */}
-        <div className="flex-1 min-w-0">
-          <DeadlineBanner s={s} alerts={f.alerts} now={now} onOpen={a => a.hu && openPallet && openPallet(a.hu)} />
-          {blockedOpen.length > 0 && <Card style={{ marginBottom: 12, borderLeft: `4px solid ${C.bad}` }}>
-            <div className="flex items-center gap-2 mb-1"><p className="font-semibold text-sm flex-1">Blocked pallets waiting · {blockedOpen.length}</p><button type="button" onClick={() => setPage("blocked")} className="text-xs" style={{ color: C.accent }}>all ›</button></div>
-            {blockedOpen.slice(0, 3).map(b => <QueueRow key={b.key} s={s} set={set} user={user} b={b} onOpen={() => openPallet && openPallet(b.hu || claimKey(b))} />)}
-          </Card>}
-          <Card>
-            <div className="flex items-center gap-2 mb-3 flex-wrap">
-              <p className="font-semibold flex-1">On the dock <span className="font-normal text-xs ml-1" style={{ color: C.muted }}>{f.dock.length} pallets · {f.skus} products</span></p>
-              <SearchBox value={q} onChange={setQ} placeholder="product, article, location, PO…" />
-            </div>
-            <div className="flex gap-1.5 mb-3 flex-wrap">
-              <Chip id="todo" label="To inspect" n={counts.todo} tone={C.ink} />
-              <Chip id="needed" label="Needed today" n={counts.needed} tone={C.bad} />
-              <Chip id="risky" label="Rejected recently" n={counts.risky} tone={C.warn} />
-              <Chip id="skippable" label="Skippable" n={counts.skippable} />
-              <Chip id="done" label="Inspected" n={counts.done} tone={C.ok} />
-              <Chip id="all" label="All" n={counts.all} />
-            </div>
-            {!hasDock ? <Empty icon={Truck} title="No dock sheet yet" hint="When the Head connects the dock sheet, every pallet standing on the dock shows up here, most urgent first." />
-            : shown.length === 0 ? <p className="text-sm py-6 text-center" style={{ color: C.muted }}>{q ? "Nothing matches." : filter === "todo" ? "Nothing left to inspect — the dock is clear." : "Nothing here."}</p>
-            : <table className="w-full text-sm" style={{ borderCollapse: "collapse" }}>
-              <thead><tr className="text-xs text-left" style={{ color: C.muted }}>{["Product", "Pallets", "Where", "On dock", "Why now", "Status", ""].map(h => <th key={h} className="py-1.5 pr-3 font-medium" style={{ borderBottom: `1px solid ${C.line}` }}>{h}</th>)}</tr></thead>
-              <tbody>{shown.map(g => { const tone = g.open.length ? urgencyTone(g.u) : "muted"; return (
-                <tr key={g.key} style={{ borderBottom: `1px solid ${C.line}` }}>
-                  <td className="py-2 pr-3" style={{ borderLeft: `3px solid ${g.open.length && g.u <= 7 ? toneCol(tone) : "transparent"}`, paddingLeft: 10 }}>
-                    <button type="button" onClick={() => openPallet && openPallet(g.lead.hu || g.article)} className="text-left font-medium leading-tight">{g.name}</button>
-                    <span className="block text-[11px] font-mono" style={{ color: C.muted }}>{g.article}{g.product?.isBio ? " · bio" : ""}{g.mixedPO ? <span className="ml-1.5 font-sans" style={{ color: C.warn }}>· {g.pos.length} POs</span> : g.pos[0] ? ` · PO ${g.pos[0]}` : ""}</span>
-                  </td>
-                  <td className="py-2 pr-3 whitespace-nowrap" style={{ fontVariantNumeric: "tabular-nums" }}>{g.rows.length}{g.rows.length > 1 && g.open.length && g.open.length < g.rows.length ? <span className="text-xs" style={{ color: C.muted }}> · {g.open.length} left</span> : null}</td>
-                  <td className="py-2 pr-3 text-xs whitespace-nowrap">{g.locs.length <= 2 ? g.locs.join(", ") : `${g.locs[0]} +${g.locs.length - 1}`}</td>
-                  <td className="py-2 pr-3 text-xs whitespace-nowrap" style={{ fontVariantNumeric: "tabular-nums", color: g.hours > st.rejectionWindowHours ? C.bad : C.ink }}>{fmtHours(g.hours)}</td>
-                  <td className="py-2 pr-3 text-xs">{g.why && g.open.length ? <span className="font-medium" style={{ color: toneCol(tone) }}>{g.why}</span> : null}{g.whyPlus && <span className="block" style={{ color: C.warn }}>{g.whyPlus}</span>}</td>
-                  <td className="py-2 pr-3"><RowStatus g={g} /></td>
-                  <td className="py-2 text-right"><button type="button" onClick={() => openPallet && openPallet(g.lead.hu || g.article)} className="text-xs font-semibold px-2.5 rounded-lg inline-flex items-center" style={{ height: 28, background: C.accentSoft, color: C.accent }}>Open</button></td>
-                </tr>); })}</tbody>
-            </table>}
-            <p className="text-[11px] mt-3" style={{ color: C.muted }}>Open a product to see its spec, photos and recent history before walking out. The inspection itself is started on the phone at the pallet.</p>
-          </Card>
+      <div className="flex items-baseline gap-3 mb-1 flex-wrap"><h1>Hi, {user.name.split(" ")[0]}</h1><span className="text-xs" style={{ color: C.muted }}>{new Date(now).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "short" })}{f.fresh.length ? ` · ${f.fresh.map(x => `${x.purpose === "Dock" ? "dock" : "blocked"} sheet ${agoShort(x.at)}`).join(" · ")}` : " · no dock sheet yet"}</span></div>
+      <DeadlineBanner s={s} alerts={f.alerts} now={now} onOpen={a => a.hu && openPallet && openPallet(a.hu)} />
+      {/* ── Docks: the same priority tiles the Head sees; a tap filters the worklist below ── */}
+      <div className="flex items-center mt-1 mb-1.5"><p className="label-sm flex-1" style={{ color: C.muted }}>Docks · {f.dock.length} pallets · {f.skus} products{f.blocking ? ` · ${f.blocking} needed today` : ""}{f.skippable ? ` · ${f.skippable} skippable` : ""}</p><button type="button" onClick={() => setPage("docks")} className="text-xs font-medium inline-flex items-center" style={{ color: C.accent }}><Ic i={Warehouse} s={13} />Dock map →</button></div>
+      <div className="grid gap-3 mb-3" style={{ gridTemplateColumns: "repeat(7, 1fr)" }}>
+        <Tile label="Needed today" value={f.blocking} sub={f.blocking ? "blocks picking" : "nothing blocking"} color={C.bad} onClick={hasDock ? () => pick("needed") : undefined} active={filter === "needed"} />
+        {PRIO_ORDER.map(k => <Tile key={k} label={k} value={f.prio[k]} color={k === "Now needed" || k === "High risk" ? C.bad : k === "High issues" || k === "Late inspection" ? C.warn : C.accent} onClick={hasDock ? () => pick(k) : undefined} active={filter === k} />)}
+        <Tile label="Skippable" value={f.skippable} color={C.muted} onClick={hasDock ? () => pick("skippable") : undefined} active={filter === "skippable"} />
+      </div>
+      {/* ── Queue + me ── */}
+      <p className="label-sm mt-4 mb-1.5" style={{ color: C.muted }}>Queue</p>
+      <div className="grid gap-3 mb-3" style={{ gridTemplateColumns: "repeat(5, 1fr)" }}>
+        <Tile label="Blocked pallets" value={f.bl.open} sub={f.bl.taken ? `${f.bl.taken} taken` : f.bl.open ? "waiting for a check" : "queue is clear"} color={C.bad} onClick={() => setPage("blocked")} />
+        <Tile label="In stack" value={f.stacked} sub={f.stacked ? "buried behind other pallets" : "none buried"} color={C.warn} onClick={f.stacked ? () => setPage("docks") : undefined} />
+        <Tile label="Rejection window" value={f.alerts.length} sub={f.alerts.length ? `${f.alerts.filter(a => a.level === "breached").length} expired` : "nothing closing"} color={C.bad} onClick={f.alerts.length ? () => pick("deadline") : undefined} active={filter === "deadline"} />
+        <Tile label="Unreported today" value={f.unreported.today} sub={f.unreported.today ? "left the dock without a report" : "all reported"} color={C.warn} onClick={() => setPage("unreported")} />
+        <Tile label="Done today" value={f.doneToday} sub={`${myDone} by you${myRejected ? ` · ${myRejected} rejected` : ""}`} color={C.ok} onClick={() => { setOpenId(null); setPage("inspections"); }} />
+      </div>
+      {/* ── What the Head sent + who is where ── */}
+      <div className="grid gap-3 mb-3 mt-4" style={{ gridTemplateColumns: "minmax(0,1fr) minmax(0,1.6fr) minmax(0,1.2fr)" }}>
+        <button type="button" onClick={() => setPage("briefing")} className="qc-elev qc-tile text-left rounded-2xl p-4 flex items-start gap-3" style={{ background: C.surface, border: `1px solid ${C.line}`, borderLeft: `4px solid ${pulseN ? C.accent : C.line}`, boxShadow: lift() }}>
+          <span className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: C.accentSoft, color: C.accent }}><Ic i={BookOpen} s={17} mr={0} /></span>
+          <span className="min-w-0 flex-1"><span className="text-xs block" style={{ color: C.muted }}>Shift update</span><span className="text-2xl font-semibold block leading-tight" style={{ color: pulseN ? C.accent : C.muted }}>{pulseN || "✓"}</span><span className="text-[11px] block mt-0.5" style={{ color: C.muted }}>{pulseN ? [pulse.rejs.length + pulse.xrejs.length ? `${pulse.rejs.length + pulse.xrejs.length} rejections` : "", pulse.complaints.length ? `${pulse.complaints.length} complaints` : "", pulse.anns.length ? `${pulse.anns.length} notes` : ""].filter(Boolean).join(" · ") : "you're up to date"}</span></span>
+        </button>
+        <div className="qc-elev rounded-2xl p-4" style={{ background: C.surface, border: `1px solid ${C.line}`, boxShadow: lift() }}>
+          <p className="text-xs mb-1 flex items-center" style={{ color: C.muted }}><Ic i={Megaphone} s={13} />From the Head</p>
+          {dashAnns.length === 0 ? <p className="text-sm" style={{ color: C.muted }}>No announcements right now.</p> : dashAnns.slice(0, 2).map((a, i) => <button key={a.id} type="button" onClick={() => openAnn(a)} className="w-full text-left py-1" style={{ borderTop: i ? `1px solid ${C.line}` : "none" }}><span className="text-sm font-medium block leading-tight truncate">{a.title}</span>{a.body && <span className="text-[11px] block truncate" style={{ color: C.muted }}>{a.body}</span>}</button>)}
+          {dashAnns.length > 2 && <button type="button" onClick={() => setPage("announcements")} className="text-[11px] mt-1" style={{ color: C.accent }}>+{dashAnns.length - 2} more</button>}
         </div>
-        {/* ── Side: me today, what the Head sent, team ── */}
-        <aside className="w-80 flex-shrink-0 flex flex-col gap-3">
-          <Card>
-            <p className="font-semibold text-sm mb-2">You today</p>
-            <div className="grid gap-2 mb-2" style={{ gridTemplateColumns: "1fr 1fr" }}>
-              {[["Inspected", myDone, myDone ? C.ok : C.muted], ["Rejected", myRejected, myRejected ? C.bad : C.muted]].map(([l, v, col]) => <div key={l} className="rounded-xl px-3 py-2" style={{ background: C.bg, border: `1px solid ${C.line}` }}><p className="text-[11px]" style={{ color: C.muted }}>{l}</p><p className="text-xl font-semibold" style={{ color: col }}>{v}</p></div>)}
-            </div>
-            {mineDrafts.length > 0 && <div className="mt-2">{mineDrafts.slice(0, 3).map(i => { const p = s.products.find(x => x.id === i.productId); return <button key={i.id} type="button" onClick={() => { setOpenId(i.id); setPage("inspections"); }} className="w-full text-left flex items-center gap-2 py-1.5 text-sm" style={{ borderTop: `1px solid ${C.line}` }}><span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: C.accent }} /><span className="flex-1 min-w-0 truncate">{p?.name || "Inspection"}</span><span className="text-[11px]" style={{ color: C.muted }}>{i.status === "PendingReview" ? "awaiting Head" : "draft"}</span></button>; })}</div>}
-            <p className="text-[11px] mt-2" style={{ color: C.muted }}>Team today: {f.doneToday} inspected{f.unreported.open ? ` · ${f.unreported.open} pallets left without a report` : ""}</p>
-          </Card>
-          <button type="button" onClick={() => setPage("briefing")} className="qc-elev qc-tile text-left rounded-2xl px-4 py-3 flex items-center gap-3" style={{ background: C.surface, border: `1px solid ${C.line}`, borderLeft: `3px solid ${pulseN ? C.accent : C.line}` }}>
-            <span className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: C.accentSoft, color: C.accent }}><Ic i={BookOpen} s={17} mr={0} /></span>
-            <span className="min-w-0 flex-1"><span className="text-sm font-semibold block">Shift update{pulseN ? ` · ${pulseN} new` : ""}</span><span className="text-[11px] block" style={{ color: C.muted }}>{pulseN ? [pulse.rejs.length + pulse.xrejs.length ? `${pulse.rejs.length + pulse.xrejs.length} rejections` : "", pulse.complaints.length ? `${pulse.complaints.length} complaints` : "", pulse.anns.length ? `${pulse.anns.length} notes` : ""].filter(Boolean).join(" · ") : "You're up to date"}</span></span>
-            <Ic i={ChevronRight} s={16} mr={0} style={{ color: C.muted }} />
-          </button>
-          {dashAnns.length > 0 && <Card>
-            <p className="font-semibold text-sm mb-1 flex items-center" style={{ color: C.accent }}><Ic i={Megaphone} s={14} />From the Head</p>
-            {dashAnns.slice(0, 4).map((a, i) => <button key={a.id} type="button" onClick={() => openAnn(a)} className="w-full text-left py-2" style={{ borderTop: i ? `1px solid ${C.line}` : "none" }}><span className="text-sm font-medium block leading-tight">{a.title}</span>{a.body && <span className="text-xs block mt-0.5 truncate" style={{ color: C.muted }}>{a.body}</span>}</button>)}
-          </Card>}
-          {(f.bl.open > 0 || f.unreported.open > 0 || f.lostOpen > 0) && <Card>
-            <p className="font-semibold text-sm mb-1">Queues</p>
-            {[["Blocked pallets", f.bl.open, "blocked", f.bl.open ? C.bad : C.muted], ["Unreported pallets", f.unreported.open, "unreported", f.unreported.open ? C.warn : C.muted], ["Lost pallets", f.lostOpen, "lost", C.muted]].filter(([, n]) => n).map(([l, n, pg, col]) => <button key={pg} type="button" onClick={() => setPage(pg)} className="w-full flex items-center justify-between py-1.5 text-sm" style={{ borderTop: `1px solid ${C.line}` }}><span>{l}</span><span className="font-semibold" style={{ color: col, fontVariantNumeric: "tabular-nums" }}>{n}</span></button>)}
-          </Card>}
-          <Card>
-            <div className="flex items-center mb-1"><p className="font-semibold text-sm flex-1">Latest inspections</p><button type="button" onClick={() => { setOpenId(null); setPage("inspections"); }} className="text-xs" style={{ color: C.accent }}>all ›</button></div>
-            {recent.length === 0 ? <p className="text-xs py-2" style={{ color: C.muted }}>Nothing yet today.</p> : recent.map(i => { const p = s.products.find(x => x.id === i.productId); const who = s.users.find(u => u.id === i.controllerId); const rej = i.result === "Rejected"; return <button key={i.id} type="button" onClick={() => { setOpenId(i.id); setPage("inspections"); }} className="w-full text-left flex items-center gap-2 py-1.5" style={{ borderTop: `1px solid ${C.line}` }}><span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: rej ? C.bad : i.result === "Accepted" ? C.ok : C.muted }} /><span className="flex-1 min-w-0"><span className="text-sm block truncate leading-tight">{p?.name || "—"}</span><span className="text-[11px] block" style={{ color: C.muted }}>{i.result || "done"}{who ? ` · ${who.name.split(" ")[0]}` : ""} · {dayLabel(i.completedAt)}</span></span></button>; })}
-          </Card>
-        </aside>
+        <div className="qc-elev rounded-2xl p-4" style={{ background: C.surface, border: `1px solid ${C.line}`, boxShadow: lift() }}>
+          <p className="text-xs mb-1 flex items-center" style={{ color: C.muted }}><Ic i={Users} s={13} />On the floor</p>
+          {f.people.length === 0 ? <p className="text-sm" style={{ color: C.muted }}>Nobody yet.</p> : f.people.slice(0, 4).map(p => <div key={p.user.id} className="flex items-center gap-2 py-1 text-sm"><Avatar user={p.user} size={20} /><span className="flex-1 min-w-0 truncate">{p.user.id === user.id ? "You" : p.user.name.split(" ")[0]}{p.inProgress.length ? <span style={{ color: C.muted }}> · {s.products.find(x => x.id === p.inProgress[0].productId)?.name || "inspecting"}</span> : p.taken.length ? <span style={{ color: C.muted }}> · at {p.taken[0].location || "a pallet"}</span> : null}</span><span className="text-[11px] whitespace-nowrap" style={{ color: C.muted }}>{p.doneToday} done · {agoShort(p.lastAt)}</span></div>)}
+        </div>
+      </div>
+      {/* ── Worklist ── */}
+      <div ref={worklist} className="scroll-mt-4">
+        {blockedOpen.length > 0 && filter === "todo" && <Card style={{ marginBottom: 12, marginTop: 16, borderLeft: `4px solid ${C.bad}` }}>
+          <div className="flex items-center gap-2 mb-1"><p className="font-semibold text-sm flex-1">Blocked pallets waiting · {blockedOpen.length}</p><button type="button" onClick={() => setPage("blocked")} className="text-xs" style={{ color: C.accent }}>all ›</button></div>
+          {blockedOpen.slice(0, 3).map(b => <QueueRow key={b.key} s={s} set={set} user={user} b={b} onOpen={() => openPallet && openPallet(b.hu || claimKey(b))} />)}
+        </Card>}
+        <Card style={{ marginTop: blockedOpen.length && filter === "todo" ? 0 : 16 }}>
+          <div className="flex items-center gap-2 mb-3 flex-wrap">
+            <p className="font-semibold flex-1">On the dock <span className="font-normal text-xs ml-1" style={{ color: C.muted }}>{filter === "todo" ? "most urgent first" : filterLabel}{PRIO_ORDER.includes(filter) || ["needed", "deadline", "skippable"].includes(filter) ? <button type="button" onClick={() => setFilter("todo")} className="ml-2 underline" style={{ color: C.accent }}>show everything</button> : null}</span></p>
+            <SearchBox value={q} onChange={setQ} placeholder="product, article, location, PO…" />
+          </div>
+          <div className="flex gap-1.5 mb-3 flex-wrap">
+            <Chip id="todo" label="To inspect" n={counts.todo} tone={C.ink} />
+            <Chip id="needed" label="Needed today" n={counts.needed} tone={C.bad} />
+            <Chip id="risky" label="Rejected recently" n={counts.risky} tone={C.warn} />
+            <Chip id="skippable" label="Skippable" n={counts.skippable} />
+            <Chip id="done" label="Inspected" n={counts.done} tone={C.ok} />
+            <Chip id="all" label="All" n={counts.all} />
+          </div>
+          {!hasDock ? <Empty icon={Truck} title="No dock sheet yet" hint="When the Head connects the dock sheet, every pallet standing on the dock shows up here, most urgent first." />
+          : shown.length === 0 ? <p className="text-sm py-6 text-center" style={{ color: C.muted }}>{q ? "Nothing matches." : filter === "todo" ? "Nothing left to inspect — the dock is clear." : "Nothing here."}</p>
+          : <table className="w-full text-sm" style={{ borderCollapse: "collapse" }}>
+            <thead><tr className="text-xs text-left" style={{ color: C.muted }}>{["Product", "Pallets", "Where", "On dock", "Why now", "Status", ""].map(h => <th key={h} className="py-1.5 pr-3 font-medium" style={{ borderBottom: `1px solid ${C.line}` }}>{h}</th>)}</tr></thead>
+            <tbody>{shown.map(g => { const tone = g.open.length ? urgencyTone(g.u) : "muted"; return (
+              <tr key={g.key} style={{ borderBottom: `1px solid ${C.line}` }}>
+                <td className="py-2 pr-3" style={{ borderLeft: `3px solid ${g.open.length && g.u <= 7 ? toneCol(tone) : "transparent"}`, paddingLeft: 10 }}>
+                  <button type="button" onClick={() => openPallet && openPallet(g.lead.hu || g.article)} className="text-left font-medium leading-tight">{g.name}</button>
+                  <span className="block text-[11px] font-mono" style={{ color: C.muted }}>{g.article}{g.product?.isBio ? " · bio" : ""}{g.mixedPO ? <span className="ml-1.5 font-sans" style={{ color: C.warn }}>· {g.pos.length} POs</span> : g.pos[0] ? ` · PO ${g.pos[0]}` : ""}</span>
+                </td>
+                <td className="py-2 pr-3 whitespace-nowrap" style={{ fontVariantNumeric: "tabular-nums" }}>{g.rows.length}{g.rows.length > 1 && g.open.length && g.open.length < g.rows.length ? <span className="text-xs" style={{ color: C.muted }}> · {g.open.length} left</span> : null}</td>
+                <td className="py-2 pr-3 text-xs whitespace-nowrap">{g.locs.length <= 2 ? g.locs.join(", ") : `${g.locs[0]} +${g.locs.length - 1}`}</td>
+                <td className="py-2 pr-3 text-xs whitespace-nowrap" style={{ fontVariantNumeric: "tabular-nums", color: g.hours > st.rejectionWindowHours ? C.bad : C.ink }}>{fmtHours(g.hours)}</td>
+                <td className="py-2 pr-3 text-xs">{g.why && g.open.length ? <span className="font-medium" style={{ color: toneCol(tone) }}>{g.why}</span> : null}{g.whyPlus && <span className="block" style={{ color: C.warn }}>{g.whyPlus}</span>}</td>
+                <td className="py-2 pr-3"><RowStatus g={g} /></td>
+                <td className="py-2 text-right"><button type="button" onClick={() => openPallet && openPallet(g.lead.hu || g.article)} className="text-xs font-semibold px-2.5 rounded-lg inline-flex items-center" style={{ height: 28, background: C.accentSoft, color: C.accent }}>Open</button></td>
+              </tr>); })}</tbody>
+          </table>}
+          <p className="text-[11px] mt-3" style={{ color: C.muted }}>Open a product to see its spec, photos and recent history before walking out. The inspection itself is started on the phone at the pallet.</p>
+        </Card>
       </div>
       {annOpen && <AnnouncementModal a={annOpen} onClose={() => setAnnOpen(null)} />}
     </div>
@@ -4971,86 +4975,137 @@ function FoldNote({ title, chip, children }) {
     </div>
   );
 }
-function CatalogPage({ s, set, user, notify, onStartInspection, onOpenInspection, presetSel, clearPresetSel, presetFilter, clearPreset }) {
+function CatalogPage({ s, set, user, notify, onStartInspection, onOpenInspection, presetSel, clearPresetSel, presetFilter, clearPreset, openPallet }) {
   const [q, setQ] = useState(""); const [sel, setSel] = useBackSel("catalogSel", null); const [flagText, setFlagText] = useState(""); const [flagOpen, setFlagOpen] = useState(false); const [showRef, setShowRef] = useState(null);
   useEffect(() => { if (presetSel) { setSel(presetSel); clearPresetSel && clearPresetSel(); } }, [presetSel]);
   useEffect(() => { if (presetFilter) { setQ(presetFilter); clearPreset && clearPreset(); } }, [presetFilter]);
-  const [cat, setCat] = useBackSel("catalogCat", null); const [f, setF] = useState({ bio: "", supplier: "", flagged: false, sort: "name" });
-  const catPath = id => { const c = s.categories.find(x => x.id === id); if (!c) return "uncategorised"; const p = c.parentId && s.categories.find(x => x.id === c.parentId); return p ? `${p.name} › ${c.name}` : c.name; };
+  const [cat, setCat] = useBackSel("catalogCat", ""); const [f, setF] = useState({ bio: "", supplier: "", only: "", sort: "name" }); const [limit, setLimit] = useState(80);
+  const now = Date.now();
+  const catPath = id => { const c = s.categories.find(x => x.id === id); if (!c) return ""; const p = c.parentId && s.categories.find(x => x.id === c.parentId); return p ? `${p.name} › ${c.name}` : c.name; };
   const catChain = id => { const out = []; let c = s.categories.find(x => x.id === id); while (c) { out.unshift(c); c = c.parentId ? s.categories.find(x => x.id === c.parentId) : null; } return out; };
   const lastInsp = pid => s.inspections.filter(i => i.productId === pid && i.status === "Completed").sort((a, b) => (b.completedAt || "").localeCompare(a.completedAt || ""))[0];
+  // What stands on the dock right now, per article — the list the controller actually walks to.
+  const dock = dockRowsLive(s).filter(r => !lostOf(s, r)); const onDock = {}; dock.forEach(r => { const k = normArticle(r.article); if (!k) return; (onDock[k] = onDock[k] || []).push(r); });
+  const dockOf = p => onDock[normArticle(p.articleId)] || [];
+  const urgency = rows => Math.min(...rows.map(r => r.blocking ? 0 : r.priority && PRIO_ORDER.includes(r.priority) ? 1 + PRIO_ORDER.indexOf(r.priority) : 8));
   const haystack = p => [p.name, p.articleId, p.barcodeCu, p.barcodeTu, ...catChain(p.categoryId).map(c => c.name), ...(p.supplierIds || []).map(id => (s.suppliers || []).find(x => x.id === id)?.name || ""), ...effectiveVarieties(s, p).map(v => v.name)].join(" ").toLowerCase();
   const qq = q.trim().toLowerCase();
-  const visible = s.products.filter(p => p.isActive !== false).filter(p => (!cat || catChain(p.categoryId).some(c => c.id === cat)) && (!f.bio || (f.bio === "bio" ? p.isBio : !p.isBio)) && (!f.supplier || (p.supplierIds || []).includes(f.supplier)) && (!f.flagged || s.flags.some(x => x.productId === p.id && x.status === "Open")) && (!qq || haystack(p).includes(qq)))
-    .sort((a, b) => f.sort === "recent" ? ((lastInsp(b.id)?.completedAt || "").localeCompare(lastInsp(a.id)?.completedAt || "")) : a.name.localeCompare(b.name, "en"));
-  const topCats = s.categories.filter(c => !c.parentId);
-  const countIn = cid => s.products.filter(p => catChain(p.categoryId).some(c => c.id === cid)).length;
-  const Chip = ({ on, onClick, children }) => <button onClick={onClick} className="text-xs px-3 py-1.5 rounded-full whitespace-nowrap" style={{ background: on ? C.ink : "transparent", color: on ? C.onDark : C.ink, border: `1px solid ${on ? C.ink : C.line}` }}>{children}</button>;
+  const active = s.products.filter(p => p.isActive !== false);
+  const matches = p => (!cat || catChain(p.categoryId).some(c => c.id === cat)) && (!f.bio || (f.bio === "bio" ? p.isBio : !p.isBio)) && (!f.supplier || (p.supplierIds || []).includes(f.supplier))
+    && (!f.only || (f.only === "dock" ? dockOf(p).length > 0 : f.only === "flag" ? s.flags.some(x => x.productId === p.id && x.status === "Open") : f.only === "rejected" ? !!extRejectionLine(s, p.articleId, now) || recentProblemsFor(s, p.id, now).count > 0 : f.only === "live" ? !!liveNoteOf(p) || (s.tempSpecs || []).some(t => t.ownerKind === "product" && t.ownerId === p.id && tempSpecIsActive(t)) : true))
+    && (!qq || haystack(p).includes(qq));
+  const visible = active.filter(matches).sort((a, b) => f.sort === "recent" ? ((lastInsp(b.id)?.completedAt || "").localeCompare(lastInsp(a.id)?.completedAt || "")) : f.sort === "dock" ? (dockOf(b).length ? urgency(dockOf(b)) : 99) - (dockOf(a).length ? urgency(dockOf(a)) : 99) || a.name.localeCompare(b.name, "en") : a.name.localeCompare(b.name, "en"));
+  const filtered = !!(qq || cat || f.bio || f.supplier || f.only);
+  const dockFirst = !filtered && f.sort === "name" ? visible.filter(p => dockOf(p).length).sort((a, b) => urgency(dockOf(a)) - urgency(dockOf(b)) || a.name.localeCompare(b.name, "en")) : [];
+  const rest = dockFirst.length ? visible.filter(p => !dockOf(p).length) : visible;
+  const catCount = cid => active.filter(p => catChain(p.categoryId).some(c => c.id === cid)).length;
+  const catOptions = s.categories.filter(c => !c.parentId).map(c => ({ c, n: catCount(c.id), kids: s.categories.filter(k => k.parentId === c.id).map(k => ({ c: k, n: catCount(k.id) })).filter(k => k.n) })).filter(x => x.n).sort((a, b) => a.c.name.localeCompare(b.c.name, "en"));
+  const usedSuppliers = (s.suppliers || []).filter(x => active.some(p => (p.supplierIds || []).includes(x.id))).sort((a, b) => a.name.localeCompare(b.name, "en"));
+  const counts = { dock: active.filter(p => dockOf(p).length).length, flag: active.filter(p => s.flags.some(x => x.productId === p.id && x.status === "Open")).length, rejected: active.filter(p => !!extRejectionLine(s, p.articleId, now) || recentProblemsFor(s, p.id, now).count > 0).length, live: active.filter(p => !!liveNoteOf(p) || (s.tempSpecs || []).some(t => t.ownerKind === "product" && t.ownerId === p.id && tempSpecIsActive(t))).length };
+  const Pill = ({ on, onClick, children, tone }) => <button type="button" onClick={onClick} className="text-xs font-medium px-3 rounded-full whitespace-nowrap inline-flex items-center gap-1.5" style={{ height: 30, background: on ? C.ink : C.surface, color: on ? C.onDark : C.ink, border: `1px solid ${on ? C.ink : C.line}` }}>{children}{tone && <span style={{ color: on ? C.onDark : tone }} />}</button>;
   const product = s.products.find(p => p.id === sel);
   const specs = product ? effectiveSpecs(s, product) : [];
   const assigned = product ? (product.supplierIds || []).map(id => (s.suppliers || []).find(x => x.id === id)).filter(Boolean) : [];
-  const suppliers = assigned.length ? assigned : (s.suppliers || []);
-  const history = product ? s.inspections.filter(i => i.productId === product.id && i.status === "Completed").sort((a, b) => (b.completedAt || "").localeCompare(a.completedAt || "")).slice(0, 5) : [];
-  const openFlags = product ? s.flags.filter(f => f.productId === product.id && f.status === "Open") : [];
+  const history = product ? s.inspections.filter(i => i.productId === product.id && i.status === "Completed").sort((a, b) => (b.completedAt || "").localeCompare(a.completedAt || "")) : [];
+  const openFlags = product ? s.flags.filter(x => x.productId === product.id && x.status === "Open") : [];
+  const prodDock = product ? dockOf(product) : [];
+  const hist = product ? recentProblemsFor(s, product.id, now) : null;
   const raise = () => { if (!flagText.trim()) return; set(x => ({ ...x, flags: [...x.flags, { id: uid(), productId: product.id, inspectionId: null, raisedBy: user.id, description: flagText.trim(), status: "Open", createdAt: nowISO() }] })); notify("Flag", `${user.name}: ${product.name} — ${flagText.trim()}`, "ProductFlag", null); setFlagText(""); setFlagOpen(false); };
+  const Row = ({ p }) => { const li = lastInsp(p.id); const openFlag = s.flags.some(x => x.productId === p.id && x.status === "Open"); const d = dockOf(p); const on = sel === p.id; const ext = extRejectionLine(s, p.articleId, now); return (
+    <button type="button" onClick={() => { setSel(p.id); setFlagOpen(false); setShowRef(null); }} className="w-full text-left flex items-center gap-3 px-3 py-2 rounded-xl" style={{ background: on ? C.accentSoft : "transparent", border: `1px solid ${on ? C.accent : "transparent"}` }}>
+      {asPhotoList(p.photos).length ? <img src={thumbSrc(asPhotoList(p.photos)[0])} loading="lazy" decoding="async" alt="" className="w-10 h-10 rounded-lg object-contain flex-shrink-0" style={{ background: PHOTO_BG }} /> : <span className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: C.bg, color: C.muted }}><Ic i={ImageIcon} s={16} mr={0} /></span>}
+      <span className="flex-1 min-w-0"><span className="block text-sm font-medium truncate leading-tight" style={{ color: on ? C.accent : C.ink }}>{p.name}</span><span className="block text-[11px] truncate mt-0.5" style={{ color: C.muted }}><span className="font-mono">{p.articleId || "—"}</span>{p.isBio ? " · bio" : ""}{catPath(p.categoryId) ? ` · ${catPath(p.categoryId)}` : ""}</span></span>
+      <span className="flex items-center gap-1.5 flex-shrink-0">
+        {d.length > 0 && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full" style={{ background: d.some(r => r.blocking) ? C.badBg : C.accentSoft, color: d.some(r => r.blocking) ? C.bad : C.accent }}>on dock{d.length > 1 ? ` ×${d.length}` : ""}</span>}
+        {ext && <span className="w-2 h-2 rounded-full" title={`rejected ${ext.count}× in ${ext.span}`} style={{ background: C.warn }} />}
+        {openFlag && <Ic i={Flag} s={12} mr={0} style={{ color: C.warn }} />}
+        {li && <span className="w-2 h-2 rounded-full" title={`last inspection ${li.result === "Accepted" ? "accepted" : "rejected"} · ${fmtTime(li.completedAt)}`} style={{ background: li.result === "Accepted" ? C.ok : C.bad }} />}
+      </span>
+    </button>); };
+  const Fact = ({ k, v }) => v ? <span className="text-xs px-2.5 py-1 rounded-full" style={{ background: C.bg, border: `1px solid ${C.line}` }}><span style={{ color: C.muted }}>{k}</span> <b>{v}</b></span> : null;
+  const Section = ({ title, right, children }) => <div className="mt-5"><div className="flex items-center mb-1.5"><p className="label-sm flex-1" style={{ color: C.muted }}>{title}</p>{right}</div>{children}</div>;
   return (
     <div>
-      <h1 className="mb-1">Products</h1>
-      <p className="text-sm mb-5" style={{ color: C.muted, maxWidth: 640 }}>Knowledge source on the dock: what the product is, its specs, who delivers it. Read-only — if something is off, raise a flag.</p>
-      <div className="grid gap-4" style={{ gridTemplateColumns: "1fr 1.3fr" }}>
-        <Card>
-          <input value={q} onChange={e => setQ(e.target.value)} placeholder="product, ID, category, supplier, variety…" autoFocus className="w-full text-sm mb-2" />
-          <div className="flex gap-1.5 flex-wrap mb-2"><Chip on={!cat} onClick={() => setCat(null)}>Wszystkie · {s.products.length}</Chip>{topCats.map(c => <Chip key={c.id} on={cat === c.id} onClick={() => setCat(c.id)}>{c.name} · {countIn(c.id)}</Chip>)}</div>
-          {cat && s.categories.some(c => c.parentId === cat) && <div className="flex gap-1.5 flex-wrap mb-2 pl-2">{s.categories.filter(c => c.parentId === cat).map(c => <Chip key={c.id} on={false} onClick={() => setCat(c.id)}>↳ {c.name} · {countIn(c.id)}</Chip>)}</div>}
-          <div className="flex gap-1.5 flex-wrap mb-3 items-center text-xs" style={{ color: C.muted }}>
-            <select value={f.bio} onChange={e => setF(x => ({ ...x, bio: e.target.value }))} className="text-xs" style={{ minHeight: 30 }}><option value="">bio and standard</option><option value="bio">bio only</option><option value="std">standard only</option></select>
-            <select value={f.supplier} onChange={e => setF(x => ({ ...x, supplier: e.target.value }))} className="text-xs" style={{ minHeight: 30 }}><option value="">any supplier</option>{(s.suppliers || []).map(x => <option key={x.id} value={x.id}>{x.name}</option>)}</select>
-            <Chip on={f.flagged} onClick={() => setF(x => ({ ...x, flagged: !x.flagged }))}>with open flag</Chip>
-            <select value={f.sort} onChange={e => setF(x => ({ ...x, sort: e.target.value }))} className="text-xs" style={{ minHeight: 30 }}><option value="name">A–Z</option><option value="recent">recently inspected</option></select>
-          </div>
-          {visible.length === 0 ? <p className="text-xs" style={{ color: C.muted }}>Nothing matches.</p> : visible.slice(0, 60).map(p => { const li = lastInsp(p.id); const openFlag = s.flags.some(x => x.productId === p.id && x.status === "Open"); return (
-            <button key={p.id} onClick={() => { setSel(p.id); setFlagOpen(false); setShowRef(null); }} className="w-full text-left flex items-center gap-2 px-2 py-2 rounded-lg row" style={{ background: sel === p.id ? C.accentSoft : "transparent", borderTop: `1px solid ${C.line}` }}>
-              {asPhotoList(p.photos).length ? <img src={thumbSrc(asPhotoList(p.photos)[0])} loading="lazy" decoding="async" alt="" className="w-8 h-8 rounded-md object-contain" style={{ background: PHOTO_BG }} /> : <span className="w-8 h-8 rounded-md flex items-center justify-center" style={{ background: C.bg, color: C.muted }}><Ic i={ImageIcon} s={14} mr={0} /></span>}
-              <span className="flex-1 min-w-0"><span className="block text-sm truncate" style={{ color: sel === p.id ? C.accent : C.ink }}>{p.name}{p.isBio && <span className="text-xs ml-1" style={{ color: C.ok }}>bio</span>}</span><span className="block text-[11px]" style={{ color: C.muted }}>{p.articleId || "—"} · {catPath(p.categoryId)}</span></span>
-              {openFlag && <Ic i={Flag} s={12} mr={0} style={{ color: C.warn }} />}
-              {li && <span className="inline-block rounded-full" title={`last: ${li.result === "Accepted" ? "accepted" : "rejected"}, ${fmtTime(li.completedAt)}`} style={{ width: 8, height: 8, background: li.result === "Accepted" ? C.ok : C.bad }} />}
-            </button>
-          ); })}
-          {visible.length > 60 && <p className="text-xs mt-1" style={{ color: C.muted }}>…and {visible.length - 60} more — narrow the search.</p>}
+      <div className="flex items-baseline gap-3 mb-3"><h1>Products</h1><span className="text-xs" style={{ color: C.muted }}>{active.length} in the catalog{counts.dock ? ` · ${counts.dock} on the dock now` : ""}</span></div>
+      <div className="flex gap-2 mb-3 items-center flex-wrap">
+        <SearchBox value={q} onChange={v => { setQ(v); setLimit(80); }} placeholder="Search product, article, barcode, category, supplier, variety…" autoFocus className="flex-1" style={{ minWidth: 320 }} />
+        <select value={cat} onChange={e => setCat(e.target.value)} className="text-sm rounded-xl px-3" style={{ height: 36, border: `1px solid ${C.line}`, background: C.surface, color: C.ink, maxWidth: 220 }}>
+          <option value="">All categories</option>
+          {catOptions.map(({ c, n, kids }) => kids.length ? <optgroup key={c.id} label={`${c.name} · ${n}`}><option value={c.id}>All {c.name} · {n}</option>{kids.map(k => <option key={k.c.id} value={k.c.id}>{k.c.name} · {k.n}</option>)}</optgroup> : <option key={c.id} value={c.id}>{c.name} · {n}</option>)}
+        </select>
+        {usedSuppliers.length > 0 && <select value={f.supplier} onChange={e => setF(x => ({ ...x, supplier: e.target.value }))} className="text-sm rounded-xl px-3" style={{ height: 36, border: `1px solid ${C.line}`, background: C.surface, color: C.ink, maxWidth: 200 }}><option value="">Any supplier</option>{usedSuppliers.map(x => <option key={x.id} value={x.id}>{x.name}</option>)}</select>}
+        <select value={f.sort} onChange={e => setF(x => ({ ...x, sort: e.target.value }))} className="text-sm rounded-xl px-3" style={{ height: 36, border: `1px solid ${C.line}`, background: C.surface, color: C.ink }}><option value="name">A–Z</option><option value="dock">On the dock first</option><option value="recent">Recently inspected</option></select>
+      </div>
+      <div className="flex gap-1.5 mb-4 flex-wrap">
+        <Pill on={!f.only && !f.bio} onClick={() => setF(x => ({ ...x, only: "", bio: "" }))}>All</Pill>
+        <Pill on={f.only === "dock"} onClick={() => setF(x => ({ ...x, only: x.only === "dock" ? "" : "dock" }))}>On the dock now <b style={{ color: f.only === "dock" ? C.onDark : C.accent }}>{counts.dock}</b></Pill>
+        <Pill on={f.only === "rejected"} onClick={() => setF(x => ({ ...x, only: x.only === "rejected" ? "" : "rejected" }))}>Rejected recently <b style={{ color: f.only === "rejected" ? C.onDark : C.warn }}>{counts.rejected}</b></Pill>
+        <Pill on={f.only === "live"} onClick={() => setF(x => ({ ...x, only: x.only === "live" ? "" : "live" }))}>Temporary spec <b style={{ color: f.only === "live" ? C.onDark : C.bad }}>{counts.live}</b></Pill>
+        <Pill on={f.only === "flag"} onClick={() => setF(x => ({ ...x, only: x.only === "flag" ? "" : "flag" }))}>Open flag <b style={{ color: f.only === "flag" ? C.onDark : C.warn }}>{counts.flag}</b></Pill>
+        <span className="w-px self-stretch mx-1" style={{ background: C.line }} />
+        <Pill on={f.bio === "bio"} onClick={() => setF(x => ({ ...x, bio: x.bio === "bio" ? "" : "bio" }))}>Bio</Pill>
+        <Pill on={f.bio === "std"} onClick={() => setF(x => ({ ...x, bio: x.bio === "std" ? "" : "std" }))}>Standard</Pill>
+      </div>
+      <div className="grid gap-4 items-start" style={{ gridTemplateColumns: "minmax(300px, 2fr) minmax(0, 3fr)" }}>
+        <Card style={{ padding: 10 }}>
+          {visible.length === 0 ? <p className="text-sm py-8 text-center" style={{ color: C.muted }}>Nothing matches.</p> : <>
+            {dockFirst.length > 0 && <><p className="label-sm px-3 pt-2 pb-1" style={{ color: C.accent }}>On the dock now · {dockFirst.length}</p>{dockFirst.map(p => <Row key={p.id} p={p} />)}<p className="label-sm px-3 pt-4 pb-1" style={{ color: C.muted }}>All products · {rest.length}</p></>}
+            {rest.slice(0, limit).map(p => <Row key={p.id} p={p} />)}
+            {rest.length > limit && <button type="button" onClick={() => setLimit(l => l + 120)} className="w-full text-sm py-2.5 mt-1 rounded-xl font-medium" style={{ color: C.accent, background: C.accentSoft }}>Show {Math.min(120, rest.length - limit)} more of {rest.length - limit}</button>}
+          </>}
         </Card>
         <Card>
-          {!product ? <Empty icon="📦" title="Select a product" hint="You'll see the profile, specs, suppliers, varieties and recent inspections." /> : (
+          {!product ? <div>
+            <Empty icon="📦" title="Pick a product" hint="Spec, photos, suppliers and what happened to it recently — before you walk to the pallet." />
+            {dockFirst.length > 0 && <div className="px-2 pb-2"><p className="label-sm mb-2" style={{ color: C.muted }}>Standing on the dock right now</p><div className="grid gap-2" style={{ gridTemplateColumns: "1fr 1fr" }}>{dockFirst.slice(0, 6).map(p => { const d = dockOf(p); return <button key={p.id} type="button" onClick={() => setSel(p.id)} className="qc-tile text-left rounded-xl px-3 py-2.5 flex items-center gap-2.5" style={{ background: C.bg, border: `1px solid ${C.line}` }}>{asPhotoList(p.photos).length ? <img src={thumbSrc(asPhotoList(p.photos)[0])} alt="" className="w-9 h-9 rounded-lg object-contain" style={{ background: PHOTO_BG }} /> : <span className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ background: C.surface, color: C.muted }}><Ic i={ImageIcon} s={14} mr={0} /></span>}<span className="min-w-0 flex-1"><span className="block text-sm font-medium truncate">{p.name}</span><span className="block text-[11px]" style={{ color: d.some(r => r.blocking) ? C.bad : C.muted }}>{d.length} pallet{d.length === 1 ? "" : "s"} · {[...new Set(d.map(r => r.location).filter(Boolean))].slice(0, 2).join(", ")}{d.some(r => r.blocking) ? " · needed today" : d[0]?.priority ? ` · ${d[0].priority}` : ""}</span></span></button>; })}</div></div>}
+          </div> : (
             <>
-              <div className="flex items-start gap-3 mb-3">
-                {asPhotoList(product.photos).length ? <img src={thumbSrc(asPhotoList(product.photos)[0])} loading="lazy" decoding="async" alt="" className="w-16 h-16 rounded-lg object-contain" style={{ border: `1px solid ${C.line}`, background: PHOTO_BG }} /> : <div className="w-16 h-16 rounded-lg flex items-center justify-center" style={{ background: C.bg, border: `1px solid ${C.line}`, color: C.muted }} title="ProductPhotos — reference photos"><Ic i={ImageIcon} s={24} mr={0} /></div>}
+              {/* Header */}
+              <div className="flex items-start gap-4">
+                {asPhotoList(product.photos).length ? <img src={thumbSrc(asPhotoList(product.photos)[0])} loading="lazy" decoding="async" alt="" className="w-24 h-24 rounded-xl object-contain flex-shrink-0" style={{ border: `1px solid ${C.line}`, background: PHOTO_BG }} /> : <div className="w-24 h-24 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: C.bg, border: `1px solid ${C.line}`, color: C.muted }}><Ic i={ImageIcon} s={28} mr={0} /></div>}
                 <div className="flex-1 min-w-0">
-                  <p className="font-semibold">{product.name}{product.isBio && <span className="text-xs ml-2 px-1.5 py-0.5 rounded" style={{ background: C.okBg, color: C.ok }}>bio</span>}</p>
-                  <p className="text-xs" style={{ color: C.muted }}>ID {product.articleId || "—"}{product.barcodeCu && ` · CU ${product.barcodeCu}`}{product.barcodeTu && ` · TU ${product.barcodeTu}`} · {catPath(product.categoryId)}{product.isActive === false && <span className="ml-2 px-1.5 py-0.5 rounded" style={{ background: C.line, color: C.muted }}>inactive</span>}</p>
-                  <p className="text-xs mt-1" style={{ color: C.muted }}>{product.cusPerTu || "?"} CU/TU · {product.piecesPerCu || "?"} pcs/CU · {product.weightPerCu || "?"} g/CU</p>
-                  {product.consumerAppUrl && <button className="text-xs mt-1 underline" style={{ color: C.accent }} title="ConsumerAppUrl — phone only">open in the consumer app ↗</button>}
+                  <div className="flex items-start gap-2 flex-wrap"><h2 className="text-lg font-semibold leading-tight">{product.name}</h2>{product.isBio && <span className="text-[11px] px-2 py-0.5 rounded-full font-medium" style={{ background: C.okBg, color: C.ok }}>bio</span>}{product.isActive === false && <span className="text-[11px] px-2 py-0.5 rounded-full" style={{ background: C.line, color: C.muted }}>inactive</span>}</div>
+                  <p className="text-xs mt-1 font-mono break-all" style={{ color: C.muted }}>ID {product.articleId || "—"}{product.barcodeCu ? ` · CU ${product.barcodeCu}` : ""}{product.barcodeTu ? ` · TU ${product.barcodeTu}` : ""}</p>
+                  <div className="flex flex-wrap gap-1.5 mt-2.5">
+                    <Fact k="Category" v={catPath(product.categoryId)} /><Fact k="CU / TU" v={product.cusPerTu} /><Fact k="pcs / CU" v={product.piecesPerCu} /><Fact k="g / CU" v={product.weightPerCu} />
+                    {product.sortable && <span className="text-xs px-2.5 py-1 rounded-full" style={{ background: product.sortable.value ? C.okBg : C.bg, color: product.sortable.value ? C.ok : C.muted, border: product.sortable.value ? "none" : `1px solid ${C.line}` }}>{product.sortable.value ? "sortable" : "not sortable"}</span>}
+                    {effectiveAttributes(s, product).map(a => <Fact key={a.dictionaryId} k={a.list} v={a.value} />)}
+                  </div>
+                </div>
+                <div className="flex flex-col gap-1.5 flex-shrink-0">
+                  {onStartInspection && <Primary small onClick={() => onStartInspection(product.id)}><Ic i={ClipboardList} />Start inspection</Primary>}
+                  <button type="button" onClick={() => setFlagOpen(o => !o)} className="text-xs font-semibold px-3 rounded-xl inline-flex items-center justify-center" style={{ height: 30, background: C.warnBg, color: C.warn }}><Ic i={Flag} s={13} />Something's off</button>
                 </div>
               </div>
-              {s.announcements.filter(a => annMatchesProduct(s, a, product)).map(a => <Note key={a.id} tone="warn">📣 <b>{a.title}</b> — {a.body}<AnnounceFileList announcement={a} colors={C} compact /></Note>)}
-              <ComplaintsNote s={s} articleId={product.articleId} />
-              <LiveNote product={product} /><ExtRejectionsNote s={s} articleId={product.articleId} />
-              {openFlags.length > 0 && <Note tone="warn">🚩 {openFlags.length} open flag on this product — the Head hasn't resolved it yet.</Note>}
-              {asPhotoList(product.photos).length > 1 && <div className="mb-3"><PhotoStrip photos={product.photos} size={56} /></div>}
-              {effectiveAttributes(s, product).length > 0 && <div className="flex flex-wrap gap-1.5 mb-3">{effectiveAttributes(s, product).map(a => <span key={a.dictionaryId} className="text-xs px-2.5 py-1 rounded-full" style={{ background: C.bg, border: `1px solid ${C.line}` }}><span style={{ color: C.muted }}>{a.list}:</span> <b>{a.value}</b></span>)}</div>}
-              {(() => { const ref = s.inspections.find(i => i.productId === product.id && i.isReference); return ref ? <div className="rounded-lg p-2 mb-3 flex items-center gap-2" style={{ background: C.okBg }}><span className="text-sm inline-flex items-center" style={{ color: C.ok }}><Ic i={Star} s={14} />This product has a reference inspection</span><div className="flex-1" /><Ghost onClick={() => setShowRef(r => r ? null : ref.id)}>{showRef ? "hide" : "see how it should look"}</Ghost></div> : null; })()}
-              {showRef && (() => { const ref = s.inspections.find(i => i.id === showRef); return ref ? <div className="rounded-lg p-3 mb-3" style={{ border: `1px solid ${C.ok}` }}><ReportView insp={ref} s={s} user={user} onEdit={() => {}} onAnswer={() => {}} /></div> : null; })()}
-              <p className="label-sm mb-1" style={{ color: C.muted }}>Specs (specifications)</p>
-              {specs.length === 0 ? <p className="text-xs mb-3" style={{ color: C.muted }}>None.</p> : specs.map(sp => <div key={sp.id} className="flex items-center gap-2 text-sm py-1" style={{ borderTop: `1px solid ${C.line}` }}><span className="flex-1">{sp.name}</span><SpecValue spec={sp} colors={C} />{sp.source !== "product" && <span className="text-[10px]" style={{ color: C.muted }}>{sp.source}</span>}</div>)}
-              <div className="grid grid-cols-2 gap-3 mt-3">
-                <div><p className="label-sm mb-1" style={{ color: C.muted }}>Dostawcy{assigned.length === 0 && suppliers.length > 0 && " (all)"}</p><div className="flex flex-wrap gap-1">{suppliers.length ? suppliers.map(x => <span key={x.id} className="text-xs px-2 py-0.5 rounded-full" style={{ background: C.accentSoft, color: C.accent }}>{x.name}</span>) : <span className="text-xs" style={{ color: C.muted }}>none</span>}</div></div>
-                <div><p className="label-sm mb-1" style={{ color: C.muted }}>Varieties</p><div className="flex flex-wrap gap-1">{effectiveVarieties(s, product).length ? effectiveVarieties(s, product).map(v => <span key={v.id} className="text-xs px-2 py-0.5 rounded-full" style={{ background: C.bg, border: `1px solid ${C.line}` }} title={v.source}>{v.name}</span>) : <span className="text-xs" style={{ color: C.muted }}>none</span>}</div></div>
+              {flagOpen && <div className="flex gap-2 mt-3"><input value={flagText} onChange={e => setFlagText(e.target.value)} placeholder="What's wrong? e.g. supplier changed, spec outdated, wrong photo…" className="flex-1 text-sm rounded-xl px-3" style={{ ...inp, height: 36 }} autoFocus /><Primary small onClick={raise}>Send to the Head</Primary></div>}
+              {/* On the dock */}
+              {prodDock.length > 0 && <div className="rounded-xl p-3 mt-4" style={{ background: prodDock.some(r => r.blocking) ? C.badBg : C.accentSoft }}>
+                <div className="flex items-center gap-2 flex-wrap"><Ic i={Truck} s={14} mr={0} style={{ color: prodDock.some(r => r.blocking) ? C.bad : C.accent }} /><span className="text-sm font-semibold" style={{ color: prodDock.some(r => r.blocking) ? C.bad : C.accent }}>On the dock now · {prodDock.length} pallet{prodDock.length === 1 ? "" : "s"}</span>{prodDock.some(r => r.blocking) && <span className="text-xs font-medium" style={{ color: C.bad }}>· needed today</span>}</div>
+                <div className="flex flex-wrap gap-1.5 mt-2">{prodDock.map(r => { const done = completedInspectionFor(s, r.hu); return <button key={r.hu} type="button" onClick={() => openPallet && openPallet(r.hu)} className="text-xs px-2.5 py-1.5 rounded-lg inline-flex items-center gap-1.5" style={{ background: C.surface, border: `1px solid ${C.line}` }}><b>{r.location || "—"}</b>{r.priority && <span style={{ color: C.muted }}>· {r.priority}</span>}{r.po && <span className="font-mono" style={{ color: C.muted }}>· PO {r.po}</span>}{done ? <Ic i={Check} s={12} mr={0} style={{ color: C.ok }} /> : null}<Ic i={ChevronRight} s={12} mr={0} style={{ color: C.muted }} /></button>; })}</div>
+              </div>}
+              {/* Notes that change how you inspect */}
+              <div className="mt-4">
+                {s.announcements.filter(a => annMatchesProduct(s, a, product)).map(a => <Note key={a.id} tone="warn">📣 <b>{a.title}</b>{a.body ? <> — {a.body}</> : null}<AnnounceFileList announcement={a} colors={C} compact /></Note>)}
+                <LiveNote product={product} /><ComplaintsNote s={s} articleId={product.articleId} /><ExtRejectionsNote s={s} articleId={product.articleId} />
+                {hist?.count > 0 && <Note tone="bad"><b>{hist.count} rejected by the team in the last 14 days</b>{hist.problems.length ? <> — {hist.problems.slice(0, 3).map(p => `${p.name} ×${p.count}`).join(", ")}</> : null}</Note>}
+                {openFlags.length > 0 && <Note tone="warn">🚩 {openFlags.length} open flag{openFlags.length === 1 ? "" : "s"} on this product — the Head hasn't resolved {openFlags.length === 1 ? "it" : "them"} yet.</Note>}
               </div>
-              <p className="label-sm mt-3 mb-1" style={{ color: C.muted }}>Recent inspections</p>
-              {history.length === 0 ? <p className="text-xs" style={{ color: C.muted }}>None yet.</p> : history.map(i => <button key={i.id} type="button" onClick={() => onOpenInspection && onOpenInspection(i.id)} className="w-full flex items-center gap-2 text-xs py-1 text-left" style={{ borderTop: `1px solid ${C.line}` }}><span className="px-2 py-0.5 rounded-full" style={{ background: i.result === "Accepted" ? C.okBg : C.badBg, color: i.result === "Accepted" ? C.ok : C.bad }}>{i.result === "Accepted" ? "Accepted" : "Rejected"}</span><span className="flex-1 truncate" style={{ color: C.muted }}>{i.comment || "—"}</span><span style={{ color: C.muted }}>{fmtTime(i.completedAt)}</span></button>)}
-              <div className="flex gap-2 mt-4 flex-wrap">
-                {onStartInspection && <Primary small onClick={() => onStartInspection(product.id)}><Ic i={ClipboardList} />Start inspection</Primary>}
-                <button onClick={() => setFlagOpen(o => !o)} className="text-xs px-2.5 py-1.5 rounded-lg" style={{ background: C.warnBg, color: C.warn }}><Ic i={Flag} />Something's off</button>
-              </div>
-              {flagOpen && <div className="flex gap-2 mt-2"><input value={flagText} onChange={e => setFlagText(e.target.value)} placeholder="e.g. supplier changed, spec outdated…" className="flex-1 text-xs rounded px-2 py-1 outline-none" style={{ ...inp }} /><Primary small onClick={raise}>Send</Primary></div>}
+              {/* Specs */}
+              <Section title="Specifications" right={(() => { const ref = s.inspections.find(i => i.productId === product.id && i.isReference); return ref ? <button type="button" onClick={() => setShowRef(r => r ? null : ref.id)} className="text-xs font-medium inline-flex items-center" style={{ color: C.ok }}><Ic i={Star} s={13} />{showRef ? "Hide the reference" : "See how it should look"}</button> : null; })()}>
+                {specs.length === 0 ? <p className="text-sm" style={{ color: C.muted }}>No specifications yet — inspect by the general rules for the category.</p> : <table className="w-full text-sm" style={{ borderCollapse: "collapse" }}><tbody>
+                  {specs.map(sp => <tr key={sp.id} style={{ borderTop: `1px solid ${C.line}` }}><td className="py-2 pr-3">{sp.name}{sp.basis && <span className="text-[11px] ml-1.5" style={{ color: C.muted }}>per {sp.basis === "cu" ? "CU" : sp.basis}</span>}</td><td className="py-2 pr-3 text-right"><SpecValue spec={sp} colors={C} /></td><td className="py-2 text-right text-[11px] whitespace-nowrap" style={{ color: C.muted, width: 120 }}>{sp.temp ? <span style={{ color: C.bad }}>temporary</span> : sp.origin === "sheet" ? "commercial sheet" : sp.source !== "product" ? sp.source : "product"}</td></tr>)}
+                </tbody></table>}
+                {showRef && (() => { const ref = s.inspections.find(i => i.id === showRef); return ref ? <div className="rounded-xl p-3 mt-3" style={{ border: `1px solid ${C.ok}` }}><ReportView insp={ref} s={s} user={user} onEdit={() => {}} onAnswer={() => {}} /></div> : null; })()}
+              </Section>
+              {asPhotoList(product.photos).length > 1 && <Section title="Reference photos"><PhotoStrip photos={product.photos} size={72} /></Section>}
+              {(assigned.length > 0 || effectiveVarieties(s, product).length > 0) && <div className="grid gap-4 mt-5" style={{ gridTemplateColumns: "1fr 1fr" }}>
+                {assigned.length > 0 && <div><p className="label-sm mb-1.5" style={{ color: C.muted }}>Suppliers</p><div className="flex flex-wrap gap-1">{assigned.map(x => <span key={x.id} className="text-xs px-2.5 py-1 rounded-full" style={{ background: C.accentSoft, color: C.accent }}>{x.name}</span>)}</div></div>}
+                {effectiveVarieties(s, product).length > 0 && <div><p className="label-sm mb-1.5" style={{ color: C.muted }}>Varieties</p><div className="flex flex-wrap gap-1">{effectiveVarieties(s, product).map(v => <span key={v.id} className="text-xs px-2.5 py-1 rounded-full" style={{ background: C.bg, border: `1px solid ${C.line}` }} title={v.source}>{v.name}</span>)}</div></div>}
+              </div>}
+              {/* History */}
+              <Section title={`Inspections${history.length ? ` · ${history.length}` : ""}`} right={history.length > 5 && onOpenInspection ? <button type="button" onClick={() => onOpenInspection(history[0].id)} className="text-xs" style={{ color: C.accent }}>open history ›</button> : null}>
+                {history.length === 0 ? <p className="text-sm" style={{ color: C.muted }}>Not inspected yet.</p> : history.slice(0, 5).map(i => { const who = s.users.find(u => u.id === i.controllerId); const rej = i.result === "Rejected"; return <button key={i.id} type="button" onClick={() => onOpenInspection && onOpenInspection(i.id)} className="w-full flex items-center gap-3 text-sm py-2 text-left" style={{ borderTop: `1px solid ${C.line}` }}><span className="text-[11px] font-semibold px-2 py-0.5 rounded-full" style={{ background: rej ? C.badBg : C.okBg, color: rej ? C.bad : C.ok, minWidth: 66, textAlign: "center" }}>{rej ? "Rejected" : "Accepted"}</span><span className="flex-1 truncate" style={{ color: i.comment ? C.ink : C.muted }}>{i.comment || "no comment"}</span><span className="text-xs whitespace-nowrap" style={{ color: C.muted }}>{who ? `${who.name.split(" ")[0]} · ` : ""}{fmtTime(i.completedAt)}</span></button>; })}
+              </Section>
             </>
           )}
         </Card>
@@ -5997,7 +6052,7 @@ export default function App() {
       {!selPallet && safePage === "docks" && <DockMapPage s={s} user={user} openPallet={hu => setSelPallet(hu)} />}
       {!selPallet && safePage === "unreported" && <UnreportedPalletsPage s={s} set={set} user={user} setSel={setSelProduct} setPage={setPage} setSelPallet={setSelPallet} />}
       {!selPallet && safePage === "inspections" && <InspectionsPage s={s} set={set} user={user} notify={notify} openId={openInspId} setOpenId={setOpenInspId} preset={presetProduct} clearPreset={() => setPresetProduct("")} datePreset={inspDatePreset} clearDatePreset={() => setInspDatePreset("")} />}
-      {!selPallet && safePage === "catalog" && <CatalogPage s={s} set={set} user={user} notify={notify} presetSel={selProduct} clearPresetSel={() => setSelProduct(null)} presetFilter={productsQuery} clearPreset={() => setProductsQuery("")} onOpenInspection={id => { setOpenInspId(id); setPage("inspections"); }} />}
+      {!selPallet && safePage === "catalog" && <CatalogPage s={s} set={set} user={user} notify={notify} openPallet={hu => setSelPallet(hu)} presetSel={selProduct} clearPresetSel={() => setSelProduct(null)} presetFilter={productsQuery} clearPreset={() => setProductsQuery("")} onOpenInspection={id => { setOpenInspId(id); setPage("inspections"); }} />}
       {!selPallet && safePage === "flags" && <FlagsPage s={s} set={set} user={user} />}
       {!selPallet && safePage === "notifications" && <NotificationsPage s={s} set={set} user={user} setPage={setPage} setOpenId={setOpenInspId} setSelProduct={setSelProduct} />}
       {!selPallet && safePage === "analytics" && <AnalyticsPage s={s} setPage={setPage} openInspection={id => { setOpenInspId(id); setPage("inspections"); }} />}
