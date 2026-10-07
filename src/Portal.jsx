@@ -1386,7 +1386,8 @@ const NAV_HEAD = [
   { group: "Administration", items: [["integrations", "🔗", "Sheets"], ["settings", "⚙️", "Settings"], ["users", "👤", "Users"]] },
 ];
 const NAV_CONTROLLER = [
-  { group: null, items: [["dashboard", "🏠", "Dashboard"], ["briefing", "📖", "Shift update"], ["docks", "🏭", "Dock map"], ["catalog", "📦", "Products"], ["complaints", "👎", "Complaints"], ["blocked", "🔒", "Blocked pallets"], ["lost", "🔍", "Lost pallets"], ["unreported", "🛡️", "Unreported pallets"], ["inspections", "📋", "History"]] },
+  { group: null, items: [["dashboard", "🏠", "Dashboard"], ["docks", "🏭", "Dock map"], ["catalog", "📦", "Products"], ["briefing", "📖", "Shift update"], ["inspections", "📋", "History"]] },
+  { group: "Queues", items: [["blocked", "🔒", "Blocked pallets"], ["unreported", "🛡️", "Unreported pallets"], ["lost", "🔍", "Lost pallets"], ["complaints", "👎", "Complaints"]] },
   { group: "Communication", items: [["announcements", "📣", "Announcements"], ["messages", "💬", "Messages"], ["flags", "🚩", "My flags"], ["notifications", "🔔", "Notifications"]] },
   { group: "Me", items: [["profile", "👤", "Profile"]] },
 ];
@@ -2339,74 +2340,127 @@ function ShiftUpdateBanner({ s, user, onOpen }) {
   );
 }
 
+// The controller's desk: a worklist of what is standing on the dock and why it matters now, with the pallet one click
+// away (spec, history, announcements) — the walk out and the inspection itself happen on the phone.
+const URGENCY = { breached: 0, warning: 1, blocking: 2, "Now needed": 3, "High risk": 4, "High issues": 5, "Late inspection": 6, "Inspection due": 7, none: 8, skippable: 9 };
+const urgencyTone = u => u <= 2 ? "bad" : u <= 3 ? "bad" : u <= 6 ? "warn" : u === 7 ? "info" : "muted";
+const hoursOnDock = (r, now) => { if (!r.arrived) return null; const t = new Date(`${r.arrived}T${r.arrivedTime || "00:00"}:00`).getTime(); return isNaN(t) ? null : (now - t) / 3600000; };
+const fmtHours = h => h == null ? "—" : h < 1 ? `${Math.max(0, Math.round(h * 60))} min` : h < 48 ? `${Math.round(h)} h` : `${Math.floor(h / 24)} d`;
 function ControllerDashboard({ s, user, set, setPage, setOpenId, openProduct, openPallet }) {
   const [now, setNow] = useState(Date.now()); useEffect(() => { const id = setInterval(() => setNow(Date.now()), 30000); return () => clearInterval(id); }, []);
-  const [prioSel, setPrioSel] = useState(null); const [blSel, setBlSel] = useState(null); const [prioQ, setPrioQ] = useState("");
-  const [annOpen, setAnnOpen] = useState(null);
-  const f = floorStats(s, now);
+  const [filter, setFilter] = useState("todo"); const [q, setQ] = useState(""); const [annOpen, setAnnOpen] = useState(null);
+  const f = floorStats(s, now); const st = settingsOf(s);
   const hasDock = (s.integrations || []).some(i => i.purpose === "Dock" && i.rows?.length);
   const dashAnns = s.announcements.filter(a => a.showOnDashboard && annActive(a)).sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
   const openAnn = a => (a.productId && openProduct) ? openProduct(a.productId) : setAnnOpen(a);
-  const mine = s.inspections.filter(i => i.status !== "Cancelled").sort((a, b) => (b.completedAt || b.startedAt || "").localeCompare(a.completedAt || a.startedAt || ""));
-  const HISTORY_LIMIT = 12;
-  const groups = []; mine.slice(0, HISTORY_LIMIT).forEach(i => { const k = dayLabel(i.completedAt || i.startedAt); let g = groups.find(x => x.k === k); if (!g) { g = { k, items: [] }; groups.push(g); } g.items.push(i); });
-  const prioRows = prioSel ? f.dock.filter(r => prioSel === "Skippable" ? r.skippable : prioSel === "Needed today" ? r.blocking : r.priority === prioSel).sort((a, b) => `${a.arrived} ${a.arrivedTime}`.localeCompare(`${b.arrived} ${b.arrivedTime}`)) : [];
-  const prioGroups = (() => { const map = new Map(); prioRows.forEach(r => { const k = r.article || r.hu; if (!map.has(k)) map.set(k, []); map.get(k).push(r); });
-    return [...map.values()].map(rows => { const sorted = [...rows].sort((a, b) => `${a.arrived} ${a.arrivedTime}`.localeCompare(`${b.arrived} ${b.arrivedTime}`)); const first = sorted[0]; const locs = new Set(rows.map(r => r.location).filter(Boolean));
-      const mixedPO = new Set(rows.map(r => (r.po || "").trim()).filter(Boolean)).size > 1;
-      const totalOnDock = first.article ? f.dock.filter(x => x.article === first.article).length : rows.length;
-      return { ...first, count: rows.length, totalOnDock, checked: rows.filter(x => completedInspectionFor(s, x.hu)).length, mixedPO, location: locs.size <= 1 ? first.location : `${locs.size} locations` }; }).sort((a, b) => `${a.arrived} ${a.arrivedTime}`.localeCompare(`${b.arrived} ${b.arrivedTime}`)); })();
-  const prioShown = prioGroups.filter(r => dockMatches({ ...r, name: r.name || s.products.find(p => p.articleId === r.article)?.name }, prioQ, s));
-  const Tile = ({ label, value, sub, color, onClick, active }) => <button onClick={onClick} disabled={!onClick} className="qc-elev qc-tile rounded-2xl p-4 text-left" style={{ background: active ? C.accentSoft : C.surface, border: `1px solid ${active ? C.accent : C.line}`, borderLeft: `3px solid ${color || C.line}`, cursor: onClick ? "pointer" : "default" }}><p className="text-xs" style={{ color: C.muted }}>{label}</p><p className="text-[26px] leading-tight font-semibold mt-0.5" style={{ color: value > 0 && color ? color : C.ink, fontVariantNumeric: "tabular-nums" }}>{value}</p>{sub && <p className="text-[11px]" style={{ color: C.muted }}>{sub}</p>}</button>;
+  const pulse = briefingUnseen(s, user.id); const pulseN = pulse.total;
+  // ── One row per pallet, then grouped per product: the controller walks to a product, not to a SSCC.
+  const alertsByHu = Object.fromEntries(f.alerts.map(a => [a.hu, a]));
+  const pallets = f.dock.map(r => {
+    const done = completedInspectionFor(s, r.hu); const draft = (s.inspections || []).find(i => ["Draft", "PendingReview"].includes(i.status) && (i.pallets || []).some(h => samePallet(h, r.hu)));
+    const alert = alertsByHu[r.hu] || null; const claim = claimOf(s, r);
+    const u = done ? 99 : alert ? URGENCY[alert.level] : r.blocking ? URGENCY.blocking : r.priority && URGENCY[r.priority] != null ? URGENCY[r.priority] : r.skippable ? URGENCY.skippable : URGENCY.none;
+    return { ...r, done, draft, alert, claim, u, hours: hoursOnDock(r, now) };
+  });
+  const groups = (() => { const m = new Map(); pallets.forEach(p => { const k = p.article || p.hu; if (!m.has(k)) m.set(k, []); m.get(k).push(p); });
+    return [...m.values()].map(rows => { const product = s.products.find(p => p.articleId === rows[0].article); const open = rows.filter(r => !r.done);
+      const u = Math.min(...rows.map(r => r.u)); const lead = rows.find(r => r.u === u) || rows[0];
+      const locs = [...new Set(rows.map(r => r.location).filter(Boolean))]; const pos = [...new Set(rows.map(r => (r.po || "").trim()).filter(Boolean))];
+      const ext = extRejectionLine(s, rows[0].article, now); const risky = rows.some(r => r.alert?.risky) || !!ext;
+      const why = u === 0 ? "Rejection window expired" : u === 1 ? `Rejection window closes in ${fmtLeft(lead.alert.deadlineAt - now)}` : u === 2 ? "Needed today — blocks picking" : u <= 7 ? lead.priority : u === 9 ? "Skippable" : "";
+      const whyPlus = ext ? `rejected ${ext.count}× in ${ext.span}` : "";
+      return { key: rows[0].article || rows[0].hu, article: rows[0].article, name: rows[0].name || product?.name || rows[0].article, product, rows, open, u, lead, locs, pos, mixedPO: pos.length > 1, hours: Math.max(...rows.map(r => r.hours ?? -1)), why, whyPlus, risky, draft: rows.find(r => r.draft)?.draft || null, taken: rows.map(r => r.claim).find(c => c?.status === "taken") || null, earliest: rows.map(r => `${r.arrived} ${r.arrivedTime || ""}`).sort()[0] };
+    }).sort((a, b) => a.u - b.u || (b.hours - a.hours)); })();
+  const counts = { todo: groups.filter(g => g.open.length && g.u < 9).length, needed: groups.filter(g => g.u <= 2 && g.open.length).length, risky: groups.filter(g => g.risky && g.open.length).length, skippable: groups.filter(g => g.u === 9 && g.open.length).length, done: groups.filter(g => g.rows.some(r => r.done)).length, all: groups.length };
+  const shown = groups.filter(g => filter === "all" ? true : filter === "done" ? g.rows.some(r => r.done) : filter === "needed" ? g.u <= 2 && g.open.length : filter === "risky" ? g.risky && g.open.length : filter === "skippable" ? g.u === 9 && g.open.length : g.open.length && g.u < 9)
+    .filter(g => dockMatches({ ...g.lead, name: g.name }, q, s));
+  const Chip = ({ id, label, n, tone }) => <button type="button" onClick={() => setFilter(id)} className="text-xs font-medium px-3 rounded-full inline-flex items-center gap-1.5" style={{ height: 30, background: filter === id ? C.ink : C.surface, color: filter === id ? C.onDark : C.ink, border: `1px solid ${filter === id ? C.ink : C.line}` }}>{label}<span className="font-semibold" style={{ color: filter === id ? C.onDark : tone && n ? tone : C.muted, fontVariantNumeric: "tabular-nums" }}>{n}</span></button>;
+  const toneCol = t => t === "bad" ? C.bad : t === "warn" ? C.warn : t === "info" ? C.accent : C.muted;
+  const mineDrafts = (s.inspections || []).filter(i => i.controllerId === user.id && ["Draft", "PendingReview"].includes(i.status)).sort((a, b) => (b.startedAt || "").localeCompare(a.startedAt || ""));
+  const myDone = doneTodayByUser(s, user.id, now); const myToday = (s.inspections || []).filter(i => i.controllerId === user.id && i.status === "Completed" && i.completedAt && dayLabel(i.completedAt) === "today");
+  const myRejected = myToday.filter(i => i.result === "Rejected").length;
+  const recent = (s.inspections || []).filter(i => i.status === "Completed").sort((a, b) => (b.completedAt || "").localeCompare(a.completedAt || "")).slice(0, 6);
+  const blockedOpen = blockedQueue(s).filter(b => b.status !== "Completed" && !b.lost).sort((a, b) => ({ "Not started": 0, "Started": 1 }[a.status] ?? 9) - ({ "Not started": 0, "Started": 1 }[b.status] ?? 9));
+  const RowStatus = ({ g }) => { const done = g.rows.filter(r => r.done).length;
+    if (done === g.rows.length) return <span className="inline-flex items-center gap-1 text-xs font-medium" style={{ color: C.ok }}><Ic i={Check} s={13} mr={0} />inspected</span>;
+    if (g.draft) { const who = s.users.find(u => u.id === g.draft.controllerId); return <span className="text-xs font-medium" style={{ color: C.accent }}>in progress{who ? ` · ${who.name.split(" ")[0]}` : ""}</span>; }
+    if (g.taken) { const who = s.users.find(u => u.id === g.taken.userId); return <span className="text-xs" style={{ color: C.muted }}>taken{who ? ` by ${who.name.split(" ")[0]}` : ""}</span>; }
+    if (done) return <span className="text-xs" style={{ color: C.muted }}>{done} of {g.rows.length} inspected</span>;
+    return <span className="text-xs" style={{ color: C.muted }}>not yet</span>; };
   return (
     <div>
-      <div className="flex items-baseline gap-3 mb-1"><h1>Hi, {user.name.split(" ")[0]}</h1><span className="text-xs" style={{ color: C.muted }}>{new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "short" })}{f.fresh.length ? ` · ${f.fresh.map(x => `${x.purpose === "Dock" ? "dock" : "blocked"} sheet ${agoShort(x.at)}`).join(" · ")}` : ""}</span></div>
-      <p className="text-sm mb-4" style={{ color: C.muted, maxWidth: 640 }}>Same floor as the phone — dock, catalog, complaints, chat, history. Inspections start on the phone, not here.</p>
-      <ShiftUpdateBanner s={s} user={user} onOpen={() => setPage("briefing")} />
-      <DeadlineBanner s={s} alerts={f.alerts} now={now} onOpen={a => a.hu && openPallet && openPallet(a.hu)} />
-      {dashAnns.length === 1 && <button type="button" onClick={() => openAnn(dashAnns[0])} className="qc-elev qc-tile w-full text-left mb-3 rounded-xl px-3.5 py-2.5 flex items-start gap-2.5" style={{ background: C.surface, border: `1px solid ${C.line}`, borderLeft: `3px solid ${C.accent}` }}><span style={{ color: C.accent, marginTop: 2 }}><Ic i={Megaphone} s={14} mr={0} /></span><p className="text-sm flex-1"><b>{dashAnns[0].title}</b><span style={{ color: C.muted }}> — {truncate(dashAnns[0].body)}</span></p></button>}
-      {dashAnns.length > 1 && <div className="mb-3 rounded-xl overflow-hidden" style={{ background: C.surface, border: `1px solid ${C.line}` }}>{dashAnns.map((a, i) => <button key={a.id} type="button" onClick={() => openAnn(a)} className="w-full text-left px-3.5 py-2 flex items-center gap-2.5" style={{ borderTop: i ? `1px solid ${C.line}` : "none", borderLeft: `3px solid ${C.accent}` }}><span style={{ color: C.accent }}><Ic i={Megaphone} s={13} mr={0} /></span><p className="text-sm flex-1 truncate"><b>{a.title}</b></p></button>)}</div>}
-      {f.unreported.open > 0 && <button type="button" onClick={() => setPage("unreported")} className="w-full flex items-center gap-2.5 text-left mb-4 rounded-xl px-3.5 py-2.5" style={{ background: C.warnBg, border: `1px solid ${C.warn}` }}><Ic i={ShieldAlert} s={16} style={{ color: C.warn }} /><span className="text-sm flex-1">{f.unreported.open} pallet{f.unreported.open === 1 ? "" : "s"} left the dock without a report</span><span className="text-xs underline" style={{ color: C.warn }}>see all</span></button>}
-
-      <div className="flex items-center mt-1 mb-1.5"><p className="label-sm flex-1" style={{ color: C.muted }}>Docks · {f.dock.length} pallets · {f.skus} SKUs{f.blocking ? ` · ${f.blocking} needed today` : ""}{f.skippable ? ` · ${f.skippable} skippable` : ""}{f.dockLost ? ` · ${f.dockLost} lost` : ""}</p>{hasDock && <button type="button" onClick={() => setPage("docks")} className="text-xs inline-flex items-center gap-1" style={{ color: C.accent }}><Ic i={Warehouse} s={13} mr={0} />Dock map →</button>}</div>
-      <div className="grid gap-3 mb-3" style={{ gridTemplateColumns: "repeat(7, 1fr)" }}>
-        <Tile label="Needed today" value={f.blocking} sub={f.blocking ? "blocks picking" : "nothing blocking"} color={f.blocking ? C.bad : C.muted} onClick={hasDock ? () => { setPrioQ(""); setPrioSel(prioSel === "Needed today" ? null : "Needed today"); } : undefined} active={prioSel === "Needed today"} />
-        {PRIO_ORDER.map(k => <Tile key={k} label={k} value={f.prio[k]} color={k === "Now needed" || k === "High risk" ? C.bad : k === "High issues" || k === "Late inspection" ? C.warn : C.muted} onClick={hasDock ? () => { setPrioQ(""); setPrioSel(prioSel === k ? null : k); } : undefined} active={prioSel === k} />)}
-        <Tile label="Skippable" value={f.skippable} color={C.muted} onClick={hasDock ? () => { setPrioQ(""); setPrioSel(prioSel === "Skippable" ? null : "Skippable"); } : undefined} active={prioSel === "Skippable"} />
+      <div className="flex items-baseline gap-3 mb-4 flex-wrap"><h1>Hi, {user.name.split(" ")[0]}</h1><span className="text-xs" style={{ color: C.muted }}>{new Date(now).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "short" })}{f.fresh.length ? ` · ${f.fresh.map(x => `${x.purpose === "Dock" ? "dock" : "blocked"} sheet ${agoShort(x.at)}`).join(" · ")}` : " · no dock sheet yet"}</span></div>
+      <div className="flex gap-4 items-start">
+        {/* ── Worklist ── */}
+        <div className="flex-1 min-w-0">
+          <DeadlineBanner s={s} alerts={f.alerts} now={now} onOpen={a => a.hu && openPallet && openPallet(a.hu)} />
+          {blockedOpen.length > 0 && <Card style={{ marginBottom: 12, borderLeft: `4px solid ${C.bad}` }}>
+            <div className="flex items-center gap-2 mb-1"><p className="font-semibold text-sm flex-1">Blocked pallets waiting · {blockedOpen.length}</p><button type="button" onClick={() => setPage("blocked")} className="text-xs" style={{ color: C.accent }}>all ›</button></div>
+            {blockedOpen.slice(0, 3).map(b => <QueueRow key={b.key} s={s} set={set} user={user} b={b} onOpen={() => openPallet && openPallet(b.hu || claimKey(b))} />)}
+          </Card>}
+          <Card>
+            <div className="flex items-center gap-2 mb-3 flex-wrap">
+              <p className="font-semibold flex-1">On the dock <span className="font-normal text-xs ml-1" style={{ color: C.muted }}>{f.dock.length} pallets · {f.skus} products</span></p>
+              <SearchBox value={q} onChange={setQ} placeholder="product, article, location, PO…" />
+            </div>
+            <div className="flex gap-1.5 mb-3 flex-wrap">
+              <Chip id="todo" label="To inspect" n={counts.todo} tone={C.ink} />
+              <Chip id="needed" label="Needed today" n={counts.needed} tone={C.bad} />
+              <Chip id="risky" label="Rejected recently" n={counts.risky} tone={C.warn} />
+              <Chip id="skippable" label="Skippable" n={counts.skippable} />
+              <Chip id="done" label="Inspected" n={counts.done} tone={C.ok} />
+              <Chip id="all" label="All" n={counts.all} />
+            </div>
+            {!hasDock ? <Empty icon={Truck} title="No dock sheet yet" hint="When the Head connects the dock sheet, every pallet standing on the dock shows up here, most urgent first." />
+            : shown.length === 0 ? <p className="text-sm py-6 text-center" style={{ color: C.muted }}>{q ? "Nothing matches." : filter === "todo" ? "Nothing left to inspect — the dock is clear." : "Nothing here."}</p>
+            : <table className="w-full text-sm" style={{ borderCollapse: "collapse" }}>
+              <thead><tr className="text-xs text-left" style={{ color: C.muted }}>{["Product", "Pallets", "Where", "On dock", "Why now", "Status", ""].map(h => <th key={h} className="py-1.5 pr-3 font-medium" style={{ borderBottom: `1px solid ${C.line}` }}>{h}</th>)}</tr></thead>
+              <tbody>{shown.map(g => { const tone = g.open.length ? urgencyTone(g.u) : "muted"; return (
+                <tr key={g.key} style={{ borderBottom: `1px solid ${C.line}` }}>
+                  <td className="py-2 pr-3" style={{ borderLeft: `3px solid ${g.open.length && g.u <= 7 ? toneCol(tone) : "transparent"}`, paddingLeft: 10 }}>
+                    <button type="button" onClick={() => openPallet && openPallet(g.lead.hu || g.article)} className="text-left font-medium leading-tight">{g.name}</button>
+                    <span className="block text-[11px] font-mono" style={{ color: C.muted }}>{g.article}{g.product?.isBio ? " · bio" : ""}{g.mixedPO ? <span className="ml-1.5 font-sans" style={{ color: C.warn }}>· {g.pos.length} POs</span> : g.pos[0] ? ` · PO ${g.pos[0]}` : ""}</span>
+                  </td>
+                  <td className="py-2 pr-3 whitespace-nowrap" style={{ fontVariantNumeric: "tabular-nums" }}>{g.rows.length}{g.rows.length > 1 && g.open.length && g.open.length < g.rows.length ? <span className="text-xs" style={{ color: C.muted }}> · {g.open.length} left</span> : null}</td>
+                  <td className="py-2 pr-3 text-xs whitespace-nowrap">{g.locs.length <= 2 ? g.locs.join(", ") : `${g.locs[0]} +${g.locs.length - 1}`}</td>
+                  <td className="py-2 pr-3 text-xs whitespace-nowrap" style={{ fontVariantNumeric: "tabular-nums", color: g.hours > st.rejectionWindowHours ? C.bad : C.ink }}>{fmtHours(g.hours)}</td>
+                  <td className="py-2 pr-3 text-xs">{g.why && g.open.length ? <span className="font-medium" style={{ color: toneCol(tone) }}>{g.why}</span> : null}{g.whyPlus && <span className="block" style={{ color: C.warn }}>{g.whyPlus}</span>}</td>
+                  <td className="py-2 pr-3"><RowStatus g={g} /></td>
+                  <td className="py-2 text-right"><button type="button" onClick={() => openPallet && openPallet(g.lead.hu || g.article)} className="text-xs font-semibold px-2.5 rounded-lg inline-flex items-center" style={{ height: 28, background: C.accentSoft, color: C.accent }}>Open</button></td>
+                </tr>); })}</tbody>
+            </table>}
+            <p className="text-[11px] mt-3" style={{ color: C.muted }}>Open a product to see its spec, photos and recent history before walking out. The inspection itself is started on the phone at the pallet.</p>
+          </Card>
+        </div>
+        {/* ── Side: me today, what the Head sent, team ── */}
+        <aside className="w-80 flex-shrink-0 flex flex-col gap-3">
+          <Card>
+            <p className="font-semibold text-sm mb-2">You today</p>
+            <div className="grid gap-2 mb-2" style={{ gridTemplateColumns: "1fr 1fr" }}>
+              {[["Inspected", myDone, myDone ? C.ok : C.muted], ["Rejected", myRejected, myRejected ? C.bad : C.muted]].map(([l, v, col]) => <div key={l} className="rounded-xl px-3 py-2" style={{ background: C.bg, border: `1px solid ${C.line}` }}><p className="text-[11px]" style={{ color: C.muted }}>{l}</p><p className="text-xl font-semibold" style={{ color: col }}>{v}</p></div>)}
+            </div>
+            {mineDrafts.length > 0 && <div className="mt-2">{mineDrafts.slice(0, 3).map(i => { const p = s.products.find(x => x.id === i.productId); return <button key={i.id} type="button" onClick={() => { setOpenId(i.id); setPage("inspections"); }} className="w-full text-left flex items-center gap-2 py-1.5 text-sm" style={{ borderTop: `1px solid ${C.line}` }}><span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: C.accent }} /><span className="flex-1 min-w-0 truncate">{p?.name || "Inspection"}</span><span className="text-[11px]" style={{ color: C.muted }}>{i.status === "PendingReview" ? "awaiting Head" : "draft"}</span></button>; })}</div>}
+            <p className="text-[11px] mt-2" style={{ color: C.muted }}>Team today: {f.doneToday} inspected{f.unreported.open ? ` · ${f.unreported.open} pallets left without a report` : ""}</p>
+          </Card>
+          <button type="button" onClick={() => setPage("briefing")} className="qc-elev qc-tile text-left rounded-2xl px-4 py-3 flex items-center gap-3" style={{ background: C.surface, border: `1px solid ${C.line}`, borderLeft: `3px solid ${pulseN ? C.accent : C.line}` }}>
+            <span className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: C.accentSoft, color: C.accent }}><Ic i={BookOpen} s={17} mr={0} /></span>
+            <span className="min-w-0 flex-1"><span className="text-sm font-semibold block">Shift update{pulseN ? ` · ${pulseN} new` : ""}</span><span className="text-[11px] block" style={{ color: C.muted }}>{pulseN ? [pulse.rejs.length + pulse.xrejs.length ? `${pulse.rejs.length + pulse.xrejs.length} rejections` : "", pulse.complaints.length ? `${pulse.complaints.length} complaints` : "", pulse.anns.length ? `${pulse.anns.length} notes` : ""].filter(Boolean).join(" · ") : "You're up to date"}</span></span>
+            <Ic i={ChevronRight} s={16} mr={0} style={{ color: C.muted }} />
+          </button>
+          {dashAnns.length > 0 && <Card>
+            <p className="font-semibold text-sm mb-1 flex items-center" style={{ color: C.accent }}><Ic i={Megaphone} s={14} />From the Head</p>
+            {dashAnns.slice(0, 4).map((a, i) => <button key={a.id} type="button" onClick={() => openAnn(a)} className="w-full text-left py-2" style={{ borderTop: i ? `1px solid ${C.line}` : "none" }}><span className="text-sm font-medium block leading-tight">{a.title}</span>{a.body && <span className="text-xs block mt-0.5 truncate" style={{ color: C.muted }}>{a.body}</span>}</button>)}
+          </Card>}
+          {(f.bl.open > 0 || f.unreported.open > 0 || f.lostOpen > 0) && <Card>
+            <p className="font-semibold text-sm mb-1">Queues</p>
+            {[["Blocked pallets", f.bl.open, "blocked", f.bl.open ? C.bad : C.muted], ["Unreported pallets", f.unreported.open, "unreported", f.unreported.open ? C.warn : C.muted], ["Lost pallets", f.lostOpen, "lost", C.muted]].filter(([, n]) => n).map(([l, n, pg, col]) => <button key={pg} type="button" onClick={() => setPage(pg)} className="w-full flex items-center justify-between py-1.5 text-sm" style={{ borderTop: `1px solid ${C.line}` }}><span>{l}</span><span className="font-semibold" style={{ color: col, fontVariantNumeric: "tabular-nums" }}>{n}</span></button>)}
+          </Card>}
+          <Card>
+            <div className="flex items-center mb-1"><p className="font-semibold text-sm flex-1">Latest inspections</p><button type="button" onClick={() => { setOpenId(null); setPage("inspections"); }} className="text-xs" style={{ color: C.accent }}>all ›</button></div>
+            {recent.length === 0 ? <p className="text-xs py-2" style={{ color: C.muted }}>Nothing yet today.</p> : recent.map(i => { const p = s.products.find(x => x.id === i.productId); const who = s.users.find(u => u.id === i.controllerId); const rej = i.result === "Rejected"; return <button key={i.id} type="button" onClick={() => { setOpenId(i.id); setPage("inspections"); }} className="w-full text-left flex items-center gap-2 py-1.5" style={{ borderTop: `1px solid ${C.line}` }}><span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: rej ? C.bad : i.result === "Accepted" ? C.ok : C.muted }} /><span className="flex-1 min-w-0"><span className="text-sm block truncate leading-tight">{p?.name || "—"}</span><span className="text-[11px] block" style={{ color: C.muted }}>{i.result || "done"}{who ? ` · ${who.name.split(" ")[0]}` : ""} · {dayLabel(i.completedAt)}</span></span></button>; })}
+          </Card>
+        </aside>
       </div>
-      {prioSel && <Card style={{ marginBottom: 12 }}>
-        <div className="flex items-center gap-2 mb-2"><p className="font-medium text-sm flex-1">{prioSel} · {prioRows.length} pallet{prioRows.length === 1 ? "" : "s"} · {prioGroups.length} product{prioGroups.length === 1 ? "" : "s"}</p><SearchBox value={prioQ} onChange={setPrioQ} placeholder="Search name, article, supplier…" style={{ width: 260 }} inputClass="rounded-lg" size={13} /><button type="button" onClick={() => setPrioSel(null)} className="text-xs" style={{ color: C.muted }}>close</button></div>
-        {prioRows.length === 0 ? <p className="text-xs py-3" style={{ color: C.muted }}>Nothing at this priority.</p> : prioShown.length === 0 ? <p className="text-xs py-3" style={{ color: C.muted }}>Nothing matches.</p> : <table className="w-full text-sm" style={{ borderCollapse: "collapse" }}>
-          <thead><tr className="text-xs text-left" style={{ color: C.muted }}>{["Product", ...(prioSel === "Needed today" ? ["Priority"] : []), "Article", "Location", "Arrived", "Transporter"].map(h => <th key={h} className="py-1.5 pr-3 font-medium" style={{ borderBottom: `1px solid ${C.line}` }}>{h}</th>)}</tr></thead>
-          <tbody>{prioShown.map(r => { const prod = s.products.find(p => p.articleId === r.article); return (
-            <tr key={r.article || r.hu} style={{ borderBottom: `1px solid ${C.line}` }}>
-              <td className="py-1.5 pr-3">{(r.hu || r.article) && openPallet ? <button type="button" onClick={() => openPallet(r.hu || r.article)} className="text-left font-medium">{r.name || prod?.name || r.article}</button> : <span>{r.name || r.article}</span>}<span className="ml-1.5 inline-flex align-middle"><ComplaintChip s={s} articleId={r.article} /></span>{r.count > 1 && <span className="text-[10px] ml-1.5 px-1.5 py-0.5 rounded-full" style={{ background: C.accentSoft, color: C.accent }}>×{r.count}</span>}{r.checked > 0 && <span className="text-[10px] ml-1.5 px-1.5 py-0.5 rounded-full" style={{ background: C.okBg, color: C.ok }}>✓ {r.checked === r.count ? "inspected" : `${r.checked}/${r.count}`}</span>}</td>
-              {prioSel === "Needed today" && <td className="py-1.5 pr-3 text-xs">{r.priority || "—"}</td>}<td className="py-1.5 pr-3 font-mono text-xs">{r.article}</td><td className="py-1.5 pr-3">{r.location}</td><td className="py-1.5 pr-3 text-xs">{r.arrived} {r.arrivedTime}</td><td className="py-1.5 pr-3 text-xs">{r.transporter}</td>
-            </tr>); })}</tbody>
-        </table>}
-      </Card>}
-
-      <p className="label-sm mt-4 mb-1.5" style={{ color: C.muted }}>Queue</p>
-      <div className="grid gap-3 mb-3" style={{ gridTemplateColumns: "repeat(4, 1fr)" }}>
-        <Tile label="Blocked pallets" value={f.bl.open} sub={f.bl.taken ? `${f.bl.taken} taken` : (f.bl.open ? "waiting for a check" : "queue is clear")} color={f.bl.open ? C.bad : C.muted} onClick={() => setBlSel(blSel === "blocked" ? null : "blocked")} active={blSel === "blocked"} />
-        <Tile label="Unreported" value={f.unreported.open} sub={f.unreported.open ? "left without a report" : "all reported"} color={f.unreported.open ? C.warn : C.muted} onClick={() => setPage("unreported")} />
-        <Tile label="Lost" value={f.lostOpen} sub={f.lostOpen ? "not counted above" : "none marked lost"} color={C.muted} onClick={f.lostOpen ? () => setPage("lost") : undefined} />
-        <Tile label="Done today" value={f.doneToday} sub="by the team" color={f.doneToday ? C.ok : C.muted} onClick={() => { setOpenId(null); setPage("inspections"); }} />
-      </div>
-      {blSel === "blocked" && (() => { const q = blockedQueue(s); const order = { "Not started": 0, "Started": 1, "Completed": 2 }; const list = q.filter(b => b.status !== "Completed" && !b.lost).sort((a, b) => (order[a.status] ?? 9) - (order[b.status] ?? 9) || (a.time || "").localeCompare(b.time || "")); return (
-        <Card style={{ marginBottom: 12 }}>
-          <div className="flex items-center gap-2 mb-1"><p className="font-medium text-sm flex-1">Blocked pallets · {list.length} open</p><button type="button" onClick={() => setPage("blocked")} className="text-xs underline" style={{ color: C.accent }}>full page</button><button type="button" onClick={() => setBlSel(null)} className="text-xs ml-2" style={{ color: C.muted }}>close</button></div>
-          {list.length === 0 ? <p className="text-xs py-3" style={{ color: C.muted }}>Nothing in the blocked queue.</p> : list.map(b => <QueueRow key={b.key} s={s} set={set} user={user} b={b} onOpen={() => openPallet && openPallet(b.hu || claimKey(b))} />)}
-        </Card>); })()}
-
-      <p className="label-sm mt-4 mb-1.5" style={{ color: C.muted }}>Recent inspections</p>
-      <Card>
-        <div className="flex items-center mb-1"><p className="font-medium text-sm flex-1">History</p><button type="button" onClick={() => { setOpenId(null); setPage("inspections"); }} className="text-xs" style={{ color: C.accent }}>all ›</button></div>
-        {groups.length === 0 ? <p className="text-xs py-3" style={{ color: C.muted }}>No inspections yet. They are started on the phone.</p> : groups.map(g => (
-          <div key={g.k}><p className="label-sm mt-2 mb-1" style={{ color: C.muted }}>{g.k}</p>{g.items.map(i => <button key={i.id} type="button" onClick={() => { setOpenId(i.id); setPage("inspections"); }} className="w-full text-left flex items-center gap-2 py-2" style={{ borderTop: `1px solid ${C.line}` }}><span className="flex-1 text-sm truncate">{s.products.find(p => p.id === i.productId)?.name || `Pallet ${(i.pallets || [])[0] || ""}`}</span><span className="text-xs" style={{ color: C.muted }}>{fmtTime(i.completedAt || i.startedAt)}</span><span className="text-xs px-2 py-0.5 rounded-full" style={{ background: i.status !== "Completed" ? STATUS[i.status][2] : i.result === "Accepted" ? C.okBg : C.badBg, color: i.status !== "Completed" ? STATUS[i.status][1] : i.result === "Accepted" ? C.ok : C.bad }}>{i.status !== "Completed" ? STATUS[i.status][0] : (i.result === "Accepted" ? "Accepted" : "Rejected")}</span></button>)}</div>
-        ))}
-        {mine.length > HISTORY_LIMIT && <button type="button" onClick={() => { setOpenId(null); setPage("inspections"); }} className="w-full text-sm py-2 mt-2 rounded-xl font-medium" style={{ color: C.accent, background: C.accentSoft }}>Show all {mine.length} inspections ›</button>}
-      </Card>
       {annOpen && <AnnouncementModal a={annOpen} onClose={() => setAnnOpen(null)} />}
     </div>
   );
