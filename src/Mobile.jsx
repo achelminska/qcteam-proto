@@ -2261,9 +2261,18 @@ function ExtRejectionBox({ s, articleId, onMore }) {
     <p className="text-[10px] mt-0.5" style={{ color: C.bad, opacity: .75 }}>DC5 rejections sheet{onMore ? "" : " · details on the product profile"}</p>
   </div>;
 }
+function RejectionLink({ href, label }) {
+  const Icon = /^Inspection report/i.test(label) ? FileText : /slack\.com/i.test(href) ? MessageSquare : /drive\.google|docs\.google/i.test(href) ? Paperclip : ExternalLink;
+  return (
+    <a href={href} target="_blank" rel="noopener" className="qc-elev qc-tile inline-flex items-center gap-1.5 text-[11px] font-semibold rounded-lg px-2.5 no-underline" style={{ height: 28, background: C.ink, color: C.onDark }}>
+      <Ic i={Icon} s={12} mr={0} />{label}
+    </a>
+  );
+}
 function ExtRejectionRow({ r }) {
   const reason = String(r.reason || "Rejected").replace(/^./, c => c.toUpperCase());
   const Chip = ({ children }) => <span className="text-[11px] px-1.5 rounded-md leading-[18px]" style={{ background: C.bg, border: `1px solid ${C.line}` }}>{children}</span>;
+  const reports = reportUrls(r);
   return (
     <div className="qc-tile rounded-2xl px-3 py-2.5" style={{ background: C.surface, border: `1px solid ${C.line}`, borderLeft: `3px solid ${C.bad}` }}>
       <p className="text-[13px] font-semibold leading-snug">{reason}</p>
@@ -2274,9 +2283,9 @@ function ExtRejectionRow({ r }) {
         {r.user && <Chip>{r.user}</Chip>}
         {r.po && <Chip><span className="font-mono">PO {r.po}</span></Chip>}
       </div>}
-      {(reportUrls(r).length > 0 || r.link) && <div className="flex flex-wrap gap-3 mt-1.5">
-        {reportUrls(r).map((u, i, arr) => <a key={u} href={u} target="_blank" rel="noopener" className="inline-flex items-center gap-1 text-[11px]" style={{ color: C.accent }}>{arr.length > 1 ? `Inspection report ${i + 1}` : "Inspection report"}<Ic i={ExternalLink} s={11} mr={0} /></a>)}
-        {r.link && <a href={r.link} target="_blank" rel="noopener" className="inline-flex items-center gap-1 text-[11px]" style={{ color: C.accent }}>{linkLabel(r.link)}<Ic i={ExternalLink} s={11} mr={0} /></a>}
+      {(reports.length > 0 || r.link) && <div className="flex flex-wrap gap-1.5 mt-2">
+        {reports.map((u, i) => <RejectionLink key={u} href={u} label={reports.length > 1 ? `Inspection report ${i + 1}` : "Inspection report"} />)}
+        {r.link && <RejectionLink href={r.link} label={linkLabel(r.link)} />}
       </div>}
     </div>
   );
