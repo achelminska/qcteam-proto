@@ -2497,22 +2497,23 @@ function ControllerDashboard({ s, user, set, setPage, setOpenId, openProduct, op
           </div>
           {!hasDock ? <Empty icon={Truck} title="No dock sheet yet" hint="When the Head connects the dock sheet, every pallet standing on the dock shows up here, most urgent first." />
           : shown.length === 0 ? <p className="text-sm py-6 text-center" style={{ color: C.muted }}>{q ? "Nothing matches." : filter === "todo" ? "Nothing left to inspect — the dock is clear." : "Nothing here."}</p>
-          : <table className="w-full text-sm" style={{ borderCollapse: "collapse" }}>
-            <thead><tr className="text-xs text-left" style={{ color: C.muted }}>{["Product", "Pallets", "Where", "On dock", "Why now", "Status", ""].map(h => <th key={h} className="py-1.5 pr-3 font-medium" style={{ borderBottom: `1px solid ${C.line}` }}>{h}</th>)}</tr></thead>
-            <tbody>{shown.map(g => { const tone = g.open.length ? urgencyTone(g.u) : "muted"; return (
-              <tr key={g.key} style={{ borderBottom: `1px solid ${C.line}` }}>
-                <td className="py-2 pr-3" style={{ borderLeft: `3px solid ${g.open.length && g.u <= 7 ? toneCol(tone) : "transparent"}`, paddingLeft: 10 }}>
-                  <button type="button" onClick={() => openPallet && openPallet(g.lead.hu || g.article)} className="text-left font-medium leading-tight">{g.name}</button>
-                  <span className="block text-[11px] font-mono" style={{ color: C.muted }}>{g.article}{g.product?.isBio ? " · bio" : ""}{g.mixedPO ? <span className="ml-1.5 font-sans" style={{ color: C.warn }}>· {g.pos.length} POs</span> : g.pos[0] ? ` · PO ${g.pos[0]}` : ""}</span>
-                </td>
-                <td className="py-2 pr-3 whitespace-nowrap" style={{ fontVariantNumeric: "tabular-nums" }}>{g.rows.length}{g.rows.length > 1 && g.open.length && g.open.length < g.rows.length ? <span className="text-xs" style={{ color: C.muted }}> · {g.open.length} left</span> : null}</td>
-                <td className="py-2 pr-3 text-xs whitespace-nowrap">{g.locs.length <= 2 ? g.locs.join(", ") : `${g.locs[0]} +${g.locs.length - 1}`}</td>
-                <td className="py-2 pr-3 text-xs whitespace-nowrap" style={{ fontVariantNumeric: "tabular-nums", color: g.hours > st.rejectionWindowHours ? C.bad : C.ink }}>{fmtHours(g.hours)}</td>
-                <td className="py-2 pr-3 text-xs">{g.why && g.open.length ? <span className="font-medium" style={{ color: toneCol(tone) }}>{g.why}</span> : null}{g.whyPlus && <span className="block" style={{ color: C.warn }}>{g.whyPlus}</span>}</td>
-                <td className="py-2 pr-3"><RowStatus g={g} /></td>
-                <td className="py-2 text-right"><button type="button" onClick={() => openPallet && openPallet(g.lead.hu || g.article)} className="text-xs font-semibold px-2.5 rounded-lg inline-flex items-center" style={{ height: 28, background: C.accentSoft, color: C.accent }}>Open</button></td>
-              </tr>); })}</tbody>
-          </table>}
+          : <div>
+            <div className="grid items-center px-3 pb-1.5 text-xs" style={{ gridTemplateColumns: "minmax(0, 2fr) 64px 130px 70px minmax(0, 1.9fr) minmax(0, 1fr) 64px", color: C.muted }}>{["Product", "Pallets", "Where", "On dock", "Priority", "Status", ""].map(h => <span key={h}>{h}</span>)}</div>
+            <div className="flex flex-col gap-1.5">{shown.map(g => { const open = g.open.length > 0; const stt = open ? dockStatus(g.lead) : null; const col = stt ? dockStatusColor(stt) : C.line; const label = stt ? (DOCK_STATUS.find(d => d[0] === stt)?.[1] || stt) : "";
+              const extra = !open ? "" : g.u === 0 ? "rejection window expired" : g.u === 1 ? `window closes in ${fmtLeft(g.lead.alert.deadlineAt - now)}` : g.u === 9 ? "skippable" : ""; return (
+              <div key={g.key} className="qc-tile grid items-center rounded-xl px-3 py-2" style={{ gridTemplateColumns: "minmax(0, 2fr) 64px 130px 70px minmax(0, 1.9fr) minmax(0, 1fr) 64px", background: C.bg, border: `1px solid ${C.line}`, borderLeft: `3px solid ${open ? col : C.ok}`, opacity: open ? 1 : .7 }}>
+                <div className="min-w-0 pr-3">
+                  <button type="button" onClick={() => openPallet && openPallet(g.lead.hu || g.article)} className="text-left text-sm font-medium leading-tight truncate block max-w-full">{g.name}</button>
+                  <span className="block text-[11px] truncate" style={{ color: C.muted }}><span className="font-mono">{g.article}</span>{g.product?.isBio ? " · bio" : ""}{g.mixedPO ? <span className="ml-1.5" style={{ color: C.warn }}>· {g.pos.length} POs</span> : g.pos[0] ? <span className="font-mono"> · PO {g.pos[0]}</span> : ""}</span>
+                </div>
+                <span className="text-sm whitespace-nowrap" style={{ fontVariantNumeric: "tabular-nums" }}>{g.rows.length}{g.rows.length > 1 && open && g.open.length < g.rows.length ? <span className="text-[11px]" style={{ color: C.muted }}> · {g.open.length} left</span> : null}</span>
+                <span className="text-xs truncate pr-2">{g.locs.length <= 2 ? g.locs.join(", ") : `${g.locs[0]} +${g.locs.length - 1}`}</span>
+                <span className="text-xs whitespace-nowrap" style={{ fontVariantNumeric: "tabular-nums", color: g.hours > st.rejectionWindowHours ? C.bad : C.ink }}>{fmtHours(g.hours)}</span>
+                <span className="min-w-0 pr-2">{open && label && <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap" style={{ background: col + "22", color: dockStatusText(stt) }}>{label}</span>}{(extra || g.whyPlus) && <span className="block text-[11px] mt-0.5 leading-snug" style={{ color: g.u <= 1 ? C.bad : C.warn }}>{[extra, g.whyPlus].filter(Boolean).join(" · ")}</span>}</span>
+                <span className="min-w-0 pr-2"><RowStatus g={g} /></span>
+                <span className="text-right"><button type="button" onClick={() => openPallet && openPallet(g.lead.hu || g.article)} className="text-xs font-semibold px-2.5 rounded-lg inline-flex items-center" style={{ height: 28, background: C.accentSoft, color: C.accent }}>Open</button></span>
+              </div>); })}</div>
+          </div>}
           <p className="text-[11px] mt-3" style={{ color: C.muted }}>Open a product to see its spec, photos and recent history before walking out. The inspection itself is started on the phone at the pallet.</p>
         </Card>
       </div>
