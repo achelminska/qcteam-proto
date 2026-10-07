@@ -4979,7 +4979,7 @@ function CatalogPage({ s, set, user, notify, onStartInspection, onOpenInspection
   const [q, setQ] = useState(""); const [sel, setSel] = useBackSel("catalogSel", null); const [flagText, setFlagText] = useState(""); const [flagOpen, setFlagOpen] = useState(false); const [showRef, setShowRef] = useState(null);
   useEffect(() => { if (presetSel) { setSel(presetSel); clearPresetSel && clearPresetSel(); } }, [presetSel]);
   useEffect(() => { if (presetFilter) { setQ(presetFilter); clearPreset && clearPreset(); } }, [presetFilter]);
-  const [cat, setCat] = useBackSel("catalogCat", ""); const [f, setF] = useState({ bio: "", supplier: "", only: "", sort: "name" }); const [limit, setLimit] = useState(80);
+  const [cat, setCat] = useBackSel("catalogCat", ""); const [f, setF] = useState({ bio: "", supplier: "", only: "", sort: "dock" }); const [limit, setLimit] = useState(80);
   const now = Date.now();
   const catPath = id => { const c = s.categories.find(x => x.id === id); if (!c) return ""; const p = c.parentId && s.categories.find(x => x.id === c.parentId); return p ? `${p.name} › ${c.name}` : c.name; };
   const catChain = id => { const out = []; let c = s.categories.find(x => x.id === id); while (c) { out.unshift(c); c = c.parentId ? s.categories.find(x => x.id === c.parentId) : null; } return out; };
@@ -4994,9 +4994,9 @@ function CatalogPage({ s, set, user, notify, onStartInspection, onOpenInspection
   const matches = p => (!cat || catChain(p.categoryId).some(c => c.id === cat)) && (!f.bio || (f.bio === "bio" ? p.isBio : !p.isBio)) && (!f.supplier || (p.supplierIds || []).includes(f.supplier))
     && (!f.only || (f.only === "dock" ? dockOf(p).length > 0 : f.only === "flag" ? s.flags.some(x => x.productId === p.id && x.status === "Open") : f.only === "rejected" ? !!extRejectionLine(s, p.articleId, now) || recentProblemsFor(s, p.id, now).count > 0 : f.only === "live" ? !!liveNoteOf(p) || (s.tempSpecs || []).some(t => t.ownerKind === "product" && t.ownerId === p.id && tempSpecIsActive(t)) : true))
     && (!qq || haystack(p).includes(qq));
-  const visible = active.filter(matches).sort((a, b) => f.sort === "recent" ? ((lastInsp(b.id)?.completedAt || "").localeCompare(lastInsp(a.id)?.completedAt || "")) : f.sort === "dock" ? (dockOf(b).length ? urgency(dockOf(b)) : 99) - (dockOf(a).length ? urgency(dockOf(a)) : 99) || a.name.localeCompare(b.name, "en") : a.name.localeCompare(b.name, "en"));
+  const visible = active.filter(matches).sort((a, b) => f.sort === "recent" ? ((lastInsp(b.id)?.completedAt || "").localeCompare(lastInsp(a.id)?.completedAt || "")) : f.sort === "dock" ? (dockOf(a).length ? urgency(dockOf(a)) : 99) - (dockOf(b).length ? urgency(dockOf(b)) : 99) || a.name.localeCompare(b.name, "en") : a.name.localeCompare(b.name, "en"));
   const filtered = !!(qq || cat || f.bio || f.supplier || f.only);
-  const dockFirst = !filtered && f.sort === "name" ? visible.filter(p => dockOf(p).length).sort((a, b) => urgency(dockOf(a)) - urgency(dockOf(b)) || a.name.localeCompare(b.name, "en")) : [];
+  const dockFirst = !filtered && f.sort === "dock" ? visible.filter(p => dockOf(p).length).sort((a, b) => urgency(dockOf(a)) - urgency(dockOf(b)) || a.name.localeCompare(b.name, "en")) : [];
   const rest = dockFirst.length ? visible.filter(p => !dockOf(p).length) : visible;
   const catCount = cid => active.filter(p => catChain(p.categoryId).some(c => c.id === cid)).length;
   const catOptions = s.categories.filter(c => !c.parentId).map(c => ({ c, n: catCount(c.id), kids: s.categories.filter(k => k.parentId === c.id).map(k => ({ c: k, n: catCount(k.id) })).filter(k => k.n) })).filter(x => x.n).sort((a, b) => a.c.name.localeCompare(b.c.name, "en"));
@@ -5034,7 +5034,7 @@ function CatalogPage({ s, set, user, notify, onStartInspection, onOpenInspection
           {catOptions.map(({ c, n, kids }) => kids.length ? <optgroup key={c.id} label={`${c.name} · ${n}`}><option value={c.id}>All {c.name} · {n}</option>{kids.map(k => <option key={k.c.id} value={k.c.id}>{k.c.name} · {k.n}</option>)}</optgroup> : <option key={c.id} value={c.id}>{c.name} · {n}</option>)}
         </select>
         {usedSuppliers.length > 0 && <select value={f.supplier} onChange={e => setF(x => ({ ...x, supplier: e.target.value }))} className="text-sm rounded-xl px-3" style={{ height: 36, border: `1px solid ${C.line}`, background: C.surface, color: C.ink, maxWidth: 200 }}><option value="">Any supplier</option>{usedSuppliers.map(x => <option key={x.id} value={x.id}>{x.name}</option>)}</select>}
-        <select value={f.sort} onChange={e => setF(x => ({ ...x, sort: e.target.value }))} className="text-sm rounded-xl px-3" style={{ height: 36, border: `1px solid ${C.line}`, background: C.surface, color: C.ink }}><option value="name">A–Z</option><option value="dock">On the dock first</option><option value="recent">Recently inspected</option></select>
+        <select value={f.sort} onChange={e => setF(x => ({ ...x, sort: e.target.value }))} className="text-sm rounded-xl px-3" style={{ height: 36, border: `1px solid ${C.line}`, background: C.surface, color: C.ink }}><option value="dock">On the dock first</option><option value="name">A–Z</option><option value="recent">Recently inspected</option></select>
       </div>
       <div className="flex gap-1.5 mb-4 flex-wrap">
         <Pill on={!f.only && !f.bio} onClick={() => setF(x => ({ ...x, only: "", bio: "" }))}>All</Pill>
