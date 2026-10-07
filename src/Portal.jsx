@@ -1880,7 +1880,8 @@ function PalletPage({ s, set, user, hu, onBack, onOpenProduct, onOpenInspection,
   const sameArt = r.article ? dockAll.filter(x => x.article === r.article) : [];
   const others = sameArt.filter(x => !(r.hu && samePallet(x.hu, r.hu)));
   const pos = [...new Set(sameArt.map(x => (x.po || "").trim()).filter(Boolean))];
-  const sameDelivery = dockAll.filter(x => x.article !== r.article && !(r.hu && samePallet(x.hu, r.hu)) && ((r.po && (x.po || "").trim() === String(r.po).trim()) || (r.transporter && r.arrived && x.transporter === r.transporter && x.arrived === r.arrived)));
+  const byPo = !!String(r.po || "").trim();
+  const sameDelivery = dockAll.filter(x => x.article !== r.article && !(r.hu && samePallet(x.hu, r.hu)) && (byPo ? (x.po || "").trim() === String(r.po).trim() : (r.transporter && r.arrived && x.transporter === r.transporter && x.arrived === r.arrived)));
   const sameDock = r.location ? dockAll.filter(x => x.location === r.location && !(r.hu && samePallet(x.hu, r.hu))) : [];
   const photos = product ? asPhotoList(product.photos) : [];
   const catPath = id => { const c = s.categories.find(x => x.id === id); if (!c) return ""; const p = c.parentId && s.categories.find(x => x.id === c.parentId); return p ? `${p.name} › ${c.name}` : c.name; };
@@ -1995,7 +1996,7 @@ function PalletPage({ s, set, user, hu, onBack, onOpenProduct, onOpenInspection,
             </div>}
             {sameDelivery.length > 0 && <div>
               <p className="font-semibold mb-0.5">Same delivery · {sameDelivery.length}</p>
-              <p className="text-[12px] mb-2" style={{ color: C.muted }}>Other products from {r.po ? `PO ${r.po}` : `${r.transporter} today`} — worth checking in the same walk.</p>
+              <p className="text-[12px] mb-2" style={{ color: C.muted }}>Other products {byPo ? `on the same PO ${r.po}` : `delivered by ${r.transporter} on the same day`} — worth checking in the same walk.</p>
               <div className="grid gap-2" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))" }}>{sameDelivery.slice(0, 8).map(x => <PalletChip key={x.hu} x={x} hint="article" />)}</div>
             </div>}
           </Card>}
@@ -2423,7 +2424,7 @@ function ControllerDashboard({ s, user, set, setPage, setOpenId, openProduct, op
     }).sort((a, b) => a.u - b.u || (b.hours - a.hours)); })();
   const counts = { todo: groups.filter(g => g.open.length && g.u < 9).length, needed: groups.filter(g => g.u <= 2 && g.open.length).length, risky: groups.filter(g => g.risky && g.open.length).length, skippable: groups.filter(g => g.u === 9 && g.open.length).length, done: groups.filter(g => g.rows.some(r => r.done)).length, all: groups.length };
   const shown = groups.filter(g => filter === "all" ? true : filter === "done" ? g.rows.some(r => r.done) : filter === "needed" ? g.u <= 2 && g.open.length : filter === "risky" ? g.risky && g.open.length : filter === "skippable" ? g.u === 9 && g.open.length : filter === "deadline" ? g.rows.some(r => r.alert && !r.done) : PRIO_ORDER.includes(filter) ? g.rows.some(r => r.priority === filter && !r.done) : g.open.length && g.u < 9)
-    .filter(g => dockMatches({ ...g.lead, name: g.name }, q, s));
+    .filter(g => g.rows.some(r => dockMatches({ ...r, name: g.name, locations: g.locs.join(" ") }, q, s)));
   const Chip = ({ id, label, n, tone }) => <button type="button" onClick={() => setFilter(id)} className="text-xs font-medium px-3 rounded-full inline-flex items-center gap-1.5" style={{ height: 30, background: filter === id ? C.ink : C.surface, color: filter === id ? C.onDark : C.ink, border: `1px solid ${filter === id ? C.ink : C.line}` }}>{label}<span className="font-semibold" style={{ color: filter === id ? C.onDark : tone && n ? tone : C.muted, fontVariantNumeric: "tabular-nums" }}>{n}</span></button>;
   const toneCol = t => t === "bad" ? C.bad : t === "warn" ? C.warn : t === "info" ? C.accent : C.muted;
   const myDone = doneTodayByUser(s, user.id, now); const myToday = (s.inspections || []).filter(i => i.controllerId === user.id && i.status === "Completed" && i.completedAt && dayLabel(i.completedAt) === "today");
