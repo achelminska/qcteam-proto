@@ -5062,6 +5062,9 @@ function CatalogPage({ s, set, user, notify, onStartInspection, onOpenInspection
   const openFlags = product ? s.flags.filter(x => x.productId === product.id && x.status === "Open") : [];
   const prodDock = product ? dockOf(product) : [];
   const hist = product ? recentProblemsFor(s, product.id, now) : null;
+  const guide = product ? effectiveGuide(s, product).filter(e => e.title || e.body || asPhotoList(e.photos).length) : [];
+  const refNotes = product ? effectiveNotesFor(s, product).filter(n => n.description || asPhotoList(n.photos).length) : [];
+  const policy = product ? effectivePolicy(s, product) : null; const allowedTypes = policy ? typesOf(s).filter(tp => policy.typeIds.includes(tp.id)) : [];
   const raise = () => { if (!flagText.trim()) return; set(x => ({ ...x, flags: [...x.flags, { id: uid(), productId: product.id, inspectionId: null, raisedBy: user.id, description: flagText.trim(), status: "Open", createdAt: nowISO() }] })); notify("Flag", `${user.name}: ${product.name} — ${flagText.trim()}`, "ProductFlag", null); setFlagText(""); setFlagOpen(false); };
   const Row = ({ p }) => { const li = lastInsp(p.id); const openFlag = s.flags.some(x => x.productId === p.id && x.status === "Open"); const d = dockOf(p); const on = sel === p.id; const ext = extRejectionLine(s, p.articleId, now); return (
     <button type="button" onClick={() => { setSel(p.id); setFlagOpen(false); setShowRef(null); }} className="w-full text-left flex items-center gap-3 px-3 py-2 rounded-xl" style={{ background: on ? C.accentSoft : "transparent", border: `1px solid ${on ? C.accent : "transparent"}` }}>
@@ -5150,6 +5153,17 @@ function CatalogPage({ s, set, user, notify, onStartInspection, onOpenInspection
                 {showRef && (() => { const ref = s.inspections.find(i => i.id === showRef); return ref ? <div className="rounded-xl p-3 mt-3" style={{ border: `1px solid ${C.ok}` }}><ReportView insp={ref} s={s} user={user} onEdit={() => {}} onAnswer={() => {}} /></div> : null; })()}
               </Section>
               {asPhotoList(product.photos).length > 1 && <Section title="Reference photos"><PhotoStrip photos={product.photos} size={72} /></Section>}
+              {refNotes.length > 0 && <Section title={`Reference guide · ${refNotes.length}`}>
+                <p className="text-[12px] mb-1.5" style={{ color: C.muted }}>What each defect looks like on this product — notes and photos from the Head.</p>
+                {refNotes.map(n => <FoldNote key={n.id} title={problemPath(s.problems, n.problemId) || "Defect"} chip={n.inherited ? <InheritChip label={n.source} /> : null}>{n.description && <p className="text-sm whitespace-pre-wrap mb-2">{n.description}</p>}<PhotoStrip photos={n.photos} size={84} /></FoldNote>)}
+              </Section>}
+              {guide.length > 0 && <Section title={`Encyclopedia · ${guide.length}`}>
+                {guide.map(g => <FoldNote key={g.id} title={g.title || "Untitled entry"} chip={g.inherited ? <InheritChip label={g.source} /> : null}>{g.body && <p className="text-sm whitespace-pre-wrap mb-2">{g.body}</p>}<PhotoStrip photos={g.photos} size={84} /></FoldNote>)}
+              </Section>}
+              {(allowedTypes.length > 0 || product.consumerAppUrl) && <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 mt-5 text-xs" style={{ color: C.muted }}>
+                {allowedTypes.length > 0 && <span>Inspection types: {allowedTypes.map(tp => <span key={tp.id} className="inline-block px-2 py-0.5 rounded-full ml-1" style={{ background: C.bg, border: `1px solid ${C.line}`, color: C.ink }}>{tp.name}</span>)}</span>}
+                {product.consumerAppUrl && <a href={product.consumerAppUrl} target="_blank" rel="noopener noreferrer" className="underline inline-flex items-center" style={{ color: C.accent }}>Open in the consumer app<Ic i={ExternalLink} s={11} mr={0} style={{ marginLeft: 3 }} /></a>}
+              </div>}
               {(assigned.length > 0 || effectiveVarieties(s, product).length > 0) && <div className="grid gap-4 mt-5" style={{ gridTemplateColumns: "1fr 1fr" }}>
                 {assigned.length > 0 && <div><p className="label-sm mb-1.5" style={{ color: C.muted }}>Suppliers</p><div className="flex flex-wrap gap-1">{assigned.map(x => <span key={x.id} className="text-xs px-2.5 py-1 rounded-full" style={{ background: C.accentSoft, color: C.accent }}>{x.name}</span>)}</div></div>}
                 {effectiveVarieties(s, product).length > 0 && <div><p className="label-sm mb-1.5" style={{ color: C.muted }}>Varieties</p><div className="flex flex-wrap gap-1">{effectiveVarieties(s, product).map(v => <span key={v.id} className="text-xs px-2.5 py-1 rounded-full" style={{ background: C.bg, border: `1px solid ${C.line}` }} title={v.source}>{v.name}</span>)}</div></div>}
