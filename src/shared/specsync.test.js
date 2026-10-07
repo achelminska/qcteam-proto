@@ -135,3 +135,34 @@ describe("live value", () => {
     expect(c.tempSpecs).toHaveLength(0); expect(c.report.issues.some(i => i.kind === "expired")).toBe(true);
   });
 });
+
+import { resolveSpecConflict } from "./specsync.js";
+describe("resolving spec conflicts", () => {
+  const NOW = "2026-10-07T12:00:00.000Z";
+  const prod = { id: "p1", articleId: "11388773", name: "Groene pepers", specs: [{ id: "s1", name: "Length", unit: "cm", basis: "piece", min: 12, max: 16 }] };
+  const row = { articleId: "11388773", length: "10" };
+  it("reports the conflict with what is needed to resolve it", () => {
+    const r = applySpecSheet([prod], [row], { createMissing: false, now: NOW });
+    const c = r.report.issues.find(i => i.kind === "conflict"); expect(c).toMatchObject({ specId: "s1", sheet: { min: 10, max: null, unit: "cm", raw: "10" } });
+    const mine = resolveSpecConflict(r.products, c, "mine", NOW);
+    expect(mine[0].specs[0]).toMatchObject({ min: 12, max: 16, unit: "cm", sheetIgnored: "10" });
+    expect(applySpecSheet(mine, [row], { createMissing: false, now: NOW }).report.conflicts).toBe(0);
+    expect(applySpecSheet(mine, [{ ...row, length: "13" }], { createMissing: false, now: NOW }).report.conflicts).toBe(1);
+    const sheet = resolveSpecConflict(r.products, c, "sheet", NOW);
+    expect(sheet[0].specs[0]).toMatchObject({ min: 10, max: null, unit: "cm", origin: "sheet", sheetRaw: "10" });
+    expect(applySpecSheet(sheet, [row], { createMissing: false, now: NOW }).report.conflicts).toBe(0);
+  });
+});
+
+describe("bare numbers next to the Head's cm spec", () => {
+  const NOW = "2026-10-07T12:00:00.000Z";
+  it("reads 4 as 4 cm and sees no conflict with 4–8 cm", () => {
+    const prod = { id: "p1", articleId: "90006004", name: "Jalapeno", specs: [{ id: "s1", name: "Length", unit: "cm", basis: "piece", min: 4, max: 8 }] };
+    const r = applySpecSheet([prod], [{ articleId: "90006004", length: "4" }], { createMissing: false, now: NOW });
+    expect(r.report.conflicts).toBe(0); expect(r.products[0].specs[0]).toMatchObject({ min: 4, max: 8, unit: "cm" });
+    const r2 = applySpecSheet([prod], [{ articleId: "90006004", length: "5" }], { createMissing: false, now: NOW });
+    expect(r2.report.issues.find(i => i.kind === "conflict").note).toMatch(/≥ 5 cm/);
+    const r3 = applySpecSheet([prod], [{ articleId: "90006004", length: "40mm" }], { createMissing: false, now: NOW });
+    expect(r3.report.issues.find(i => i.kind === "conflict").note).toMatch(/≥ 40 mm/);
+  });
+});

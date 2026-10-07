@@ -123,14 +123,20 @@ export function applySpecSheet(products, rows, { createMissing = true, now = new
     if (r.cuName && !p.sheetName) patch({ sheetName: String(r.cuName).trim() }); else if (r.cuName && p.sheetName !== String(r.cuName).trim()) patch({ sheetName: String(r.cuName).trim() });
     for (const k of specKeys) {
       if (!(k in r)) continue;
-      const def = SPEC_COLUMNS[k]; const cell = parseSpecCell(r[k], def.unit);
+      const def = SPEC_COLUMNS[k]; let cell = parseSpecCell(r[k], def.unit);
+      // A bare number ("4", "12") in a mm column next to the Head's own spec in cm is almost always cm with the unit left
+      // off — read it in the Head's unit rather than flagging 4 mm vs 4–8 cm as a conflict.
+      if (!cell.issue && def.unit === "mm" && !/[a-z]/i.test(String(r[k] ?? ""))) { const own = (next.specs || []).find(q => (q.name || "").toLowerCase() === def.name.toLowerCase() && (q.basis || "piece") === def.basis && q.origin !== "sheet" && q.unit && q.unit !== def.unit); if (own) cell = { ...cell, unit: own.unit, note: `read as ${own.unit} (no unit in the sheet)` }; }
       if (cell.issue) { coverage[k][cell.issue]++; if (cell.issue !== "empty") issues.push({ articleId: p.articleId, kind: cell.issue, column: k, spec: def.name, note: cell.note || "" }); continue; }
       coverage[k].filled++;
       const specs = next.specs || []; const ix = specs.findIndex(q => (q.name || "").toLowerCase() === def.name.toLowerCase() && (q.basis || "piece") === def.basis);
       const ex = ix >= 0 ? specs[ix] : null;
       const same = ex && eqNum(ex.min, cell.min) && eqNum(ex.max, cell.max) && (ex.unit || "") === cell.unit;
+      // The sheet is a list of minimums: "≥ 4 cm" doesn't contradict the Head's "4–8 cm".
+      const within = ex && (ex.unit || "") === cell.unit && cell.max == null && cell.min != null && eqNum(ex.min, cell.min);
       if (ex && ex.origin !== "sheet") {
-        if (!same) issues.push({ articleId: p.articleId, kind: "conflict", column: k, spec: def.name, note: `sheet says ${fmtRange(cell)}, the Head's own spec says ${fmtRange(ex)} — the Head's kept` });
+        // "Keep mine" in the portal pins the sheet's raw cell on the spec; the conflict comes back only if the sheet changes it.
+        if (!same && !within && ex.sheetIgnored !== String(r[k]).trim()) issues.push({ articleId: p.articleId, kind: "conflict", column: k, spec: def.name, specId: ex.id, sheet: { min: cell.min, max: cell.max, unit: cell.unit, raw: String(r[k]).trim() }, note: `sheet says ${fmtRange(cell)}, the Head's own spec says ${fmtRange(ex)} — the Head's kept` });
         continue;
       }
       if (same && ex.sheetRaw === String(r[k]).trim()) continue;
@@ -166,5 +172,14 @@ export function applySpecSheet(products, rows, { createMissing = true, now = new
     if (changed) { const i = out.indexOf(p); out[i] = next; byArticle.set(key, next); if (existed) updated++; } else if (existed) unchanged++;
   }
   return { products: out, tempSpecs: temps, report: { at: now, liveChanged, rows: rows.length, updated, created, unchanged, skipped, coverage, issues, conflicts: issues.filter(i => i.kind === "conflict").length, placeholders: issues.filter(i => i.kind === "placeholder").length } };
+}
+// Resolving a conflict from the portal. "sheet": the Head's spec becomes the sheet's (from now on the sheet maintains it);
+// "mine": keep the Head's value and stop reporting this exact sheet cell.
+export function resolveSpecConflict(products, issue, choice, now = new Date().toISOString()) {
+  return products.map(p => { if (normArticleId(p.articleId) !== normArticleId(issue.articleId)) return p;
+    const specs = (p.specs || []).map(q => { if (q.id !== issue.specId) return q;
+      if (choice === "sheet") { const { sheetIgnored, ...rest } = q; return { ...rest, min: issue.sheet.min, max: issue.sheet.max, unit: issue.sheet.unit, origin: "sheet", sheetRaw: issue.sheet.raw, syncedAt: now }; }
+      return { ...q, sheetIgnored: issue.sheet.raw }; });
+    return { ...p, specs }; });
 }
 export const fmtRange = q => { const mn = q?.min != null && q.min !== "" ? Number(q.min) : null, mx = q?.max != null && q.max !== "" ? Number(q.max) : null; const u = q?.unit || ""; return mn != null && mx != null ? `${mn}–${mx} ${u}` : mn != null ? `≥ ${mn} ${u}` : mx != null ? `≤ ${mx} ${u}` : "—"; };
