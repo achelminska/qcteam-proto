@@ -5228,7 +5228,8 @@ function CategoryPicker({ categories, value, onChange, placeholder = "Search cat
     </div>
   );
 }
-function AnnouncementsPage({ s, set, user, notify }) {
+function AnnouncementsPage({ s, set, user, notify, openProduct }) {
+  const [tab, setTab] = useState("active"); const [q, setQ] = useState("");
   const [d, setD] = useState({ blocking: false, dashboard: true, product: false, category: false, title: "", body: "", productId: "", categoryId: "", validTo: "" });
   const [files, setFiles] = useState([]);
   const controllers = s.users.filter(u => u.role === "Controller" && u.active !== false);
@@ -5243,7 +5244,15 @@ function AnnouncementsPage({ s, set, user, notify }) {
     setFiles([]);
   };
   const remove = id => set(x => ({ ...x, announcements: x.announcements.filter(a => a.id !== id) }));
-  const list = [...s.announcements].sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
+  const all = [...s.announcements].sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
+  const expired = a => a.showOnDashboard && !annActive(a) && !a.productId && !a.categoryId && !a.isBlocking; // dashboard-only notes past their date
+  const qq = q.trim().toLowerCase();
+  const pool = all.filter(a => !qq || `${a.title} ${a.body} ${s.products.find(p => p.id === a.productId)?.name || ""}`.toLowerCase().includes(qq));
+  const list = pool.filter(a => tab === "all" ? true : tab === "expired" ? expired(a) : !expired(a));
+  const nActive = pool.filter(a => !expired(a)).length, nExpired = pool.filter(expired).length;
+  // *bold* in the body, as the Head types it
+  const rich = txt => String(txt || "").split(/(\*[^*\n]+\*)/g).map((part, i) => /^\*[^*]+\*$/.test(part) ? <b key={i}>{part.slice(1, -1)}</b> : <Fragment key={i}>{part}</Fragment>);
+  const Chip = ({ children, tone, onClick }) => { const fg = tone === "bad" ? C.bad : tone === "warn" ? C.warn : tone === "ok" ? C.ok : tone === "accent" ? C.accent : C.muted; const bg = tone === "bad" ? C.badBg : tone === "warn" ? C.warnBg : tone === "ok" ? C.okBg : tone === "accent" ? C.accentSoft : C.bg; const Tag = onClick ? "button" : "span"; return <Tag type={onClick ? "button" : undefined} onClick={onClick} className="text-[11px] font-medium px-2 py-0.5 rounded-full inline-flex items-center gap-1 whitespace-nowrap" style={{ background: bg, color: fg, border: tone ? "none" : `1px solid ${C.line}` }}>{children}</Tag>; };
   const canPublish = user.role === "Head";
   return (
     <div>
@@ -5264,24 +5273,40 @@ function AnnouncementsPage({ s, set, user, notify }) {
           <AnnounceAttachButton colors={C} onAdd={added => setFiles(list => [...list, ...added])} />
           <Primary onClick={add} disabled={!valid}>Publish</Primary>
         </Card>}
-        <Card>
-          {list.length === 0 ? <Empty icon="📣" title="No announcements" hint={canPublish ? "Publish the first one on the left." : "Nothing from the Head yet."} /> : list.map(a => { const acked = Object.keys(a.acks || {}).length; return (
-            <div key={a.id} className="py-3" style={{ borderTop: `1px solid ${C.line}` }}>
-              <div className="flex items-center gap-2 mb-1 flex-wrap">{annChannels(a).map(k => <span key={k} className="text-xs px-2 py-0.5 rounded-full inline-flex items-center gap-1.5" style={{ background: C.surface, border: `1px solid ${C.line}`, color: C.ink }}><span className="inline-block rounded-full" style={{ width: 6, height: 6, background: k === "blocking" ? C.bad : k === "product" ? C.warn : k === "category" ? C.ok : C.accent }} />{CHANNELS[k][0]}</span>)}<span className="text-sm font-medium flex-1">{a.title}</span>{canPublish && <button onClick={() => remove(a.id)} className="text-xs" style={{ color: C.muted }}>×</button>}</div>
-              <p className="text-sm mb-1">{a.body}</p>
-              <AnnounceFileList announcement={a} colors={C} compact />
-              <p className="text-xs" style={{ color: C.muted }}>{fmtTime(a.createdAt)}{a.productId && ` · ${s.products.find(p => p.id === a.productId)?.name}`}{a.categoryId && ` · ${catPath(a.categoryId)}`}{a.validTo && ` · dashboard until ${a.validTo}`}{a.showOnDashboard && !annActive(a) && " · expired on the dashboard"}</p>
-              {a.isBlocking && (
-                <div className="group relative inline-block mt-1">
-                  <p className="text-xs cursor-help underline decoration-dotted" style={{ color: C.muted }}>acknowledged by {acked}/{controllers.length}</p>
-                  <div className="hidden group-hover:block absolute left-0 top-full mt-1 rounded-lg p-2 z-10" style={{ background: C.surface, border: `1px solid ${C.line}`, boxShadow: "0 4px 16px rgba(0,0,0,.08)", minWidth: 160 }}>
-                    {controllers.map(c => <p key={c.id} className="text-xs whitespace-nowrap" style={{ color: a.acks?.[c.id] ? C.ok : C.muted }}>{c.name}{a.acks?.[c.id] ? " ✓" : " · not yet"}</p>)}
+        <div>
+          <div className="flex items-center gap-2 mb-3 flex-wrap">
+            {[["active", "Current", nActive], ["expired", "Expired", nExpired], ["all", "All", pool.length]].map(([id, l, n]) => <button key={id} type="button" onClick={() => setTab(id)} className="text-xs font-medium px-3 rounded-full inline-flex items-center gap-1.5" style={{ height: 30, background: tab === id ? C.ink : C.surface, color: tab === id ? C.onDark : C.ink, border: `1px solid ${tab === id ? C.ink : C.line}` }}>{l}<span style={{ color: tab === id ? C.onDark : C.muted, fontVariantNumeric: "tabular-nums" }}>{n}</span></button>)}
+            <div className="flex-1" />
+            <SearchBox value={q} onChange={setQ} placeholder="Search notes…" style={{ width: 240 }} />
+          </div>
+          {list.length === 0 ? <Card><Empty icon="📣" title={qq ? "Nothing matches" : tab === "expired" ? "Nothing expired" : "No announcements"} hint={canPublish ? "Publish the first one on the left." : "Nothing from the Head right now."} /></Card> : <div className="flex flex-col gap-3">
+            {list.map(a => { const acked = Object.keys(a.acks || {}).length; const prod = a.productId && s.products.find(p => p.id === a.productId); const isExp = expired(a); const mineAck = a.isBlocking && (a.acks || {})[user.id];
+              const accent = a.isBlocking ? C.bad : a.productId ? C.warn : a.categoryId ? C.accent : C.line;
+              return <div key={a.id} className="qc-elev rounded-2xl" style={{ background: C.surface, border: `1px solid ${C.line}`, borderLeft: `4px solid ${accent}`, boxShadow: lift(), opacity: isExp ? .6 : 1 }}>
+                <div className="px-5 pt-4 pb-4">
+                  <div className="flex items-start gap-3">
+                    <div className="flex-1 min-w-0">
+                      <p className="font-semibold leading-tight" style={{ fontSize: 16 }}>{a.title}</p>
+                      <div className="flex flex-wrap gap-1.5 mt-2">
+                        {a.isBlocking && <Chip tone="bad"><Ic i={ShieldAlert} s={11} mr={0} />Must be acknowledged{canPublish ? ` · ${acked}/${controllers.length}` : mineAck ? " · you did ✓" : " · pending"}</Chip>}
+                        {prod && <Chip tone="warn" onClick={openProduct ? () => openProduct(prod.id) : undefined}><Ic i={Package} s={11} mr={0} />{prod.name}{openProduct && <Ic i={ChevronRight} s={11} mr={0} />}</Chip>}
+                        {a.categoryId && <Chip tone="accent"><Ic i={FolderTree} s={11} mr={0} />{catPath(a.categoryId)}</Chip>}
+                        {a.showOnDashboard && (isExp || !annActive(a) ? <Chip>Dashboard · expired {a.validTo}</Chip> : <Chip><Ic i={LayoutDashboard} s={11} mr={0} />Dashboard{a.validTo ? ` until ${fmtUntil(a.validTo)}` : ""}</Chip>)}
+                      </div>
+                    </div>
+                    <div className="text-right flex-shrink-0">
+                      <p className="text-xs" style={{ color: C.muted }}>{fmtTime(a.createdAt)}</p>
+                      <p className="text-[11px]" style={{ color: C.muted }}>{s.users.find(u => u.id === a.createdBy)?.name.split(" ")[0] || "Head"}</p>
+                    </div>
                   </div>
+                  <p className="text-sm mt-3 leading-relaxed whitespace-pre-wrap" style={{ maxWidth: 760 }}>{rich(a.body)}</p>
+                  <AnnounceFileList announcement={a} colors={C} compact />
+                  {a.isBlocking && canPublish && <div className="mt-3 flex flex-wrap gap-1.5">{controllers.map(c => <span key={c.id} className="text-[11px] px-2 py-0.5 rounded-full inline-flex items-center gap-1" style={{ background: a.acks?.[c.id] ? C.okBg : C.bg, color: a.acks?.[c.id] ? C.ok : C.muted, border: a.acks?.[c.id] ? "none" : `1px solid ${C.line}` }}><Avatar user={c} size={14} />{c.name.split(" ")[0]}{a.acks?.[c.id] ? " ✓" : ""}</span>)}</div>}
+                  {canPublish && <div className="mt-3 flex justify-end"><button type="button" onClick={() => { if (confirm(`Remove “${a.title}”?`)) remove(a.id); }} className="text-[11px]" style={{ color: C.muted }}>Remove</button></div>}
                 </div>
-              )}
-            </div>
-          ); })}
-        </Card>
+              </div>; })}
+          </div>}
+        </div>
       </div>
     </div>
   );
@@ -6109,7 +6134,7 @@ export default function App() {
       {!selPallet && safePage === "integrations" && <IntegrationsPage s={s} set={set} go={setPage} />}
       {!selPallet && safePage === "settings" && <SettingsPage s={s} set={set} />}
       {!selPallet && safePage === "users" && <UsersPage s={s} set={set} />}
-      {!selPallet && safePage === "announcements" && <AnnouncementsPage s={s} set={set} user={user} notify={notify} />}
+      {!selPallet && safePage === "announcements" && <AnnouncementsPage s={s} set={set} user={user} notify={notify} openProduct={id => { setSelPallet(null); setSelProduct(id); setPage(user.role === "Head" ? "products" : "catalog"); }} />}
       {!selPallet && safePage === "messages" && <MessagesPage s={s} set={set} user={user} setPage={setPage} onOpenProduct={id => setSelProduct(id)} onOpenInspection={id => { setOpenInspId(id); setPage("inspections"); }} onOpenCategory={id => setPresetCategory(id)} initialContext={pendingChatContext} clearInitialContext={() => setPendingChatContext(null)} />}
     </Shell>
   );
