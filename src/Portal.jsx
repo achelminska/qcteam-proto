@@ -1859,39 +1859,62 @@ function DockMapPage({ s, user, openPallet }) {
 const palletTime = iso => { const d = new Date(iso); return isNaN(d) ? "" : d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }); };
 function PalletPage({ s, set, user, hu, onBack, onOpenProduct, onOpenInspection, onPickPallet, onAssign, onOpenAnnouncements, onOpenComplaints }) {
   const r = findPalletRow(s, hu);
-  const [lostNote, setLostNote] = useState(""); const [lostAsk, setLostAsk] = useState(false);
-  useEffect(() => { setLostAsk(false); setLostNote(""); }, [hu]);
+  const [lostNote, setLostNote] = useState(""); const [lostAsk, setLostAsk] = useState(false); const [showRef, setShowRef] = useState(false);
+  const [now, setNow] = useState(Date.now()); useEffect(() => { const id = setInterval(() => setNow(Date.now()), 30000); return () => clearInterval(id); }, []);
+  useEffect(() => { setLostAsk(false); setLostNote(""); setShowRef(false); }, [hu]);
   if (!r) return (
     <div>
       <button type="button" onClick={onBack} className="text-sm inline-flex items-center mb-4" style={{ color: C.accent }}><Ic i={ChevronLeft} s={16} />Back</button>
       <Card><Empty icon={Package} title="Pallet not found" hint="It may already be inspected or off the sheet." /></Card>
     </div>
   );
+  const st = settingsOf(s);
   const product = s.products.find(p => p.articleId === r.article) || productForArticle(s, r.article);
   const done = r.hu ? completedInspectionFor(s, r.hu) : null;
   const lost = lostOf(s, r);
   const draft = r.hu ? s.inspections.find(i => (i.pallets || []).some(x => samePallet(x, r.hu)) && ["Draft", "PendingReview"].includes(i.status)) : null;
-  const al = r.hu ? computeDeadlineAlerts(s).find(a => samePallet(a.hu, r.hu)) : null;
+  const al = r.hu ? computeDeadlineAlerts(s, now).find(a => samePallet(a.hu, r.hu)) : null;
+  const claim = claimOf(s, r); const claimer = claim && s.users.find(u => u.id === claim.userId); const mine = claim && claim.userId === user.id;
   const status = dockStatus(r); const col = dockStatusColor(status); const statusLabel = DOCK_STATUS.find(x => x[0] === status)?.[1] || r.priority || (r.kind === "blocked" ? "Blocked" : r.kind === "unreported" ? "Unreported" : "Pallet");
-  const sameArt = r.article ? dockRowsLive(s).filter(x => x.article === r.article && !lostOf(s, x)) : [];
+  const dockAll = dockRowsLive(s).filter(x => !lostOf(s, x));
+  const sameArt = r.article ? dockAll.filter(x => x.article === r.article) : [];
   const others = sameArt.filter(x => !(r.hu && samePallet(x.hu, r.hu)));
   const pos = [...new Set(sameArt.map(x => (x.po || "").trim()).filter(Boolean))];
+  const sameDelivery = dockAll.filter(x => x.article !== r.article && !(r.hu && samePallet(x.hu, r.hu)) && ((r.po && (x.po || "").trim() === String(r.po).trim()) || (r.transporter && r.arrived && x.transporter === r.transporter && x.arrived === r.arrived)));
+  const sameDock = r.location ? dockAll.filter(x => x.location === r.location && !(r.hu && samePallet(x.hu, r.hu))) : [];
   const photos = product ? asPhotoList(product.photos) : [];
-  const catPath = id => { const c = s.categories.find(x => x.id === id); if (!c) return "uncategorised"; const p = c.parentId && s.categories.find(x => x.id === c.parentId); return p ? `${p.name} › ${c.name}` : c.name; };
+  const catPath = id => { const c = s.categories.find(x => x.id === id); if (!c) return ""; const p = c.parentId && s.categories.find(x => x.id === c.parentId); return p ? `${p.name} › ${c.name}` : c.name; };
+  const arrivalMs = r.arrived ? new Date(`${r.arrived}T${r.arrivedTime || "00:00"}:00`).getTime() : NaN;
+  const hoursOn = isNaN(arrivalMs) ? null : (now - arrivalMs) / 3600000;
+  const windowLeft = isNaN(arrivalMs) ? null : arrivalMs + st.rejectionWindowHours * 3600000 - now;
   const arrived = `${r.arrived ? dayLabel(r.arrived + "T12:00:00") : ""}${r.arrivedTime ? ` ${r.arrivedTime}` : ""}`.trim();
-  const hist = product ? recentProblemsFor(s, product.id) : { count: 0, problems: [] };
+  const hist = product ? recentProblemsFor(s, product.id, now) : { count: 0, problems: [] };
   const compl = complaintsLine(s, r.article);
+  const ext = extRejectionLine(s, r.article, now);
   const anns = product ? s.announcements.filter(a => annActive(a) && annMatchesProduct(s, a, product)) : [];
+  const specs = product ? effectiveSpecs(s, product) : [];
+  const live = product ? liveNoteOf(product) : null;
+  const history = product ? s.inspections.filter(i => i.productId === product.id && i.status === "Completed").sort((a, b) => (b.completedAt || "").localeCompare(a.completedAt || "")).slice(0, 5) : [];
+  const ref = product ? s.inspections.find(i => i.productId === product.id && i.isReference) : null;
+  const why = r.blocking ? "Flagged “Needed today” on the dock sheet — picking waits for this pallet." : r.priority === "High risk" ? "The dock sheet marks this product as high risk — recent rejections or a sensitive product." : r.priority === "High issues" ? "The dock sheet marks this product as high issues — problems were found on earlier deliveries." : r.priority === "Late inspection" ? "Standing on the dock longer than it should — inspect before the rejection window closes." : r.priority === "Now needed" ? "Needed now — the planner is waiting for this product." : r.priority === "Inspection due" ? "Due for a routine inspection." : r.skippable ? "Marked skippable on the dock sheet — a visual check is enough unless something looks off." : "";
+  const take = () => setClaim(set, r, { userId: user.id, at: nowISO(), status: "taken" });
+  const stack = () => setClaim(set, r, { userId: user.id, at: nowISO(), status: "stacked" });
+  const release = () => setClaim(set, r, null);
   const Pill = ({ children, bg, fg }) => <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap" style={{ background: bg, color: fg }}>{children}</span>;
-  const Fact = ({ k, v }) => <div className="min-w-0"><p className="label-sm mb-0.5">{k}</p><p className="text-sm font-semibold truncate" style={{ fontVariantNumeric: "tabular-nums" }}>{v || "—"}</p></div>;
+  const Fact = ({ k, v, tone }) => <div className="min-w-0"><p className="label-sm mb-0.5">{k}</p><p className="text-sm font-semibold leading-snug" style={{ fontVariantNumeric: "tabular-nums", color: tone || C.ink }}>{v || "—"}</p></div>;
   const NoteRow = ({ icon: I, tone, children, onClick }) => {
-    const fg = tone === "ok" ? C.ok : tone === "warn" ? C.warn : C.bad;
-    const bg = tone === "ok" ? C.okBg : tone === "warn" ? C.warnBg : C.badBg;
+    const fg = tone === "ok" ? C.ok : tone === "warn" ? C.warn : tone === "info" ? C.accent : C.bad;
+    const bg = tone === "ok" ? C.okBg : tone === "warn" ? C.warnBg : tone === "info" ? C.accentSoft : C.badBg;
     const Tag = onClick ? "button" : "div";
-    return <Tag type={onClick ? "button" : undefined} onClick={onClick} className="w-full text-left flex items-center gap-2 px-3 py-1.5 rounded-lg text-[13px] leading-snug" style={{ background: bg, color: fg }}><Ic i={I} s={13} mr={0} /><span className="min-w-0 flex-1">{children}</span>{onClick && <Ic i={ChevronRight} s={13} mr={0} />}</Tag>;
+    return <Tag type={onClick ? "button" : undefined} onClick={onClick} className="w-full text-left flex items-start gap-2 px-3 py-2 rounded-lg text-[13px] leading-snug" style={{ background: bg, color: fg }}><Ic i={I} s={13} mr={0} style={{ marginTop: 2 }} /><span className="min-w-0 flex-1">{children}</span>{onClick && <Ic i={ChevronRight} s={13} mr={0} style={{ marginTop: 2, opacity: .7 }} />}</Tag>;
   };
+  const PalletChip = ({ x, hint }) => { const stt = dockStatus(x); const c2 = dockStatusColor(stt); const inspected = !!completedInspectionFor(s, x.hu); const p2 = s.products.find(p => p.articleId === x.article); return (
+    <button type="button" onClick={() => onPickPallet && onPickPallet(x.hu)} className="qc-tile w-full text-left rounded-xl px-3 py-2 flex items-center gap-2.5" style={{ background: C.surface, border: `1px solid ${C.line}`, borderLeft: `3px solid ${inspected ? C.ok : c2}` }}>
+      <span className="min-w-0 flex-1"><span className="block text-[13px] font-medium truncate leading-tight">{hint === "article" ? (x.name || p2?.name || x.article) : x.location || "—"}</span><span className="block text-[11px] truncate mt-0.5" style={{ color: C.muted }}>{hint === "article" ? `${x.location || "—"} · ` : ""}{DOCK_STATUS.find(d => d[0] === stt)?.[1] || stt}{x.po ? ` · PO ${x.po}` : ""}{x.quantity != null ? ` · ${palletQty(x)}` : ""}{inspected ? " · inspected" : ""}</span></span>
+      <Ic i={ChevronRight} s={14} mr={0} style={{ color: C.muted }} />
+    </button>); };
   return (
-    <div style={{ maxWidth: 880 }}>
+    <div>
       <div className="flex items-center gap-3 mb-4 flex-wrap">
         <button type="button" onClick={onBack} className="text-sm inline-flex items-center" style={{ color: C.accent }}><Ic i={ChevronLeft} s={16} />Back</button>
         <h1 className="flex-1">Pallet</h1>
@@ -1903,92 +1926,119 @@ function PalletPage({ s, set, user, hu, onBack, onOpenProduct, onOpenInspection,
           {r.kind === "blocked" && <Pill bg={C.badBg} fg={C.bad}>Blocked queue</Pill>}
           {r.kind === "unreported" && <Pill bg={C.badBg} fg={C.bad}>Unreported</Pill>}
         </span>
-        <span className="text-xs font-mono" style={{ color: C.muted }}>{r.hu ? `HU …${String(r.hu).slice(-8)}` : "no HU"}</span>
+        <span className="text-xs font-mono" style={{ color: C.muted }}>{r.hu ? `HU ${r.hu}` : "no HU"}</span>
       </div>
-
-      <Card style={{ padding: 0, overflow: "hidden", opacity: lost ? .75 : 1 }}>
-        <div className="flex" style={{ borderLeft: `4px solid ${col}` }}>
-          <div className="flex-1 min-w-0 px-5 py-4">
-            <div className="flex items-start gap-4">
-              {photos.length ? <img src={thumbSrc(photos[0])} loading="lazy" decoding="async" alt="" className="rounded-lg object-contain flex-shrink-0" style={{ width: 56, height: 56, background: PHOTO_BG, border: `1px solid ${C.line}` }} /> : <div className="rounded-lg flex items-center justify-center flex-shrink-0" style={{ width: 56, height: 56, background: C.bg, color: C.muted, border: `1px solid ${C.line}` }}><Ic i={Package} s={22} mr={0} /></div>}
-              <div className="min-w-0 flex-1">
-                <div className="flex items-start gap-3">
-                  <div className="min-w-0 flex-1">
-                    <h2 className="truncate" style={{ fontSize: 17 }}>{product?.name || r.name || r.article}</h2>
-                    {product ? <p className="text-xs mt-0.5 truncate" style={{ color: C.muted }}>ID {product.articleId} · {catPath(product.categoryId)}{product.isBio ? " · bio" : ""}</p> : <p className="text-xs mt-0.5" style={{ color: C.warn }}>Article {r.article} · no product profile yet</p>}
-                  </div>
-                  {product && onOpenProduct && <button type="button" onClick={() => onOpenProduct(product.id)} className="text-xs px-2.5 py-1 rounded-lg inline-flex items-center flex-shrink-0" style={{ border: `1px solid ${C.line}`, color: C.accent }}>Product profile <Ic i={ChevronRight} s={12} mr={0} /></button>}
-                </div>
-                <div className="grid gap-3 mt-3" style={{ gridTemplateColumns: "repeat(5, minmax(0, 1fr))" }}>
-                  <Fact k="Location" v={r.location} />
-                  <Fact k="Arrived" v={arrived} />
-                  <Fact k="Transporter" v={r.transporter} />
-                  <Fact k="PO" v={r.po} />
-                  <Fact k="Sortable" v={"sortable" in r ? (r.sortable ? "Yes" : "No") : (r.deadline ? `dep. ${r.deadline}` : null)} />
-                </div>
-                {(r.quantity != null || r.cusPerTu != null && r.cusPerTu !== "" || r.deadline && "sortable" in r) && (
-                  <p className="text-[11px] mt-2" style={{ color: C.muted }}>{r.quantity != null ? <b style={{ color: C.ink }}>{palletQty(r)} on the pallet</b> : (r.cusPerTu != null && r.cusPerTu !== "" ? `${r.cusPerTu} CU/TU` : "")}{r.deadline && "sortable" in r ? `${(r.quantity != null || r.cusPerTu) ? " · " : ""}departure ${r.deadline}` : ""}</p>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {(lost || al || hist.count || compl || anns.length || draft || done) && (
-          <div className="px-5 pb-3 flex flex-col gap-1.5" style={{ borderTop: `1px solid ${C.line}`, paddingTop: 12 }}>
-            {lost && <NoteRow icon={Search} tone="warn">Marked lost · {s.users.find(u => u.id === lost.byUserId)?.name.split(" ")[0] || "?"} · {dayLabel(lost.at)}{lost.at ? `, ${palletTime(lost.at)}` : ""}{lost.note ? ` · ${lost.note}` : ""}</NoteRow>}
-            {done && <NoteRow icon={Check} tone="ok" onClick={onOpenInspection ? () => onOpenInspection(done.id) : undefined}><b>Already inspected</b> · {done.result || STATUS[done.status]?.[0]} · {s.users.find(u => u.id === done.controllerId)?.name.split(" ")[0]} · {dayLabel(done.completedAt)}, {palletTime(done.completedAt)} · {inspType(s, done).name.toLowerCase()}{done.comment ? ` · ${done.comment}` : ""}</NoteRow>}
-            {al && !lost && <NoteRow icon={Clock} tone="bad"><b>{al.level === "breached" ? "Rejection window expired" : `Rejection window closes in ${Math.max(0, Math.round(al.hoursLeft))} h`}</b>{al.risky ? " · rejected recently" : ""}</NoteRow>}
-            {hist.count > 0 && <NoteRow icon={AlertTriangle} tone="bad"><b>{hist.count} rejected</b> in 14 days · {hist.problems.slice(0, 3).map(x => `${x.name} ×${x.count}`).join(", ")}{hist.problems.length > 3 ? "…" : ""}</NoteRow>}
-            {compl && <NoteRow icon={ThumbsDown} tone="bad" onClick={onOpenComplaints}><b>{compl.count} freshness complaint{compl.count === 1 ? "" : "s"}</b>{compl.sub ? <> · mostly <b>{compl.sub}</b></> : null}{compl.period ? ` · ${compl.period}` : ""}</NoteRow>}
-            {anns.map(a => <NoteRow key={a.id} icon={Megaphone} tone={a.isBlocking ? "bad" : "warn"} onClick={onOpenAnnouncements}><b>{a.title}</b>{a.body ? ` — ${a.body}` : ""}{a.isBlocking ? " · blocking" : ""}<AnnounceFileList announcement={a} colors={C} compact stopNav /></NoteRow>)}
-            {draft && <NoteRow icon={Clock} tone="warn" onClick={onOpenInspection ? () => onOpenInspection(draft.id) : undefined}><b>{s.users.find(u => u.id === draft.controllerId)?.name.split(" ")[0]}</b> has this pallet in progress ({STATUS[draft.status][0]})</NoteRow>}
-          </div>
-        )}
-
-        {others.length > 0 && (
-          <div className="px-5 pb-4" style={{ borderTop: `1px solid ${C.line}`, paddingTop: 12 }}>
-            <p className="label-sm mb-2">Same article on the docks · {others.length}</p>
-            {pos.length > 1 && <p className="mb-2 text-[11px] flex items-center" style={{ color: C.warn }}><Ic i={AlertTriangle} s={11} mr={4} />Different PO numbers ({pos.join(", ")})</p>}
-            <div className="flex flex-col gap-2">
-              {others.map(x => {
-                const st = dockStatus(x); const col = dockStatusColor(st);
-                const inspected = !!completedInspectionFor(s, x.hu);
-                const Chip = ({ children, tone }) => <span className="text-[11px] px-1.5 rounded-md leading-[18px]" style={{ background: tone === "bad" ? C.badBg : tone === "ok" ? C.okBg : C.bg, color: tone === "bad" ? C.bad : tone === "ok" ? C.ok : C.ink, border: `1px solid ${tone === "bad" || tone === "ok" ? "transparent" : C.line}` }}>{children}</span>;
-                return (
-                  <button key={x.hu} type="button" onClick={() => onPickPallet && onPickPallet(x.hu)} className="qc-tile w-full text-left rounded-2xl px-3 py-2.5" style={{ background: C.surface, border: `1px solid ${C.line}`, borderLeft: `3px solid ${col}` }}>
-                    <div className="flex items-start gap-2">
-                      <div className="min-w-0 flex-1">
-                        <p className="text-[13px] font-semibold leading-snug">{x.location || "—"}</p>
-                        <p className="text-[11px] mt-0.5 font-mono leading-snug truncate" style={{ color: C.muted }}>HU {x.hu}</p>
-                        <p className="text-[11px] mt-0.5 leading-snug" style={{ color: C.muted, fontVariantNumeric: "tabular-nums" }}>{[DOCK_STATUS.find(d => d[0] === st)?.[1] || st, x.quantity != null && `${x.quantity} TU`, x.arrivedTime].filter(Boolean).join(" · ")}</p>
-                        {(x.transporter || x.po || x.blocking || inspected) && <div className="flex flex-wrap gap-1 mt-1.5">
-                          {x.transporter && <Chip>{x.transporter}</Chip>}
-                          {x.po && <Chip><span className="font-mono">PO {x.po}</span></Chip>}
-                          {x.blocking && <Chip tone="bad">needed today</Chip>}
-                          {inspected && <Chip tone="ok">inspected</Chip>}
-                        </div>}
-                      </div>
-                      {onPickPallet && <Ic i={ChevronRight} s={15} mr={0} style={{ color: C.muted, marginTop: 2 }} />}
+      <div className="grid gap-4 items-start" style={{ gridTemplateColumns: "minmax(0, 1fr) 340px" }}>
+        {/* ── Main column ── */}
+        <div className="flex flex-col gap-4 min-w-0">
+          <Card style={{ padding: 0, overflow: "hidden", opacity: lost ? .75 : 1 }}>
+            <div className="px-5 py-4" style={{ borderLeft: `4px solid ${col}` }}>
+              <div className="flex items-start gap-4">
+                {photos.length ? <img src={thumbSrc(photos[0])} loading="lazy" decoding="async" alt="" className="rounded-xl object-contain flex-shrink-0" style={{ width: 72, height: 72, background: PHOTO_BG, border: `1px solid ${C.line}` }} /> : <div className="rounded-xl flex items-center justify-center flex-shrink-0" style={{ width: 72, height: 72, background: C.bg, color: C.muted, border: `1px solid ${C.line}` }}><Ic i={ImageIcon} s={24} mr={0} /></div>}
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-start gap-3">
+                    <div className="min-w-0 flex-1">
+                      <h2 className="leading-tight" style={{ fontSize: 18 }}>{product?.name || r.name || r.article}</h2>
+                      {product ? <p className="text-xs mt-0.5 truncate" style={{ color: C.muted }}><span className="font-mono">ID {product.articleId}</span>{catPath(product.categoryId) ? ` · ${catPath(product.categoryId)}` : ""}{product.isBio ? " · bio" : ""}{product.cusPerTu ? ` · ${product.cusPerTu} CU/TU` : ""}</p> : <p className="text-xs mt-0.5" style={{ color: C.warn }}>Article {r.article} has no product profile yet.</p>}
                     </div>
-                  </button>
-                );
-              })}
+                    {product && onOpenProduct && <button type="button" onClick={() => onOpenProduct(product.id)} className="text-xs font-semibold px-3 rounded-xl inline-flex items-center flex-shrink-0" style={{ height: 30, background: C.accentSoft, color: C.accent }}>Product profile<Ic i={ChevronRight} s={13} mr={0} style={{ marginLeft: 2 }} /></button>}
+                  </div>
+                  {why && <p className="text-[13px] mt-2" style={{ color: dockStatusText(status) }}>{why}</p>}
+                </div>
+              </div>
+              <div className="grid gap-3 mt-4" style={{ gridTemplateColumns: "repeat(6, minmax(0, 1fr))" }}>
+                <Fact k="Location" v={r.location} />
+                <Fact k="Arrived" v={arrived} />
+                <Fact k="On the dock" v={hoursOn == null ? null : fmtHours(hoursOn)} tone={hoursOn != null && hoursOn > st.rejectionWindowHours ? C.bad : undefined} />
+                <Fact k="Rejection window" v={windowLeft == null ? null : windowLeft <= 0 ? "expired" : `${fmtLeft(windowLeft)} left`} tone={windowLeft != null && (windowLeft <= 0 || al) ? C.bad : undefined} />
+                <Fact k="PO" v={r.po} />
+                <Fact k="Transporter" v={r.transporter} />
+              </div>
+              {(r.quantity != null || r.supplier || ("sortable" in r) || r.deadline) && <p className="text-[12px] mt-3 flex flex-wrap gap-x-3" style={{ color: C.muted }}>{r.quantity != null && <span><b style={{ color: C.ink }}>{palletQty(r)}</b> on the pallet</span>}{r.supplier && <span>supplier <b style={{ color: C.ink }}>{r.supplier}</b></span>}{"sortable" in r && <span>{r.sortable ? "sortable" : "not sortable"}</span>}{r.deadline && <span>departure <b style={{ color: C.ink }}>{r.deadline}</b></span>}</p>}
             </div>
-          </div>
-        )}
-
-        <div className="px-5 py-3 flex items-center gap-2 flex-wrap" style={{ borderTop: `1px solid ${C.line}`, background: C.bg }}>
-          {user.role === "Head" && onAssign && !lost && <button type="button" onClick={() => onAssign(r)} className="text-xs px-2.5 py-1 rounded-lg inline-flex items-center" style={{ border: `1px solid ${C.line}` }}><Ic i={MessageSquare} s={12} />Assign in chat</button>}
-          {lost && <button type="button" onClick={() => markFound(set, r, user)} className="text-xs px-2.5 py-1 rounded-lg font-semibold" style={{ background: C.ink, color: C.onDark }}>Found — it's back</button>}
-          {!lost && !lostAsk && r.kind !== "unreported" && r.kind !== "lost-only" && <button type="button" onClick={() => setLostAsk(true)} className="text-xs px-2.5 py-1 rounded-lg" style={{ color: C.muted, border: `1px solid ${C.line}` }}>Mark lost</button>}
-          {!lost && lostAsk && <>
-            <input value={lostNote} onChange={e => setLostNote(e.target.value)} placeholder="note (optional)" className="text-xs rounded-lg px-2 py-1 outline-none" style={{ ...inp, minHeight: 28, width: 220 }} />
-            <button type="button" onClick={() => { markLost(set, r, user, lostNote); setLostAsk(false); setLostNote(""); }} className="text-xs px-2.5 py-1 rounded-lg font-semibold" style={{ background: C.ink, color: C.onDark }}>Mark lost</button>
-            <button type="button" onClick={() => setLostAsk(false)} className="text-xs px-2 py-1" style={{ color: C.muted }}>Cancel</button>
-          </>}
+            {(lost || al || done || draft) && <div className="px-5 pb-3 flex flex-col gap-1.5" style={{ borderTop: `1px solid ${C.line}`, paddingTop: 12 }}>
+              {lost && <NoteRow icon={Search} tone="warn">Marked lost · {s.users.find(u => u.id === lost.byUserId)?.name.split(" ")[0] || "?"} · {dayLabel(lost.at)}{lost.at ? `, ${palletTime(lost.at)}` : ""}{lost.note ? ` — ${lost.note}` : ""}</NoteRow>}
+              {done && <NoteRow icon={Check} tone="ok" onClick={onOpenInspection ? () => onOpenInspection(done.id) : undefined}><b>Already inspected</b> · {done.result || STATUS[done.status]?.[0]} · {s.users.find(u => u.id === done.controllerId)?.name.split(" ")[0] || "?"} · {dayLabel(done.completedAt)}{done.completedAt ? `, ${palletTime(done.completedAt)}` : ""}</NoteRow>}
+              {al && !lost && !done && <NoteRow icon={Clock} tone="bad"><b>{al.level === "breached" ? "Rejection window expired" : `Rejection window closes in ${fmtLeft(al.deadlineAt - now)}`}</b>{al.risky ? " · product rejected recently, so the warning came earlier" : ""}</NoteRow>}
+              {draft && <NoteRow icon={Clock} tone="warn" onClick={onOpenInspection ? () => onOpenInspection(draft.id) : undefined}><b>{s.users.find(u => u.id === draft.controllerId)?.name.split(" ")[0] || "Someone"} is inspecting this pallet</b> · {draft.status === "PendingReview" ? "awaiting the Head" : "draft"} since {palletTime(draft.startedAt)}</NoteRow>}
+            </div>}
+          </Card>
+          {/* What to check */}
+          <Card>
+            <p className="font-semibold mb-3">What to check</p>
+            {(anns.length || live || ext || compl || hist.count) ? <div className="flex flex-col gap-1.5 mb-4">
+              {anns.map(a => <NoteRow key={a.id} icon={Megaphone} tone={a.isBlocking ? "bad" : "warn"} onClick={onOpenAnnouncements}><b>{a.title}</b>{a.body ? ` — ${a.body}` : ""}{a.isBlocking ? " · blocks acceptance" : ""}</NoteRow>)}
+              {live && <NoteRow icon={AlertTriangle} tone="warn"><b>Live spec from the commercial team:</b> {live.text}{live.until ? ` · until ${fmtUntil(live.until)}` : ""}</NoteRow>}
+              {ext && <NoteRow icon={AlertTriangle} tone="bad"><b>Rejected on the dock {ext.count}× in {ext.span}</b> · last {fmtRejectionDay(ext.last)}{ext.mostly ? ` · ${ext.mostly}` : ""}{ext.recent[0]?.reason ? ` — “${ext.recent[0].reason}”` : ""}</NoteRow>}
+              {hist.count > 0 && <NoteRow icon={AlertTriangle} tone="bad"><b>{hist.count} rejected by the team in 14 days</b> · {hist.problems.slice(0, 3).map(x => `${x.name} ×${x.count}`).join(", ")}{hist.problems.length > 3 ? "…" : ""}</NoteRow>}
+              {compl && <NoteRow icon={ThumbsDown} tone="bad" onClick={onOpenComplaints}><b>{compl.count} freshness complaint{compl.count === 1 ? "" : "s"}</b>{compl.sub ? <> · mostly <b>{compl.sub}</b></> : null}{compl.rate ? ` · ${compl.rate}` : ""}</NoteRow>}
+            </div> : <p className="text-sm mb-4" style={{ color: C.ok }}>Nothing special on this product — no notes, no recent rejections, no complaints.</p>}
+            <div className="grid gap-5" style={{ gridTemplateColumns: photos.length > 1 || ref ? "minmax(0, 1fr) 220px" : "1fr" }}>
+              <div>
+                <p className="label-sm mb-1" style={{ color: C.muted }}>Specifications</p>
+                {!product ? <p className="text-sm" style={{ color: C.muted }}>No profile, so no specs — inspect by the general rules.</p> : specs.length === 0 ? <p className="text-sm" style={{ color: C.muted }}>No specifications yet — inspect by the general rules for {catPath(product.categoryId) || "the category"}.</p> : <table className="w-full text-sm" style={{ borderCollapse: "collapse" }}><tbody>
+                  {specs.map(sp => <tr key={sp.id} style={{ borderTop: `1px solid ${C.line}` }}><td className="py-1.5 pr-3">{sp.name}{sp.basis && <span className="text-[11px] ml-1.5" style={{ color: C.muted }}>per {sp.basis === "cu" ? "CU" : sp.basis}</span>}</td><td className="py-1.5 text-right"><SpecValue spec={sp} colors={C} /></td><td className="py-1.5 pl-3 text-right text-[11px] whitespace-nowrap" style={{ color: C.muted, width: 110 }}>{sp.temp ? <span style={{ color: C.bad }}>temporary</span> : sp.origin === "sheet" ? "commercial sheet" : sp.source !== "product" ? sp.source : ""}</td></tr>)}
+                </tbody></table>}
+                {product && effectiveAttributes(s, product).length > 0 && <div className="flex flex-wrap gap-1.5 mt-3">{effectiveAttributes(s, product).map(a => <span key={a.dictionaryId} className="text-xs px-2.5 py-1 rounded-full" style={{ background: C.bg, border: `1px solid ${C.line}` }}><span style={{ color: C.muted }}>{a.list}:</span> <b>{a.value}</b></span>)}</div>}
+              </div>
+              {(photos.length > 1 || ref) && <div>
+                {photos.length > 1 && <><p className="label-sm mb-1" style={{ color: C.muted }}>How it should look</p><div className="grid gap-1.5" style={{ gridTemplateColumns: "1fr 1fr" }}>{photos.slice(0, 4).map((ph, i) => <img key={i} src={thumbSrc(ph)} loading="lazy" decoding="async" alt="" className="w-full rounded-lg object-contain" style={{ aspectRatio: "1 / 1", background: PHOTO_BG, border: `1px solid ${C.line}` }} />)}</div></>}
+                {ref && <button type="button" onClick={() => setShowRef(v => !v)} className="text-xs font-medium inline-flex items-center mt-2" style={{ color: C.ok }}><Ic i={Star} s={13} />{showRef ? "Hide the reference inspection" : "Open the reference inspection"}</button>}
+              </div>}
+            </div>
+            {showRef && ref && <div className="rounded-xl p-3 mt-3" style={{ border: `1px solid ${C.ok}` }}><ReportView insp={ref} s={s} user={user} onEdit={() => {}} onAnswer={() => {}} /></div>}
+          </Card>
+          {(others.length > 0 || sameDelivery.length > 0) && <Card>
+            {others.length > 0 && <div className={sameDelivery.length ? "mb-4" : ""}>
+              <div className="flex items-center gap-2 mb-2 flex-wrap"><p className="font-semibold">Same product on the docks · {others.length}</p>{pos.length > 1 && <span className="text-[11px] inline-flex items-center" style={{ color: C.warn }}><Ic i={AlertTriangle} s={11} mr={4} />{pos.length} PO numbers ({pos.join(", ")}) — one report can still cover them if they arrived the same day</span>}</div>
+              <div className="grid gap-2" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))" }}>{others.map(x => <PalletChip key={x.hu} x={x} />)}</div>
+            </div>}
+            {sameDelivery.length > 0 && <div>
+              <p className="font-semibold mb-0.5">Same delivery · {sameDelivery.length}</p>
+              <p className="text-[12px] mb-2" style={{ color: C.muted }}>Other products from {r.po ? `PO ${r.po}` : `${r.transporter} today`} — worth checking in the same walk.</p>
+              <div className="grid gap-2" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))" }}>{sameDelivery.slice(0, 8).map(x => <PalletChip key={x.hu} x={x} hint="article" />)}</div>
+            </div>}
+          </Card>}
         </div>
-      </Card>
+        {/* ── Side column ── */}
+        <aside className="flex flex-col gap-4">
+          <Card>
+            <p className="label-sm mb-1.5" style={{ color: C.muted }}>Status</p>
+            {done ? <p className="text-sm font-semibold inline-flex items-center" style={{ color: C.ok }}><Ic i={Check} s={15} />Inspected · {done.result || "done"}</p>
+            : lost ? <p className="text-sm font-semibold" style={{ color: C.muted }}>Marked lost</p>
+            : draft ? <p className="text-sm font-semibold" style={{ color: C.accent }}>{s.users.find(u => u.id === draft.controllerId)?.name.split(" ")[0] || "Someone"} is inspecting it now</p>
+            : claim?.status === "taken" ? <p className="text-sm font-semibold" style={{ color: mine ? C.accent : C.ink }}>{mine ? "You took this pallet" : `${claimer?.name.split(" ")[0] || "Someone"} took this pallet`} <span className="font-normal text-xs" style={{ color: C.muted }}>· {agoShort(claim.at)}</span></p>
+            : claim?.status === "stacked" ? <p className="text-sm font-semibold" style={{ color: C.warn }}>In stack — not reachable <span className="font-normal text-xs" style={{ color: C.muted }}>· {claimer?.name.split(" ")[0] || "?"}, {agoShort(claim.at)}</span></p>
+            : <p className="text-sm font-semibold" style={{ color: C.ink }}>Not inspected yet</p>}
+            {!done && !lost && !draft && <div className="flex flex-wrap gap-1.5 mt-3">
+              {!claim && <><button type="button" onClick={take} className="text-xs font-semibold px-3 rounded-xl" style={{ height: 32, background: C.ink, color: C.onDark }}>Take it</button><button type="button" onClick={stack} className="text-xs font-semibold px-3 rounded-xl inline-flex items-center" style={{ height: 32, border: `1px solid ${C.line}`, color: C.ink }}><Ic i={Layers} s={12} />In stack</button></>}
+              {claim && mine && <>{claim.status === "stacked" ? <button type="button" onClick={take} className="text-xs font-semibold px-3 rounded-xl" style={{ height: 32, background: C.ink, color: C.onDark }}>Reachable now — take it</button> : null}<button type="button" onClick={release} className="text-xs px-3 rounded-xl" style={{ height: 32, border: `1px solid ${C.line}`, color: C.muted }}>{claim.status === "stacked" ? "Not in stack anymore" : "Let it go"}</button></>}
+              {claim && !mine && claim.status === "stacked" && <button type="button" onClick={take} className="text-xs font-semibold px-3 rounded-xl" style={{ height: 32, background: C.ink, color: C.onDark }}>Reachable now — take it</button>}
+            </div>}
+            {!done && !lost && <p className="text-[11px] mt-3 leading-snug" style={{ color: C.muted }}>The inspection itself starts on the phone: scan the pallet label{r.hu ? <> (HU <span className="font-mono">…{String(r.hu).slice(-8)}</span>)</> : null} or the CU barcode.</p>}
+            <div className="flex flex-wrap gap-1.5 mt-3 pt-3" style={{ borderTop: `1px solid ${C.line}` }}>
+              {onAssign && !lost && <button type="button" onClick={() => onAssign(r)} className="text-xs px-2.5 rounded-lg inline-flex items-center" style={{ height: 28, border: `1px solid ${C.line}`, color: C.ink }}><Ic i={MessageCircle} s={12} />{user.role === "Head" ? "Assign / message" : "Ask the Head"}</button>}
+              {lost && <button type="button" onClick={() => markFound(set, r, user)} className="text-xs px-2.5 rounded-lg font-semibold" style={{ height: 28, background: C.ink, color: C.onDark }}>Found — it's back</button>}
+              {!lost && !lostAsk && r.kind !== "unreported" && r.kind !== "lost-only" && <button type="button" onClick={() => setLostAsk(true)} className="text-xs px-2.5 rounded-lg" style={{ height: 28, color: C.muted, border: `1px solid ${C.line}` }}>Mark lost</button>}
+            </div>
+            {!lost && lostAsk && <div className="flex gap-1.5 mt-2 flex-wrap">
+              <input value={lostNote} onChange={e => setLostNote(e.target.value)} placeholder="note (optional)" className="text-xs rounded-lg px-2 outline-none flex-1" style={{ ...inp, height: 28, minWidth: 120 }} />
+              <button type="button" onClick={() => { markLost(set, r, user, lostNote); setLostAsk(false); setLostNote(""); }} className="text-xs px-2.5 rounded-lg font-semibold" style={{ height: 28, background: C.bad, color: C.onDark }}>Mark lost</button>
+              <button type="button" onClick={() => setLostAsk(false)} className="text-xs px-2" style={{ color: C.muted }}>Cancel</button>
+            </div>}
+          </Card>
+          {sameDock.length > 0 && <Card>
+            <p className="font-semibold text-sm mb-0.5">Also at {r.location} · {sameDock.length}</p>
+            <p className="text-[12px] mb-2" style={{ color: C.muted }}>Standing on the same dock — take them in one walk.</p>
+            <div className="flex flex-col gap-1.5">{sameDock.slice(0, 6).map(x => <PalletChip key={x.hu} x={x} hint="article" />)}</div>
+            {sameDock.length > 6 && <p className="text-[11px] mt-1.5" style={{ color: C.muted }}>+{sameDock.length - 6} more on the dock map</p>}
+          </Card>}
+          {product && <Card>
+            <div className="flex items-center mb-1"><p className="font-semibold text-sm flex-1">This product lately</p></div>
+            {history.length === 0 ? <p className="text-sm" style={{ color: C.muted }}>Not inspected by the team yet.</p> : history.map(i => { const who = s.users.find(u => u.id === i.controllerId); const rej = i.result === "Rejected"; return <button key={i.id} type="button" onClick={() => onOpenInspection && onOpenInspection(i.id)} className="w-full text-left flex items-center gap-2 py-1.5" style={{ borderTop: `1px solid ${C.line}` }}><span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: rej ? C.bad : i.result === "Accepted" ? C.ok : C.muted }} /><span className="flex-1 min-w-0"><span className="text-sm block leading-tight">{rej ? "Rejected" : i.result || "Done"}{i.comment ? <span style={{ color: C.muted }}> — {i.comment}</span> : null}</span><span className="text-[11px] block" style={{ color: C.muted }}>{who ? `${who.name.split(" ")[0]} · ` : ""}{dayLabel(i.completedAt)}</span></span></button>; })}
+          </Card>}
+        </aside>
+      </div>
     </div>
   );
 }
