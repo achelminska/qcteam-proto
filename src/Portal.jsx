@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, Fragment } from "react";
 import { createSyncer, guardUnload } from "./sync.js";
 import { applySpecEdit, hasV, specFieldsFromForm, specFormKind, specLabel, dayLabel, problemPath, typesOf, typeById, legacyTypeId, inspType, countsAs, listCheck, matchFieldSpec, numberSpecCheck, reportStatusFields, toleranceDisplay, matchesInspSearch } from "./shared/format.js";
-import { SPEC_TARGETS, SPEC_ALIASES, SPEC_COLUMNS, applySpecSheet, fmtRange } from "./shared/specsync.js";
+import { SPEC_TARGETS, SPEC_ALIASES, SPEC_COLUMNS, applySpecSheet, fmtRange, liveNoteOf } from "./shared/specsync.js";
 import { REJECTION_TARGETS, REJECTION_ALIASES, buildRejectionDigest, extRejectionsFor, extRejectedRecently, extRejectionLine, extRejectionsAll, extRejectionsRecent, extRejectionKey, topCats, fmtRejectionDay, linkLabel, reportUrls } from "./shared/rejections.js";
 import { normArticle, isoWeekOf, todayISO, weekLabel, weekRange, shiftWeek, sortSnapshots, latestSnapshot, snapshotTotal, upsertSnapshot, snapshotsOfWeek, previousInWeek, deltaRows, subTypeMix, weekSeries, articleTrend, topArticles, asLegacyMeta, migrateLegacy, rowFor, parseComplaintRows, fmtPer1k } from "./shared/complaints.js";
 import { activeTempForSpec, applyTempSpec, clearTempSpec, closeExpiredTempSpecs, tempOwnerLabel, tempUntilLabel, upsertTempSpec } from "./shared/tempspec.js";
@@ -989,7 +989,7 @@ function IntegrationsPage({ s, set }) {
   const bad = preview.filter(r => r._errors.length).length;
   const apply = () => { if (!it) return;
     if (it.purpose === "Rejections") { if (!(pasteFull.current && pasteFull.current.header.join("|") === it.header.join("|"))) return; /* never rebuild the digest from the 20-row sample */ const full = pasteFull.current.rows; const mapped = applyMapping(it, it.header, full); const digest = buildRejectionDigest(mapped, { now: nowISO() }); const { byArticle, latest, ...meta } = digest; set(x => ({ ...x, extRejections: digest, integrations: x.integrations.map(i => i.id === sel ? { ...i, rows: [], lastSyncAt: nowISO(), lastError: digest.skipped ? `${digest.skipped} row(s) skipped` : null, lastRejectionSync: meta, lastResult: `${digest.used} rejections, ${digest.articles} articles` } : i) })); return; }
-    if (it.purpose === "Specs") { const res = applySpecSheet(s.products || [], preview, { createMissing: it.createMissing === true, now: nowISO(), uid }); set(x => ({ ...x, products: res.products, integrations: x.integrations.map(i => i.id === sel ? { ...i, rows: preview, lastSyncAt: nowISO(), lastError: bad ? `${bad} row(s) skipped` : null, lastSpecSync: { ...res.report, issues: res.report.issues.slice(0, 400) } } : i) })); return; }
+    if (it.purpose === "Specs") { const res = applySpecSheet(s.products || [], preview, { createMissing: it.createMissing === true, now: nowISO(), uid, tempSpecs: s.tempSpecs || [] }); set(x => ({ ...x, products: res.products, ...(res.report.liveChanged ? { tempSpecs: res.tempSpecs } : {}), integrations: x.integrations.map(i => i.id === sel ? { ...i, rows: preview, lastSyncAt: nowISO(), lastError: bad ? `${bad} row(s) skipped` : null, lastSpecSync: { ...res.report, issues: res.report.issues.slice(0, 400) } } : i) })); return; }
     if (it.purpose === "Dock" || it.purpose === "Blocked") patchIt({ rows: preview, summary: extractSummary(it.rawHeader || it.header, it.rawRows || it.sample), lastSyncAt: nowISO(), lastError: bad ? `${bad} row(s) skipped` : null }); else { const good = preview.filter(r => !r._errors.length); set(x => { let products = [...x.products]; let added = 0, updated = 0; good.forEach(r => { const id = String(r.articleId || "").trim(); if (!id) return; const ex = products.find(p => p.articleId === id); const catId = r.category ? x.categories.find(c => c.name.toLowerCase() === String(r.category).toLowerCase())?.id : undefined; const patch = { name: r.name || ex?.name || id, barcodeCu: r.barcodeCu || ex?.barcodeCu || "", barcodeTu: r.barcodeTu || ex?.barcodeTu || "", cusPerTu: r.cusPerTu ? String(r.cusPerTu) : ex?.cusPerTu || "", piecesPerCu: r.piecesPerCu ? String(r.piecesPerCu) : ex?.piecesPerCu || "", weightPerCu: r.weightPerCu ? String(r.weightPerCu) : ex?.weightPerCu || "", ...(catId ? { categoryId: catId } : {}) }; if (ex) { products = products.map(p => p.id === ex.id ? { ...p, ...patch } : p); updated++; } else { products.push({ id: uid(), articleId: id, categoryId: catId || (categorySuggestion({ ...x, products }, { name: patch.name })?.conf >= 0.9 ? categorySuggestion({ ...x, products }, { name: patch.name }).categoryId : null), isBio: /\bbio\b/i.test(patch.name), specs: [], supplierIds: [], varieties: [], photos: [], attributes: [], excludedSpecNames: [], isActive: true, ...patch }); added++; } }); return { ...x, products, integrations: x.integrations.map(i => i.id === sel ? { ...i, rows: preview, lastSyncAt: nowISO(), lastError: bad ? `${bad} row(s) skipped` : null, lastResult: `${added} added, ${updated} updated` } : i) }; }); } };
   return (
     <div>
@@ -1429,6 +1429,10 @@ const ComplaintChip = ({ s, articleId, size = "xs" }) => { const c = complaintsF
 // One-line summary used on product profiles (portal + phone share the wording).
 const complaintsLine = (s, articleId) => { const c = complaintsFor(s, articleId); if (!c || !c.count) return null; const meta = complaintsMeta(s); return { count: c.count, sub: c.subType ? `${c.subType}${c.subCount != null ? ` (${c.subCount})` : ""}` : "", rate: fmtPer1k(c.per1k), delivered: c.delivered ?? null, period: meta.period || "" }; };
 // What the DC5 rejections sheet says about this article: the team's official rejections (Slack → sheet), not QCteam reports.
+function LiveNote({ product }) {
+  const n = liveNoteOf(product); if (!n) return null;
+  return <Note tone="warn"><span className="inline-flex items-center gap-1.5 flex-wrap"><Ic i={AlertTriangle} s={14} mr={0} /><b>Live spec</b><span>{n.text}</span>{n.until && <span style={{ color: C.muted }}>· until {fmtRejectionDay(n.until)}</span>}<span style={{ color: C.muted }}>· from the specs sheet</span></span></Note>;
+}
 function RejectionLink({ href, label }) {
   const Icon = /^Inspection report/i.test(label) ? FileText : /slack\.com/i.test(href) ? MessageSquare : /drive\.google|docs\.google/i.test(href) ? Paperclip : ExternalLink;
   return (
@@ -3628,7 +3632,7 @@ function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset, onMessag
                     <button type="button" onClick={() => setTab("refreport")} className="text-xs px-2.5 py-1 rounded-lg flex-shrink-0" style={{ color: refInsp ? C.ok : C.accent, border: `1px solid ${refInsp ? C.ok : C.line}` }}>{refInsp ? "Open" : "Set one"}</button>
                   </div>
                   <ComplaintsNote s={s} articleId={product.articleId} />
-                  <ExtRejectionsNote s={s} articleId={product.articleId} />
+                  <LiveNote product={product} /><ExtRejectionsNote s={s} articleId={product.articleId} />
                   <Group title="Identity" cols={6}>
                     <Field label="Name" className="col-span-4"><FastInput value={product.name} onCommit={v => patchP({ name: v })} /></Field>
                     <Field label="Article ID"><FastInput value={product.articleId || ""} onCommit={v => patchP({ articleId: v })} className="font-mono" style={{ borderColor: product.articleId ? C.line : C.warn }} /></Field>
@@ -4809,7 +4813,7 @@ function ProductPeek({ s, user, product, onClose }) {
         <div className="flex-1 overflow-y-auto px-5 pb-6">
           {tab === "overview" && <div>
             {anns.length > 0 && <div className="mt-4">{anns.map(a => <Note key={a.id} tone="warn">📣 <b>{a.title}</b>{a.body && <> — {a.body}</>}<AnnounceFileList announcement={a} colors={C} compact /></Note>)}</div>}
-            <div className="mt-4"><ComplaintsNote s={s} articleId={product.articleId} /><ExtRejectionsNote s={s} articleId={product.articleId} /></div>
+            <div className="mt-4"><ComplaintsNote s={s} articleId={product.articleId} /><LiveNote product={product} /><ExtRejectionsNote s={s} articleId={product.articleId} /></div>
             {photos.length > 0 && <><H>Photos · {photos.length}</H><Photos list={photos} size={104} /></>}
             <H>Facts</H>
             <Row k="Article ID" v={product.articleId} />
@@ -4925,7 +4929,7 @@ function CatalogPage({ s, set, user, notify, onStartInspection, onOpenInspection
               </div>
               {s.announcements.filter(a => annMatchesProduct(s, a, product)).map(a => <Note key={a.id} tone="warn">📣 <b>{a.title}</b> — {a.body}<AnnounceFileList announcement={a} colors={C} compact /></Note>)}
               <ComplaintsNote s={s} articleId={product.articleId} />
-              <ExtRejectionsNote s={s} articleId={product.articleId} />
+              <LiveNote product={product} /><ExtRejectionsNote s={s} articleId={product.articleId} />
               {openFlags.length > 0 && <Note tone="warn">🚩 {openFlags.length} open flag on this product — the Head hasn't resolved it yet.</Note>}
               {asPhotoList(product.photos).length > 1 && <div className="mb-3"><PhotoStrip photos={product.photos} size={56} /></div>}
               {effectiveAttributes(s, product).length > 0 && <div className="flex flex-wrap gap-1.5 mb-3">{effectiveAttributes(s, product).map(a => <span key={a.dictionaryId} className="text-xs px-2.5 py-1 rounded-full" style={{ background: C.bg, border: `1px solid ${C.line}` }}><span style={{ color: C.muted }}>{a.list}:</span> <b>{a.value}</b></span>)}</div>}

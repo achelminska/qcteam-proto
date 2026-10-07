@@ -26,6 +26,8 @@ export const SPEC_TARGETS = [
   ["countPerPack", "Count per pack (pcs) → spec “Count per pack”", false],
   ["length", "Length (mm) → spec “Length”", false],
   ["thickness", "Thickness (mm) → spec “Thickness”", false],
+  ["live", "Live value (temporary spec)", false],
+  ["liveUntil", "Live until (week / date)", false],
   ["ignore", "— ignore —", false],
 ];
 export const SPEC_COLUMNS = {
@@ -36,7 +38,7 @@ export const SPEC_COLUMNS = {
   length: { name: "Length", unit: "mm", basis: "piece" },
   thickness: { name: "Thickness", unit: "mm", basis: "piece" },
 };
-export const SPEC_ALIASES = { cuName: ["cuname", "productname", "name", "article", "omschrijving"], sortable: ["productsortable", "sortable", "sorteerbaar"], weight: ["weight", "gewicht", "cuweight", "weightpercu"], pieceWeight: ["weightperpiece", "pieceweight", "gewichtperstuk", "perpiece"], caliber: ["sizecaliber", "caliber", "size", "kaliber", "maat", "diameter"], countPerPack: ["countperpack", "count", "aantal", "pieces", "stuks", "piecespercu"], length: ["length", "lengte"], thickness: ["thickness", "dikte", "width", "breedte"] };
+export const SPEC_ALIASES = { cuName: ["cuname", "productname", "name", "article", "omschrijving"], sortable: ["productsortable", "sortable", "sorteerbaar"], weight: ["weight", "gewicht", "cuweight", "weightpercu"], pieceWeight: ["weightperpiece", "pieceweight", "gewichtperstuk", "perpiece"], caliber: ["sizecaliber", "caliber", "size", "kaliber", "maat", "diameter"], countPerPack: ["countperpack", "count", "aantal", "pieces", "stuks", "piecespercu"], length: ["length", "lengte"], thickness: ["thickness", "dikte", "width", "breedte"], live: ["livevalue", "live", "tijdelijk", "temporary", "tempspec"], liveUntil: ["liveuntil", "validuntil", "livetot", "until", "liveweek", "liveexpires"] };
 
 // ── Reading one cell ────────────────────────────────────────────────────────────────────────────────────────────
 // Returns { min, max, unit, note } or { issue, note } — never both. Numbers come back as numbers, unit already
@@ -63,6 +65,32 @@ export function parseSpecCell(raw, targetUnit) {
   // "181g+" and "50g+ per stuk" mean at least; a bare number in a "min accepted spec" sheet means at least as well.
   return { min: n * f, max: null, unit: targetUnit, ...(approx ? { note: "approximate: " + v } : {}) };
 }
+
+// ── Live value: the commercial team's temporary spec ─────────────────────────────────────────────────────────────
+// "400", "280" → the minimum CU weight (g) for a few weeks; "size 9 - 1200g" → 9 CU per TU and 1200 g; "no weight, min 4 fingers" →
+// text only. The end is "until w42" / "max w 42" (in the cell itself or in the Live until column) → Sunday of that ISO week.
+export const isoWeekEnd = (week, year) => {
+  const jan4 = new Date(Date.UTC(year, 0, 4)); const monday = new Date(jan4.getTime() - ((jan4.getUTCDay() + 6) % 7) * 86400000);
+  return new Date(monday.getTime() + ((week - 1) * 7 + 6) * 86400000).toISOString().slice(0, 10);
+};
+const WEEK_RE = /(?:until|max\.?|t\/m|tot|to)?\s*\bw(?:eek|k)?\s*\.?\s*(\d{1,2})\b/i;
+export function parseLiveCell(raw, untilRaw, now = new Date().toISOString()) {
+  const text = String(raw ?? "").trim(); const until = String(untilRaw ?? "").trim();
+  if (!text) return { empty: true };
+  const today = now.slice(0, 10), year = Number(today.slice(0, 4));
+  let expiresAt = null;
+  const iso = /(\d{4}-\d{2}-\d{2})/.exec(until) || /(\d{4}-\d{2}-\d{2})/.exec(text); if (iso) expiresAt = iso[1];
+  else { const w = WEEK_RE.exec(until) || WEEK_RE.exec(text) || (/^\d{1,2}$/.test(until) ? [0, until] : null); if (w) { const wk = Number(w[1]); if (wk >= 1 && wk <= 53) { expiresAt = isoWeekEnd(wk, year); if (expiresAt < new Date(new Date(today + "T00:00Z").getTime() - 180 * 86400000).toISOString().slice(0, 10)) expiresAt = isoWeekEnd(wk, year + 1); } } }
+  const body = text.replace(new RegExp(WEEK_RE.source, "ig"), " ").replace(/\s+/g, " ").trim();
+  const size = /\bsize\s*(\d+)\b/i.exec(body); const cuPerTu = size ? Number(size[1]) : null;
+  let minWeight = null; const g = /(\d+(?:[.,]\d+)?)\s*(kg|gram|gr|g)\b/i.exec(body.replace(/\bsize\s*\d+/i, " "));
+  if (g) minWeight = Math.round(Number(g[1].replace(",", ".")) * (/^kg$/i.test(g[2]) ? 1000 : 1)); else if (/^\d+(?:[.,]\d+)?$/.test(body)) minWeight = Math.round(Number(body.replace(",", ".")));
+  if (minWeight != null && /^(?:no\b|geen\b)/i.test(body)) minWeight = null;
+  return { text, body, expiresAt, cuPerTu, minWeight, pureWeight: minWeight != null && cuPerTu == null && /^[\d.,\s]*(kg|gram|gr|g)?$/i.test(body) };
+}
+export const liveActive = (expiresAt, today = new Date().toISOString().slice(0, 10)) => !expiresAt || String(expiresAt) >= today;
+// What the apps show on the product: the sheet's live note while it lasts.
+export const liveNoteOf = (product, today = new Date().toISOString().slice(0, 10)) => { const n = product?.liveNote; return n && n.text && liveActive(n.until, today) ? n : null; };
 export const parseYesNo = raw => { const v = String(raw ?? "").trim().toLowerCase(); return /^(yes|y|ja|true|1)$/.test(v) ? true : /^(no|n|nee|false|0)$/.test(v) ? false : null; };
 // null/"" and null are the same limit; otherwise compare as numbers (specs typed by hand are strings).
 const eqNum = (a, b) => { const A = a == null || a === "" ? null : Number(a), B = b == null || b === "" ? null : Number(b); return A === B; };
@@ -71,7 +99,8 @@ export const normArticleId = x => String(x || "").trim().replace(/^HE/i, "").spl
 // ── Applying a mapped push to the catalog ───────────────────────────────────────────────────────────────────────
 // rows: already mapped by the integration (applyMapping): { articleId, cuName?, sortable?, weight?, … , _errors }.
 // Returns { products, report } — products is a new array (untouched objects are the same references).
-export function applySpecSheet(products, rows, { createMissing = true, now = new Date().toISOString(), uid = () => Math.random().toString(36).slice(2, 10) } = {}) {
+export function applySpecSheet(products, rows, { createMissing = true, now = new Date().toISOString(), uid = () => Math.random().toString(36).slice(2, 10), tempSpecs = [] } = {}) {
+  let temps = tempSpecs || []; let liveChanged = 0; const today = now.slice(0, 10);
   const byArticle = new Map(products.map(p => [normArticleId(p.articleId), p]));
   const out = [...products]; const issues = []; const coverage = {}; let updated = 0, created = 0, unchanged = 0, skipped = 0;
   const specKeys = Object.keys(SPEC_COLUMNS);
@@ -109,8 +138,33 @@ export function applySpecSheet(products, rows, { createMissing = true, now = new
       if (cell.note) issues.push({ articleId: p.articleId, kind: "approximate", column: k, spec: def.name, note: cell.note });
       patch({ specs: ix >= 0 ? specs.map((q, i) => i === ix ? spec : q) : [...specs, spec] });
     }
+    // Live value → a temporary minimum on the CU weight spec (sheet-owned, never touches the Head's own temporary specs) and/or a note.
+    if ("live" in r) {
+      const L = parseLiveCell(r.live, r.liveUntil, now); const tid = `sheet-live-${p.id}`;
+      const mine = temps.find(t => t.id === tid && !t.endedAt);
+      const endMine = how => { if (mine) { temps = temps.map(t => t === mine ? { ...t, endedAt: now, endedHow: how, endedBy: null } : t); liveChanged++; } };
+      const dropNote = () => { if (next.liveNote && next.liveNote.origin === "sheet") { const { liveNote, ...rest } = next; next = rest; changed = true; liveChanged++; } };
+      if (L.empty) { endMine("sheet"); dropNote(); }
+      else if (!liveActive(L.expiresAt, today)) { endMine("expired"); dropNote(); issues.push({ articleId: p.articleId, kind: "expired", column: "live", note: `“${L.text}” ended ${L.expiresAt}` }); }
+      else {
+        const cw = (next.specs || []).find(q => (q.name || "").toLowerCase() === SPEC_COLUMNS.weight.name.toLowerCase() && (q.basis || "piece") === SPEC_COLUMNS.weight.basis);
+        const headTemp = cw && temps.find(t => t.specId === cw.id && t.ownerKind === "product" && t.ownerId === p.id && !t.endedAt && t.origin !== "sheet");
+        let useTemp = L.minWeight != null && !!cw && !headTemp && !(cw.min != null && Number(cw.min) === L.minWeight);
+        if (L.minWeight != null && headTemp) issues.push({ articleId: p.articleId, kind: "conflict", column: "live", spec: SPEC_COLUMNS.weight.name, note: `sheet live value ${L.minWeight} g, but the Head has their own temporary spec — the Head's kept` });
+        if (L.minWeight != null && !cw && L.pureWeight) issues.push({ articleId: p.articleId, kind: "live-no-spec", column: "live", note: `live value ${L.minWeight} g but the product has no CU weight spec to override — shown as a note` });
+        if (useTemp) {
+          const row = { id: tid, specId: cw.id, specName: cw.name, ownerKind: "product", ownerId: p.id, min: L.minWeight, max: null, unit: "g", note: `Sheet live value: ${L.text}`, expiresAt: L.expiresAt || null, createdAt: mine?.createdAt || now, createdBy: null, endedAt: null, endedHow: null, endedBy: null, origin: "sheet" };
+          const same = mine && mine.min === row.min && mine.expiresAt === row.expiresAt && mine.specId === row.specId;
+          if (!same) { temps = mine ? temps.map(t => t === mine ? row : t) : [...temps, row]; liveChanged++; }
+        } else endMine("sheet");
+        if (L.cuPerTu != null && p.cusPerTu && Number(p.cusPerTu) !== L.cuPerTu) issues.push({ articleId: p.articleId, kind: "live-mismatch", column: "live", note: `live value says ${L.cuPerTu} CU per TU, the catalog says ${p.cusPerTu}` });
+        const wantNote = !(useTemp && L.pureWeight);
+        if (wantNote) { const n = { text: L.text, until: L.expiresAt || null, cuPerTu: L.cuPerTu, origin: "sheet", syncedAt: now }; const ex = next.liveNote; if (!ex || ex.text !== n.text || ex.until !== n.until) { patch({ liveNote: n }); liveChanged++; } }
+        else dropNote();
+      }
+    }
     if (changed) { const i = out.indexOf(p); out[i] = next; byArticle.set(key, next); if (existed) updated++; } else if (existed) unchanged++;
   }
-  return { products: out, report: { at: now, rows: rows.length, updated, created, unchanged, skipped, coverage, issues, conflicts: issues.filter(i => i.kind === "conflict").length, placeholders: issues.filter(i => i.kind === "placeholder").length } };
+  return { products: out, tempSpecs: temps, report: { at: now, liveChanged, rows: rows.length, updated, created, unchanged, skipped, coverage, issues, conflicts: issues.filter(i => i.kind === "conflict").length, placeholders: issues.filter(i => i.kind === "placeholder").length } };
 }
 export const fmtRange = q => { const mn = q?.min != null && q.min !== "" ? Number(q.min) : null, mx = q?.max != null && q.max !== "" ? Number(q.max) : null; const u = q?.unit || ""; return mn != null && mx != null ? `${mn}–${mx} ${u}` : mn != null ? `≥ ${mn} ${u}` : mx != null ? `≤ ${mx} ${u}` : "—"; };

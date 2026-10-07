@@ -103,3 +103,35 @@ describe("applying a push to the catalog", () => {
   });
   it("untouched products keep their identity", () => { expect(products[1]).not.toBe(catalog[1]); expect(products.length).toBe(4); });
 });
+
+import { parseLiveCell, isoWeekEnd, liveNoteOf as _liveNoteOf } from "./specsync.js";
+describe("live value", () => {
+  const NOW = "2026-10-07T12:00:00.000Z";
+  it("reads weeks, weights and sizes", () => {
+    expect(isoWeekEnd(42, 2026)).toBe("2026-10-18");
+    expect(parseLiveCell("400", "max w 42", NOW)).toMatchObject({ minWeight: 400, expiresAt: "2026-10-18", pureWeight: true });
+    expect(parseLiveCell("200 until w42", "", NOW)).toMatchObject({ minWeight: 200, expiresAt: "2026-10-18" });
+    expect(parseLiveCell("size 9 - 1200g", "", NOW)).toMatchObject({ cuPerTu: 9, minWeight: 1200, pureWeight: false });
+    expect(parseLiveCell("no weight, min 4 fingers", "until w43", NOW)).toMatchObject({ minWeight: null, expiresAt: "2026-10-25" });
+    expect(parseLiveCell("", "", NOW).empty).toBe(true);
+  });
+  const prod = { id: "p1", articleId: "90006137", name: "Ijsbergsla", specs: [], cusPerTu: "9" };
+  const base = { articleId: "90006137", cuName: "Ijsbergsla", weight: "500" };
+  it("temp minimum on the CU weight spec, ended when the cell is cleared", () => {
+    const a = applySpecSheet([prod], [{ ...base, live: "400", liveUntil: "max w 42" }], { createMissing: false, now: NOW });
+    expect(a.tempSpecs).toHaveLength(1); expect(a.tempSpecs[0]).toMatchObject({ min: 400, unit: "g", origin: "sheet", expiresAt: "2026-10-18", ownerId: "p1" });
+    expect(a.products[0].liveNote).toBeUndefined();
+    const same = applySpecSheet(a.products, [{ ...base, live: "400", liveUntil: "max w 42" }], { createMissing: false, now: NOW, tempSpecs: a.tempSpecs });
+    expect(same.report.liveChanged).toBe(0);
+    const gone = applySpecSheet(a.products, [{ ...base, live: "" }], { createMissing: false, now: NOW, tempSpecs: a.tempSpecs });
+    expect(gone.tempSpecs[0]).toMatchObject({ endedHow: "sheet" });
+  });
+  it("text and size become a note; expired cells do nothing", () => {
+    const a = applySpecSheet([prod], [{ ...base, live: "no weight, min 4 fingers", liveUntil: "until w43" }], { createMissing: false, now: NOW });
+    expect(_liveNoteOf(a.products[0], "2026-10-07")).toMatchObject({ text: "no weight, min 4 fingers", until: "2026-10-25" }); expect(_liveNoteOf(a.products[0], "2026-10-26")).toBe(null);
+    const b = applySpecSheet([{ ...prod, cusPerTu: "6" }], [{ ...base, live: "size 9 - 1200g" }], { createMissing: false, now: NOW });
+    expect(b.report.issues.some(i => i.kind === "live-mismatch")).toBe(true);
+    const c = applySpecSheet([prod], [{ ...base, live: "300 until w30" }], { createMissing: false, now: NOW });
+    expect(c.tempSpecs).toHaveLength(0); expect(c.report.issues.some(i => i.kind === "expired")).toBe(true);
+  });
+});

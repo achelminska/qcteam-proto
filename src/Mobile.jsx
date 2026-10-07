@@ -9,6 +9,7 @@ import { peopleOnFloor, peopleAtDock, floorWhere, floorVerb, doneTodayCount } fr
 import { adoptLocalBriefingSeen, briefingFp, clearBriefingSeen, markBriefingSeen, seenFingerprints } from "./shared/briefing-seen.js";
 import { briefingDefaultTab, briefingItemsKey, briefingRemark, briefingTabDeck, briefingUnseen, liveBriefingFps } from "./shared/briefing-cards.js";
 import { attachableSameDay, otherDeliveryDay, sameDeliveryRows } from "./shared/delivery-pallets.js";
+import { liveNoteOf } from "./shared/specsync.js";
 import { poRequiredOnReject, poSourceHint, sheetPoForInspection, suggestedPo } from "./shared/rejection-po.js";
 import { dockMatches } from "./shared/dock-search.js";
 import { dockMapGroupKey, dockMapOpen, dockMapRows, isBlockedMapRow, openBlockedForMap, QUEUE_STATUS } from "./shared/dock-map.js";
@@ -2351,6 +2352,7 @@ function MProductHeader({ s, product, article, name, go }) {
           any announcement about it belongs here, not only after tapping through to the full profile. */}
       {s.announcements.filter(a => annMatchesProduct(s, a, product)).map(a => <div key={a.id} className="rounded-xl px-3 py-2 mt-2.5" style={{ background: C.accentSoft }}><p className="text-xs font-semibold flex items-center" style={{ color: C.accent }}><Ic i={Megaphone} s={12} mr={4} />{a.title}</p><p className="text-xs mt-0.5" style={{ color: C.ink }}>{a.body}</p><AnnounceFileList announcement={a} colors={C} compact /></div>)}
       {hist.count > 0 && <div className="rounded-xl px-3 py-2 mt-2.5" style={{ background: C.badBg }}><p className="text-xs font-semibold" style={{ color: C.bad }}>{hist.count} rejected recently · last {dayLabel(hist.lastAt)}</p><p className="text-xs" style={{ color: C.bad }}>{hist.problems.slice(0, 3).map(p => `${p.name} ×${p.count}`).join(", ")}{hist.problems.length > 3 ? "…" : ""}</p></div>}
+      {liveNoteOf(product) && <div className="rounded-xl px-3 py-2 mt-2.5" style={{ background: C.warnBg }}><p className="text-xs font-semibold" style={{ color: C.warn }}>Live spec{liveNoteOf(product).until ? ` · until ${fmtRejectionDay(liveNoteOf(product).until)}` : ""}</p><p className="text-xs mt-0.5">{liveNoteOf(product).text}</p></div>}
       <ExtRejectionBox s={s} articleId={product.articleId} />
     </button>
   );
