@@ -2731,51 +2731,89 @@ function ProfilePage({ s, set, user, openInspection }) {
   const mine = allMine.filter(i => countsAs(s, i)); const skips = allMine.filter(i => !countsAs(s, i)).length;
   const acc = mine.filter(i => i.result === "Accepted").length;
   const avg = avgActiveMinutes(mine);
-  const week = mine.filter(i => (new Date() - new Date(i.completedAt)) < 7 * 86400000).length;
   const todayISO = new Date().toISOString().slice(0, 10);
   const inToday = i => (i.completedAt || "").slice(0, 10) === todayISO;
   const inWeek = i => (new Date() - new Date(i.completedAt)) < 7 * 86400000;
-  const todayN = mine.filter(inToday).length;
+  const todayN = mine.filter(inToday).length, week = mine.filter(inWeek).length;
   const [detail, setDetail] = useState(null);
   const typeOf = i => i.typeId || legacyTypeId(i.type);
   const openPeriod = (key, title) => { const pick = key === "today" ? inToday : key === "week" ? inWeek : () => true; setDetail({ title, items: mine.filter(pick), traces: allMine.filter(i => !countsAs(s, i)).filter(pick) }); };
   const splitSub = list => { const n = list.length; if (!n) return null; const a = list.filter(i => i.result === "Accepted").length; return `${a} accepted · ${n - a} rejected`; };
-  const Tile = ({ l, v, sub, onClick }) => { const T = onClick ? "button" : "div"; return (
-    <T type={onClick ? "button" : undefined} onClick={onClick} className={`${onClick ? "qc-elev " : ""}qc-tile rounded-2xl p-3.5 text-left flex flex-col`} style={{ background: C.surface, border: `1px solid ${C.line}` }}>
-      <div className="flex items-center justify-between gap-1"><p className="text-xs" style={{ color: C.muted }}>{l}</p>{onClick && <Ic i={ChevronRight} s={14} mr={0} style={{ color: C.muted }} />}</div>
-      <p className="text-2xl font-semibold">{v}</p>{sub && <p className="text-[10px] leading-tight mt-0.5" style={{ color: C.muted }}>{sub}</p>}
+  const firstAt = allMine.map(i => i.completedAt).filter(Boolean).sort()[0];
+  const drafts = s.inspections.filter(i => i.controllerId === user.id && ["Draft", "PendingReview"].includes(i.status));
+  const myFlags = s.flags.filter(f => f.raisedBy === user.id && f.status === "Open").length;
+  // Last 14 days, one bar per day: accepted on top of rejected.
+  const days = [...Array(14)].map((_, k) => { const d = new Date(); d.setDate(d.getDate() - (13 - k)); const iso = d.toISOString().slice(0, 10); const list = mine.filter(i => (i.completedAt || "").slice(0, 10) === iso); return { iso, label: d.toLocaleDateString("en-GB", { weekday: "narrow" }), day: d.getDate(), a: list.filter(i => i.result === "Accepted").length, r: list.filter(i => i.result === "Rejected").length, list }; });
+  const maxDay = Math.max(1, ...days.map(d => d.a + d.r));
+  // Products this controller rejected most (all time) — what to be careful with.
+  const rejBy = {}; mine.filter(i => i.result === "Rejected").forEach(i => { rejBy[i.productId] = (rejBy[i.productId] || 0) + 1; });
+  const topRej = Object.entries(rejBy).map(([pid, n]) => ({ p: s.products.find(x => x.id === pid), n })).filter(x => x.p).sort((a, b) => b.n - a.n).slice(0, 5);
+  const recent = [...allMine].sort((a, b) => (b.completedAt || "").localeCompare(a.completedAt || "")).slice(0, 8);
+  const Tile = ({ l, v, sub, onClick, color, active }) => { const T = onClick ? "button" : "div"; return (
+    <T type={onClick ? "button" : undefined} onClick={onClick} className="qc-elev qc-tile rounded-2xl p-4 text-left flex flex-col" style={{ background: active ? C.accentSoft : C.surface, border: `1px solid ${active ? C.accent : C.line}`, borderLeft: `4px solid ${color || C.line}`, boxShadow: lift(), cursor: onClick ? "pointer" : "default" }}>
+      <p className="text-xs" style={{ color: C.muted }}>{l}</p>
+      <p className="text-2xl font-semibold leading-tight mt-0.5" style={{ fontVariantNumeric: "tabular-nums" }}>{v}</p>{sub && <p className="text-[11px] mt-0.5" style={{ color: C.muted }}>{sub}</p>}
     </T>
   ); };
   const shown = detail ? [...detail.items, ...detail.traces].sort((x, y) => (y.completedAt || "").localeCompare(x.completedAt || "")) : [];
+  const Row = ({ i }) => { const it = inspType(s, i); const rej = i.result === "Rejected"; const p = s.products.find(x => x.id === i.productId); return <button type="button" onClick={() => openInspection && openInspection(i.id)} className="w-full text-left flex items-center gap-3 py-2" style={{ borderTop: `1px solid ${C.line}` }}><span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: it.autoAccept ? it.color : rej ? C.bad : i.result === "Accepted" ? C.ok : C.muted }} /><span className="flex-1 min-w-0"><span className="text-sm block truncate leading-tight">{p?.name || `Pallet ${(i.pallets || [])[0] || ""}`}</span><span className="text-[11px] block" style={{ color: C.muted }}>{it.autoAccept ? it.name : (i.result || "done")}{i.comment ? ` — ${i.comment}` : ""}</span></span><span className="text-xs whitespace-nowrap" style={{ color: C.muted }}>{fmtTime(i.completedAt)}</span></button>; };
   return (
     <div>
-      <h1 className="mb-1">Profile</h1>
-      <p className="text-sm mb-5" style={{ color: C.muted, maxWidth: 640 }}>Your numbers from completed inspections. Tap a tile to see the reports behind it — web is view-only.</p>
-      <div className="flex items-center gap-3 mb-5"><Avatar user={user} size={56} onPick={url => set(x => ({ ...x, users: x.users.map(q => q.id === user.id ? { ...q, photoUrl: url } : q) }))} /><div><p className="font-semibold">{user.name}</p><p className="text-xs" style={{ color: C.muted }}>{user.email} · Controller</p></div></div>
-      <p className="label-sm mb-1.5" style={{ color: C.muted }}>My inspections</p>
-      <div className="grid gap-3 mb-4" style={{ gridTemplateColumns: "repeat(3, 1fr)", maxWidth: 720 }}>
-        <Tile l="Today" v={todayN} sub={splitSub(mine.filter(inToday)) || "nothing yet today"} onClick={todayN ? () => openPeriod("today", "Today") : null} />
-        <Tile l="This week" v={week} sub={splitSub(mine.filter(inWeek)) || "none in 7 days"} onClick={week ? () => openPeriod("week", "Last 7 days") : null} />
-        <Tile l="Total" v={mine.length} sub={splitSub(mine) || "no inspections yet"} onClick={mine.length ? () => openPeriod("total", "All my inspections") : null} />
+      <div className="flex items-baseline gap-3 mb-4"><h1>Profile</h1><span className="text-xs" style={{ color: C.muted }}>your numbers from completed inspections · the web is view-only</span></div>
+      <div className="grid gap-4 items-start" style={{ gridTemplateColumns: "minmax(0, 1fr) 360px" }}>
+        <div className="flex flex-col gap-4 min-w-0">
+          <Card>
+            <div className="flex items-center gap-4">
+              <Avatar user={user} size={72} onPick={url => set(x => ({ ...x, users: x.users.map(q => q.id === user.id ? { ...q, photoUrl: url } : q) }))} />
+              <div className="flex-1 min-w-0">
+                <p className="text-lg font-semibold leading-tight">{user.name}</p>
+                <p className="text-xs mt-0.5" style={{ color: C.muted }}>{user.email} · Controller{firstAt ? ` · inspecting since ${new Date(firstAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}` : ""}</p>
+                <div className="flex flex-wrap gap-1.5 mt-2.5">
+                  {drafts.length > 0 && <span className="text-[11px] px-2 py-0.5 rounded-full" style={{ background: C.accentSoft, color: C.accent }}>{drafts.length} inspection{drafts.length === 1 ? "" : "s"} in progress</span>}
+                  {myFlags > 0 && <span className="text-[11px] px-2 py-0.5 rounded-full" style={{ background: C.warnBg, color: C.warn }}>{myFlags} open flag{myFlags === 1 ? "" : "s"}</span>}
+                  {skips > 0 && <span className="text-[11px] px-2 py-0.5 rounded-full" style={{ background: C.bg, border: `1px solid ${C.line}`, color: C.muted }}>{skips} trace{skips === 1 ? "" : "s"} (don't count)</span>}
+                </div>
+              </div>
+            </div>
+          </Card>
+          <div>
+            <p className="label-sm mb-1.5" style={{ color: C.muted }}>My inspections</p>
+            <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(5, 1fr)" }}>
+              <Tile l="Today" v={todayN} sub={splitSub(mine.filter(inToday)) || "nothing yet"} color={todayN ? C.ok : C.line} onClick={todayN ? () => openPeriod("today", "Today") : null} active={detail?.title === "Today"} />
+              <Tile l="Last 7 days" v={week} sub={splitSub(mine.filter(inWeek)) || "none"} color={week ? C.accent : C.line} onClick={week ? () => openPeriod("week", "Last 7 days") : null} active={detail?.title === "Last 7 days"} />
+              <Tile l="All time" v={mine.length} sub={splitSub(mine) || "no inspections yet"} color={mine.length ? C.ink : C.line} onClick={mine.length ? () => openPeriod("total", "All my inspections") : null} active={detail?.title === "All my inspections"} />
+              <Tile l="Accepted" v={mine.length ? `${Math.round(acc / mine.length * 100)}%` : "—"} sub={`${acc} of ${mine.length}`} color={mine.length ? (acc / mine.length >= .7 ? C.ok : C.warn) : C.line} />
+              <Tile l="Active time" v={avg !== null ? `${Math.round(avg)} min` : "—"} sub="average per inspection" color={avg !== null ? C.accent : C.line} />
+            </div>
+          </div>
+          {typesOf(s).length > 0 && <div>
+            <p className="label-sm mb-1.5" style={{ color: C.muted }}>By type</p>
+            <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(${Math.max(1, Math.min(5, typesOf(s).length))}, 1fr)` }}>{typesOf(s).map(tp => { const m = allMine.filter(i => typeOf(i) === tp.id); const rej = m.filter(i => i.result === "Rejected").length; return <Tile key={tp.id} l={tp.name} v={m.length} sub={tp.autoAccept ? "doesn't count as a verdict" : m.length ? `${Math.round(rej / m.length * 100)}% rejected` : "none yet"} color={tp.color || C.accent} onClick={m.length ? () => setDetail({ title: tp.name, items: tp.autoAccept ? [] : m, traces: tp.autoAccept ? m : [] }) : null} active={detail?.title === tp.name} />; })}</div>
+          </div>}
+          <Card>
+            <div className="flex items-center mb-3"><p className="font-semibold text-sm flex-1">Last 14 days</p><span className="text-[11px] flex items-center gap-3" style={{ color: C.muted }}><span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-sm" style={{ background: C.ok }} />accepted</span><span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-sm" style={{ background: C.bad }} />rejected</span></span></div>
+            <div className="flex items-end gap-1.5" style={{ height: 110 }}>{days.map(d => { const tot = d.a + d.r; return <button key={d.iso} type="button" disabled={!tot} onClick={() => setDetail({ title: new Date(d.iso + "T12:00:00").toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "short" }), items: d.list, traces: [] })} className="flex-1 flex flex-col items-center justify-end h-full gap-1" title={tot ? `${d.a} accepted · ${d.r} rejected` : "nothing"}>
+              <span className="w-full flex flex-col justify-end rounded-md overflow-hidden" style={{ height: `${Math.max(4, tot / maxDay * 84)}px`, background: tot ? "transparent" : C.line }}>{tot > 0 && <><span style={{ flex: d.a, background: C.ok }} /><span style={{ flex: d.r, background: C.bad }} /></>}</span>
+              <span className="text-[10px]" style={{ color: d.iso === todayISO ? C.ink : C.muted, fontWeight: d.iso === todayISO ? 600 : 400 }}>{d.day}</span>
+            </button>; })}</div>
+          </Card>
+          {detail && <Card>
+            <div className="flex items-center mb-2"><p className="font-semibold text-sm flex-1">{detail.title} · {shown.length}</p><button type="button" onClick={() => setDetail(null)} className="text-xs" style={{ color: C.muted }}>close</button></div>
+            {shown.length === 0 ? <p className="text-xs py-2" style={{ color: C.muted }}>Nothing in this slice.</p> : shown.map(i => <Row key={i.id} i={i} />)}
+          </Card>}
+        </div>
+        <aside className="flex flex-col gap-4">
+          <Card>
+            <p className="font-semibold text-sm mb-1">Latest</p>
+            {recent.length === 0 ? <p className="text-sm py-2" style={{ color: C.muted }}>No inspections yet — they start on the phone.</p> : recent.map(i => <Row key={i.id} i={i} />)}
+          </Card>
+          {topRej.length > 0 && <Card>
+            <p className="font-semibold text-sm mb-0.5">You rejected most</p>
+            <p className="text-[12px] mb-2" style={{ color: C.muted }}>Products that gave you trouble — worth a closer look next time.</p>
+            {topRej.map(({ p, n }) => <div key={p.id} className="flex items-center gap-3 py-1.5 text-sm" style={{ borderTop: `1px solid ${C.line}` }}><span className="flex-1 min-w-0 truncate">{p.name}</span><span className="text-xs font-semibold" style={{ color: C.bad, fontVariantNumeric: "tabular-nums" }}>{n}×</span></div>)}
+          </Card>}
+        </aside>
       </div>
-      <p className="label-sm mb-1.5" style={{ color: C.muted }}>Quality</p>
-      <div className="grid gap-3 mb-4" style={{ gridTemplateColumns: "repeat(3, 1fr)", maxWidth: 720 }}>
-        <Tile l="Accepted" v={mine.length ? `${Math.round(acc / mine.length * 100)}%` : "—"} sub={`${acc} of ${mine.length}`} />
-        <Tile l="Active time" v={avg !== null ? `${Math.round(avg)} min` : "—"} sub="avg., excl. waiting for the Head" />
-        <Tile l="Traces" v={skips} sub="types that don't count" onClick={skips ? () => setDetail({ title: "Traces", items: [], traces: allMine.filter(i => !countsAs(s, i)) }) : null} />
-      </div>
-      <p className="label-sm mb-1.5" style={{ color: C.muted }}>By type</p>
-      <div className="grid gap-3 mb-5" style={{ gridTemplateColumns: "repeat(2, 1fr)", maxWidth: 720 }}>{typesOf(s).map(t => { const m = allMine.filter(i => typeOf(i) === t.id); return <button key={t.id} type="button" disabled={!m.length} onClick={() => setDetail({ title: t.name, items: t.autoAccept ? [] : m, traces: t.autoAccept ? m : [] })} className={`qc-tile rounded-2xl p-3.5 text-left ${m.length ? "qc-elev" : ""}`} style={{ background: C.surface, border: `1px solid ${C.line}`, borderTop: `3px solid ${t.color}` }}><div className="flex items-center justify-between gap-1"><p className="text-xs" style={{ color: C.muted }}>{t.name}</p>{m.length > 0 && <Ic i={ChevronRight} s={14} mr={0} style={{ color: C.muted }} />}</div><p className="text-[22px] leading-tight font-semibold">{m.length}</p>{!t.autoAccept && m.length > 0 && <p className="text-[10px]" style={{ color: C.muted }}>{Math.round(m.filter(i => i.result === "Rejected").length / m.length * 100)}% rejected</p>}</button>; })}</div>
-      {detail && <Card>
-        <div className="flex items-center mb-2"><p className="font-medium text-sm flex-1">{detail.title}</p><button type="button" onClick={() => setDetail(null)} className="text-xs" style={{ color: C.muted }}>close</button></div>
-        {shown.length === 0 ? <p className="text-xs" style={{ color: C.muted }}>Nothing in this slice.</p> : shown.map(i => (
-          <button key={i.id} type="button" onClick={() => openInspection && openInspection(i.id)} className="w-full text-left flex items-center gap-2 py-2" style={{ borderTop: `1px solid ${C.line}` }}>
-            <span className="flex-1 text-sm truncate">{s.products.find(p => p.id === i.productId)?.name || `Pallet ${(i.pallets || [])[0] || ""}`}</span>
-            <span className="text-xs" style={{ color: C.muted }}>{fmtTime(i.completedAt)}</span>
-            <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: i.result === "Accepted" ? C.okBg : C.badBg, color: i.result === "Accepted" ? C.ok : C.bad }}>{i.result === "Accepted" ? "Accepted" : "Rejected"}</span>
-          </button>
-        ))}
-      </Card>}
     </div>
   );
 }
