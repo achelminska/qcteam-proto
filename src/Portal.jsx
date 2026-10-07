@@ -1387,7 +1387,7 @@ const NAV_HEAD = [
 ];
 const NAV_CONTROLLER = [
   { group: null, items: [["dashboard", "🏠", "Dashboard"], ["docks", "🏭", "Dock map"], ["catalog", "📦", "Products"], ["briefing", "📖", "Shift update"], ["inspections", "📋", "History"]] },
-  { group: "Queues", items: [["blocked", "🔒", "Blocked pallets"], ["unreported", "🛡️", "Unreported pallets"], ["lost", "🔍", "Lost pallets"], ["complaints", "👎", "Complaints"]] },
+  { group: "Queues", items: [["unreported", "🛡️", "Unreported pallets"], ["lost", "🔍", "Lost pallets"], ["complaints", "👎", "Complaints"]] },
   { group: "Communication", items: [["announcements", "📣", "Announcements"], ["messages", "💬", "Messages"], ["flags", "🚩", "My flags"], ["notifications", "🔔", "Notifications"]] },
   { group: "Me", items: [["profile", "👤", "Profile"]] },
 ];
@@ -2399,7 +2399,7 @@ const hoursOnDock = (r, now) => { if (!r.arrived) return null; const t = new Dat
 const fmtHours = h => h == null ? "—" : h < 1 ? `${Math.max(0, Math.round(h * 60))} min` : h < 48 ? `${Math.round(h)} h` : `${Math.floor(h / 24)} d`;
 function ControllerDashboard({ s, user, set, setPage, setOpenId, openProduct, openPallet }) {
   const [now, setNow] = useState(Date.now()); useEffect(() => { const id = setInterval(() => setNow(Date.now()), 30000); return () => clearInterval(id); }, []);
-  const [filter, setFilter] = useState("todo"); const [q, setQ] = useState(""); const [annOpen, setAnnOpen] = useState(null);
+  const [filter, setFilter] = useState("todo"); const [q, setQ] = useState(""); const [annOpen, setAnnOpen] = useState(null); const [blOpen, setBlOpen] = useState(false);
   const f = floorStats(s, now); const st = settingsOf(s);
   const hasDock = (s.integrations || []).some(i => i.purpose === "Dock" && i.rows?.length);
   const dashAnns = s.announcements.filter(a => a.showOnDashboard && annActive(a)).sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
@@ -2454,12 +2454,17 @@ function ControllerDashboard({ s, user, set, setPage, setOpenId, openProduct, op
       {/* ── Queue + me ── */}
       <p className="label-sm mt-4 mb-1.5" style={{ color: C.muted }}>Queue</p>
       <div className="grid gap-3 mb-3" style={{ gridTemplateColumns: "repeat(5, 1fr)" }}>
-        <Tile label="Blocked pallets" value={f.bl.open} sub={f.bl.taken ? `${f.bl.taken} taken` : f.bl.open ? "waiting for a check" : "queue is clear"} color={C.bad} onClick={() => setPage("blocked")} />
+        <Tile label="Blocked pallets" value={f.bl.open} sub={f.bl.taken ? `${f.bl.taken} taken` : f.bl.open ? "waiting for a check" : "queue is clear"} color={C.bad} onClick={() => setBlOpen(o => !o)} active={blOpen} />
         <Tile label="In stack" value={f.stacked} sub={f.stacked ? "buried behind other pallets" : "none buried"} color={C.warn} onClick={f.stacked ? () => setPage("docks") : undefined} />
         <Tile label="Rejection window" value={f.alerts.length} sub={f.alerts.length ? `${f.alerts.filter(a => a.level === "breached").length} expired` : "nothing closing"} color={C.bad} onClick={f.alerts.length ? () => pick("deadline") : undefined} active={filter === "deadline"} />
         <Tile label="Unreported today" value={f.unreported.today} sub={f.unreported.today ? "left the dock without a report" : "all reported"} color={C.warn} onClick={() => setPage("unreported")} />
         <Tile label="Done today" value={f.doneToday} sub={`${myDone} by you${myRejected ? ` · ${myRejected} rejected` : ""}`} color={C.ok} onClick={() => { setOpenId(null); setPage("inspections"); }} />
       </div>
+      {blOpen && <Card style={{ marginBottom: 12, borderLeft: `4px solid ${C.bad}` }}>
+        <div className="flex items-center gap-2 mb-1"><p className="font-semibold text-sm flex-1">Blocked pallets · {blockedOpen.length} waiting</p><button type="button" onClick={() => setBlOpen(false)} className="text-xs" style={{ color: C.muted }}>close</button></div>
+        <p className="text-[12px] mb-2" style={{ color: C.muted }}>Picking is waiting for these. Take one to claim it, or mark it in stack if it can't be reached yet.</p>
+        {blockedOpen.length === 0 ? <p className="text-sm py-3" style={{ color: C.muted }}>Nothing in the blocked queue.</p> : blockedOpen.map(b => <QueueRow key={b.key} s={s} set={set} user={user} b={b} onOpen={() => openPallet && openPallet(b.hu || claimKey(b))} />)}
+      </Card>}
       {/* ── What the Head sent + who is where ── */}
       <div className="grid gap-3 mb-3 mt-4" style={{ gridTemplateColumns: "minmax(0,1fr) minmax(0,1.6fr) minmax(0,1.2fr)" }}>
         <button type="button" onClick={() => setPage("briefing")} className="qc-elev qc-tile text-left rounded-2xl p-4 flex items-start gap-3" style={{ background: C.surface, border: `1px solid ${C.line}`, borderLeft: `4px solid ${pulseN ? C.accent : C.line}`, boxShadow: lift() }}>
@@ -2478,11 +2483,7 @@ function ControllerDashboard({ s, user, set, setPage, setOpenId, openProduct, op
       </div>
       {/* ── Worklist ── */}
       <div ref={worklist} className="scroll-mt-4">
-        {blockedOpen.length > 0 && filter === "todo" && <Card style={{ marginBottom: 12, marginTop: 16, borderLeft: `4px solid ${C.bad}` }}>
-          <div className="flex items-center gap-2 mb-1"><p className="font-semibold text-sm flex-1">Blocked pallets waiting · {blockedOpen.length}</p><button type="button" onClick={() => setPage("blocked")} className="text-xs" style={{ color: C.accent }}>all ›</button></div>
-          {blockedOpen.slice(0, 3).map(b => <QueueRow key={b.key} s={s} set={set} user={user} b={b} onOpen={() => openPallet && openPallet(b.hu || claimKey(b))} />)}
-        </Card>}
-        <Card style={{ marginTop: blockedOpen.length && filter === "todo" ? 0 : 16 }}>
+        <Card style={{ marginTop: 16 }}>
           <div className="flex items-center gap-2 mb-3 flex-wrap">
             <p className="font-semibold flex-1">On the dock <span className="font-normal text-xs ml-1" style={{ color: C.muted }}>{filter === "todo" ? "most urgent first" : filterLabel}{PRIO_ORDER.includes(filter) || ["needed", "deadline", "skippable"].includes(filter) ? <button type="button" onClick={() => setFilter("todo")} className="ml-2 underline" style={{ color: C.accent }}>show everything</button> : null}</span></p>
             <SearchBox value={q} onChange={setQ} placeholder="product, article, location, PO…" />
@@ -2498,10 +2499,10 @@ function ControllerDashboard({ s, user, set, setPage, setOpenId, openProduct, op
           {!hasDock ? <Empty icon={Truck} title="No dock sheet yet" hint="When the Head connects the dock sheet, every pallet standing on the dock shows up here, most urgent first." />
           : shown.length === 0 ? <p className="text-sm py-6 text-center" style={{ color: C.muted }}>{q ? "Nothing matches." : filter === "todo" ? "Nothing left to inspect — the dock is clear." : "Nothing here."}</p>
           : <div>
-            <div className="grid items-center px-3 pb-1.5 text-xs" style={{ gridTemplateColumns: "minmax(0, 2fr) 64px 130px 70px minmax(0, 1.9fr) minmax(0, 1fr) 64px", color: C.muted }}>{["Product", "Pallets", "Where", "On dock", "Priority", "Status", ""].map(h => <span key={h}>{h}</span>)}</div>
+            <div className="grid items-center px-3 pb-1.5 text-xs" style={{ gridTemplateColumns: "minmax(0, 2.4fr) 64px 120px 70px minmax(0, 1.4fr) minmax(0, 1fr) 64px", color: C.muted }}>{["Product", "Pallets", "Where", "On dock", "Priority", "Status", ""].map(h => <span key={h}>{h}</span>)}</div>
             <div className="flex flex-col gap-1.5">{shown.map(g => { const open = g.open.length > 0; const stt = open ? dockStatus(g.lead) : null; const col = stt ? dockStatusColor(stt) : C.line; const label = stt ? (DOCK_STATUS.find(d => d[0] === stt)?.[1] || stt) : "";
               const extra = !open ? "" : g.u === 0 ? "rejection window expired" : g.u === 1 ? `window closes in ${fmtLeft(g.lead.alert.deadlineAt - now)}` : g.u === 9 ? "skippable" : ""; return (
-              <div key={g.key} className="qc-tile grid items-center rounded-xl px-3 py-2" style={{ gridTemplateColumns: "minmax(0, 2fr) 64px 130px 70px minmax(0, 1.9fr) minmax(0, 1fr) 64px", background: C.bg, border: `1px solid ${C.line}`, borderLeft: `3px solid ${open ? col : C.ok}`, opacity: open ? 1 : .7 }}>
+              <div key={g.key} className="qc-tile grid items-center rounded-xl px-3 py-2" style={{ gridTemplateColumns: "minmax(0, 2.4fr) 64px 120px 70px minmax(0, 1.4fr) minmax(0, 1fr) 64px", background: C.bg, border: `1px solid ${C.line}`, borderLeft: `3px solid ${open ? col : C.ok}`, opacity: open ? 1 : .7 }}>
                 <div className="min-w-0 pr-3">
                   <button type="button" onClick={() => openPallet && openPallet(g.lead.hu || g.article)} className="text-left text-sm font-medium leading-tight truncate block max-w-full">{g.name}</button>
                   <span className="block text-[11px] truncate" style={{ color: C.muted }}><span className="font-mono">{g.article}</span>{g.product?.isBio ? " · bio" : ""}{g.mixedPO ? <span className="ml-1.5" style={{ color: C.warn }}>· {g.pos.length} POs</span> : g.pos[0] ? <span className="font-mono"> · PO {g.pos[0]}</span> : ""}</span>
