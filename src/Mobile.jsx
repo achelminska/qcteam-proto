@@ -2390,7 +2390,7 @@ function MPalletSheet({ s, set, user, go, row: r, onStart, onPickPallet, onAssig
           <div className="flex items-center gap-1.5 flex-wrap mb-2.5">
             <Pill bg={col + "22"} fg={dockStatusText(status)} dot={col}>{statusLabel}</Pill>
             {r.blocking && status !== "blocked" && <Pill bg={dockStatusColor("blocked") + "22"} fg={dockStatusColor("blocked")}>Needed today</Pill>}
-            {r.skippable && <Pill bg={C.line} fg={C.muted}>Skippable</Pill>}
+            {r.skippable && status !== "Skippable" && <Pill bg={C.line} fg={C.muted}>Skippable</Pill>}
             {lost && <Pill bg={C.line} fg={C.muted}>Lost</Pill>}
             <span className="ml-auto text-[11px] font-mono" style={{ color: C.muted }}>HU …{String(r.hu).slice(-8)}</span>
           </div>
