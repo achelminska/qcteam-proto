@@ -120,7 +120,24 @@ const applyPushToState = (purpose, sheet) => {
     const before = JSON.parse(raw).integrations, unchanged = st.integrations.every((it, k) => !targets.some(t => t.id === it.id) || gist(it) === gist(before[k])) && !(specReport && (specReport.updated || specReport.created || specReport.liveChanged)) && !rejDigest;
     // Alert the Head: something in the catalog changed, or the sheet disagrees with a spec of theirs.
     if (specReport && (specReport.created || specReport.conflicts || specReport.updated)) { const heads = (st.users || []).filter(u => u.role === "Head" && u.active !== false); const msg = `Spec sheet push: ${specReport.updated} product${specReport.updated === 1 ? "" : "s"} updated, ${specReport.created} added to the catalog, ${specReport.conflicts} conflict${specReport.conflicts === 1 ? "" : "s"} with your own specs, ${specReport.placeholders} cell${specReport.placeholders === 1 ? "" : "s"} still to be filled in`; st.notifications = [...(st.notifications || []), ...heads.map(u => ({ id: Math.random().toString(36).slice(2, 10), userId: u.id, type: "Specs", message: msg, entityType: "Integrations", entityId: null, createdAt: new Date().toISOString(), readAt: null }))]; }
-    if (rejDigest && rejDigest.latest.length) { const dayAgo = Date.now() - 86400000; const fresh = rejDigest.latest.filter(e => new Date(e.d).getTime() >= dayAgo); if (fresh.length) { const heads = (st.users || []).filter(u => u.role === "Head" && u.active !== false); const msg = `Rejections sheet: ${fresh.length} new rejection${fresh.length === 1 ? "" : "s"} in the last 24 h — ${fresh.slice(0, 3).map(e => e.n || e.a).join(", ")}${fresh.length > 3 ? "…" : ""}`; const already = (st.notifications || []).some(n => n.type === "Rejections" && n.message === msg); if (!already) st.notifications = [...(st.notifications || []), ...heads.map(u => ({ id: Math.random().toString(36).slice(2, 10), userId: u.id, type: "Rejections", message: msg, entityType: "Integrations", entityId: null, createdAt: new Date().toISOString(), readAt: null }))]; } }
+    // One notification per rejection, never a rolling "N in the last 24 h" digest (that re-fired on every push as the
+    // window slid). A row is identified by article + time + PO + who rejected; the keys already announced live in
+    // st.rejectionNotified. The first push after this landed only seeds the list, so old rows don't flood the Head.
+    if (rejDigest && rejDigest.latest.length) {
+      const keyOf = e => [e.a, e.d, e.po || "", e.user || ""].join("|");
+      const seen = new Set(st.rejectionNotified || []);
+      const dayAgo = Date.now() - 86400000;
+      const fresh = rejDigest.latest.filter(e => e.d && new Date(e.d).getTime() >= dayAgo && !seen.has(keyOf(e)));
+      if (!st.rejectionNotified) { st.rejectionNotified = rejDigest.latest.map(keyOf); }
+      else if (fresh.length) {
+        const heads = (st.users || []).filter(u => u.role === "Head" && u.active !== false);
+        const prodId = e => (st.products || []).find(p => String(p.articleId || "").replace(/\D/g, "") === String(e.a).replace(/\D/g, ""))?.id || null;
+        const line = e => { const bits = [e.reason, e.tu ? `${e.tu} TU` : "", e.user ? `by ${e.user}` : "", e.po ? `PO ${e.po}` : ""].filter(Boolean).join(" · "); return `Rejected on the sheet: ${e.n || e.a}${bits ? ` — ${bits}` : ""}`; };
+        const at = new Date().toISOString();
+        st.notifications = [...(st.notifications || []), ...fresh.flatMap(e => heads.map(u => ({ id: Math.random().toString(36).slice(2, 10), userId: u.id, type: "Rejections", message: line(e), entityType: prodId(e) ? "Product" : "Integrations", entityId: prodId(e), createdAt: at, readAt: null })))];
+        st.rejectionNotified = [...fresh.map(keyOf), ...st.rejectionNotified].slice(0, 600);
+      }
+    }
     if (unchanged) { note += " (no change)"; } else { store[STATE_KEY] = JSON.stringify(st); (store.__meta = store.__meta || {})[STATE_KEY] = Math.max(Date.now(), (store.__meta?.[STATE_KEY] || 0) + 1); }
     // Push log: enough to explain "the tiles vanished at 03:12" after the fact. /sheet/<purpose>/log returns the last 60 entries.
     try { const it = st.integrations.find(i => targets.some(t => t.id === i.id)); const hist = {}; (it?.rows || []).forEach(r => { const k = r.priority || (r.status ? `status:${r.status}` : "—"); hist[k] = (hist[k] || 0) + 1; }); const errs = (it?.rows || []).filter(r => r._errors?.length).length; (store.__pushlog = store.__pushlog || {})[purpose] = [...(store.__pushlog[purpose] || []).slice(-59), { at: sheet.receivedAt, raw: sheet.rows.length, table: j.rows.length, header: j.header.slice(0, 14), errors: errs, hist, note: note.trim() }]; } catch {}
