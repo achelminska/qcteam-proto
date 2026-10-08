@@ -1332,10 +1332,11 @@ function LoginScreen({ s, onLogin, allowRoles }) {
         .qc-login.qc input.fld,.qc-login input.fld{width:100%;font-size:15px;min-height:46px;padding:0 14px;border-radius:12px;background:rgba(255,255,255,.03);border:1px solid rgba(140,211,166,.28);outline:none;color:${D.ink};transition:border-color .12s,background .12s}
         .qc-login.qc input.fld::placeholder{color:${D.muted};opacity:.7}
         .qc-login.qc input.fld:focus,.qc-login input.fld:focus{background:rgba(255,255,255,.05);border-color:rgba(140,211,166,.7);box-shadow:0 0 0 3px rgba(140,211,166,.10)}
-        .qc-login .primary{width:100%;min-height:46px;border-radius:12px;font-weight:600;font-size:14px;background:#1F5C3E;color:#EEF5F0;border:1px solid rgba(140,211,166,.25);transition:background .12s,border-color .12s}
-        .qc-login .primary:hover{background:#26704B;border-color:rgba(140,211,166,.45)}
+        .qc-login .primary{width:100%;min-height:46px;border-radius:12px;font-weight:600;font-size:14px;background:#26372D;color:#EEF5F0;border:1px solid rgba(140,211,166,.22);transition:background .12s,border-color .12s}
+        .qc-login .primary:hover{background:#2F4438;border-color:rgba(140,211,166,.4)}
         .qc-login .primary:disabled{background:rgba(255,255,255,.04);border-color:rgba(255,255,255,.08);color:${D.muted}}
-        .qc-login .link{color:${D.accent};font-size:12px}
+        .qc-login .link{color:#26372D;font-size:12px;background:none;border:0;padding:0}
+        .qc-login .link:hover{color:#2F4438;text-decoration:underline}
         @media (max-width:860px){.qc-login{grid-template-columns:1fr}.qc-login-brand{padding:28px 24px 24px;min-height:0}.qc-login-brand .feat{display:none}.qc-login-form{padding:28px 20px}}
       `}</style>
       <aside className={`qc-login-brand${hero ? " photo" : ""}`}>
