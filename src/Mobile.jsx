@@ -1225,23 +1225,26 @@ function QueueRow({ s, set, user, b, onOpen }) {
   const stack = () => setClaim(set, b, { userId: user.id, at: nowISO(), status: "stacked" });
   const release = () => setClaim(set, b, null);
   const ago = t => { const m = Math.round((Date.now() - new Date(t).getTime()) / 60000); return m < 1 ? "now" : m < 60 ? `${m} min` : `${Math.round(m / 60)} h`; };
+  const statusLabel = done ? "Completed" : lost ? "Lost" : stacked ? "In stack" : b.status === "Started" ? "Started" : "Blocked";
+  const Act = ({ onClick, solid, children }) => <button type="button" onClick={e => { e.preventDefault(); e.stopPropagation(); onClick(); }} className="text-xs px-3 py-1.5 rounded-lg font-semibold inline-flex items-center" style={solid ? { background: C.ink, color: C.onDark } : { border: `1px solid ${C.line}`, color: C.ink }}>{children}</button>;
+  const actions = lost && !done
+    ? <div className="flex flex-wrap items-center gap-1.5"><Act solid onClick={() => markFound(set, b, user)}>Found — back in queue</Act>{lost.note && <span className="text-[11px]" style={{ color: C.muted }}>{lost.note}</span>}</div>
+    : !done && !lost
+      ? <div className="flex flex-wrap gap-1.5">
+          {!c && <><Act solid onClick={take}>Take</Act><Act onClick={stack}><Ic i={Layers} s={12} />In stack</Act></>}
+          {c && me && <>{stacked ? <Act solid onClick={take}>Reachable now — take</Act> : <Act onClick={stack}><Ic i={Layers} s={12} />In stack</Act>}<Act onClick={release}>Release</Act></>}
+          {c && !me && <Act onClick={take}>{stacked ? "Reachable now — take" : "Take over"}</Act>}
+        </div>
+      : null;
   return (
-    <div className="py-2.5" style={{ borderBottom: `1px solid ${C.line}`, opacity: done ? .5 : lost ? .45 : stacked ? .7 : 1 }}>
-      <div className="flex items-center gap-2">
-        <span className="inline-block rounded-full flex-shrink-0" style={{ width: 8, height: 8, background: col }} />
-        <button onClick={onOpen} className="text-sm flex-1 truncate font-medium text-left">{b.name || b.article}</button>
-        {who && <span className="flex items-center gap-1 text-[11px]" style={{ color: me ? C.accent : C.muted }}><Avatar user={who} size={18} />{me ? "you" : who.name.split(" ")[0]} · {ago(c.at)}</span>}
-        {stacked && !lost && <span className="text-[10px] px-1.5 py-0.5 rounded inline-flex items-center" style={{ background: C.line, color: C.muted }}><Ic i={Layers} s={10} mr={3} />in stack</span>}
-        {lost && <span className="text-[10px] px-1.5 py-0.5 rounded inline-flex items-center" style={{ background: C.line, color: C.muted }}><Ic i={Search} s={10} mr={3} />lost · {lostBy ? lostBy.name.split(" ")[0] : "?"} · {ago(lost.at)}</span>}
-      </div>
-      <p className="text-xs mt-0.5 ml-4" style={{ color: C.muted }}>{[b.location && `Dock ${b.location}`, b.deadline && `departure ${b.deadline}`, b.hu && `HU …${b.hu.slice(-6)}`].filter(Boolean).join(" · ")}</p>
-      {lost && !done && <div className="flex gap-1.5 mt-1.5 ml-4"><button onClick={() => markFound(set, b, user)} className="text-xs px-3 py-1.5 rounded-lg font-semibold" style={{ background: C.ink, color: C.onDark }}>Found — back in queue</button>{lost.note && <span className="text-[11px] self-center" style={{ color: C.muted }}>{lost.note}</span>}</div>}
-      {!done && !lost && <div className="flex gap-1.5 mt-1.5 ml-4">
-        {!c && <><button onClick={take} className="text-xs px-3 py-1.5 rounded-lg font-semibold" style={{ background: C.ink, color: C.onDark }}>Take</button><button onClick={stack} className="text-xs px-3 py-1.5 rounded-lg inline-flex items-center" style={{ border: `1px solid ${C.line}` }}><Ic i={Layers} s={12} />In stack</button></>}
-        {c && me && <>{stacked ? <button onClick={take} className="text-xs px-3 py-1.5 rounded-lg font-semibold" style={{ background: C.ink, color: C.onDark }}>Reachable now — take</button> : <button onClick={stack} className="text-xs px-3 py-1.5 rounded-lg inline-flex items-center" style={{ border: `1px solid ${C.line}` }}><Ic i={Layers} s={12} />In stack</button>}<button onClick={release} className="text-xs px-3 py-1.5 rounded-lg" style={{ color: C.muted, border: `1px solid ${C.line}` }}>Release</button></>}
-        {c && !me && <>{stacked ? <button onClick={take} className="text-xs px-3 py-1.5 rounded-lg" style={{ border: `1px solid ${C.line}` }}>Reachable now — take</button> : <button onClick={take} className="text-xs px-3 py-1.5 rounded-lg" style={{ color: C.warn, border: `1px solid ${C.line}` }}>Take over</button>}</>}
+    <ListTile onClick={onOpen} edge={col} title={b.name || b.article} faded={done || lost}
+      chips={<div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+        <span className={listChip} style={{ background: col + "22", color: col }}>{statusLabel}</span>
+        {who && <span className={listChip} style={{ background: C.bg, color: me ? C.accent : C.muted, border: `1px solid ${C.line}` }}><Avatar user={who} size={14} />{me ? "you" : who.name.split(" ")[0]} · {ago(c.at)}</span>}
+        {lost && <span className={listChip} style={{ background: C.line, color: C.muted }}><Ic i={Search} s={10} mr={0} />{lostBy ? lostBy.name.split(" ")[0] : "?"} · {ago(lost.at)}</span>}
       </div>}
-    </div>
+      facts={listFacts(<>{listFact(MapPin, b.location && `Dock ${b.location}`)}{listFact(Clock, b.deadline && `departure ${b.deadline}`)}{listFact(Tag, b.hu && `HU …${b.hu.slice(-6)}`)}</>)}
+      footer={actions} />
   );
 }
 
@@ -1319,6 +1322,49 @@ const dockRowsForProduct = product => product ? dockRowsLive(_S).filter(r => r.a
 const sameDeliveryPallets = (product, insp) => sameDeliveryRows(dockRowsForProduct(product), insp?.pallets, new Date().toISOString().slice(0, 10));
 
 function Card({ children, style }) { return <section className="rounded-2xl p-5" style={{ background: C.surface, border: `1px solid ${C.line}`, boxShadow: lift(), ...style }}>{children}</section>; }
+
+// One compact card for every item list (dock pallets, blocked queue, inspections, complaints…). Same language as
+// MPriorityList: lifted tile, coloured left edge, title + chips + icon facts, chevron when it opens something.
+function ListTile({ onClick, edge, title, leading, trailing, chips, facts, extra, faded, footer, dashed, children }) {
+  const body = (
+    <div className="flex items-start gap-2">
+      {leading}
+      <div className="min-w-0 flex-1">
+        <div className="flex items-start gap-2">
+          <p className="text-sm font-medium leading-snug flex-1 min-w-0">{title}</p>
+          {trailing}
+          {onClick && <Ic i={ChevronRight} s={16} mr={0} style={{ color: C.muted, marginTop: 1, flexShrink: 0 }} />}
+        </div>
+        {chips}
+        {facts}
+        {extra}
+        {children}
+      </div>
+    </div>
+  );
+  const style = { background: C.bg, border: dashed ? `1px dashed ${C.line}` : `1px solid ${C.line}`, borderLeft: `4px solid ${edge || C.line}`, opacity: faded ? .55 : 1 };
+  if (footer) {
+    return (
+      <div className="qc-elev qc-tile rounded-2xl mb-2 overflow-hidden" style={style}>
+        {onClick ? <button type="button" onClick={onClick} className="w-full text-left px-3.5 pt-3">{body}</button> : <div className="px-3.5 pt-3">{body}</div>}
+        <div className="px-3.5 pb-3 pt-1.5">{footer}</div>
+      </div>
+    );
+  }
+  const Tag = onClick ? "button" : "div";
+  return <Tag type={onClick ? "button" : undefined} onClick={onClick} className={`${onClick ? "qc-elev " : ""}qc-tile w-full text-left rounded-2xl px-3.5 py-3 mb-2`} style={style}>{body}</Tag>;
+}
+const listChip = "text-[10px] px-1.5 py-0.5 rounded-full whitespace-nowrap inline-flex items-center gap-1";
+const listFacts = children => <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs mt-2" style={{ color: C.muted }}>{children}</div>;
+const listFact = (I, v) => v ? <span className="inline-flex items-center gap-1 whitespace-nowrap"><Ic i={I} s={12} mr={0} style={{ opacity: .75 }} />{v}</span> : null;
+function ListDayHead({ children, count, hot }) {
+  return (
+    <div className="flex items-center gap-2 py-1.5">
+      <p className="text-xs font-semibold flex-1" style={{ color: hot ? C.bad : C.ink }}>{children}</p>
+      {count != null && <span className="text-[10px] px-1.5 py-0.5 rounded-full" style={{ background: hot ? C.badBg : C.bg, color: hot ? C.bad : C.muted, border: hot ? "none" : `1px solid ${C.line}` }}>{count}</span>}
+    </div>
+  );
+}
 
 function Primary({ children, onClick, disabled, small }) { return <button onClick={onClick} disabled={disabled} className={`qc-elev qc-tile ${small ? "text-xs px-3" : "text-sm px-4"} font-semibold rounded-xl inline-flex items-center justify-center`} style={{ height: small ? 30 : 38, background: disabled ? C.line : C.accent, color: disabled ? C.muted : C.onDark, boxShadow: disabled ? "none" : undefined }}>{children}</button>; }
 
@@ -2047,6 +2093,15 @@ const sheetStats = s => { const rows = dockRowsLive(s).filter(r => !lostOf(s, r)
 const PRIORITY = { "Now needed": [C.bad, C.onDark, true], "High risk": [C.bad, C.badBg, false], "High issues": [C.warn, C.warnBg, false], "Late inspection": [C.warn, C.warnBg, false], "Inspection due": [C.muted, C.line, false], "Skippable": [C.muted, C.line, false] };
 const hhmm = iso => { const d = new Date(iso); return isNaN(d) ? "" : d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }); };
 const ResultPill = ({ i, s }) => { const it = s ? inspType(s, i) : null; const [fg, bg, l] = i.status !== "Completed" ? [STATUS[i.status][1], STATUS[i.status][2], STATUS[i.status][0]] : it && it.autoAccept ? [it.color, C.accentSoft, it.name] : i.result === "Accepted" ? [C.ok, C.okBg, "Accepted"] : i.result === "Rejected" ? [C.bad, C.badBg, "Rejected"] : [STATUS[i.status][1], STATUS[i.status][2], STATUS[i.status][0]]; return <span className="text-xs font-medium px-2.5 py-1 rounded-full whitespace-nowrap inline-flex items-center gap-1.5" style={{ background: C.surface, color: C.ink, border: `1px solid ${C.line}` }}><span className="inline-block rounded-full" style={{ width: 7, height: 7, background: fg }} />{l}</span>; };
+const inspEdge = (s, i) => { const it = s ? inspType(s, i) : null; return i.status !== "Completed" ? (STATUS[i.status]?.[1] || C.warn) : it && it.autoAccept ? (it.color || C.muted) : i.result === "Rejected" ? C.bad : i.result === "Accepted" ? C.ok : C.line; };
+function InspListRow({ s, user, i, onOpen, title, facts }) {
+  const name = title || s.products.find(p => p.id === i.productId)?.name || `Pallet ${(i.pallets || []).filter(Boolean)[0] || ""}`;
+  return (
+    <ListTile onClick={onOpen} edge={inspEdge(s, i)} title={name}
+      chips={<div className="flex flex-wrap items-center gap-1.5 mt-1.5"><ResultPill i={i} s={s} /></div>}
+      facts={listFacts(facts)} />
+  );
+}
 const Lock = () => null;
 
 // Real device (narrow screen or launched from the home screen): full-bleed, safe-area aware, no fake status bar.
@@ -2707,7 +2762,7 @@ function MDashboard({ s, set, user, go, dismissed, setDismissed, onAssign }) {
         </div>; })()}
         {tab === "history" && (s.products.length === 0 ? <div className="text-center py-6"><p className="text-sm font-medium mb-1">Nothing to inspect yet</p><p className="text-xs mb-3" style={{ color: C.muted }}>The Head hasn't set up products and forms yet. If you configured them in the portal, import the state here (Menu → Data).</p><button onClick={() => go("menu")} className="text-sm px-4 py-2 rounded-xl" style={{ background: C.ink, color: C.onDark }}>Menu → Data</button></div> : groups.length === 0 ? <p className="text-sm py-6 text-center" style={{ color: C.muted }}>No inspections yet. Start with the plus button.</p> : <>
           {groups.map(g => (
-          <div key={g.k}><p className="label-sm mt-3 mb-1" style={{ color: C.muted }}>{g.k}</p>{g.items.map(i => <button key={i.id} onClick={() => go("inspection", i.id)} className="w-full text-left flex items-center gap-2 py-2.5" style={{ borderBottom: `1px solid ${C.line}` }}><div className="flex-1 min-w-0"><p className="text-sm truncate">{s.products.find(p => p.id === i.productId)?.name || `Pallet ${(i.pallets || [])[0] || ""}`}</p><p className="text-xs" style={{ color: C.muted }}>{hhmm(i.completedAt || i.startedAt)}{i.supplier && ` · ${i.supplier}`}{i.controllerId !== user.id && ` · ${s.users.find(u => u.id === i.controllerId)?.name.split(" ")[0]}`}</p></div><ResultPill i={i} s={s} /></button>)}</div>
+          <div key={g.k}><ListDayHead count={g.items.length}>{g.k}</ListDayHead>{g.items.map(i => <InspListRow key={i.id} s={s} user={user} i={i} onOpen={() => go("inspection", i.id)} facts={<>{listFact(Clock, hhmm(i.completedAt || i.startedAt))}{listFact(Truck, i.supplier)}{i.controllerId !== user.id && listFact(User, s.users.find(u => u.id === i.controllerId)?.name.split(" ")[0])}</>} />)}</div>
           ))}
           {mine.length > HISTORY_LIMIT && <button onClick={() => go("history")} className="w-full text-sm py-3 mt-1 rounded-xl font-medium" style={{ color: C.accent, background: C.accentSoft }}>Show all {mine.length} inspections ›</button>}
         </>)}
@@ -2745,7 +2800,10 @@ function MSearch({ s, user, go, onStart, setState, notify, onVisual }) {
     <div>
       <TopBar title="New inspection" onBack={() => go("back")} />
       <div className="px-4 pt-3"><input value={q} onChange={e => setQ(e.target.value)} placeholder="Product name or article ID…" className="w-full text-sm rounded-xl px-3 py-2.5 outline-none" style={{ ...inp, background: C.bg }} /></div>
-      <div className="px-4 pt-2">{list.slice(0, 40).map(p => <button key={p.id} onClick={() => setSel(p.id)} className="w-full text-left flex items-center gap-3 py-2.5" style={{ borderBottom: `1px solid ${C.line}` }}>{asPhotoList(p.photos).length ? <img src={thumbSrc(asPhotoList(p.photos)[0])} loading="lazy" decoding="async" alt="" className="w-10 h-10 rounded-lg object-contain" style={{ background: PHOTO_BG }} /> : <div className="w-10 h-10 rounded-lg flex items-center justify-center" style={{ background: C.bg, color: C.muted }}><Ic i={ImageIcon} s={18} mr={0} /></div>}<div className="flex-1 min-w-0"><p className="text-sm truncate">{p.name}</p><p className="text-xs" style={{ color: C.muted }}>{p.articleId || "no ID"}{p.isBio && " · bio"}</p></div><span style={{ color: C.muted }}>›</span></button>)}{list.length === 0 && <p className="text-sm py-6 text-center" style={{ color: C.muted }}>No results.</p>}</div>
+      <div className="px-4 pt-2">{list.slice(0, 40).map(p => <ListTile key={p.id} onClick={() => setSel(p.id)} title={p.name}
+        leading={asPhotoList(p.photos).length ? <img src={thumbSrc(asPhotoList(p.photos)[0])} loading="lazy" decoding="async" alt="" className="w-10 h-10 rounded-lg object-contain flex-shrink-0" style={{ background: PHOTO_BG }} /> : <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: C.surface, color: C.muted, border: `1px solid ${C.line}` }}><Ic i={ImageIcon} s={18} mr={0} /></div>}
+        chips={p.isBio ? <div className="flex flex-wrap gap-1.5 mt-1.5"><span className={listChip} style={{ background: C.okBg, color: C.ok }}>bio</span></div> : null}
+        facts={listFacts(listFact(Tag, p.articleId || "no ID"))} />)}{list.length === 0 && <p className="text-sm py-6 text-center" style={{ color: C.muted }}>No results.</p>}</div>
     </div>
   );
 }
@@ -3246,7 +3304,7 @@ function MHistory({ s, user, go }) {
     <div className="pb-4 relative" style={{ minHeight: "100%" }}>
       <TopBar title="Inspection history" onBack={() => go("back")} right={<button onClick={() => setOpen(true)} className="text-xs px-3 py-1.5 rounded-full" style={{ border: `1px solid ${active ? C.ink : C.line}`, fontWeight: active ? 500 : 400 }}>Filters{active ? ` · ${active}` : ""}</button>} />
       <div className="px-4 pt-3"><SearchBox value={q} onChange={setQ} placeholder="Search by product, article ID or report no.…" inputClass="rounded-xl py-2.5" /></div>
-      <div className="px-4">{groups.length === 0 ? <p className="text-sm py-8 text-center" style={{ color: C.muted }}>Nothing matches.</p> : groups.map(g => <div key={g.k}><p className="label-sm mt-3 mb-1" style={{ color: C.muted }}>{g.k}</p>{g.items.map(i => <button key={i.id} onClick={() => go("inspection", i.id)} className="w-full text-left flex items-center gap-2 py-2.5" style={{ borderBottom: `1px solid ${C.line}` }}><div className="flex-1 min-w-0"><p className="text-sm truncate">{s.products.find(p => p.id === i.productId)?.name || `Pallet ${(i.pallets || [])[0] || ""}`}</p><p className="text-xs" style={{ color: C.muted }}>{String(i.id).toUpperCase()} · {hhmm(i.completedAt || i.startedAt)}{i.dateISO && ` · DC ${dateCode(i.dateISO)}`}{i.supplier && ` · ${i.supplier}`} · {s.users.find(u => u.id === i.controllerId)?.name.split(" ")[0]}</p></div><ResultPill i={i} s={s} /></button>)}</div>)}</div>
+      <div className="px-4">{groups.length === 0 ? <p className="text-sm py-8 text-center" style={{ color: C.muted }}>Nothing matches.</p> : groups.map(g => <div key={g.k}><ListDayHead count={g.items.length}>{g.k}</ListDayHead>{g.items.map(i => <InspListRow key={i.id} s={s} user={user} i={i} onOpen={() => go("inspection", i.id)} facts={<>{listFact(Tag, String(i.id).toUpperCase())}{listFact(Clock, hhmm(i.completedAt || i.startedAt))}{i.dateISO && listFact(FileText, `DC ${dateCode(i.dateISO)}`)}{listFact(Truck, i.supplier)}{listFact(User, s.users.find(u => u.id === i.controllerId)?.name.split(" ")[0])}</>} />)}</div>)}</div>
       <Sheet open={open} onClose={() => setOpen(false)} title="Filters">
         <div className="flex items-center justify-between mb-2"><span className="label-sm" style={{ color: C.muted }}>Date range</span><button onClick={() => setF({ range: "7", result: "", status: "", supplier: "", controller: "", category: "", from: "", to: "", code: "", packFrom: "", packTo: "", type: "" })} className="text-xs" style={{ color: C.accent }}>Clear everything</button></div>
         <div className="flex flex-wrap gap-1.5 mb-3">{[["0", "Today"], ["7", "7 days"], ["30", "30 days"], ["custom", "Custom"]].map(([k, l]) => <Chip key={k} on={f.range === k} onClick={() => setF(x => ({ ...x, range: k }))}>{l}</Chip>)}</div>
@@ -3308,16 +3366,10 @@ function MProductHistory({ s, user, go, productId, initialResult }) {
                 </select>
               </div>
             )}
-            {rows.length === 0 ? <p className="text-sm py-8 text-center" style={{ color: C.muted }}>Nothing matches.</p> : rows.map((i, ix) => {
+            {rows.length === 0 ? <p className="text-sm py-8 text-center" style={{ color: C.muted }}>Nothing matches.</p> : rows.map(i => {
               const rem = (i.remarks || []).map(r => pm[r.leafId]?.name).filter(Boolean);
               return (
-                <button key={i.id} onClick={() => go("inspection", i.id)} className="w-full flex items-center gap-2 py-2.5 text-left" style={{ borderBottom: ix === rows.length - 1 ? "none" : `1px solid ${C.line}` }}>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm truncate">{rem.length ? rem.join(", ") : "no remarks"}</p>
-                    <p className="text-xs" style={{ color: C.muted }}>{String(i.id).toUpperCase()} · {dayLabel(i.completedAt)}, {hhmm(i.completedAt)} · {s.users.find(u => u.id === i.controllerId)?.name.split(" ")[0]}</p>
-                  </div>
-                  <ResultPill i={i} s={s} />
-                </button>
+                <InspListRow key={i.id} s={s} user={user} i={i} onOpen={() => go("inspection", i.id)} title={rem.length ? rem.join(", ") : "no remarks"} facts={<>{listFact(Tag, String(i.id).toUpperCase())}{listFact(Clock, `${dayLabel(i.completedAt)}, ${hhmm(i.completedAt)}`)}{listFact(User, s.users.find(u => u.id === i.controllerId)?.name.split(" ")[0])}</>} />
               );
             })}
           </>
@@ -3609,16 +3661,14 @@ function MComplaints({ s, user, go }) {
           <p className="text-xs mt-3 mb-1" style={{ color: C.muted }}>Most complaints first · tap an article to open its profile</p>
           {shown.length === 0 && <p className="text-sm py-6 text-center" style={{ color: C.muted }}>Nothing matches “{q}”.</p>}
           {shown.map(r => { const p = productForArticle(s, r.articleId); return (
-            <button key={r.id} onClick={() => p && go("catalog", p.id)} disabled={!p} className="w-full text-left py-2.5 active:opacity-60" style={{ borderBottom: `1px solid ${C.line}` }}>
-              <div className="flex items-center gap-3">
-                <span className="text-[11px] w-5 text-right flex-shrink-0" style={{ color: C.muted, fontVariantNumeric: "tabular-nums" }}>{rows.indexOf(r) + 1}</span>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2"><p className="text-sm font-medium flex-1 truncate">{r.name || p?.name || r.articleId}</p><span className="text-[15px] font-semibold flex-shrink-0" style={{ color: C.bad, fontVariantNumeric: "tabular-nums" }}>{r.count}</span></div>
-                  <div className="flex items-center gap-2 mt-0.5"><span className="text-[11px] font-mono flex-shrink-0" style={{ color: C.muted }}>{r.articleId}</span>{r.subType && <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ background: C.warnBg, color: C.warn }}>{r.subType}{r.subCount != null ? ` (${r.subCount})` : ""}</span>}{!p && <span className="text-[10px]" style={{ color: C.muted }}>not in catalog</span>}<span className="flex-1" />{p && <Ic i={ChevronRight} s={14} mr={0} style={{ color: C.muted }} />}</div>
-                  <div className="h-1 rounded-full mt-1.5" style={{ background: C.bg }}><div className="h-1 rounded-full" style={{ width: `${Math.round((r.count || 0) / max * 100)}%`, background: C.bad, opacity: .8 }} /></div>
-                </div>
-              </div>
-            </button>
+            <ListTile key={r.id} onClick={p ? () => go("catalog", p.id) : undefined} edge={C.bad} title={r.name || p?.name || r.articleId}
+              trailing={<span className="text-[15px] font-semibold flex-shrink-0" style={{ color: C.bad, fontVariantNumeric: "tabular-nums" }}>{r.count}</span>}
+              chips={<div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                {r.subType && <span className={listChip} style={{ background: C.warnBg, color: C.warn }}>{r.subType}{r.subCount != null ? ` (${r.subCount})` : ""}</span>}
+                {!p && <span className={listChip} style={{ background: C.line, color: C.muted }}>not in catalog</span>}
+              </div>}
+              facts={listFacts(listFact(Tag, r.articleId))}
+              extra={<div className="h-1 rounded-full mt-2" style={{ background: C.surface }}><div className="h-1 rounded-full" style={{ width: `${Math.round((r.count || 0) / max * 100)}%`, background: C.bad, opacity: .8 }} /></div>} />
           ); })}
         </>}
       </div>
@@ -3805,16 +3855,14 @@ function MDocks({ s, user, go }) {
             {searching && <p className="text-xs mb-1" style={{ color: C.muted }}>{shown.length} of {items.length} SKU{items.length === 1 ? "" : "s"} match</p>}
             {shown.length === 0 && <p className="text-sm py-6 text-center" style={{ color: C.muted }}>{searching ? "Nothing matches." : "Nothing standing here right now."}</p>}
             {shown.map(it => (
-              <button key={it.key} onClick={() => it.blockedOnly ? go("blockedInfo", it.openKey) : go("palletInfo", it.openKey || it.hu)} className="w-full text-left py-3 active:opacity-60" style={{ borderBottom: `1px solid ${C.line}` }}>
-                <p className="text-sm font-medium leading-snug">{it.name}</p>
-                <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 mt-1">
+              <ListTile key={it.key} onClick={() => it.blockedOnly ? go("blockedInfo", it.openKey) : go("palletInfo", it.openKey || it.hu)} edge={dockStatusColor(it.status)} title={it.name}
+                chips={<div className="flex flex-wrap items-center gap-1.5 mt-1.5">
                   <StatusPill k={it.status} />
                   <ComplaintChip s={s} articleId={it.article || it.key} />
-                  {it.count > 1 && <span className="text-[10px] px-1.5 py-0.5 rounded-full whitespace-nowrap" style={{ background: C.accentSoft, color: C.accent }}>×{it.count}</span>}
-                  {it.checked > 0 && <span className="text-[10px] px-1.5 py-0.5 rounded-full whitespace-nowrap inline-flex items-center gap-1" style={{ background: C.okBg, color: C.ok }}><Ic i={Check} s={10} mr={0} />{it.checked === it.count ? "inspected" : `${it.checked}/${it.count}`}</span>}
-                </div>
-                <p className="text-xs mt-0.5" style={{ color: C.muted }}>{sel === "other" ? it.location : it.subs.length ? `spot ${it.subs.join("/")}` : `dock ${dockLabel(sel)}`}{it.blocking && it.priority && it.priority !== "Skippable" ? ` · ${it.priority}` : ""} · {it.transporter || "—"} · {it.arrived ? `${dayLabel(it.arrived + "T12:00:00")} ` : ""}{it.arrivedTime}</p>
-              </button>
+                  {it.count > 1 && <span className={listChip} style={{ background: C.accentSoft, color: C.accent }}>×{it.count}</span>}
+                  {it.checked > 0 && <span className={listChip} style={{ background: C.okBg, color: C.ok }}><Ic i={Check} s={10} mr={0} />{it.checked === it.count ? "inspected" : `${it.checked}/${it.count}`}</span>}
+                </div>}
+                facts={listFacts(<>{listFact(MapPin, sel === "other" ? it.location : it.subs.length ? `spot ${it.subs.join("/")}` : `dock ${dockLabel(sel)}`)}{it.blocking && it.priority && it.priority !== "Skippable" ? <span className="font-semibold" style={{ color: C.bad }}>{it.priority}</span> : null}{listFact(Truck, it.transporter)}{listFact(Clock, `${it.arrived ? `${dayLabel(it.arrived + "T12:00:00")} ` : ""}${it.arrivedTime || ""}`.trim())}</>)} />
             ))}
           </div>}
         </>}
@@ -4118,7 +4166,7 @@ function MProfile({ s, set, user, go }) {
               {items.length > 0 && <div className="grid grid-cols-3 gap-2 mb-2"><Stat l="Inspections" v={items.length} /><Stat l="Accepted" v={a} color={a ? C.ok : C.ink} /><Stat l="Rejected" v={r} color={r ? C.bad : C.ink} /></div>}
               <p className="text-xs mb-3" style={{ color: C.muted }}>{[items.length > 0 && av !== null && `avg. active time ${Math.round(av)} min`, traces.length > 0 && `${traces.length} trace${traces.length === 1 ? "" : "s"} (types that don't count)`].filter(Boolean).join(" · ") || "Tap a report to open it."}</p>
               {byType.length > 1 && <div className="flex flex-wrap gap-1.5 mb-2">{byType.map(([t, n]) => <span key={t.id} className="text-[11px] px-2 py-1 rounded-full inline-flex items-center gap-1.5" style={{ background: C.bg, border: `1px solid ${C.line}` }}><span className="rounded-full" style={{ width: 8, height: 8, background: t.color }} />{t.name} · {n}</span>)}</div>}
-              {groups.map(g => <div key={g.k}><p className="label-sm mt-3 mb-1" style={{ color: C.muted }}>{g.k}</p>{g.items.map(i => <button key={i.id} onClick={() => { setDetail(null); go("inspection", i.id); }} className="w-full text-left flex items-center gap-2 py-2.5" style={{ borderBottom: `1px solid ${C.line}` }}><div className="flex-1 min-w-0"><p className="text-sm truncate">{s.products.find(p => p.id === i.productId)?.name || `Pallet ${(i.pallets || [])[0] || ""}`}</p><p className="text-xs" style={{ color: C.muted }}>{hhmm(i.completedAt)}{byType.length > 1 && ` · ${inspType(s, i)?.name || ""}`}{i.dateISO && ` · DC ${dateCode(i.dateISO)}`}{i.supplier && ` · ${i.supplier}`}</p></div><ResultPill i={i} s={s} /></button>)}</div>)}
+              {groups.map(g => <div key={g.k}><ListDayHead count={g.items.length}>{g.k}</ListDayHead>{g.items.map(i => <InspListRow key={i.id} s={s} user={user} i={i} onOpen={() => { setDetail(null); go("inspection", i.id); }} facts={<>{listFact(Clock, hhmm(i.completedAt))}{byType.length > 1 && listFact(ClipboardList, inspType(s, i)?.name)}{i.dateISO && listFact(FileText, `DC ${dateCode(i.dateISO)}`)}{listFact(Truck, i.supplier)}</>} />)}</div>)}
             </>
           );
         })()}
@@ -4129,14 +4177,22 @@ function MProfile({ s, set, user, go }) {
 function MNotifications({ s, set, user, go }) {
   const mine = s.notifications.filter(n => n.userId === user.id).sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
   const read = id => set(x => ({ ...x, notifications: x.notifications.map(n => n.id === id ? { ...n, readAt: n.readAt || nowISO() } : n) }));
-  return <div><TopBar title="Notifications" onBack={() => go("back")} /><div className="px-4">{mine.length === 0 ? <p className="text-sm py-8 text-center" style={{ color: C.muted }}>Quiet.</p> : mine.map(n => <button key={n.id} onClick={() => { read(n.id); if (n.entityType === "Inspection" && n.entityId) go("inspection", n.entityId); else if (n.entityType === "ProductFlag") go(user.role === "Head" ? "head-flags" : "flags"); else if (n.entityType === "Conversation") go("chat"); else if (n.entityType === "Announcement") go("announcements"); else if (n.entityType === "Product" && n.entityId) go("catalog", n.entityId); }} className="w-full text-left flex items-center gap-3 py-3" style={{ borderBottom: `1px solid ${C.line}` }}><NotifIcon type={n.type} size={36} /><span className="flex-1 min-w-0"><span className="block text-sm" style={{ fontWeight: n.readAt ? 400 : 600 }}>{cleanMsg(n.message)}</span><span className="block text-xs" style={{ color: C.muted }}>{dayLabel(n.createdAt)}, {hhmm(n.createdAt)}</span></span>{!n.readAt && <span className="rounded-full flex-shrink-0" style={{ width: 8, height: 8, background: C.accent }} />}</button>)}</div></div>;
+  return <div><TopBar title="Notifications" onBack={() => go("back")} /><div className="px-4 pt-3">{mine.length === 0 ? <p className="text-sm py-8 text-center" style={{ color: C.muted }}>Quiet.</p> : mine.map(n => <ListTile key={n.id} onClick={() => { read(n.id); if (n.entityType === "Inspection" && n.entityId) go("inspection", n.entityId); else if (n.entityType === "ProductFlag") go(user.role === "Head" ? "head-flags" : "flags"); else if (n.entityType === "Conversation") go("chat"); else if (n.entityType === "Announcement") go("announcements"); else if (n.entityType === "Product" && n.entityId) go("catalog", n.entityId); }} edge={n.readAt ? C.line : C.accent} title={cleanMsg(n.message)} leading={<NotifIcon type={n.type} size={36} />} trailing={!n.readAt ? <span className="rounded-full flex-shrink-0" style={{ width: 8, height: 8, background: C.accent, marginTop: 6 }} /> : null} facts={listFacts(listFact(Clock, `${dayLabel(n.createdAt)}, ${hhmm(n.createdAt)}`))} />)}</div></div>;
 }
 function MAnnouncements({ s, set, user, go }) {
   const list = s.announcements.filter(a => a.showOnDashboard || a.isBlocking || a.productId || a.categoryId).sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
   const catPath = id => { const c = s.categories.find(x => x.id === id); if (!c) return null; const p = c.parentId && s.categories.find(x => x.id === c.parentId); return p ? `${p.name} › ${c.name}` : c.name; };
   // Same "×" as the web portal — Head can publish from the phone, so Head needs to be able to take one back from here too.
   const remove = id => set(x => ({ ...x, announcements: x.announcements.filter(a => a.id !== id) }));
-  return <div><TopBar title="Announcements" onBack={() => go("back")} /><div className="px-4">{list.length === 0 ? <p className="text-sm py-8 text-center" style={{ color: C.muted }}>No announcements.</p> : list.map(a => <div key={a.id} className="py-3" style={{ borderBottom: `1px solid ${C.line}` }}><div className="flex items-center gap-2 mb-1">{a.isBlocking && <span className="text-[10px] px-1.5 rounded" style={{ background: C.badBg, color: C.bad }}>blocking</span>}{a.productId && <span className="text-[10px] px-1.5 rounded" style={{ background: C.warnBg, color: C.warn }}>{s.products.find(p => p.id === a.productId)?.name}</span>}{a.categoryId && <span className="text-[10px] px-1.5 rounded" style={{ background: C.okBg, color: C.ok }}>{catPath(a.categoryId)}</span>}<p className="text-sm font-medium flex-1">{a.title}</p>{user.role === "Head" && <button onClick={() => remove(a.id)} className="text-sm px-1" style={{ color: C.muted }}>×</button>}</div><p className="text-sm">{a.body}</p><AnnounceFileList announcement={a} colors={C} compact /><p className="text-xs" style={{ color: C.muted }}>{dayLabel(a.createdAt)}{(a.acks || {})[user.id] && " · acknowledged ✓"}</p></div>)}</div></div>;
+  return <div><TopBar title="Announcements" onBack={() => go("back")} /><div className="px-4 pt-3">{list.length === 0 ? <p className="text-sm py-8 text-center" style={{ color: C.muted }}>No announcements.</p> : list.map(a => <ListTile key={a.id} edge={a.isBlocking ? C.bad : C.accent} title={a.title}
+    trailing={user.role === "Head" ? <button type="button" onClick={e => { e.preventDefault(); e.stopPropagation(); remove(a.id); }} className="text-sm px-1" style={{ color: C.muted }}>×</button> : null}
+    chips={<div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+      {a.isBlocking && <span className={listChip} style={{ background: C.badBg, color: C.bad }}>blocking</span>}
+      {a.productId && <span className={listChip} style={{ background: C.warnBg, color: C.warn }}>{s.products.find(p => p.id === a.productId)?.name}</span>}
+      {a.categoryId && <span className={listChip} style={{ background: C.okBg, color: C.ok }}>{catPath(a.categoryId)}</span>}
+    </div>}
+    extra={<><p className="text-sm mt-2 leading-snug">{a.body}</p><AnnounceFileList announcement={a} colors={C} compact /></>}
+    facts={listFacts(listFact(Clock, `${dayLabel(a.createdAt)}${(a.acks || {})[user.id] ? " · acknowledged ✓" : ""}`))} />)}</div></div>;
 }
 // Unreported pallets: the audit trail for "who moved this without QC ever seeing it" — detected server-side on
 // every dock push (server/misslogic.mjs), so this list updates itself even with nobody's app open. Both roles see
@@ -4160,22 +4216,23 @@ function MUnreported({ s, set, user, go }) {
         <div className="flex gap-1.5 mb-3">{[["open", "Open"], ["all", "All"]].map(([k, l]) => <button key={k} onClick={() => setView(k)} className="text-xs px-3 py-1.5 rounded-full" style={{ background: view === k ? C.ink : "transparent", color: view === k ? C.onDark : C.ink, border: `1px solid ${view === k ? C.ink : C.line}` }}>{l}</button>)}</div>
         {!shown.length ? <p className="text-sm py-8 text-center" style={{ color: C.muted }}>{view === "open" ? "Nothing open — every disappearance so far has been reviewed." : "Nothing logged yet."}</p> : groups.map(g => (
           <div key={g.k} className="mb-4">
-            <p className="label-sm mb-1.5" style={{ color: C.muted }}>{g.k} · {g.items.length} pallet{g.items.length === 1 ? "" : "s"}</p>
-            {g.items.map(x => { const product = s.products.find(p => p.articleId === x.article); const reviewer = s.users.find(u => u.id === x.reviewedByUserId); return (
-              <div key={x.id} className="py-2.5" style={{ borderTop: `1px solid ${C.line}`, opacity: x.reviewedAt ? .6 : 1 }}>
-                <div className="flex items-start gap-2">
-                  <div className="flex-1 min-w-0">
-                    {product ? <button onClick={() => go("catalog", product.id)} className="text-sm font-medium underline text-left" style={{ color: C.accent }}>{x.name || product.name}</button> : <p className="text-sm font-medium">{x.name || x.article || "—"}</p>}
-                    <p className="text-xs mt-0.5" style={{ color: C.muted }}>{x.article || "—"}{x.location ? ` · ${x.location}` : ""}{x.priority ? ` · ${x.priority}` : ""}{x.hu ? ` · HU …${String(x.hu).slice(-8)}` : ""}</p>
-                    <p className="text-xs" style={{ color: C.muted }}>last seen {fmtTime(x.lastSeenAt)} · gone since {fmtTime(x.detectedAt)}{x.po ? ` · PO ${x.po}` : ""}{x.transporter ? ` · ${x.transporter}` : ""}</p>
-                  </div>
-                  {x.reviewedAt ? <span className="text-xs flex-shrink-0" style={{ color: C.ok }}>✓ reviewed</span> : !isHead ? <span className="text-xs flex-shrink-0" style={{ color: C.warn }}>open</span> : null}
-                </div>
-                {x.reviewedAt && (x.reviewNote || reviewer) && <p className="text-xs mt-1" style={{ color: C.muted }}>{reviewer ? `by ${reviewer.name.split(" ")[0]}` : ""}{x.reviewNote ? ` — “${x.reviewNote}”` : ""}{isHead && <button onClick={() => unreviewUnreported(set, x.id)} className="ml-2 underline">undo</button>}</p>}
-                {isHead && !x.reviewedAt && (noteFor === x.id ? (
-                  <div className="flex gap-1.5 mt-1.5"><input autoFocus value={notes[x.id] || ""} onChange={e => setNotes(n => ({ ...n, [x.id]: e.target.value }))} onKeyDown={e => e.key === "Enter" && review(x.id)} placeholder="note (optional)" className="flex-1 text-xs" style={{ padding: "4px 8px" }} /><button onClick={() => review(x.id)} className="text-xs px-2.5 py-1 rounded-lg" style={{ background: C.ink, color: C.onDark }}>Mark reviewed</button></div>
-                ) : <button onClick={() => setNoteFor(x.id)} className="text-xs mt-1.5 px-2.5 py-1 rounded-lg" style={{ border: `1px solid ${C.line}` }}>Mark reviewed</button>)}
-              </div>
+            <ListDayHead count={`${g.items.length} pallet${g.items.length === 1 ? "" : "s"}`}>{g.k}</ListDayHead>
+            {g.items.map(x => { const product = s.products.find(p => p.articleId === x.article); const reviewer = s.users.find(u => u.id === x.reviewedByUserId);
+              const reviewFooter = x.reviewedAt && (x.reviewNote || reviewer)
+                ? <p className="text-xs" style={{ color: C.muted }}>{reviewer ? `by ${reviewer.name.split(" ")[0]}` : ""}{x.reviewNote ? ` — “${x.reviewNote}”` : ""}{isHead && <button type="button" onClick={() => unreviewUnreported(set, x.id)} className="ml-2 underline">undo</button>}</p>
+                : isHead && !x.reviewedAt
+                  ? (noteFor === x.id
+                    ? <div className="flex gap-1.5"><input autoFocus value={notes[x.id] || ""} onChange={e => setNotes(n => ({ ...n, [x.id]: e.target.value }))} onKeyDown={e => e.key === "Enter" && review(x.id)} placeholder="note (optional)" className="flex-1 text-xs" style={{ padding: "4px 8px" }} /><button type="button" onClick={() => review(x.id)} className="text-xs px-2.5 py-1 rounded-lg" style={{ background: C.ink, color: C.onDark }}>Mark reviewed</button></div>
+                    : <button type="button" onClick={() => setNoteFor(x.id)} className="text-xs px-2.5 py-1 rounded-lg" style={{ border: `1px solid ${C.line}` }}>Mark reviewed</button>)
+                  : null;
+              return (
+              <ListTile key={x.id} onClick={product ? () => go("catalog", product.id) : undefined} edge={x.reviewedAt ? C.ok : C.warn} title={x.name || product?.name || x.article || "—"} faded={!!x.reviewedAt}
+                chips={<div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                  {x.reviewedAt ? <span className={listChip} style={{ background: C.okBg, color: C.ok }}>reviewed</span> : <span className={listChip} style={{ background: C.warnBg, color: C.warn }}>open</span>}
+                  {x.priority && <span className={listChip} style={{ background: C.bg, color: C.muted, border: `1px solid ${C.line}` }}>{x.priority}</span>}
+                </div>}
+                facts={listFacts(<>{listFact(Tag, x.article)}{listFact(MapPin, x.location)}{listFact(Tag, x.hu && `HU …${String(x.hu).slice(-8)}`)}{listFact(Clock, `last seen ${fmtTime(x.lastSeenAt)}`)}{listFact(Truck, x.transporter)}{x.po && listFact(FileText, `PO ${x.po}`)}</>)}
+                footer={reviewFooter} />
             ); })}
           </div>
         ))}
@@ -4185,7 +4242,12 @@ function MUnreported({ s, set, user, go }) {
 }
 function MFlags({ s, user, go }) {
   const mine = s.flags.filter(f => f.raisedBy === user.id).sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
-  return <div><TopBar title="My flags" onBack={() => go("back")} /><div className="px-4">{mine.length === 0 ? <p className="text-sm py-8 text-center" style={{ color: C.muted }}>You haven't raised any flags yet.</p> : mine.map(f => <div key={f.id} className="py-3" style={{ borderBottom: `1px solid ${C.line}` }}><div className="flex items-center gap-2 mb-1"><span className="text-[10px] px-1.5 rounded" style={{ background: f.status === "Open" ? C.warnBg : C.okBg, color: f.status === "Open" ? C.warn : C.ok }}>{f.status === "Open" ? "open" : "resolved"}</span><p className="text-sm font-medium">{s.products.find(p => p.id === f.productId)?.name}</p></div><p className="text-sm">„{f.description}"</p>{f.resolution && <p className="text-xs mt-1" style={{ color: C.ok }}>✓ {f.resolution}</p>}</div>)}</div></div>;
+  return <div><TopBar title="My flags" onBack={() => go("back")} /><div className="px-4 pt-3">{mine.length === 0 ? <p className="text-sm py-8 text-center" style={{ color: C.muted }}>You haven't raised any flags yet.</p> : mine.map(f => { const p = s.products.find(x => x.id === f.productId); return (
+    <ListTile key={f.id} onClick={p ? () => go("catalog", p.id) : undefined} edge={f.status === "Open" ? C.warn : C.ok} title={p?.name || "product"}
+      chips={<div className="flex flex-wrap gap-1.5 mt-1.5"><span className={listChip} style={{ background: f.status === "Open" ? C.warnBg : C.okBg, color: f.status === "Open" ? C.warn : C.ok }}>{f.status === "Open" ? "open" : "resolved"}</span></div>}
+      extra={<p className="text-sm mt-2 leading-snug">„{f.description}"</p>}
+      facts={f.resolution ? listFacts(<span style={{ color: C.ok }}>✓ {f.resolution}</span>) : null} />
+  ); })}</div></div>;
 }
 
 // ── Head on the phone: communication first (escalations, flags, announcements); inspections like any controller ──
