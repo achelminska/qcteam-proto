@@ -1295,12 +1295,13 @@ function LoginScreen({ s, onLogin, allowRoles, subtitle }) {
       <style>{GLOBAL_CSS()}{`
         .qc-login{display:grid;grid-template-columns:minmax(380px,46%) minmax(0,1fr);min-height:100vh;color:${D.ink}}
         .qc-login-form{display:flex;align-items:center;justify-content:center;padding:48px 32px;background:${D.bg}}
-        .qc-login-brand{position:relative;overflow:hidden;display:flex;flex-direction:column;justify-content:center;padding:56px 56px 88px;color:#EEF5F0;background:linear-gradient(160deg,${green2} 0%,${green} 70%)}
-        .qc-login-brand .hero{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:.55;filter:saturate(.85) contrast(1.05)}
-        .qc-login-brand .tint{position:absolute;inset:0;background:linear-gradient(180deg,rgba(11,36,24,.55) 0%,rgba(11,36,24,.78) 55%,rgba(11,36,24,.96) 100%)}
+        .qc-login-brand{position:relative;overflow:hidden;display:flex;flex-direction:column;justify-content:space-between;padding:56px 56px 32px;color:#EEF5F0;background:linear-gradient(160deg,${green2} 0%,${green} 70%)}
+        .qc-login-brand.photo{justify-content:space-between}
+        .qc-login-brand .hero{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:60% 45%;opacity:.8;filter:saturate(.8) contrast(1.02)}
+        .qc-login-brand .tint{position:absolute;inset:0;background:linear-gradient(180deg,rgba(11,36,24,.88) 0%,rgba(11,36,24,.62) 34%,rgba(11,36,24,.28) 55%,rgba(11,36,24,.55) 78%,rgba(11,36,24,.94) 100%),linear-gradient(90deg,rgba(11,36,24,.35),rgba(11,36,24,0) 60%)}
         .qc-login-brand .grain{position:absolute;inset:0;background:radial-gradient(1100px 600px at -10% -10%,rgba(255,255,255,.12),transparent 60%);pointer-events:none}
         .qc-login-brand .lines{position:absolute;inset:0;opacity:.06;background-image:linear-gradient(rgba(255,255,255,.9) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.9) 1px,transparent 1px);background-size:48px 48px;pointer-events:none}
-        .qc-login-brand .foot{position:absolute;left:56px;right:56px;bottom:32px}
+        .qc-login-brand .foot{margin-top:28px}
         .qc-login .card{background:${D.surface};border:1px solid ${D.line};box-shadow:0 1px 0 rgba(255,255,255,.05) inset,0 16px 40px rgba(0,0,0,.45)}
         .qc-login input.pin{width:100%;text-align:center;font-size:28px;letter-spacing:.45em;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;min-height:56px;border-radius:12px;background:${D.bg};border:1px solid ${D.line};outline:none;color:${D.ink}}
         .qc-login input.pin::placeholder{color:${D.muted};opacity:.6}
@@ -1308,23 +1309,25 @@ function LoginScreen({ s, onLogin, allowRoles, subtitle }) {
         .qc-login .person{display:flex;align-items:center;gap:12px;width:100%;text-align:left;padding:10px 12px;border-radius:12px;border:1px solid transparent;transition:background .12s,border-color .12s;color:${D.ink}}
         .qc-login .person:hover{background:${D.bg};border-color:${D.line}}
         .qc-login .srch input{background:${D.bg}!important;border-color:${D.line}!important;color:${D.ink}!important}
-        @media (max-width:860px){.qc-login{grid-template-columns:1fr}.qc-login-brand{padding:28px 24px 52px;min-height:0}.qc-login-brand .feat{display:none}.qc-login-brand .foot{left:24px;right:24px;bottom:14px}.qc-login-form{padding:28px 20px}}
+        @media (max-width:860px){.qc-login{grid-template-columns:1fr}.qc-login-brand{padding:28px 24px 16px;min-height:0}.qc-login-brand .feat{display:none}.qc-login-brand .foot{margin-top:16px}.qc-login-form{padding:28px 20px}}
       `}</style>
-      <aside className="qc-login-brand">
+      <aside className={`qc-login-brand${hero ? " photo" : ""}`}>
         {hero && <img className="hero" src="/login-hero.jpg" alt="" onError={() => setHero(false)} />}
         {hero && <div className="tint" />}
-        <div className="grain" /><div className="lines" />
+        <div className="grain" />{!hero && <div className="lines" />}
         <div style={{ position: "relative" }}>
           <div className="flex items-center gap-2.5"><div className="w-10 h-10 rounded-xl flex items-center justify-center font-bold text-lg" style={{ background: "#EEF5F0", color: green }}>Q</div><span className="text-[11px] uppercase tracking-[.22em]" style={{ opacity: .75 }}>Picnic · DC5 Geldermalsen</span></div>
           <p className="text-[46px] leading-none font-semibold mt-8" style={{ letterSpacing: "-.02em" }}>QCteam</p>
           <p className="text-[17px] mt-3" style={{ opacity: .88, maxWidth: 440, lineHeight: 1.45 }}>Quality control for fresh produce on the inbound docks — inspections, specifications, blocked pallets and the shift's priorities in one place.</p>
-          <div className="feat mt-10 grid gap-3" style={{ maxWidth: 440 }}>
+        </div>
+        <div style={{ position: "relative" }}>
+          <div className="feat grid gap-3" style={{ maxWidth: 440 }}>
             {[[ScanLine, "Inspect on the phone", "Scan the pallet, follow the form, the Head sees the verdict at once."], [Warehouse, "See the floor", "Docks, priorities and the blocked queue, live from the sheets."], [BookOpen, "Know the product", "Specs, photos and history on every product profile."]].map(([I, h, d]) => <div key={h} className="flex items-start gap-3 rounded-xl px-3 py-2.5" style={{ background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)", backdropFilter: "blur(6px)" }}><span className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ background: "rgba(255,255,255,.14)" }}><Ic i={I} s={16} mr={0} /></span><span><span className="block text-sm font-medium">{h}</span><span className="block text-xs" style={{ opacity: .8 }}>{d}</span></span></div>)}
           </div>
-        </div>
         <div className="foot flex items-center justify-between text-[11px]" style={{ opacity: .7 }}>
           <span>{users.length ? `${heads} Head · ${ctrls} controller${ctrls === 1 ? "" : "s"}` : "Quality team"}</span>
           <span>Prototype · engineering thesis</span>
+        </div>
         </div>
       </aside>
       <section className="qc-login-form">
