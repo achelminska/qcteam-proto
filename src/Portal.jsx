@@ -1279,6 +1279,8 @@ const readSession = () => { try { return localStorage.getItem(SESSION_KEY); } ca
 const writeSession = id => { try { if (id) localStorage.setItem(SESSION_KEY, id); else localStorage.removeItem(SESSION_KEY); } catch {} };
 // Any number of devices and people can be signed in at once (portal + phones). Concurrent edits are merged by the
 // shared syncer (src/sync.js): every edit is a function applied on top of the server's latest copy, never a blind overwrite.
+// Bump when public/login-hero.jpg changes: the service worker and the browser cache the old picture under the same URL.
+const LOGIN_HERO_V = "2";
 function LoginScreen({ s, onLogin, allowRoles, subtitle }) {
   // Always the prototype's dark theme, whatever the app is set to: the sign-in page is the front door, one look.
   const D = DARK;
@@ -1312,7 +1314,7 @@ function LoginScreen({ s, onLogin, allowRoles, subtitle }) {
         @media (max-width:860px){.qc-login{grid-template-columns:1fr}.qc-login-brand{padding:28px 24px 16px;min-height:0}.qc-login-brand .feat{display:none}.qc-login-brand .foot{margin-top:16px}.qc-login-form{padding:28px 20px}}
       `}</style>
       <aside className={`qc-login-brand${hero ? " photo" : ""}`}>
-        {hero && <img className="hero" src="/login-hero.jpg" alt="" onError={() => setHero(false)} />}
+        {hero && <img className="hero" src={`/login-hero.jpg?v=${LOGIN_HERO_V}`} alt="" onError={() => setHero(false)} />}
         {hero && <div className="tint" />}
         <div className="grain" />{!hero && <div className="lines" />}
         <div style={{ position: "relative" }}>
