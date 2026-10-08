@@ -2240,30 +2240,64 @@ function VisualView({ insp, s, go }) {
 // actions that matter — take / in stack / release — with inspecting as an explicit, separate step, not the default tap.
 function MBlockedInfo({ s, set, user, go, itemKey }) {
   const b = blockedQueue(s).find(x => x.key === itemKey);
+  const [lostOpen, setLostOpen] = useState(false);
+  useEffect(() => { setLostOpen(false); }, [itemKey]);
   if (!b) return <div><TopBar title="Pallet" onBack={() => go("back")} /><div className="px-4 pt-10 text-center"><p className="text-sm" style={{ color: C.muted }}>Not found — it may already be done.</p></div></div>;
-  const product = s.products.find(p => p.articleId === b.article);
-  const c = b.claim; const me = c && c.userId === user.id; const who = c && s.users.find(u => u.id === c.userId); const stacked = c?.status === "stacked"; const done = b.status === "Completed";
+  const product = s.products.find(p => p.articleId === b.article) || productForArticle(s, b.article);
+  const c = b.claim; const me = c && c.userId === user.id; const who = c && s.users.find(u => u.id === c.userId); const stacked = c?.status === "stacked"; const done = b.status === "Completed"; const lost = !!b.lost;
   const take = () => setClaim(set, b, { userId: user.id, at: nowISO(), status: "taken" });
   const stack = () => setClaim(set, b, { userId: user.id, at: nowISO(), status: "stacked" });
   const release = () => setClaim(set, b, null);
-  const fields = [["Article", b.article], ["Location", b.location], ["Zone", b.zone], ["Pick location", b.pickLocation], ["Needed by", b.deadline], ["WMS status", b.wmsStatus], b.hu ? ["Pallet", `…${b.hu.slice(-8)}`] : null].filter(x => x && x[1]);
+  const col = done ? C.ok : lost ? C.line : stacked ? C.muted : b.status === "Started" ? C.warn : C.bad;
+  const statusLabel = done ? "Completed" : lost ? "Lost" : stacked ? "In stack" : b.status === "Started" ? "Started" : "Not started";
+  const photos = product ? asPhotoList(product.photos) : [];
+  const catPath = id => { const c = s.categories.find(x => x.id === id); if (!c) return "uncategorised"; const p = c.parentId && s.categories.find(x => x.id === c.parentId); return p ? `${p.name} › ${c.name}` : c.name; };
+  const live = product ? liveNoteOf(product) : null;
+  const hist = product ? recentProblemsFor(s, product.id) : { count: 0, problems: [] };
+  const facts = [b.location && ["Location", b.location], b.deadline && ["Needed by", b.deadline], b.zone && ["Zone", b.zone], b.pickLocation && ["Pick", b.pickLocation], b.hu && ["Pallet", `…${String(b.hu).slice(-8)}`]].filter(Boolean).slice(0, 3);
+  const Pill = ({ children, bg, fg, dot }) => <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full inline-flex items-center gap-1.5 whitespace-nowrap" style={{ background: bg, color: fg }}>{dot && <span className="inline-block rounded-full" style={{ width: 6, height: 6, background: dot }} />}{children}</span>;
+  const Fact = ({ k, v, strong }) => <div className="min-w-0"><p className="text-[10px] uppercase tracking-wide" style={{ color: C.muted }}>{k}</p><p className={`${strong ? "text-[17px]" : "text-[13px]"} font-semibold leading-tight truncate`} style={{ fontVariantNumeric: "tabular-nums" }}>{v || "—"}</p></div>;
+  const Act = ({ onClick, solid, children }) => <button type="button" onClick={onClick} className="qc-elev qc-tile w-full py-3 rounded-xl text-sm font-medium inline-flex items-center justify-center gap-2" style={solid ? { background: C.ink, color: C.onDark } : { background: C.surface, color: C.ink, border: `1px solid ${C.line}` }}>{children}</button>;
   return (
     <div className="pb-4">
-      <TopBar title="Blocked pallet" onBack={() => go("back")} />
+      <TopBar title="Blocked pallet" onBack={() => go("back")} right={<LostTrigger on={lostOpen} lost={lost} onClick={() => setLostOpen(o => !o)} />} />
       <div className="px-4 pt-3">
-        <MProductHeader s={s} product={product} article={b.article} name={b.name} go={go} />
-        {b.lost && <MLostControls s={s} set={set} user={user} row={b} />}
-        <div className="flex items-center gap-2 mb-3"><span className="inline-block rounded-full" style={{ width: 9, height: 9, background: done ? C.ok : stacked ? C.muted : C.bad }} /><span className="text-sm font-medium">{done ? "Completed" : b.status}</span>{who && <span className="text-xs ml-auto flex items-center gap-1" style={{ color: me ? C.accent : C.muted }}><Avatar user={who} size={16} />{me ? "you" : who.name.split(" ")[0]}</span>}</div>
-        <div className="rounded-2xl p-3.5 mb-3" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
-          {fields.map(([k, v]) => <div key={k} className="flex justify-between gap-3 py-1.5 text-sm" style={{ borderBottom: `1px solid ${C.line}` }}><span style={{ color: C.muted }}>{k}</span><span className="font-medium text-right">{v}</span></div>)}
+        <div className="qc-tile rounded-2xl mb-3" style={{ opacity: lost ? .7 : 1 }}>
+          <div className="rounded-2xl overflow-hidden flex" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
+            <div className="flex-shrink-0" style={{ width: 5, background: col }} />
+            <div className="flex-1 min-w-0 p-3.5">
+              <div className="flex items-center gap-1.5 flex-wrap mb-2.5">
+                <Pill bg={col + "22"} fg={col} dot={col}>{statusLabel}</Pill>
+                {who && <Pill bg={C.bg} fg={me ? C.accent : C.muted}>{me ? "you" : who.name.split(" ")[0]}</Pill>}
+                {b.hu && <span className="ml-auto text-[11px] font-mono" style={{ color: C.muted }}>HU …{String(b.hu).slice(-8)}</span>}
+              </div>
+              <button type="button" onClick={() => product && go("catalog", product.id)} className="w-full text-left flex items-center gap-3 active:opacity-70" disabled={!product}>
+                {photos.length ? <img src={thumbSrc(photos[0])} loading="lazy" decoding="async" alt="" className="rounded-xl object-cover flex-shrink-0" style={{ width: 60, height: 60, background: PHOTO_BG, border: `1px solid ${C.line}` }} /> : <div className="rounded-xl flex items-center justify-center flex-shrink-0" style={{ width: 60, height: 60, background: C.surface, color: C.muted, border: `1px solid ${C.line}` }}><Ic i={Package} s={24} mr={0} /></div>}
+                <div className="min-w-0 flex-1">
+                  <p className="font-semibold leading-tight" style={{ fontSize: 16 }}>{product?.name || b.name || b.article}</p>
+                  {product ? <p className="text-[12px] mt-0.5 truncate" style={{ color: C.muted }}>ID {product.articleId} · {catPath(product.categoryId)}{product.isBio ? " · bio" : ""}</p> : <p className="text-[12px] mt-0.5" style={{ color: C.warn }}>Article {b.article} · no product profile yet</p>}
+                  {product && <p className="text-[12px] mt-0.5 inline-flex items-center" style={{ color: C.accent }}>Product profile <Ic i={ChevronRight} s={13} mr={0} /></p>}
+                </div>
+              </button>
+              {facts.length > 0 && <div className="grid gap-2 mt-3 pt-3" style={{ gridTemplateColumns: `repeat(${facts.length}, 1fr)`, borderTop: `1px solid ${C.line}` }}>{facts.map(([k, v], ix) => <Fact key={k} k={k} v={v} strong={ix === 0} />)}</div>}
+              <div className="flex items-center gap-1.5 flex-wrap mt-2.5">
+                {b.article && <span className="text-[11px] px-2 py-0.5 rounded-md inline-flex items-center gap-1" style={{ background: C.surface, border: `1px solid ${C.line}` }}><span style={{ color: C.muted }}>ID</span><span className="font-mono font-medium">{b.article}</span></span>}
+                {b.wmsStatus && <span className="text-[11px] px-2 py-0.5 rounded-md" style={{ background: C.surface, border: `1px solid ${C.line}`, color: C.muted }}>{b.wmsStatus}</span>}
+                {product?.sortable && <span className="text-[11px] px-2 py-0.5 rounded-md inline-flex items-center gap-1" style={{ background: product.sortable.value ? C.okBg : C.surface, border: `1px solid ${product.sortable.value ? "transparent" : C.line}`, color: product.sortable.value ? C.ok : C.muted }}>{product.sortable.value ? "Sortable" : "Not sortable"}</span>}
+              </div>
+            </div>
+          </div>
         </div>
-        {!done && !b.lost && <div className="flex gap-2 mb-2">
-          {!c && <><button onClick={take} className="flex-1 py-2.5 rounded-xl text-sm font-semibold" style={{ background: C.ink, color: C.onDark }}>Take</button><button onClick={stack} className="flex-1 py-2.5 rounded-xl text-sm inline-flex items-center justify-center" style={{ border: `1px solid ${C.line}` }}><Ic i={Layers} s={13} />In stack</button></>}
-          {c && me && <><button onClick={stacked ? take : stack} className="flex-1 py-2.5 rounded-xl text-sm font-semibold" style={{ background: C.ink, color: C.onDark }}>{stacked ? "Reachable now — take" : "Mark in stack"}</button><button onClick={release} className="flex-1 py-2.5 rounded-xl text-sm" style={{ border: `1px solid ${C.line}`, color: C.muted }}>Release</button></>}
-          {c && !me && <button onClick={take} className="flex-1 py-2.5 rounded-xl text-sm font-semibold" style={{ background: C.ink, color: C.onDark }}>{stacked ? "Reachable now — take" : "Take over"}</button>}
+        <MLostControls s={s} set={set} user={user} row={b} open={lost ? undefined : lostOpen} onClose={() => setLostOpen(false)} />
+        {live && <div className="qc-tile rounded-2xl px-3.5 py-3 mb-2" style={{ background: C.bg, border: `1px solid ${C.line}`, borderLeft: `4px solid ${C.warn}` }}><p className="text-sm font-medium">Temporary spec</p><p className="text-[12px] mt-1 leading-snug" style={{ color: C.muted }}>{live.text}{live.until ? ` · until ${fmtUntil(live.until)}` : ""}</p></div>}
+        {hist.count > 0 && <div className="qc-tile rounded-2xl px-3.5 py-3 mb-2" style={{ background: C.bg, border: `1px solid ${C.line}`, borderLeft: `4px solid ${C.bad}` }}><p className="text-sm font-medium">{hist.count} rejected in 14 days</p><p className="text-[12px] mt-1 leading-snug" style={{ color: C.muted }}>{hist.problems.slice(0, 3).map(p => `${p.name} ×${p.count}`).join(", ")}{hist.problems.length > 3 ? "…" : ""}</p></div>}
+        <ExtRejectionList s={s} articleId={b.article} go={go} />
+        {!done && !lost && <div className="flex flex-col gap-2 mb-2">
+          {!c && <><Act solid onClick={take}>Take</Act><Act onClick={stack}><Ic i={Layers} s={15} mr={0} />In stack</Act></>}
+          {c && me && <><Act solid onClick={stacked ? take : stack}>{stacked ? "Reachable now — take" : "Mark in stack"}</Act><Act onClick={release}>Release</Act></>}
+          {c && !me && <Act solid onClick={take}>{stacked ? "Reachable now — take" : "Take over"}</Act>}
         </div>}
-        <button onClick={() => go("scan", b.hu || "")} className="w-full py-3 rounded-xl text-sm font-medium mt-1" style={{ background: C.surface, border: `1px solid ${C.line}` }}>Inspect this pallet</button>
-        {!done && !b.lost && <MLostControls s={s} set={set} user={user} row={b} />}
+        <button type="button" onClick={() => go("scan", b.hu || "")} className="qc-elev qc-tile w-full py-3 rounded-xl text-sm font-medium mb-2" style={{ background: C.surface, color: C.ink, border: `1px solid ${C.line}` }}>Inspect this pallet</button>
       </div>
     </div>
   );
@@ -2390,34 +2424,6 @@ function YearRejectionTile({ s, articleId, go }) {
       facts={listFacts(<>{listFact(Clock, `last ${fmtRejectionDay(y.last)}`)}{y.c30 ? <span>{y.c30} in 30 days</span> : <span>DC5 sheet · 12 months</span>}</>)} />
   );
 }
-function MProductHeader({ s, product, article, name, go }) {
-  if (!product) return <div className="mb-3"><div className="rounded-2xl px-3.5 py-3 mb-2" style={{ background: C.warnBg }}><p className="text-sm font-semibold leading-tight">{name || article}</p><p className="text-xs mt-0.5" style={{ color: C.warn }}>Article {article} has no product profile yet.</p></div><YearRejectionTile s={s} articleId={article} go={go} /></div>;
-  const catPath = id => { const c = s.categories.find(x => x.id === id); if (!c) return "uncategorised"; const p = c.parentId && s.categories.find(x => x.id === c.parentId); return p ? `${p.name} › ${c.name}` : c.name; };
-  const photos = asPhotoList(product.photos); const attrs = effectiveAttributes(s, product).slice(0, 4); const hist = recentProblemsFor(s, product.id);
-  return (
-    <div className="mb-3">
-      <button onClick={() => go("catalog", product.id)} className="qc-elev qc-tile w-full text-left rounded-2xl p-3.5 mb-2" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
-        <div className="flex gap-3 items-start">
-          {photos.length ? <img src={thumbSrc(photos[0])} loading="lazy" decoding="async" alt="" className="w-20 h-20 rounded-xl object-contain flex-shrink-0" style={{ background: PHOTO_BG }} /> : <div className="w-20 h-20 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: C.surface, color: C.muted }}><Ic i={ImageIcon} s={28} mr={0} /></div>}
-          <div className="min-w-0 flex-1">
-            <p className="font-semibold leading-tight">{product.name}</p>
-            <p className="text-xs mt-1" style={{ color: C.muted }}>ID {product.articleId || "—"} · {catPath(product.categoryId)}{product.isBio && " · bio"}</p>
-            <p className="text-xs" style={{ color: C.muted }}>{product.cusPerTu || "?"} CU/TU · {product.weightPerCu || "?"} g/CU{product.sortable ? <span className="ml-1.5 px-1.5 py-0.5 rounded-full text-[10px]" style={{ background: product.sortable.value ? C.okBg : C.bg, color: product.sortable.value ? C.ok : C.muted, border: product.sortable.value ? "none" : `1px solid ${C.line}` }}>{product.sortable.value ? "sortable" : "not sortable"}</span> : null}</p>
-            <p className="text-xs mt-1 underline" style={{ color: C.accent }}>Open product profile</p>
-          </div>
-        </div>
-        {attrs.length > 0 && <div className="flex flex-wrap gap-1.5 mt-2.5">{attrs.map(a => <span key={a.dictionaryId} className="text-xs px-2.5 py-1 rounded-full" style={{ background: C.surface, border: `1px solid ${C.line}` }}><span style={{ color: C.muted }}>{a.list}:</span> <b>{a.value}</b></span>)}</div>}
-        {/* Wherever this header shows up — dock pallet, blocked pallet, scan result — the product is already identified, so
-            any announcement about it belongs here, not only after tapping through to the full profile. */}
-        {s.announcements.filter(a => annMatchesProduct(s, a, product)).map(a => <div key={a.id} className="rounded-xl px-3 py-2 mt-2.5" style={{ background: C.accentSoft }}><p className="text-xs font-semibold flex items-center" style={{ color: C.accent }}><Ic i={Megaphone} s={12} mr={4} />{a.title}</p><p className="text-xs mt-0.5" style={{ color: C.ink }}>{a.body}</p><AnnounceFileList announcement={a} colors={C} compact /></div>)}
-        {hist.count > 0 && <div className="rounded-xl px-3 py-2 mt-2.5" style={{ background: C.badBg }}><p className="text-xs font-semibold" style={{ color: C.bad }}>{hist.count} rejected recently · last {dayLabel(hist.lastAt)}</p><p className="text-xs" style={{ color: C.bad }}>{hist.problems.slice(0, 3).map(p => `${p.name} ×${p.count}`).join(", ")}{hist.problems.length > 3 ? "…" : ""}</p></div>}
-        {liveNoteOf(product) && <div className="rounded-xl px-3 py-2 mt-2.5" style={{ background: C.warnBg }}><p className="text-xs font-semibold" style={{ color: C.warn }}>Live spec{liveNoteOf(product).until ? ` · until ${fmtUntil(liveNoteOf(product).until)}` : ""}</p><p className="text-xs mt-0.5">{liveNoteOf(product).text}</p></div>}
-      </button>
-      <YearRejectionTile s={s} articleId={product.articleId} go={go} />
-    </div>
-  );
-}
-
 // Focused info screen for one dock pallet: what matters (location, priority, arrival, recent-rejection history), with
 // inspecting as an explicit next step rather than an automatic one.
 // ───────── Pallet sheet: one screen for "what is this pallet and what do I do with it" ─────────
@@ -2488,7 +2494,7 @@ function MPalletSheet({ s, set, user, go, row: r, onStart, onPickPallet, onAssig
       </div>}
       {al && !lost && <div className="rounded-xl px-3 py-2 mb-2 flex items-start gap-2" style={{ background: C.badBg, color: C.bad }}><Ic i={Clock} s={14} mr={0} style={{ marginTop: 2 }} /><div className="text-[13px] leading-snug"><b>{al.level === "breached" ? "Rejection window expired" : `Rejection window closes in ${Math.max(0, Math.round(al.hoursLeft))} h`}</b><span className="block text-[11px] mt-0.5" style={{ opacity: .85 }}>{al.level === "breached" ? "Rejecting is no longer possible — inspect anyway and note it." : al.risky ? "This product was rejected recently, so it's flagged early." : "Inspect it before the window closes."}</span></div></div>}
       {hist.count > 0 && <div className="rounded-xl px-3 py-2 mb-2 flex items-start gap-2" style={{ background: C.badBg, color: C.bad }}><Ic i={AlertTriangle} s={14} mr={0} style={{ marginTop: 2 }} /><div className="text-[13px] leading-snug"><b>{hist.count} rejected</b> in 14 days · {hist.problems.slice(0, 3).map(x => `${x.name} ×${x.count}`).join(", ")}{hist.problems.length > 3 ? "…" : ""}</div></div>}
-      <YearRejectionTile s={s} articleId={r.article} go={go} />
+      <ExtRejectionList s={s} articleId={r.article} go={go} />
       {compl && <div className="rounded-xl px-3 py-2 mb-2 flex items-start gap-2" style={{ background: C.badBg, color: C.bad }}><Ic i={ThumbsDown} s={14} mr={0} style={{ marginTop: 2 }} /><div className="text-[13px] leading-snug"><b>{compl.count} freshness complaint{compl.count === 1 ? "" : "s"}</b>{compl.sub ? <> · mostly <b>{compl.sub}</b></> : null}{compl.rate ? <> · {compl.rate}</> : null}{compl.period ? <span style={{ opacity: .8 }}> · {compl.period}</span> : null}</div></div>}
       {anns.map(a => <div key={a.id} className="w-full text-left rounded-xl px-3 py-2 mb-2 flex items-start gap-2" style={{ background: a.isBlocking ? C.badBg : C.accentSoft, color: C.ink }}><Ic i={Megaphone} s={14} mr={0} style={{ marginTop: 2, color: a.isBlocking ? C.bad : C.accent }} /><span className="min-w-0 text-[13px] leading-snug"><button type="button" onClick={() => go("announcements")} className="text-left"><b>{a.title}</b>{a.body ? <span style={{ color: C.muted }}> — {a.body}</span> : null}{a.isBlocking && <span className="block text-[11px] mt-0.5" style={{ color: C.bad }}>Blocking — read it before you inspect</span>}</button><AnnounceFileList announcement={a} colors={C} compact /></span></div>)}
       {draft && <div className="rounded-xl px-3 py-2 mb-2 flex items-start gap-2 text-[13px] leading-snug" style={{ background: C.warnBg, color: C.warn }}><Ic i={Clock} s={14} mr={0} style={{ marginTop: 2 }} /><span><b>{s.users.find(u => u.id === draft.controllerId)?.name.split(" ")[0]}</b> has this pallet in progress ({STATUS[draft.status][0]}){draft.controllerId === user.id && <button onClick={() => go("inspection", draft.id)} className="ml-2 underline">continue</button>}</span></div>}
