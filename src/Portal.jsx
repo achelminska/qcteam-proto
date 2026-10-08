@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, Fragment } from "react";
+import { QCMark, QCGlassWordmark } from "./brand.jsx";
 import { createSyncer, guardUnload } from "./sync.js";
 import { applySpecEdit, hasV, specFieldsFromForm, specFormKind, specLabel, dayLabel, problemPath, typesOf, typeById, legacyTypeId, inspType, countsAs, listCheck, matchFieldSpec, numberSpecCheck, reportStatusFields, toleranceDisplay, matchesInspSearch } from "./shared/format.js";
 import { SPEC_TARGETS, SPEC_ALIASES, SPEC_COLUMNS, applySpecSheet, fmtRange, liveNoteOf, fmtUntil, resolveSpecConflict } from "./shared/specsync.js";
@@ -1296,7 +1297,9 @@ function LoginScreen({ s, onLogin, allowRoles, subtitle }) {
     <div className="qc min-h-screen qc-login" style={{ background: D.bg, color: D.ink }}>
       <style>{GLOBAL_CSS()}{`
         .qc-login{display:grid;grid-template-columns:minmax(380px,46%) minmax(0,1fr);min-height:100vh;color:${D.ink}}
-        .qc-login-form{display:flex;align-items:center;justify-content:center;padding:48px 32px;background:${D.bg}}
+        .qc-login-form{position:relative;overflow:hidden;display:flex;align-items:center;justify-content:center;padding:48px 32px;background:#0E1512}
+        .qc-login-form .wm{position:absolute;right:-6%;bottom:6%;width:78%;max-width:760px;pointer-events:none;user-select:none}
+        .qc-login-form>div{position:relative}
         .qc-login-brand{position:relative;overflow:hidden;display:flex;flex-direction:column;justify-content:space-between;padding:56px 56px 32px;color:#EEF5F0;background:linear-gradient(160deg,${green2} 0%,${green} 70%)}
         .qc-login-brand.photo{justify-content:space-between}
         .qc-login-brand .hero{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:55% 60%;opacity:.9;filter:saturate(.85) contrast(1.03)}
@@ -1318,7 +1321,7 @@ function LoginScreen({ s, onLogin, allowRoles, subtitle }) {
         {hero && <div className="tint" />}
         <div className="grain" />{!hero && <div className="lines" />}
         <div style={{ position: "relative" }}>
-          <div className="flex items-center gap-2.5"><div className="w-10 h-10 rounded-xl flex items-center justify-center font-bold text-lg" style={{ background: "#EEF5F0", color: green }}>Q</div><span className="text-[11px] uppercase tracking-[.22em]" style={{ opacity: .75 }}>Picnic · DC5 Geldermalsen</span></div>
+          <div className="flex items-center gap-2.5"><div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: "#EEF5F0", color: green }}><QCMark size={26} /></div><span className="text-[11px] uppercase tracking-[.22em]" style={{ opacity: .75 }}>Picnic · DC5 Geldermalsen</span></div>
           <p className="text-[46px] leading-none font-semibold mt-8" style={{ letterSpacing: "-.02em" }}>QCteam</p>
           <p className="text-[17px] mt-3" style={{ opacity: .88, maxWidth: 440, lineHeight: 1.45 }}>Quality control for fresh produce on the inbound docks — inspections, specifications, blocked pallets and the shift's priorities in one place.</p>
         </div>
@@ -1333,6 +1336,7 @@ function LoginScreen({ s, onLogin, allowRoles, subtitle }) {
         </div>
       </aside>
       <section className="qc-login-form">
+        <QCGlassWordmark className="wm" />
         <div className="w-full" style={{ maxWidth: 400 }}>
           {!pick ? (
             <div>
@@ -1467,7 +1471,7 @@ function Shell({ page, setPage, children, badge, topRight, users, user, setUser,
       <style>{GLOBAL_CSS()}</style>
       <div className="flex items-center gap-4 px-5 sticky top-0" style={{ height: 56, background: C.surface, borderBottom: `1px solid ${C.line}`, zIndex: 20 }}>
         <button onClick={toggleNav} className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{ color: C.ink }} title={navOpen ? "Collapse menu" : "Expand menu"} aria-label={navOpen ? "Collapse menu" : "Expand menu"}><Ic i={MenuIcon} s={18} mr={0} /></button>
-        <div className="flex items-center gap-2.5"><span className="w-7 h-7 rounded-lg flex items-center justify-center text-sm font-bold" style={{ background: C.accent, color: C.onDark }}>Q</span><span className="font-semibold text-[15px] tracking-tight">QCteam</span><span className="text-[11px] px-1.5 py-0.5 rounded-md" style={{ background: C.accentSoft, color: C.accent }}>{user.role}</span></div>
+        <div className="flex items-center gap-2.5"><span className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: C.accent, color: C.onDark }}><QCMark size={18} /></span><span className="font-semibold text-[15px] tracking-tight">QCteam</span><span className="text-[11px] px-1.5 py-0.5 rounded-md" style={{ background: C.accentSoft, color: C.accent }}>{user.role}</span></div>
 <SearchBox value={topQ} onChange={setTopQ} placeholder="Search products, inspections…" className="hidden md:block" style={{ width: 320 }} inputClass="rounded-xl" onKeyDown={e => { if (e.key === "Enter" && topQ.trim()) { onSearch && onSearch(topQ.trim()); } }} />
         <div className="flex-1" />
         {topRight}
