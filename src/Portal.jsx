@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, Fragment } from "react";
-import { QCMark, QCGlassWordmark } from "./brand.jsx";
+import { QCMark } from "./brand.jsx";
 import { createSyncer, guardUnload } from "./sync.js";
 import { applySpecEdit, hasV, specFieldsFromForm, specFormKind, specLabel, dayLabel, problemPath, typesOf, typeById, legacyTypeId, inspType, countsAs, listCheck, matchFieldSpec, numberSpecCheck, reportStatusFields, toleranceDisplay, matchesInspSearch } from "./shared/format.js";
 import { SPEC_TARGETS, SPEC_ALIASES, SPEC_COLUMNS, applySpecSheet, fmtRange, liveNoteOf, fmtUntil, resolveSpecConflict } from "./shared/specsync.js";
@@ -1297,8 +1297,9 @@ function LoginScreen({ s, onLogin, allowRoles, subtitle }) {
     <div className="qc min-h-screen qc-login" style={{ background: D.bg, color: D.ink }}>
       <style>{GLOBAL_CSS()}{`
         .qc-login{display:grid;grid-template-columns:minmax(380px,46%) minmax(0,1fr);min-height:100vh;color:${D.ink}}
-        .qc-login-form{position:relative;overflow:hidden;display:flex;align-items:center;justify-content:center;padding:48px 32px;background:#0E1512}
-        .qc-login-form .wm{position:absolute;right:-6%;bottom:6%;width:78%;max-width:760px;pointer-events:none;user-select:none}
+        .qc-login-form{position:relative;overflow:hidden;display:flex;align-items:center;justify-content:center;padding:48px 32px;background:#0D1410}
+        .qc-login-form .glass{display:block;width:calc(100% + 80px);max-width:520px;height:auto;margin:0 -40px 24px;pointer-events:none;user-select:none;-webkit-mask-image:radial-gradient(ellipse 100% 100% at 50% 50%,#000 72%,transparent 100%);mask-image:radial-gradient(ellipse 100% 100% at 50% 50%,#000 72%,transparent 100%)}
+        @media (max-width:860px){.qc-login-form .glass{width:100%;margin:0 auto 20px}}
         .qc-login-form>div{position:relative}
         .qc-login-brand{position:relative;overflow:hidden;display:flex;flex-direction:column;justify-content:space-between;padding:56px 56px 32px;color:#EEF5F0;background:linear-gradient(160deg,${green2} 0%,${green} 70%)}
         .qc-login-brand.photo{justify-content:space-between}
@@ -1336,8 +1337,8 @@ function LoginScreen({ s, onLogin, allowRoles, subtitle }) {
         </div>
       </aside>
       <section className="qc-login-form">
-        <QCGlassWordmark className="wm" />
         <div className="w-full" style={{ maxWidth: 400 }}>
+          <img className="glass" src={`/brand/qcteam-glass.jpg?v=${LOGIN_HERO_V}`} alt="QCteam" />
           {!pick ? (
             <div>
               <p className="text-[11px] uppercase tracking-[.18em] mb-2" style={{ color: D.accent }}>Portal</p>
