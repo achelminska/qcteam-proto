@@ -3,9 +3,9 @@
 // context. The sheet is pushed to /sheet/rejections like the dock sheet; the server boils it down to a compact per-article
 // digest (state.extRejections) because the raw sheet is thousands of wide rows and the phones carry the whole state.
 //
-// Where the digest shows up: the pallet / scan header ("rejected 3× on the dock in 90 days, last 12 Sep — mould"),
-// the product profile (recent rows with the Slack thread), the shift-update cards (last 7 days), and the "rejected
-// recently" risk flag on the rejection-window countdown. Plain JS, no DOM. Tested in rejections.test.js.
+// Where the digest shows up: the pallet / scan header (last 30 days), the product profile's year list (every row
+// kept for that article), the shift-update cards (last 7 days), and the "rejected recently" risk flag. Plain JS,
+// no DOM. Tested in rejections.test.js.
 
 export const REJECTION_TARGETS = [
   ["article", "Product ID (article)", true],
@@ -105,7 +105,7 @@ export function attachReports(digest, reports) {
 
 // rows: already mapped by the integration (applyMapping): { article, name?, tu?, reason?, sortable?, user?, time?, po?, outcome?, orderGroup?, link?, _errors }.
 // Returns the digest stored at state.extRejections. Rebuilt whole on every push — the sheet is the source, nothing accumulates here.
-export function buildRejectionDigest(rows, { now = new Date().toISOString(), windowDays = 365, recentPerArticle = 30, latestCount = 60, reports = null } = {}) {
+export function buildRejectionDigest(rows, { now = new Date().toISOString(), windowDays = 365, recentPerArticle = 200, latestCount = 60, reports = null } = {}) {
   const today = now.slice(0, 10); const cutoff = new Date(new Date(today + "T00:00").getTime() - windowDays * 86400000).toISOString().slice(0, 10);
   const byArticle = {}; let used = 0, skipped = 0, undated = 0, old = 0; let from = null, to = null;
   const all = [];
@@ -145,8 +145,32 @@ export const topCats = (g, n = 2) => Object.entries(g?.cats || {}).sort((a, b) =
 // panel still sees the whole year in the digest.) Counted from the digest's 30-day count when its recent rows show the
 // window is saturated (recent cap), otherwise from the recent rows themselves — so an aging digest never over-reports.
 export const EXT_REJECTION_DAYS = 30;
+export const EXT_REJECTION_YEAR_DAYS = 365;
 export const EXT_REJECTION_PREVIEW = 3;
 const rejectionRowKey = e => `${e.d || ""}|${e.po || ""}|${e.tu ?? ""}|${e.reason || ""}`;
+// Every row we have for this article (already clipped to the year window when the digest was built).
+export function extRejectionsYear(s, articleId) {
+  const g = extRejectionsFor(s, articleId);
+  return [...(g?.recent || [])].sort((x, y) => (y.d || "").localeCompare(x.d || ""));
+}
+export function extRejectionYearLine(s, articleId) {
+  const g = extRejectionsFor(s, articleId); if (!g || !g.count) return null;
+  const rows = extRejectionsYear(s, articleId);
+  return { count: g.count, span: "12 months", total: g.count, shown: rows.length, tu: g.tu, last: g.last, cats: topCats(g), name: g.name, c30: g.c30 || 0, c90: g.c90 || 0 };
+}
+export function groupRejectionsByMonth(rows) {
+  const groups = [];
+  for (const r of rows || []) {
+    const k = r.d ? String(r.d).slice(0, 7) : "";
+    let g = groups.find(x => x.k === k);
+    if (!g) {
+      const label = k ? new Date(`${k}-01T12:00:00`).toLocaleDateString("en-GB", { month: "long", year: "numeric" }) : "Date unknown";
+      g = { k, label, items: [] }; groups.push(g);
+    }
+    g.items.push(r);
+  }
+  return groups;
+}
 // Every 30-day row we have on the phone: per-article recent (kept on each digest rebuild) plus anything still sitting
 // in `latest` from an older, 3-row digest — so "all 7" works before the next sheet push.
 export function extRejectionsAll(s, articleId, nowMs = Date.now(), days = EXT_REJECTION_DAYS) {
