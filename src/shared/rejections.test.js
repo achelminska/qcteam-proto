@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseRejectionTime, parseSortableCell, normArticle, buildRejectionDigest, extRejectionsFor, extRejectedRecently, extRejectionLine, extRejectionsAll, extRejectionsRecent, topCats, personName, linkLabel, parseReportName, indexReports, attachReports } from "./rejections.js";
+import { parseRejectionTime, parseSortableCell, normArticle, buildRejectionDigest, extRejectionsFor, extRejectedRecently, extRejectionLine, extRejectionsAll, extRejectionsYear, extRejectionYearLine, groupRejectionsByMonth, extRejectionsRecent, topCats, personName, linkLabel, parseReportName, indexReports, attachReports } from "./rejections.js";
 
 describe("reading one cell — the formats the DC5 sheet uses today", () => {
   it("both timestamp styles, ISO, and junk", () => {
@@ -73,14 +73,25 @@ describe("building the digest", () => {
     expect(d.latest.map(e => e.po)).toEqual(["1094749", "1093779", "1095000", "1000001"]);
     expect(extRejectionsRecent(s, 7, new Date(NOW).getTime()).map(e => e.a)).toEqual(["90006116", "11295128", "90006116"]);
   });
-  it("keeps a month of recent rows per article, not the raw year-long sheet", () => {
+  it("keeps the year of rows per article so the profile can open the whole sheet for that product", () => {
     const big = Array.from({ length: 50 }, (_, i) => row({ po: String(i), time: `Sep ${1 + (i % 28)}, 2026, 08:00:00` }));
     const g = extRejectionsFor({ extRejections: buildRejectionDigest(big, { now: NOW }) }, "90006116");
-    expect(g.count).toBe(50); expect(g.recent.length).toBe(30); expect(g.recent[0].d >= g.recent[1].d).toBe(true);
+    expect(g.count).toBe(50); expect(g.recent.length).toBe(50); expect(g.recent[0].d >= g.recent[1].d).toBe(true);
+    const year = extRejectionYearLine({ extRejections: buildRejectionDigest(big, { now: NOW }) }, "90006116");
+    expect(year).toMatchObject({ count: 50, span: "12 months", shown: 50 });
+    expect(extRejectionsYear({ extRejections: buildRejectionDigest(big, { now: NOW }) }, "90006116").length).toBe(50);
     const line = extRejectionLine({ extRejections: buildRejectionDigest(big, { now: NOW }) }, "90006116", new Date(NOW).getTime());
-    expect(line).toMatchObject({ count: g.c30, tail: "mostly Quality (according to list)" });
+    expect(line.tail).toBe("mostly Quality (according to list)");
     expect(line.preview.length).toBe(3); expect(line.recent.length).toBeGreaterThan(line.preview.length);
+    expect(line.count).toBe(line.recent.length);
     expect(buildRejectionDigest(big, { now: NOW, latestCount: 10 }).latest.length).toBe(10);
+    expect(buildRejectionDigest(big, { now: NOW, recentPerArticle: 12 }).byArticle["90006116"].recent.length).toBe(12);
+  });
+  it("year line still shows when nothing happened in the last 30 days", () => {
+    const s = { extRejections: buildRejectionDigest([row({ time: "Jan 3, 2026, 07:56:09", po: "1000001" })], { now: NOW }) };
+    expect(extRejectionLine(s, "90006116", new Date(NOW).getTime())).toBe(null);
+    expect(extRejectionYearLine(s, "90006116")).toMatchObject({ count: 1, span: "12 months", last: "2026-01-03T07:56" });
+    expect(groupRejectionsByMonth(extRejectionsYear(s, "90006116")).map(g => g.label)).toEqual(["January 2026"]);
   });
   it("all-rows list merges latest leftovers from a 3-row digest", () => {
     const d = buildRejectionDigest(rows, { now: NOW, recentPerArticle: 1 });

@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, Fragment } from "react";
 import { createSyncer, guardUnload } from "./sync.js";
 import { hasV, specLabel, dayLabel, typesOf, typeById, legacyTypeId, inspType, countsAs, listCheck, matchFieldSpec, numberSpecCheck, reportStatusFields, toleranceDisplay, matchesInspSearch } from "./shared/format.js";
 import { SPEC_TARGETS, SPEC_ALIASES } from "./shared/specsync.js";
-import { REJECTION_TARGETS, REJECTION_ALIASES, extRejectionsFor, extRejectedRecently, extRejectionLine, extRejectionsAll, extRejectionsRecent, extRejectionKey, topCats, fmtRejectionDay, linkLabel, reportUrls } from "./shared/rejections.js";
+import { REJECTION_TARGETS, REJECTION_ALIASES, extRejectionsFor, extRejectedRecently, extRejectionLine, extRejectionsAll, extRejectionsYear, extRejectionYearLine, groupRejectionsByMonth, extRejectionsRecent, extRejectionKey, topCats, fmtRejectionDay, linkLabel, reportUrls } from "./shared/rejections.js";
 import { activeTempForSpec, applyTempSpec, closeExpiredTempSpecs, tempUntilLabel } from "./shared/tempspec.js";
 import { SpecValue } from "./shared/SpecValue.jsx";
 import { peopleOnFloor, peopleAtDock, floorWhere, floorVerb, doneTodayCount } from "./shared/floor.js";
@@ -2371,20 +2371,33 @@ function ExtRejectionList({ s, articleId, go }) {
 }
 function MExtRejectionHistory({ s, go, articleId }) {
   const product = s.products.find(p => normArticle(p.articleId) === normArticle(articleId));
-  const l = extRejectionLine(s, articleId);
-  const rows = extRejectionsAll(s, articleId);
+  const y = extRejectionYearLine(s, articleId);
+  const rows = extRejectionsYear(s, articleId);
+  const months = groupRejectionsByMonth(rows);
   return (
     <div className="pb-4">
-      <TopBar title="Rejected on the dock" onBack={() => go("catalog", product?.id || null)} />
+      <TopBar title="Dock rejections" onBack={() => go("catalog", product?.id || null)} />
       <div className="px-4 pt-3">
-        <p className="text-[15px] font-semibold leading-snug">{product?.name || l?.name || articleId}</p>
-        <p className="text-[12px] mt-1 mb-3" style={{ color: C.muted }}>{l ? `${l.total} in ${l.span} · last ${fmtRejectionDay(l.last)} · DC5 sheet` : "DC5 rejections sheet"}</p>
-        {l && rows.length < l.total && <p className="text-[11px] mb-2 leading-snug" style={{ color: C.muted }}>Showing {rows.length} of {l.total} — the rest land after the next sheet push.</p>}
-        {rows.length === 0 ? <p className="text-sm py-8 text-center" style={{ color: C.muted }}>No dock rejections on this phone yet.</p> : (
-          <div className="flex flex-col gap-2">{rows.map((r, ix) => <ExtRejectionRow key={`${r.d || ""}-${r.po || ""}-${ix}`} r={r} />)}</div>
-        )}
+        <p className="text-[15px] font-semibold leading-snug">{product?.name || y?.name || articleId}</p>
+        <p className="text-[12px] mt-1 mb-3" style={{ color: C.muted }}>{y ? `${y.count} in ${y.span} · last ${fmtRejectionDay(y.last)}${y.c30 ? ` · ${y.c30} in 30 days` : ""} · DC5 sheet` : "DC5 rejections sheet"}</p>
+        {y && rows.length < y.count && <p className="text-[11px] mb-2 leading-snug" style={{ color: C.muted }}>Showing {rows.length} of {y.count} — the rest land after the next sheet push.</p>}
+        {rows.length === 0 ? <p className="text-sm py-8 text-center" style={{ color: C.muted }}>No dock rejections on this phone yet.</p> : months.map(g => (
+          <div key={g.k || "none"} className="mb-3">
+            <ListDayHead count={g.items.length}>{g.label}</ListDayHead>
+            <div className="flex flex-col gap-2">{g.items.map((r, ix) => <ExtRejectionRow key={`${r.d || ""}-${r.po || ""}-${ix}`} r={r} />)}</div>
+          </div>
+        ))}
       </div>
     </div>
+  );
+}
+function YearRejectionTile({ s, articleId, go }) {
+  const y = extRejectionYearLine(s, articleId); if (!y) return null;
+  return (
+    <ListTile onClick={() => go && go("dockRejections", articleId)} edge={C.bad} title="Dock rejections this year"
+      trailing={<span className="text-[15px] font-semibold flex-shrink-0" style={{ color: C.bad, fontVariantNumeric: "tabular-nums" }}>{y.count}</span>}
+      chips={y.cats[0] ? <div className="flex flex-wrap gap-1.5 mt-1.5"><span className={listChip} style={{ background: C.badBg, color: C.bad }}>{y.cats[0].name}{y.cats[0].count > 1 ? ` · ${y.cats[0].count}` : ""}</span></div> : null}
+      facts={listFacts(<>{listFact(Clock, `last ${fmtRejectionDay(y.last)}`)}{y.c30 ? <span>{y.c30} in 30 days</span> : <span>DC5 sheet · 12 months</span>}</>)} />
   );
 }
 function MProductHeader({ s, product, article, name, go }) {
@@ -2948,7 +2961,7 @@ function MProductInfo({ s, user, product, go, setState, embedded }) {
         </div>
       ))}</MSection>}
       {attrs.length > 0 && <MSection title="Properties" count={attrs.length}>{attrs.map((a, ix) => <MRow key={a.dictionaryId} k={a.list} v={a.value} last={ix === attrs.length - 1} />)}</MSection>}
-      <ExtRejectionList s={s} articleId={product.articleId} go={go} />
+      <YearRejectionTile s={s} articleId={product.articleId} go={go} />
       {refNotes.length > 0 && <MSection title="Reference guide" count={refNotes.length}>
         {refNotes.map((n, ix) => { const [parent, leaf] = splitPath(n.problemId); return <MGuideNote key={n.id} note={n} parent={parent} leaf={leaf} last={ix === refNotes.length - 1} />; })}
       </MSection>}
