@@ -2304,19 +2304,9 @@ function MLostControls({ s, set, user, row, compact, open, onClose }) {
   );
 }
 
-// Product-first header for pallet screens: what the controller is looking at (photo, name, basics, key attributes, recent
-// rejections) before the pallet's own numbers. Tapping it opens the profile. Falls back to a "no profile yet" strip.
-// What the DC5 rejections sheet says about this article — the team's official rejections (Slack → sheet), not QCteam
-// reports. Shown wherever the article is already identified: pallet sheet, scan result, product profile.
-function ExtRejectionBox({ s, articleId, onMore }) {
-  const l = extRejectionLine(s, articleId); if (!l) return null;
-  const last = l.recent[0];
-  return <div className="rounded-xl px-3 py-2 mt-2.5" style={{ background: C.badBg }}>
-    <p className="text-xs font-semibold" style={{ color: C.bad }}>Rejected on the dock {l.count}× in {l.span} · last {fmtRejectionDay(l.last)}</p>
-    {last?.reason && <p className="text-xs" style={{ color: C.bad }}>{last.reason}</p>}
-    <p className="text-[10px] mt-0.5" style={{ color: C.bad, opacity: .75 }}>DC5 rejections sheet{onMore ? "" : " · details on the product profile"}</p>
-  </div>;
-}
+// Product-first header for pallet screens: what the controller is looking at (photo, name, basics, key attributes)
+// before the pallet's own numbers. Tapping the card opens the profile. Dock rejections sit outside that card so they
+// can open the year list without also opening the profile.
 function RejectionLink({ href, label }) {
   const Icon = /^Inspection report/i.test(label) ? FileText : /slack\.com/i.test(href) ? MessageSquare : /drive\.google|docs\.google/i.test(href) ? Paperclip : ExternalLink;
   return (
@@ -2376,7 +2366,7 @@ function MExtRejectionHistory({ s, go, articleId }) {
   const months = groupRejectionsByMonth(rows);
   return (
     <div className="pb-4">
-      <TopBar title="Dock rejections" onBack={() => go("catalog", product?.id || null)} />
+      <TopBar title="Dock rejections" onBack={() => go("back")} />
       <div className="px-4 pt-3">
         <p className="text-[15px] font-semibold leading-snug">{product?.name || y?.name || articleId}</p>
         <p className="text-[12px] mt-1 mb-3" style={{ color: C.muted }}>{y ? `${y.count} in ${y.span} · last ${fmtRejectionDay(y.last)}${y.c30 ? ` · ${y.c30} in 30 days` : ""} · DC5 sheet` : "DC5 rejections sheet"}</p>
@@ -2401,28 +2391,30 @@ function YearRejectionTile({ s, articleId, go }) {
   );
 }
 function MProductHeader({ s, product, article, name, go }) {
-  if (!product) return <div className="mb-3"><div className="rounded-2xl px-3.5 py-3" style={{ background: C.warnBg }}><p className="text-sm font-semibold leading-tight">{name || article}</p><p className="text-xs mt-0.5" style={{ color: C.warn }}>Article {article} has no product profile yet.</p></div><ExtRejectionBox s={s} articleId={article} /></div>;
+  if (!product) return <div className="mb-3"><div className="rounded-2xl px-3.5 py-3 mb-2" style={{ background: C.warnBg }}><p className="text-sm font-semibold leading-tight">{name || article}</p><p className="text-xs mt-0.5" style={{ color: C.warn }}>Article {article} has no product profile yet.</p></div><YearRejectionTile s={s} articleId={article} go={go} /></div>;
   const catPath = id => { const c = s.categories.find(x => x.id === id); if (!c) return "uncategorised"; const p = c.parentId && s.categories.find(x => x.id === c.parentId); return p ? `${p.name} › ${c.name}` : c.name; };
   const photos = asPhotoList(product.photos); const attrs = effectiveAttributes(s, product).slice(0, 4); const hist = recentProblemsFor(s, product.id);
   return (
-    <button onClick={() => go("catalog", product.id)} className="qc-elev qc-tile w-full text-left rounded-2xl p-3.5 mb-3" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
-      <div className="flex gap-3 items-start">
-        {photos.length ? <img src={thumbSrc(photos[0])} loading="lazy" decoding="async" alt="" className="w-20 h-20 rounded-xl object-contain flex-shrink-0" style={{ background: PHOTO_BG }} /> : <div className="w-20 h-20 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: C.surface, color: C.muted }}><Ic i={ImageIcon} s={28} mr={0} /></div>}
-        <div className="min-w-0 flex-1">
-          <p className="font-semibold leading-tight">{product.name}</p>
-          <p className="text-xs mt-1" style={{ color: C.muted }}>ID {product.articleId || "—"} · {catPath(product.categoryId)}{product.isBio && " · bio"}</p>
-          <p className="text-xs" style={{ color: C.muted }}>{product.cusPerTu || "?"} CU/TU · {product.weightPerCu || "?"} g/CU{product.sortable ? <span className="ml-1.5 px-1.5 py-0.5 rounded-full text-[10px]" style={{ background: product.sortable.value ? C.okBg : C.bg, color: product.sortable.value ? C.ok : C.muted, border: product.sortable.value ? "none" : `1px solid ${C.line}` }}>{product.sortable.value ? "sortable" : "not sortable"}</span> : null}</p>
-          <p className="text-xs mt-1 underline" style={{ color: C.accent }}>Open product profile</p>
+    <div className="mb-3">
+      <button onClick={() => go("catalog", product.id)} className="qc-elev qc-tile w-full text-left rounded-2xl p-3.5 mb-2" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
+        <div className="flex gap-3 items-start">
+          {photos.length ? <img src={thumbSrc(photos[0])} loading="lazy" decoding="async" alt="" className="w-20 h-20 rounded-xl object-contain flex-shrink-0" style={{ background: PHOTO_BG }} /> : <div className="w-20 h-20 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: C.surface, color: C.muted }}><Ic i={ImageIcon} s={28} mr={0} /></div>}
+          <div className="min-w-0 flex-1">
+            <p className="font-semibold leading-tight">{product.name}</p>
+            <p className="text-xs mt-1" style={{ color: C.muted }}>ID {product.articleId || "—"} · {catPath(product.categoryId)}{product.isBio && " · bio"}</p>
+            <p className="text-xs" style={{ color: C.muted }}>{product.cusPerTu || "?"} CU/TU · {product.weightPerCu || "?"} g/CU{product.sortable ? <span className="ml-1.5 px-1.5 py-0.5 rounded-full text-[10px]" style={{ background: product.sortable.value ? C.okBg : C.bg, color: product.sortable.value ? C.ok : C.muted, border: product.sortable.value ? "none" : `1px solid ${C.line}` }}>{product.sortable.value ? "sortable" : "not sortable"}</span> : null}</p>
+            <p className="text-xs mt-1 underline" style={{ color: C.accent }}>Open product profile</p>
+          </div>
         </div>
-      </div>
-      {attrs.length > 0 && <div className="flex flex-wrap gap-1.5 mt-2.5">{attrs.map(a => <span key={a.dictionaryId} className="text-xs px-2.5 py-1 rounded-full" style={{ background: C.surface, border: `1px solid ${C.line}` }}><span style={{ color: C.muted }}>{a.list}:</span> <b>{a.value}</b></span>)}</div>}
-      {/* Wherever this header shows up — dock pallet, blocked pallet, scan result — the product is already identified, so
-          any announcement about it belongs here, not only after tapping through to the full profile. */}
-      {s.announcements.filter(a => annMatchesProduct(s, a, product)).map(a => <div key={a.id} className="rounded-xl px-3 py-2 mt-2.5" style={{ background: C.accentSoft }}><p className="text-xs font-semibold flex items-center" style={{ color: C.accent }}><Ic i={Megaphone} s={12} mr={4} />{a.title}</p><p className="text-xs mt-0.5" style={{ color: C.ink }}>{a.body}</p><AnnounceFileList announcement={a} colors={C} compact /></div>)}
-      {hist.count > 0 && <div className="rounded-xl px-3 py-2 mt-2.5" style={{ background: C.badBg }}><p className="text-xs font-semibold" style={{ color: C.bad }}>{hist.count} rejected recently · last {dayLabel(hist.lastAt)}</p><p className="text-xs" style={{ color: C.bad }}>{hist.problems.slice(0, 3).map(p => `${p.name} ×${p.count}`).join(", ")}{hist.problems.length > 3 ? "…" : ""}</p></div>}
-      {liveNoteOf(product) && <div className="rounded-xl px-3 py-2 mt-2.5" style={{ background: C.warnBg }}><p className="text-xs font-semibold" style={{ color: C.warn }}>Live spec{liveNoteOf(product).until ? ` · until ${fmtUntil(liveNoteOf(product).until)}` : ""}</p><p className="text-xs mt-0.5">{liveNoteOf(product).text}</p></div>}
-      <ExtRejectionBox s={s} articleId={product.articleId} />
-    </button>
+        {attrs.length > 0 && <div className="flex flex-wrap gap-1.5 mt-2.5">{attrs.map(a => <span key={a.dictionaryId} className="text-xs px-2.5 py-1 rounded-full" style={{ background: C.surface, border: `1px solid ${C.line}` }}><span style={{ color: C.muted }}>{a.list}:</span> <b>{a.value}</b></span>)}</div>}
+        {/* Wherever this header shows up — dock pallet, blocked pallet, scan result — the product is already identified, so
+            any announcement about it belongs here, not only after tapping through to the full profile. */}
+        {s.announcements.filter(a => annMatchesProduct(s, a, product)).map(a => <div key={a.id} className="rounded-xl px-3 py-2 mt-2.5" style={{ background: C.accentSoft }}><p className="text-xs font-semibold flex items-center" style={{ color: C.accent }}><Ic i={Megaphone} s={12} mr={4} />{a.title}</p><p className="text-xs mt-0.5" style={{ color: C.ink }}>{a.body}</p><AnnounceFileList announcement={a} colors={C} compact /></div>)}
+        {hist.count > 0 && <div className="rounded-xl px-3 py-2 mt-2.5" style={{ background: C.badBg }}><p className="text-xs font-semibold" style={{ color: C.bad }}>{hist.count} rejected recently · last {dayLabel(hist.lastAt)}</p><p className="text-xs" style={{ color: C.bad }}>{hist.problems.slice(0, 3).map(p => `${p.name} ×${p.count}`).join(", ")}{hist.problems.length > 3 ? "…" : ""}</p></div>}
+        {liveNoteOf(product) && <div className="rounded-xl px-3 py-2 mt-2.5" style={{ background: C.warnBg }}><p className="text-xs font-semibold" style={{ color: C.warn }}>Live spec{liveNoteOf(product).until ? ` · until ${fmtUntil(liveNoteOf(product).until)}` : ""}</p><p className="text-xs mt-0.5">{liveNoteOf(product).text}</p></div>}
+      </button>
+      <YearRejectionTile s={s} articleId={product.articleId} go={go} />
+    </div>
   );
 }
 
@@ -2496,7 +2488,7 @@ function MPalletSheet({ s, set, user, go, row: r, onStart, onPickPallet, onAssig
       </div>}
       {al && !lost && <div className="rounded-xl px-3 py-2 mb-2 flex items-start gap-2" style={{ background: C.badBg, color: C.bad }}><Ic i={Clock} s={14} mr={0} style={{ marginTop: 2 }} /><div className="text-[13px] leading-snug"><b>{al.level === "breached" ? "Rejection window expired" : `Rejection window closes in ${Math.max(0, Math.round(al.hoursLeft))} h`}</b><span className="block text-[11px] mt-0.5" style={{ opacity: .85 }}>{al.level === "breached" ? "Rejecting is no longer possible — inspect anyway and note it." : al.risky ? "This product was rejected recently, so it's flagged early." : "Inspect it before the window closes."}</span></div></div>}
       {hist.count > 0 && <div className="rounded-xl px-3 py-2 mb-2 flex items-start gap-2" style={{ background: C.badBg, color: C.bad }}><Ic i={AlertTriangle} s={14} mr={0} style={{ marginTop: 2 }} /><div className="text-[13px] leading-snug"><b>{hist.count} rejected</b> in 14 days · {hist.problems.slice(0, 3).map(x => `${x.name} ×${x.count}`).join(", ")}{hist.problems.length > 3 ? "…" : ""}</div></div>}
-      {(() => { const l = extRejectionLine(s, r.article); return l && <div className="rounded-xl px-3 py-2 mb-2 flex items-start gap-2" style={{ background: C.badBg, color: C.bad }}><Ic i={AlertTriangle} s={14} mr={0} style={{ marginTop: 2 }} /><div className="min-w-0 text-[13px] leading-snug"><b>Rejected on the dock {l.count}×</b> in {l.span}<span className="block text-[11px] mt-0.5" style={{ opacity: .8 }}>last {fmtRejectionDay(l.last)}{l.recent[0]?.reason ? ` — ${l.recent[0].reason}` : ""} · DC5 rejections sheet</span></div></div>; })()}
+      <YearRejectionTile s={s} articleId={r.article} go={go} />
       {compl && <div className="rounded-xl px-3 py-2 mb-2 flex items-start gap-2" style={{ background: C.badBg, color: C.bad }}><Ic i={ThumbsDown} s={14} mr={0} style={{ marginTop: 2 }} /><div className="text-[13px] leading-snug"><b>{compl.count} freshness complaint{compl.count === 1 ? "" : "s"}</b>{compl.sub ? <> · mostly <b>{compl.sub}</b></> : null}{compl.rate ? <> · {compl.rate}</> : null}{compl.period ? <span style={{ opacity: .8 }}> · {compl.period}</span> : null}</div></div>}
       {anns.map(a => <div key={a.id} className="w-full text-left rounded-xl px-3 py-2 mb-2 flex items-start gap-2" style={{ background: a.isBlocking ? C.badBg : C.accentSoft, color: C.ink }}><Ic i={Megaphone} s={14} mr={0} style={{ marginTop: 2, color: a.isBlocking ? C.bad : C.accent }} /><span className="min-w-0 text-[13px] leading-snug"><button type="button" onClick={() => go("announcements")} className="text-left"><b>{a.title}</b>{a.body ? <span style={{ color: C.muted }}> — {a.body}</span> : null}{a.isBlocking && <span className="block text-[11px] mt-0.5" style={{ color: C.bad }}>Blocking — read it before you inspect</span>}</button><AnnounceFileList announcement={a} colors={C} compact /></span></div>)}
       {draft && <div className="rounded-xl px-3 py-2 mb-2 flex items-start gap-2 text-[13px] leading-snug" style={{ background: C.warnBg, color: C.warn }}><Ic i={Clock} s={14} mr={0} style={{ marginTop: 2 }} /><span><b>{s.users.find(u => u.id === draft.controllerId)?.name.split(" ")[0]}</b> has this pallet in progress ({STATUS[draft.status][0]}){draft.controllerId === user.id && <button onClick={() => go("inspection", draft.id)} className="ml-2 underline">continue</button>}</span></div>}
