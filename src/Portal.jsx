@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, Fragment } from "react";
-import { QCMark } from "./brand.jsx";
+import { QCMark, QCWordmark } from "./brand.jsx";
 import { createSyncer, guardUnload } from "./sync.js";
 import { applySpecEdit, hasV, specFieldsFromForm, specFormKind, specLabel, dayLabel, problemPath, typesOf, typeById, legacyTypeId, inspType, countsAs, listCheck, matchFieldSpec, numberSpecCheck, reportStatusFields, toleranceDisplay, matchesInspSearch } from "./shared/format.js";
 import { SPEC_TARGETS, SPEC_ALIASES, SPEC_COLUMNS, applySpecSheet, fmtRange, liveNoteOf, fmtUntil, resolveSpecConflict } from "./shared/specsync.js";
@@ -1282,92 +1282,107 @@ const writeSession = id => { try { if (id) localStorage.setItem(SESSION_KEY, id)
 // shared syncer (src/sync.js): every edit is a function applied on top of the server's latest copy, never a blind overwrite.
 // Bump when public/login-hero.jpg changes: the service worker and the browser cache the old picture under the same URL.
 const LOGIN_HERO_V = "2";
-function LoginScreen({ s, onLogin, allowRoles, subtitle }) {
+function LoginScreen({ s, onLogin, allowRoles }) {
   // Always the prototype's dark theme, whatever the app is set to: the sign-in page is the front door, one look.
   const D = DARK;
-  const [pick, setPick] = useState(null); const [pin, setPin] = useState(""); const [err, setErr] = useState(""); const [q, setQ] = useState("");
+  const [mode, setMode] = useState("login");   // login | create | forgot | sent
+  const [email, setEmail] = useState(""); const [pw, setPw] = useState(""); const [pw2, setPw2] = useState(""); const [err, setErr] = useState(""); const [show, setShow] = useState(false);
   const [hero, setHero] = useState(true);   // public/login-hero.jpg — optional photo behind the brand panel; the gradient alone when missing
   const users = (s.users || []).filter(u => u.active !== false && (!allowRoles || allowRoles.includes(u.role)));
-  const shown = users.filter(u => !q || u.name.toLowerCase().includes(q.toLowerCase()));
-  const submit = u => { if (u.pin && u.pin !== pin) { setErr("Wrong PIN"); setPin(""); return; } writeSession(u.id); onLogin(u.id); };
-  const heads = users.filter(u => u.role === "Head").length, ctrls = users.length - heads;
-  const roleOf = u => u.role === "Head" ? "Head of Quality" : "Quality controller";
+  const norm = v => String(v || "").trim().toLowerCase();
+  const findUser = () => { const e = norm(email); if (!e) return null; return users.find(u => norm(u.email) === e) || users.find(u => norm(u.name) === e) || null; };
+  const secretOf = u => u.password || u.pin || "";
+  const submit = () => {
+    const u = findUser(); if (!u) { setErr("No account with that e-mail. The Head of Quality creates accounts under Users."); return; }
+    if (!secretOf(u)) { setMode("create"); setErr(""); setPw(""); setPw2(""); return; }   // first sign-in: choose a password
+    if (pw !== secretOf(u)) { setErr("Wrong password."); setPw(""); return; }
+    writeSession(u.id); onLogin(u.id);
+  };
+  const create = () => {
+    const u = findUser(); if (!u) { setMode("login"); return; }
+    if (pw.length < 4) { setErr("Use at least 4 characters."); return; }
+    if (pw !== pw2) { setErr("The two passwords differ."); return; }
+    // The password lives on the user record (prototype: shared state, not a security boundary — see the note in Users).
+    s.__set && s.__set(x => ({ ...x, users: x.users.map(q => q.id === u.id ? { ...q, password: pw, resetRequestedAt: null } : q) }));
+    writeSession(u.id); onLogin(u.id);
+  };
+  const forgot = () => {
+    const u = findUser(); if (!u) { setErr("No account with that e-mail."); return; }
+    // No mail server in the prototype: the request lands with every Head as a notification; they reset it under Users.
+    s.__set && s.__set(x => notifyHeads({ ...x, users: x.users.map(q => q.id === u.id ? { ...q, resetRequestedAt: nowISO() } : q) }, "Password reset", `${u.name} asked for a password reset — open Users and press “Reset password”.`, "Users", u.id));
+    setMode("sent"); setErr("");
+  };
+  const onKey = fn => e => { if (e.key === "Enter") fn(); };
   const green = "#0B2418", green2 = "#1A4A32";
+  const field = (label, value, onChange, props = {}) => (
+    <label className="block mb-3"><span className="block text-xs font-medium mb-1.5" style={{ color: D.ink }}>{label}</span><input className="fld" value={value} onChange={e => { onChange(e.target.value); setErr(""); }} {...props} /></label>
+  );
   return (
     <div className="qc min-h-screen qc-login" style={{ background: D.bg, color: D.ink }}>
       <style>{GLOBAL_CSS()}{`
         .qc-login{display:grid;grid-template-columns:minmax(380px,46%) minmax(0,1fr);min-height:100vh;color:${D.ink}}
         .qc-login-form{position:relative;overflow:hidden;display:flex;align-items:center;justify-content:center;padding:48px 32px;background:#0D1410}
-        .qc-login-form .glass{display:block;width:calc(100% + 80px);max-width:520px;height:auto;margin:0 -40px 24px;pointer-events:none;user-select:none;-webkit-mask-image:radial-gradient(ellipse 100% 100% at 50% 50%,#000 72%,transparent 100%);mask-image:radial-gradient(ellipse 100% 100% at 50% 50%,#000 72%,transparent 100%)}
-        @media (max-width:860px){.qc-login-form .glass{width:100%;margin:0 auto 20px}}
         .qc-login-form>div{position:relative}
-        .qc-login-brand{position:relative;overflow:hidden;display:flex;flex-direction:column;justify-content:space-between;padding:56px 56px 32px;color:#EEF5F0;background:linear-gradient(160deg,${green2} 0%,${green} 70%)}
-        .qc-login-brand.photo{justify-content:space-between}
+        .qc-login-brand{position:relative;overflow:hidden;display:flex;flex-direction:column;justify-content:space-between;padding:56px 56px 48px;color:#EEF5F0;background:linear-gradient(160deg,${green2} 0%,${green} 70%)}
         .qc-login-brand .hero{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:55% 60%;opacity:.9;filter:saturate(.85) contrast(1.03)}
         .qc-login-brand .tint{position:absolute;inset:0;background:linear-gradient(180deg,rgba(11,36,24,.8) 0%,rgba(11,36,24,.5) 34%,rgba(11,36,24,.18) 55%,rgba(11,36,24,.45) 78%,rgba(11,36,24,.92) 100%),linear-gradient(90deg,rgba(11,36,24,.35),rgba(11,36,24,0) 60%)}
         .qc-login-brand .grain{position:absolute;inset:0;background:radial-gradient(1100px 600px at -10% -10%,rgba(255,255,255,.12),transparent 60%);pointer-events:none}
         .qc-login-brand .lines{position:absolute;inset:0;opacity:.06;background-image:linear-gradient(rgba(255,255,255,.9) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.9) 1px,transparent 1px);background-size:48px 48px;pointer-events:none}
-        .qc-login-brand .foot{margin-top:28px}
         .qc-login .card{background:${D.surface};border:1px solid ${D.line};box-shadow:0 1px 0 rgba(255,255,255,.05) inset,0 16px 40px rgba(0,0,0,.45)}
-        .qc-login input.pin{width:100%;text-align:center;font-size:28px;letter-spacing:.45em;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;min-height:56px;border-radius:12px;background:${D.bg};border:1px solid ${D.line};outline:none;color:${D.ink}}
-        .qc-login input.pin::placeholder{color:${D.muted};opacity:.6}
-        .qc-login input.pin:focus{border-color:${D.accent};box-shadow:0 0 0 3px ${D.accentSoft}}
-        .qc-login .person{display:flex;align-items:center;gap:12px;width:100%;text-align:left;padding:10px 12px;border-radius:12px;border:1px solid transparent;transition:background .12s,border-color .12s;color:${D.ink}}
-        .qc-login .person:hover{background:${D.bg};border-color:${D.line}}
-        .qc-login .srch input{background:${D.bg}!important;border-color:${D.line}!important;color:${D.ink}!important}
-        @media (max-width:860px){.qc-login{grid-template-columns:1fr}.qc-login-brand{padding:28px 24px 16px;min-height:0}.qc-login-brand .feat{display:none}.qc-login-brand .foot{margin-top:16px}.qc-login-form{padding:28px 20px}}
+        .qc-login input.fld{width:100%;font-size:15px;min-height:46px;padding:0 14px;border-radius:12px;background:${D.bg};border:1px solid ${D.line};outline:none;color:${D.ink}}
+        .qc-login input.fld::placeholder{color:${D.muted};opacity:.7}
+        .qc-login input.fld:focus{border-color:${D.accent};box-shadow:0 0 0 3px ${D.accentSoft}}
+        .qc-login .primary{width:100%;min-height:46px;border-radius:12px;font-weight:600;font-size:14px;background:${D.accent};color:${D.onDark};transition:filter .12s}
+        .qc-login .primary:hover{filter:brightness(1.08)}
+        .qc-login .primary:disabled{background:${D.line};color:${D.muted}}
+        .qc-login .link{color:${D.accent};font-size:12px}
+        @media (max-width:860px){.qc-login{grid-template-columns:1fr}.qc-login-brand{padding:28px 24px 24px;min-height:0}.qc-login-brand .feat{display:none}.qc-login-form{padding:28px 20px}}
       `}</style>
       <aside className={`qc-login-brand${hero ? " photo" : ""}`}>
         {hero && <img className="hero" src={`/login-hero.jpg?v=${LOGIN_HERO_V}`} alt="" onError={() => setHero(false)} />}
         {hero && <div className="tint" />}
         <div className="grain" />{!hero && <div className="lines" />}
         <div style={{ position: "relative" }}>
-          <div className="flex items-center gap-2.5"><div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: "#EEF5F0", color: green }}><QCMark size={26} /></div><span className="text-[11px] uppercase tracking-[.22em]" style={{ opacity: .75 }}>Picnic · DC5 Geldermalsen</span></div>
-          <p className="text-[46px] leading-none font-semibold mt-8" style={{ letterSpacing: "-.02em" }}>QCteam</p>
-          <p className="text-[17px] mt-3" style={{ opacity: .88, maxWidth: 440, lineHeight: 1.45 }}>Quality control for fresh produce on the inbound docks — inspections, specifications, blocked pallets and the shift's priorities in one place.</p>
+          <QCWordmark width={300} style={{ color: "#EEF5F0", display: "block" }} />
+          <p className="text-[17px] mt-5" style={{ opacity: .88, maxWidth: 440, lineHeight: 1.45 }}>Quality control for fresh produce on the inbound docks — inspections, specifications, blocked pallets and the shift's priorities in one place.</p>
         </div>
-        <div style={{ position: "relative" }}>
-          <div className="feat grid gap-3" style={{ maxWidth: 440 }}>
-            {[[ScanLine, "Inspect on the phone", "Scan the pallet, follow the form, the Head sees the verdict at once."], [Warehouse, "See the floor", "Docks, priorities and the blocked queue, live from the sheets."], [BookOpen, "Know the product", "Specs, photos and history on every product profile."]].map(([I, h, d]) => <div key={h} className="flex items-start gap-3 rounded-xl px-3 py-2.5" style={{ background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)", backdropFilter: "blur(6px)" }}><span className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ background: "rgba(255,255,255,.14)" }}><Ic i={I} s={16} mr={0} /></span><span><span className="block text-sm font-medium">{h}</span><span className="block text-xs" style={{ opacity: .8 }}>{d}</span></span></div>)}
-          </div>
-        <div className="foot flex items-center justify-between text-[11px]" style={{ opacity: .7 }}>
-          <span>{users.length ? `${heads} Head · ${ctrls} controller${ctrls === 1 ? "" : "s"}` : "Quality team"}</span>
-          <span>Prototype · engineering thesis</span>
-        </div>
+        <div className="feat grid gap-3" style={{ position: "relative", maxWidth: 440 }}>
+          {[[ScanLine, "Inspect on the phone", "Scan the pallet, follow the form, the Head sees the verdict at once."], [Warehouse, "See the floor", "Docks, priorities and the blocked queue, live from the sheets."], [BookOpen, "Know the product", "Specs, photos and history on every product profile."]].map(([I, h, d]) => <div key={h} className="flex items-start gap-3 rounded-xl px-3 py-2.5" style={{ background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)", backdropFilter: "blur(6px)" }}><span className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ background: "rgba(255,255,255,.14)" }}><Ic i={I} s={16} mr={0} /></span><span><span className="block text-sm font-medium">{h}</span><span className="block text-xs" style={{ opacity: .8 }}>{d}</span></span></div>)}
         </div>
       </aside>
       <section className="qc-login-form">
         <div className="w-full" style={{ maxWidth: 400 }}>
-          {!pick ? (
-            <div>
-              <p className="text-[11px] uppercase tracking-[.18em] mb-2 inline-flex items-center gap-2" style={{ color: D.accent }}><QCMark size={22} /> Portal</p>
-              <h1 className="text-[28px] leading-tight font-semibold" style={{ color: D.ink }}>Sign in</h1>
-              <p className="text-sm mt-1 mb-5" style={{ color: D.muted }}>{subtitle || "Pick your account to continue."}</p>
-              {users.length === 0 ? <div className="card rounded-2xl p-5"><p className="text-sm font-medium">No accounts yet</p><p className="text-xs mt-1" style={{ color: D.muted }}>The Head of Quality creates accounts in the portal under Users. Ask them for yours.</p></div> : (
-                <div className="card rounded-2xl p-2">
-                  {users.length > 6 && <div className="srch px-2 pt-1 pb-2"><SearchBox value={q} onChange={setQ} placeholder="Find your name" inputClass="rounded-lg" size={13} /></div>}
-                  <div style={{ maxHeight: 360, overflowY: "auto" }}>
-                    {shown.length === 0 && <p className="text-xs px-3 py-4" style={{ color: D.muted }}>Nobody matches “{q}”.</p>}
-                    {shown.map(u => <button key={u.id} className="person" onClick={() => { setPick(u); setPin(""); setErr(""); if (!u.pin) submit(u); }}>
-                      <span className="rounded-full flex items-center justify-center font-medium text-sm shrink-0" style={{ width: 36, height: 36, background: D.accentSoft, color: D.accent }}>{u.photoUrl ? <img src={u.photoUrl} alt="" className="rounded-full object-cover" style={{ width: 36, height: 36 }} /> : (u.name || "?").split(" ").map(x => x[0]).join("").slice(0, 2)}</span>
-                      <span className="flex-1 min-w-0"><span className="block text-sm font-medium truncate">{u.name}</span><span className="block text-[11px]" style={{ color: D.muted }}>{roleOf(u)}{u.pin ? "" : " · no PIN set"}</span></span>
-                      <Ic i={ChevronRight} s={15} mr={0} style={{ color: D.muted }} />
-                    </button>)}
-                  </div>
-                </div>
-              )}
-            </div>
-          ) : (
-            <div>
-              <button onClick={() => { setPick(null); setErr(""); }} className="text-xs inline-flex items-center mb-5" style={{ color: D.muted }}><Ic i={ChevronLeft} s={14} mr={2} />Not you? Choose another account</button>
-              <div className="flex items-center gap-3 mb-6"><span className="rounded-full flex items-center justify-center font-medium shrink-0" style={{ width: 48, height: 48, background: D.accentSoft, color: D.accent }}>{(pick.name || "?").split(" ").map(x => x[0]).join("").slice(0, 2)}</span><div><p className="text-[17px] font-semibold leading-tight">{pick.name}</p><p className="text-xs" style={{ color: D.muted }}>{roleOf(pick)}</p></div></div>
-              <label className="block text-xs font-medium mb-1.5">PIN</label>
-              <input className="pin" autoFocus type="password" inputMode="numeric" pattern="[0-9]*" value={pin} onChange={e => { setPin(e.target.value.replace(/\D/g, "").slice(0, 6)); setErr(""); }} onKeyDown={e => e.key === "Enter" && submit(pick)} placeholder="••••" />
-              <p className="text-xs mt-2" style={{ color: err ? D.bad : D.muted, minHeight: 18 }}>{err || "The 4–6 digit PIN the Head set for you."}</p>
-              <button onClick={() => submit(pick)} disabled={!pin} className="w-full py-3 rounded-xl text-sm font-semibold mt-3" style={{ background: pin ? D.accent : D.line, color: pin ? D.onDark : D.muted, transition: "background .12s" }}>Sign in</button>
-            </div>
-          )}
-          <p className="text-[11px] mt-8" style={{ color: D.muted }}>Prototype sign-in: it identifies who is working, it is not a security boundary. Password and SSO authentication arrive with the backend.</p>
+          {mode === "login" && <div>
+            <h1 className="text-[28px] leading-tight font-semibold" style={{ color: D.ink, marginBottom: 24 }}>Sign in</h1>
+            {field("E-mail", email, setEmail, { type: "email", autoComplete: "username", autoFocus: true, placeholder: "name@picnic.nl", onKeyDown: onKey(submit) })}
+            <label className="block mb-2"><span className="flex items-center text-xs font-medium mb-1.5" style={{ color: D.ink }}>Password<button type="button" onClick={() => setShow(v => !v)} className="ml-auto text-[11px] font-normal" style={{ color: D.muted }}>{show ? "hide" : "show"}</button></span><input className="fld" type={show ? "text" : "password"} autoComplete="current-password" value={pw} onChange={e => { setPw(e.target.value); setErr(""); }} onKeyDown={onKey(submit)} placeholder="••••••••" /></label>
+            <p className="text-xs mb-4" style={{ color: err ? D.bad : D.muted, minHeight: 18 }}>{err || " "}</p>
+            <button className="primary" onClick={submit} disabled={!email.trim()}>Sign in</button>
+            <div className="flex items-center justify-between mt-4"><button className="link" onClick={() => { setMode("forgot"); setErr(""); }}>Forgot your password?</button><span className="text-[11px]" style={{ color: D.muted }}>First time? Sign in with your e-mail to set one.</span></div>
+          </div>}
+          {mode === "create" && <div>
+            <button onClick={() => { setMode("login"); setErr(""); }} className="text-xs inline-flex items-center mb-5" style={{ color: D.muted }}><Ic i={ChevronLeft} s={14} mr={2} />Back</button>
+            <h1 className="text-[24px] leading-tight font-semibold" style={{ color: D.ink }}>Welcome, {findUser()?.name?.split(" ")[0]}</h1>
+            <p className="text-sm mt-1 mb-6" style={{ color: D.muted }}>Your account has no password yet. Choose one to finish signing in.</p>
+            {field("New password", pw, setPw, { type: "password", autoComplete: "new-password", autoFocus: true, onKeyDown: onKey(create) })}
+            {field("Repeat it", pw2, setPw2, { type: "password", autoComplete: "new-password", onKeyDown: onKey(create) })}
+            <p className="text-xs mb-4" style={{ color: err ? D.bad : D.muted, minHeight: 18 }}>{err || "At least 4 characters. You can change it later with the Head."}</p>
+            <button className="primary" onClick={create} disabled={!pw || !pw2}>Save and sign in</button>
+          </div>}
+          {mode === "forgot" && <div>
+            <button onClick={() => { setMode("login"); setErr(""); }} className="text-xs inline-flex items-center mb-5" style={{ color: D.muted }}><Ic i={ChevronLeft} s={14} mr={2} />Back to sign in</button>
+            <h1 className="text-[24px] leading-tight font-semibold" style={{ color: D.ink }}>Reset your password</h1>
+            <p className="text-sm mt-1 mb-6" style={{ color: D.muted }}>Enter the e-mail of your account. The Head of Quality gets the request and clears your password — next time you sign in you choose a new one.</p>
+            {field("E-mail", email, setEmail, { type: "email", autoComplete: "username", autoFocus: true, placeholder: "name@picnic.nl", onKeyDown: onKey(forgot) })}
+            <p className="text-xs mb-4" style={{ color: err ? D.bad : D.muted, minHeight: 18 }}>{err || " "}</p>
+            <button className="primary" onClick={forgot} disabled={!email.trim()}>Send the request</button>
+          </div>}
+          {mode === "sent" && <div>
+            <div className="w-11 h-11 rounded-full flex items-center justify-center mb-4" style={{ background: D.accentSoft, color: D.accent }}><Ic i={Check} s={20} mr={0} /></div>
+            <h1 className="text-[24px] leading-tight font-semibold" style={{ color: D.ink }}>Request sent</h1>
+            <p className="text-sm mt-1 mb-6" style={{ color: D.muted }}>The Head of Quality has been notified. Once they reset your password, sign in with your e-mail and choose a new one.</p>
+            <button className="primary" onClick={() => { setMode("login"); setPw(""); }}>Back to sign in</button>
+          </div>}
         </div>
       </section>
     </div>
@@ -5645,7 +5660,7 @@ function NotificationsPage({ s, set, user, setPage, setOpenId, setSelProduct }) 
       <p className="text-sm mb-5" style={{ color: C.muted, maxWidth: 640 }}>One generic table (Notification) fed by: tolerance exceeded, accepted despite exceeding, escalation, answer, flag, editing someone else's report.</p>
       <Card>
         {mine.length === 0 ? <Empty icon="🔔" title="Quiet" hint="Nothing needs your attention." /> : mine.map(n => (
-          <button key={n.id} onClick={() => { markRead(n.id); if (n.entityType === "Inspection" && n.entityId) { setOpenId(n.entityId); setPage("inspections"); } if (n.entityType === "ProductFlag") setPage("flags"); if (n.entityType === "Conversation") setPage("messages"); if (n.entityType === "Announcement") setPage("announcements"); if (n.entityType === "Product" && n.entityId) { setSelProduct(n.entityId); setPage(user.role === "Head" ? "products" : "catalog"); } }} className="qc-tile w-full text-left flex items-center gap-3 px-3 py-2.5 rounded-xl mb-1.5" style={{ background: n.readAt ? C.bg : C.accentSoft, border: `1px solid ${n.readAt ? C.line : C.accent}`, borderLeft: `3px solid ${n.readAt ? C.line : C.accent}` }}>
+          <button key={n.id} onClick={() => { markRead(n.id); if (n.entityType === "Inspection" && n.entityId) { setOpenId(n.entityId); setPage("inspections"); } if (n.entityType === "ProductFlag") setPage("flags"); if (n.entityType === "Users") setPage("users"); if (n.entityType === "Conversation") setPage("messages"); if (n.entityType === "Announcement") setPage("announcements"); if (n.entityType === "Product" && n.entityId) { setSelProduct(n.entityId); setPage(user.role === "Head" ? "products" : "catalog"); } }} className="qc-tile w-full text-left flex items-center gap-3 px-3 py-2.5 rounded-xl mb-1.5" style={{ background: n.readAt ? C.bg : C.accentSoft, border: `1px solid ${n.readAt ? C.line : C.accent}`, borderLeft: `3px solid ${n.readAt ? C.line : C.accent}` }}>
             <NotifIcon type={n.type} />
             <span className="flex-1 min-w-0"><span className="block text-sm" style={{ fontWeight: n.readAt ? 400 : 500 }}>{cleanMsg(n.message)}</span><span className="block text-[11px]" style={{ color: C.muted }}>{fmtTime(n.createdAt)}</span></span>
             {!n.readAt && <span className="rounded-full flex-shrink-0" style={{ width: 8, height: 8, background: C.accent }} />}
@@ -5853,7 +5868,7 @@ function UsersPage({ s, set }) {
       <h1 className="mb-1">Users</h1>
       <p className="text-sm mb-5" style={{ color: C.muted, maxWidth: 640 }}>Accounts are created only by the Admin/Head (no public sign-up). Deactivation instead of deletion — inspection history stays.</p>
       <div className="grid gap-4" style={{ gridTemplateColumns: "1.2fr 1fr" }}>
-        <Card>{s.users.map(u => <div key={u.id} className="qc-tile flex items-center gap-3 py-2.5 px-3 rounded-xl mb-1.5" style={{ background: C.bg, border: `1px solid ${C.line}`, borderLeft: `3px solid ${u.active === false ? C.line : u.role === "Head" ? C.accent : C.ok}`, opacity: u.active === false ? 0.5 : 1 }}><Avatar user={u} size={34} onPick={url => set(x => ({ ...x, users: x.users.map(q => q.id === u.id ? { ...q, photoUrl: url } : q) }))} /><span className="flex-1 text-sm">{u.name}<span className="text-xs ml-2" style={{ color: C.muted }}>{u.email}</span></span><input type="password" inputMode="numeric" value={u.pin || ""} onChange={e => set(x => ({ ...x, users: x.users.map(q => q.id === u.id ? { ...q, pin: e.target.value.replace(/\D/g, "").slice(0, 6) } : q) }))} placeholder="PIN" title="Sign-in PIN (4–6 digits). Empty = signs in without a PIN." className="text-xs font-mono" style={{ width: 64, minHeight: 28 }} /><span className="text-xs px-2 py-0.5 rounded-full" style={{ background: u.role === "Head" ? C.accentSoft : C.line, color: u.role === "Head" ? C.accent : C.muted }}>{u.role === "Head" ? "Head" : "Controller"}</span><button onClick={() => toggle(u.id)} className="text-xs" style={{ color: C.muted }}>{u.active === false ? "activate" : "deactivate"}</button><button className="text-xs" style={{ color: C.muted }} title="sends a reset link (PasswordResetTokens)">reset password</button></div>)}</Card>
+        <Card>{s.users.map(u => <div key={u.id} className="qc-tile flex items-center gap-3 py-2.5 px-3 rounded-xl mb-1.5" style={{ background: C.bg, border: `1px solid ${C.line}`, borderLeft: `3px solid ${u.active === false ? C.line : u.role === "Head" ? C.accent : C.ok}`, opacity: u.active === false ? 0.5 : 1 }}><Avatar user={u} size={34} onPick={url => set(x => ({ ...x, users: x.users.map(q => q.id === u.id ? { ...q, photoUrl: url } : q) }))} /><span className="flex-1 text-sm">{u.name}<span className="text-xs ml-2" style={{ color: C.muted }}>{u.email}</span></span><span className="text-[10px] px-1.5 py-0.5 rounded-full whitespace-nowrap" style={{ background: (u.password || u.pin) ? C.okBg : C.bg, color: (u.password || u.pin) ? C.ok : C.muted, border: `1px solid ${C.line}` }}>{(u.password || u.pin) ? "password set" : "no password yet"}</span>{u.resetRequestedAt && <span className="text-[10px] px-1.5 py-0.5 rounded-full whitespace-nowrap" style={{ background: C.warnBg, color: C.warn }}>asked for a reset</span>}{(u.password || u.pin || u.resetRequestedAt) && <button onClick={() => set(x => ({ ...x, users: x.users.map(q => q.id === u.id ? { ...q, password: "", pin: "", resetRequestedAt: null } : q) }))} className="text-[11px] whitespace-nowrap" style={{ color: C.accent }} title="Clears the password and PIN — the person chooses a new password at the next portal sign-in">Reset password</button>}<span className="text-xs px-2 py-0.5 rounded-full" style={{ background: u.role === "Head" ? C.accentSoft : C.line, color: u.role === "Head" ? C.accent : C.muted }}>{u.role === "Head" ? "Head" : "Controller"}</span><button onClick={() => toggle(u.id)} className="text-xs" style={{ color: C.muted }}>{u.active === false ? "activate" : "deactivate"}</button></div>)}</Card>
         <Card>
           <p className="font-medium text-sm mb-3">New account</p>
           <div className="flex gap-1.5 mb-2"><input value={d.firstName || ""} onChange={e => setD(x => ({ ...x, firstName: e.target.value, name: `${e.target.value} ${x.lastName || ""}`.trim() }))} placeholder="first name" className="flex-1 text-sm" /><input value={d.lastName || ""} onChange={e => setD(x => ({ ...x, lastName: e.target.value, name: `${x.firstName || ""} ${e.target.value}`.trim() }))} placeholder="last name" className="flex-1 text-sm" /></div>
@@ -6200,7 +6215,7 @@ export default function App() {
   const dataButton = <><button onClick={toggleTheme} className="text-xs px-2.5 py-1.5 rounded-lg" style={{ background: C.accentSoft, color: C.accent }} title="theme">{dark ? <><Ic i={Sun} s={13} />Light</> : <><Ic i={Moon} s={13} />Dark</>}</button><button onClick={() => setDataOpen(o => !o)} className="text-xs px-2.5 py-1.5 rounded-lg" style={{ background: dataOpen ? C.accent : C.accentSoft, color: dataOpen ? C.onDark : C.accent }}><Ic i={Database} s={13} />Data</button></>;
   if (!loaded) return <div className="min-h-screen flex items-center justify-center text-sm" style={{ background: C.bg, color: C.muted }}>Loading…</div>;
   const user = s.users.find(u => u.id === userId && u.active !== false) || null;
-  if (!user) return <LoginScreen s={s} allowRoles={["Head", "Controller"]} onLogin={id => setUserId(id)} subtitle="QCteam portal — sign in" />;
+  if (!user) return <LoginScreen s={{ ...s, __set: set }} allowRoles={["Head", "Controller"]} onLogin={id => setUserId(id)} />;
   // Notification: to a specific user (toUserId) or to all Heads
   const notify = (type, message, entityType, entityId, toUserId) => set(x => { const targets = toUserId ? [toUserId] : x.users.filter(u => u.role === "Head").map(u => u.id); return { ...x, notifications: [...x.notifications, ...targets.map(uid_ => ({ id: uid(), userId: uid_, type, message, entityType, entityId, createdAt: nowISO(), readAt: null }))] }; });
   const unread = s.notifications.filter(n => n.userId === user.id && !n.readAt).length;

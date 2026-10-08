@@ -1193,7 +1193,8 @@ const writeSession = id => { try { if (id) localStorage.setItem(SESSION_KEY, id)
 function LoginScreen({ s, onLogin, allowRoles, subtitle }) {
   const [pick, setPick] = useState(null); const [pin, setPin] = useState(""); const [err, setErr] = useState("");
   const users = (s.users || []).filter(u => u.active !== false && (!allowRoles || allowRoles.includes(u.role)));
-  const submit = u => { if (u.pin && u.pin !== pin) { setErr("Wrong PIN"); setPin(""); return; } writeSession(u.id); onLogin(u.id); };
+  const secretOf = u => u.password || u.pin || "";   // the password chosen in the portal, or the older numeric PIN
+  const submit = u => { if (secretOf(u) && secretOf(u) !== pin) { setErr("Wrong password"); setPin(""); return; } writeSession(u.id); onLogin(u.id); };
   return (
     <div className="qc min-h-screen flex items-center justify-center p-6" style={{ background: C.bg }}>
       <style>{GLOBAL_CSS()}</style>
@@ -1202,13 +1203,13 @@ function LoginScreen({ s, onLogin, allowRoles, subtitle }) {
         {!pick ? (
           <div className="mt-4">
             {users.length === 0 && <p className="text-sm" style={{ color: C.muted }}>No accounts yet — the Head creates them in the portal (Users).</p>}
-            {users.map(u => <button key={u.id} onClick={() => { setPick(u); setPin(""); setErr(""); if (!u.pin) submit(u); }} className="w-full flex items-center gap-3 py-3 text-left" style={{ borderBottom: `1px solid ${C.line}` }}><Avatar user={u} size={36} /><span className="flex-1"><span className="block text-sm font-medium">{u.name}</span><span className="block text-[11px]" style={{ color: C.muted }}>{u.role}{u.pin ? " · PIN" : " · no PIN set"}</span></span></button>)}
+            {users.map(u => <button key={u.id} onClick={() => { setPick(u); setPin(""); setErr(""); if (!secretOf(u)) submit(u); }} className="w-full flex items-center gap-3 py-3 text-left" style={{ borderBottom: `1px solid ${C.line}` }}><Avatar user={u} size={36} /><span className="flex-1"><span className="block text-sm font-medium">{u.name}</span><span className="block text-[11px]" style={{ color: C.muted }}>{u.role}{secretOf(u) ? "" : " · no password yet"}</span></span></button>)}
           </div>
         ) : (
           <div className="mt-4">
             <div className="flex items-center gap-3 mb-4"><Avatar user={pick} size={40} /><div><p className="text-sm font-medium">{pick.name}</p><p className="text-[11px]" style={{ color: C.muted }}>{pick.role}</p></div><button onClick={() => setPick(null)} className="ml-auto text-xs underline" style={{ color: C.muted }}>not me</button></div>
-            <p className="text-xs mb-2" style={{ color: C.muted }}>Enter your PIN</p>
-            <input autoFocus type="password" inputMode="numeric" pattern="[0-9]*" value={pin} onChange={e => { setPin(e.target.value.replace(/\D/g, "").slice(0, 6)); setErr(""); }} onKeyDown={e => e.key === "Enter" && submit(pick)} className="w-full text-center text-2xl tracking-[0.5em] font-mono" style={{ minHeight: 52 }} placeholder="••••" />
+            <p className="text-xs mb-2" style={{ color: C.muted }}>Enter your password</p>
+            <input autoFocus type="password" autoComplete="current-password" value={pin} onChange={e => { setPin(e.target.value); setErr(""); }} onKeyDown={e => e.key === "Enter" && submit(pick)} className="w-full text-center text-xl tracking-widest" style={{ minHeight: 52 }} placeholder="••••••" />
             {err && <p className="text-xs mt-2" style={{ color: C.bad }}>{err}</p>}
             <button onClick={() => submit(pick)} disabled={!pin} className="w-full py-3 rounded-xl text-sm font-medium mt-4" style={{ background: pin ? C.ink : C.line, color: pin ? C.onDark : C.muted }}>Sign in</button>
           </div>
