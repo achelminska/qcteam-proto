@@ -1297,8 +1297,8 @@ function LoginScreen({ s, onLogin, allowRoles, subtitle }) {
         .qc-login-form{display:flex;align-items:center;justify-content:center;padding:48px 32px;background:${D.bg}}
         .qc-login-brand{position:relative;overflow:hidden;display:flex;flex-direction:column;justify-content:space-between;padding:56px 56px 32px;color:#EEF5F0;background:linear-gradient(160deg,${green2} 0%,${green} 70%)}
         .qc-login-brand.photo{justify-content:space-between}
-        .qc-login-brand .hero{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:60% 45%;opacity:.8;filter:saturate(.8) contrast(1.02)}
-        .qc-login-brand .tint{position:absolute;inset:0;background:linear-gradient(180deg,rgba(11,36,24,.88) 0%,rgba(11,36,24,.62) 34%,rgba(11,36,24,.28) 55%,rgba(11,36,24,.55) 78%,rgba(11,36,24,.94) 100%),linear-gradient(90deg,rgba(11,36,24,.35),rgba(11,36,24,0) 60%)}
+        .qc-login-brand .hero{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:55% 60%;opacity:.9;filter:saturate(.85) contrast(1.03)}
+        .qc-login-brand .tint{position:absolute;inset:0;background:linear-gradient(180deg,rgba(11,36,24,.8) 0%,rgba(11,36,24,.5) 34%,rgba(11,36,24,.18) 55%,rgba(11,36,24,.45) 78%,rgba(11,36,24,.92) 100%),linear-gradient(90deg,rgba(11,36,24,.35),rgba(11,36,24,0) 60%)}
         .qc-login-brand .grain{position:absolute;inset:0;background:radial-gradient(1100px 600px at -10% -10%,rgba(255,255,255,.12),transparent 60%);pointer-events:none}
         .qc-login-brand .lines{position:absolute;inset:0;opacity:.06;background-image:linear-gradient(rgba(255,255,255,.9) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.9) 1px,transparent 1px);background-size:48px 48px;pointer-events:none}
         .qc-login-brand .foot{margin-top:28px}
