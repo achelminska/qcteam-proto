@@ -1338,10 +1338,9 @@ function LoginScreen({ s, onLogin, allowRoles, subtitle }) {
       </aside>
       <section className="qc-login-form">
         <div className="w-full" style={{ maxWidth: 400 }}>
-          <img className="glass" src={`/brand/qcteam-glass.jpg?v=${LOGIN_HERO_V}`} alt="QCteam" />
           {!pick ? (
             <div>
-              <p className="text-[11px] uppercase tracking-[.18em] mb-2" style={{ color: D.accent }}>Portal</p>
+              <p className="text-[11px] uppercase tracking-[.18em] mb-2 inline-flex items-center gap-2" style={{ color: D.accent }}><QCMark size={22} /> Portal</p>
               <h1 className="text-[28px] leading-tight font-semibold" style={{ color: D.ink }}>Sign in</h1>
               <p className="text-sm mt-1 mb-5" style={{ color: D.muted }}>{subtitle || "Pick your account to continue."}</p>
               {users.length === 0 ? <div className="card rounded-2xl p-5"><p className="text-sm font-medium">No accounts yet</p><p className="text-xs mt-1" style={{ color: D.muted }}>The Head of Quality creates accounts in the portal under Users. Ask them for yours.</p></div> : (
