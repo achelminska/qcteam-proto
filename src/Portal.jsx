@@ -1280,30 +1280,76 @@ const writeSession = id => { try { if (id) localStorage.setItem(SESSION_KEY, id)
 // Any number of devices and people can be signed in at once (portal + phones). Concurrent edits are merged by the
 // shared syncer (src/sync.js): every edit is a function applied on top of the server's latest copy, never a blind overwrite.
 function LoginScreen({ s, onLogin, allowRoles, subtitle }) {
-  const [pick, setPick] = useState(null); const [pin, setPin] = useState(""); const [err, setErr] = useState("");
+  const [pick, setPick] = useState(null); const [pin, setPin] = useState(""); const [err, setErr] = useState(""); const [q, setQ] = useState("");
   const users = (s.users || []).filter(u => u.active !== false && (!allowRoles || allowRoles.includes(u.role)));
+  const shown = users.filter(u => !q || u.name.toLowerCase().includes(q.toLowerCase()));
   const submit = u => { if (u.pin && u.pin !== pin) { setErr("Wrong PIN"); setPin(""); return; } writeSession(u.id); onLogin(u.id); };
+  const heads = users.filter(u => u.role === "Head").length, ctrls = users.length - heads;
+  const green = C.isDark ? "#0E2A1C" : "#1F5C3E", green2 = C.isDark ? "#143A27" : "#2C6E4C";
   return (
-    <div className="qc min-h-screen flex items-center justify-center p-6" style={{ background: C.bg }}>
-      <style>{GLOBAL_CSS()}</style>
-      <div className="w-full rounded-3xl p-6" style={{ maxWidth: 380, background: C.surface, border: `1px solid ${C.line}` }}>
-        <div className="flex items-center gap-2 mb-1"><div className="w-9 h-9 rounded-xl flex items-center justify-center font-bold" style={{ background: C.ink, color: C.onDark }}>Q</div><div><p className="font-semibold">QCteam</p><p className="text-[11px]" style={{ color: C.muted }}>{subtitle || "Who's inspecting today?"}</p></div></div>
-        {!pick ? (
-          <div className="mt-4">
-            {users.length === 0 && <p className="text-sm" style={{ color: C.muted }}>No accounts yet — the Head creates them in the portal (Users).</p>}
-            {users.map(u => <button key={u.id} onClick={() => { setPick(u); setPin(""); setErr(""); if (!u.pin) submit(u); }} className="w-full flex items-center gap-3 py-3 text-left" style={{ borderBottom: `1px solid ${C.line}` }}><Avatar user={u} size={36} /><span className="flex-1"><span className="block text-sm font-medium">{u.name}</span><span className="block text-[11px]" style={{ color: C.muted }}>{u.role}{u.pin ? " · PIN" : " · no PIN set"}</span></span></button>)}
+    <div className="qc min-h-screen qc-login" style={{ background: C.bg }}>
+      <style>{GLOBAL_CSS()}{`
+        .qc-login{display:grid;grid-template-columns:minmax(0,1fr) minmax(380px,44%);min-height:100vh}
+        .qc-login-form{display:flex;align-items:center;justify-content:center;padding:48px 32px}
+        .qc-login-brand{position:relative;overflow:hidden;display:flex;flex-direction:column;justify-content:center;padding:56px 56px 72px;color:#F2F7F3}
+        .qc-login-brand .foot{position:absolute;left:56px;right:56px;bottom:32px}
+        .qc-login-brand .grain{position:absolute;inset:0;background:radial-gradient(1200px 600px at 110% -10%,rgba(255,255,255,.14),transparent 60%),radial-gradient(900px 500px at -10% 110%,rgba(0,0,0,.22),transparent 60%);pointer-events:none}
+        .qc-login-brand .lines{position:absolute;inset:0;opacity:.07;background-image:linear-gradient(rgba(255,255,255,.9) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.9) 1px,transparent 1px);background-size:48px 48px;pointer-events:none}
+        .qc-login input.pin{width:100%;text-align:center;font-size:28px;letter-spacing:.45em;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;min-height:56px;border-radius:12px;background:${C.bg};border:1px solid ${C.line};outline:none;color:${C.ink}}
+        .qc-login input.pin:focus{border-color:${C.accent};box-shadow:0 0 0 3px ${C.accentSoft}}
+        .qc-login .person{display:flex;align-items:center;gap:12px;width:100%;text-align:left;padding:10px 12px;border-radius:12px;border:1px solid transparent;transition:background .12s,border-color .12s}
+        .qc-login .person:hover{background:${C.bg};border-color:${C.line}}
+        @media (max-width:860px){.qc-login{grid-template-columns:1fr}.qc-login-brand{order:-1;padding:28px 24px 48px;min-height:0}.qc-login-brand .foot{left:24px;right:24px;bottom:14px}.qc-login-brand .feat{display:none}.qc-login-form{padding:28px 20px}}
+      `}</style>
+      <section className="qc-login-form">
+        <div className="w-full" style={{ maxWidth: 400 }}>
+          <div className="flex items-center gap-2.5 mb-8"><div className="w-9 h-9 rounded-xl flex items-center justify-center font-bold" style={{ background: C.ink, color: C.onDark }}>Q</div><span className="font-semibold text-[15px]">QCteam</span><span className="text-[11px] px-2 py-0.5 rounded-full ml-1" style={{ background: C.accentSoft, color: C.accent }}>Portal</span></div>
+          {!pick ? (
+            <div>
+              <h1 className="text-[26px] leading-tight font-semibold">Sign in</h1>
+              <p className="text-sm mt-1 mb-5" style={{ color: C.muted }}>{subtitle || "Pick your account to continue."}</p>
+              {users.length === 0 ? <div className="rounded-2xl p-5" style={{ background: C.surface, border: `1px solid ${C.line}` }}><p className="text-sm font-medium">No accounts yet</p><p className="text-xs mt-1" style={{ color: C.muted }}>The Head of Quality creates accounts in the portal under Users. Ask them for yours.</p></div> : (
+                <div className="rounded-2xl p-2" style={{ background: C.surface, border: `1px solid ${C.line}`, boxShadow: "0 12px 32px rgba(0,0,0,.06)" }}>
+                  {users.length > 6 && <div className="px-2 pt-1 pb-2"><SearchBox value={q} onChange={setQ} placeholder="Find your name" inputClass="rounded-lg" size={13} /></div>}
+                  <div style={{ maxHeight: 360, overflowY: "auto" }}>
+                    {shown.length === 0 && <p className="text-xs px-3 py-4" style={{ color: C.muted }}>Nobody matches “{q}”.</p>}
+                    {shown.map(u => <button key={u.id} className="person" onClick={() => { setPick(u); setPin(""); setErr(""); if (!u.pin) submit(u); }}>
+                      <Avatar user={u} size={36} />
+                      <span className="flex-1 min-w-0"><span className="block text-sm font-medium truncate">{u.name}</span><span className="block text-[11px]" style={{ color: C.muted }}>{u.role === "Head" ? "Head of Quality" : "Quality controller"}{u.pin ? "" : " · no PIN set"}</span></span>
+                      <Ic i={ChevronRight} s={15} mr={0} style={{ color: C.muted }} />
+                    </button>)}
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div>
+              <button onClick={() => { setPick(null); setErr(""); }} className="text-xs inline-flex items-center mb-5" style={{ color: C.muted }}><Ic i={ChevronLeft} s={14} mr={2} />Not you? Choose another account</button>
+              <div className="flex items-center gap-3 mb-6"><Avatar user={pick} size={48} /><div><p className="text-[17px] font-semibold leading-tight">{pick.name}</p><p className="text-xs" style={{ color: C.muted }}>{pick.role === "Head" ? "Head of Quality" : "Quality controller"}</p></div></div>
+              <label className="block text-xs font-medium mb-1.5">PIN</label>
+              <input className="pin" autoFocus type="password" inputMode="numeric" pattern="[0-9]*" value={pin} onChange={e => { setPin(e.target.value.replace(/\D/g, "").slice(0, 6)); setErr(""); }} onKeyDown={e => e.key === "Enter" && submit(pick)} placeholder="••••" />
+              <p className="text-xs mt-2" style={{ color: err ? C.bad : C.muted, minHeight: 18 }}>{err || "The 4–6 digit PIN the Head set for you."}</p>
+              <button onClick={() => submit(pick)} disabled={!pin} className="w-full py-3 rounded-xl text-sm font-semibold mt-3" style={{ background: pin ? C.accent : C.line, color: pin ? "#fff" : C.muted, transition: "background .12s" }}>Sign in</button>
+            </div>
+          )}
+          <p className="text-[11px] mt-8" style={{ color: C.muted }}>Prototype sign-in: it identifies who is working, it is not a security boundary. Password and SSO authentication arrive with the backend.</p>
+        </div>
+      </section>
+      <aside className="qc-login-brand" style={{ background: `linear-gradient(160deg, ${green2} 0%, ${green} 70%)` }}>
+        <div className="grain" /><div className="lines" />
+        <div style={{ position: "relative" }}>
+          <p className="text-[11px] uppercase tracking-[.22em]" style={{ opacity: .7 }}>Picnic · DC5 Geldermalsen</p>
+          <p className="text-[44px] leading-none font-semibold mt-6" style={{ letterSpacing: "-.02em" }}>QCteam</p>
+          <p className="text-[17px] mt-3" style={{ opacity: .9, maxWidth: 420, lineHeight: 1.45 }}>Quality control for fresh produce on the inbound docks — inspections, specifications, blocked pallets and the shift's priorities in one place.</p>
+          <div className="feat mt-10 grid gap-3" style={{ maxWidth: 420 }}>
+            {[[ScanLine, "Inspect on the phone", "Scan the pallet, follow the form, the Head sees the verdict at once."], [Warehouse, "See the floor", "Docks, priorities and the blocked queue, live from the sheets."], [BookOpen, "Know the product", "Specs, photos and history on every product profile."]].map(([I, h, d]) => <div key={h} className="flex items-start gap-3 rounded-xl px-3 py-2.5" style={{ background: "rgba(255,255,255,.08)", border: "1px solid rgba(255,255,255,.12)" }}><span className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ background: "rgba(255,255,255,.14)" }}><Ic i={I} s={16} mr={0} /></span><span><span className="block text-sm font-medium">{h}</span><span className="block text-xs" style={{ opacity: .8 }}>{d}</span></span></div>)}
           </div>
-        ) : (
-          <div className="mt-4">
-            <div className="flex items-center gap-3 mb-4"><Avatar user={pick} size={40} /><div><p className="text-sm font-medium">{pick.name}</p><p className="text-[11px]" style={{ color: C.muted }}>{pick.role}</p></div><button onClick={() => setPick(null)} className="ml-auto text-xs underline" style={{ color: C.muted }}>not me</button></div>
-            <p className="text-xs mb-2" style={{ color: C.muted }}>Enter your PIN</p>
-            <input autoFocus type="password" inputMode="numeric" pattern="[0-9]*" value={pin} onChange={e => { setPin(e.target.value.replace(/\D/g, "").slice(0, 6)); setErr(""); }} onKeyDown={e => e.key === "Enter" && submit(pick)} className="w-full text-center text-2xl tracking-[0.5em] font-mono" style={{ minHeight: 52 }} placeholder="••••" />
-            {err && <p className="text-xs mt-2" style={{ color: C.bad }}>{err}</p>}
-            <button onClick={() => submit(pick)} disabled={!pin} className="w-full py-3 rounded-xl text-sm font-medium mt-4" style={{ background: pin ? C.ink : C.line, color: pin ? C.onDark : C.muted }}>Sign in</button>
-          </div>
-        )}
-        <p className="text-[10px] mt-5" style={{ color: C.muted }}>Prototype sign-in: identifies who works, it is not a security boundary. Real authentication comes with the backend.</p>
-      </div>
+        </div>
+        <div className="foot flex items-center justify-between text-[11px]" style={{ opacity: .7 }}>
+          <span>{users.length ? `${heads} Head · ${ctrls} controller${ctrls === 1 ? "" : "s"}` : "Quality team"}</span>
+          <span>Prototype · engineering thesis</span>
+        </div>
+      </aside>
     </div>
   );
 }
