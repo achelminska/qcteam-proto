@@ -1315,7 +1315,7 @@ function LoginScreen({ s, onLogin, allowRoles }) {
   const onKey = fn => e => { if (e.key === "Enter") fn(); };
   const green = "#0B2418", green2 = "#1A4A32";
   const field = (label, value, onChange, props = {}) => (
-    <label className="block mb-3"><span className="block text-xs font-medium mb-1.5" style={{ color: D.ink }}>{label}</span><input className="fld" value={value} onChange={e => { onChange(e.target.value); setErr(""); }} {...props} /></label>
+    <label className="block mb-4"><span className="lbl">{label}</span><input className="fld" value={value} onChange={e => { onChange(e.target.value); setErr(""); }} {...props} /></label>
   );
   return (
     <div className="qc min-h-screen qc-login" style={{ background: D.bg, color: D.ink }}>
@@ -1329,13 +1329,14 @@ function LoginScreen({ s, onLogin, allowRoles }) {
         .qc-login-brand .grain{position:absolute;inset:0;background:radial-gradient(1100px 600px at -10% -10%,rgba(255,255,255,.12),transparent 60%);pointer-events:none}
         .qc-login-brand .lines{position:absolute;inset:0;opacity:.06;background-image:linear-gradient(rgba(255,255,255,.9) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.9) 1px,transparent 1px);background-size:48px 48px;pointer-events:none}
         .qc-login .card{background:${D.surface};border:1px solid ${D.line};box-shadow:0 1px 0 rgba(255,255,255,.05) inset,0 16px 40px rgba(0,0,0,.45)}
-        .qc-login.qc input.fld,.qc-login input.fld{width:100%;font-size:15px;min-height:46px;padding:0 14px;border-radius:12px;background:rgba(255,255,255,.03);border:1px solid rgba(140,211,166,.28);outline:none;color:${D.ink};transition:border-color .12s,background .12s}
+        .qc-login.qc input.fld,.qc-login input.fld{width:100%;font-size:14px;min-height:40px;padding:0 12px;border-radius:8px;background:rgba(255,255,255,.025);border:1px solid rgba(140,211,166,.18);outline:none;color:${D.ink};transition:border-color .12s,background .12s;box-shadow:none}
         .qc-login.qc input.fld::placeholder{color:${D.muted};opacity:.7}
-        .qc-login.qc input.fld:focus,.qc-login input.fld:focus{background:rgba(255,255,255,.05);border-color:rgba(140,211,166,.7);box-shadow:0 0 0 3px rgba(140,211,166,.10)}
-        .qc-login .primary{width:100%;min-height:46px;border-radius:12px;font-weight:600;font-size:14px;background:#26372D;color:#EEF5F0;border:1px solid rgba(140,211,166,.22);transition:background .12s,border-color .12s}
+        .qc-login.qc input.fld:focus,.qc-login input.fld:focus{background:rgba(255,255,255,.04);border-color:rgba(140,211,166,.55);box-shadow:0 0 0 2px rgba(140,211,166,.08)}
+        .qc-login .primary{width:100%;min-height:40px;border-radius:8px;font-weight:500;font-size:14px;letter-spacing:.01em;background:#26372D;color:#EEF5F0;border:1px solid rgba(140,211,166,.16);transition:background .12s,border-color .12s}
         .qc-login .primary:hover{background:#2F4438;border-color:rgba(140,211,166,.4)}
         .qc-login .primary:disabled{background:rgba(255,255,255,.04);border-color:rgba(255,255,255,.08);color:${D.muted}}
         .qc-login .link{color:#26372D;font-size:12px;background:none;border:0;padding:0}
+        .qc-login .lbl{display:block;font-size:11px;font-weight:500;letter-spacing:.04em;text-transform:uppercase;color:${D.muted};margin-bottom:6px}
         .qc-login .link:hover{color:#2F4438;text-decoration:underline}
         @media (max-width:860px){.qc-login{grid-template-columns:1fr}.qc-login-brand{padding:28px 24px 24px;min-height:0}.qc-login-brand .feat{display:none}.qc-login-form{padding:28px 20px}}
       `}</style>
@@ -1354,12 +1355,13 @@ function LoginScreen({ s, onLogin, allowRoles }) {
       <section className="qc-login-form">
         <div className="w-full" style={{ maxWidth: 400 }}>
           {mode === "login" && <div>
-            <h1 className="text-[28px] leading-tight font-semibold" style={{ color: D.ink, marginBottom: 24 }}>Sign in</h1>
+            <h1 className="text-[22px] leading-tight" style={{ color: D.ink, fontWeight: 600, marginBottom: 4 }}>Sign in</h1>
+            <p className="text-[13px]" style={{ color: D.muted, marginBottom: 28 }}>Use the e-mail the Head of Quality registered for you.</p>
             {field("E-mail", email, setEmail, { type: "email", autoComplete: "username", autoFocus: true, placeholder: "name@picnic.nl", onKeyDown: onKey(submit) })}
-            <label className="block mb-2"><span className="flex items-center text-xs font-medium mb-1.5" style={{ color: D.ink }}>Password<button type="button" onClick={() => setShow(v => !v)} className="ml-auto text-[11px] font-normal" style={{ color: D.muted }}>{show ? "hide" : "show"}</button></span><input className="fld" type={show ? "text" : "password"} autoComplete="current-password" value={pw} onChange={e => { setPw(e.target.value); setErr(""); }} onKeyDown={onKey(submit)} placeholder="••••••••" /></label>
-            <p className="text-xs mb-4" style={{ color: err ? D.bad : D.muted, minHeight: 18 }}>{err || " "}</p>
+            <label className="block mb-2"><span className="lbl" style={{ display: "flex", alignItems: "center" }}>Password<button type="button" onClick={() => setShow(v => !v)} className="ml-auto normal-case tracking-normal" style={{ color: D.muted, fontSize: 11 }}>{show ? "Hide" : "Show"}</button></span><input className="fld" type={show ? "text" : "password"} autoComplete="current-password" value={pw} onChange={e => { setPw(e.target.value); setErr(""); }} onKeyDown={onKey(submit)} placeholder="••••••••" /></label>
+            <p className="text-xs" style={{ color: err ? D.bad : D.muted, minHeight: 18, marginBottom: 14 }}>{err || " "}</p>
             <button className="primary" onClick={submit} disabled={!email.trim()}>Sign in</button>
-            <div className="flex items-center justify-between mt-4"><button className="link" onClick={() => { setMode("forgot"); setErr(""); }}>Forgot your password?</button><span className="text-[11px]" style={{ color: D.muted }}>First time? Sign in with your e-mail to set one.</span></div>
+            <div className="flex items-center justify-between" style={{ marginTop: 18 }}><button className="link" onClick={() => { setMode("forgot"); setErr(""); }}>Forgot your password?</button><span className="text-[11px]" style={{ color: D.muted }}>First sign-in? Leave the password empty.</span></div>
           </div>}
           {mode === "create" && <div>
             <button onClick={() => { setMode("login"); setErr(""); }} className="text-xs inline-flex items-center mb-5" style={{ color: D.muted }}><Ic i={ChevronLeft} s={14} mr={2} />Back</button>
