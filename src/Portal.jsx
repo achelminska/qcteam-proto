@@ -1608,23 +1608,26 @@ function ComplaintsPage({ s, set, user, openProduct }) {
         <Card>
           <div className="flex items-center gap-3 mb-2"><p className="font-medium text-sm flex-1">Articles · {shown.length}{qq ? ` of ${rows.length}` : ""} · most complaints first{prev ? ` · change since ${fmtDay(prev.asOf)}` : ""}</p><SearchBox value={q} onChange={setQ} placeholder="Search article or ID" style={{ width: 260 }} inputClass="rounded-lg" size={13} /></div>
           {rows.length === 0 ? <Empty icon={ThumbsDown} title="No complaints entered yet" hint={isHead ? "Paste the Head of Quality's table as a new post." : "The Head hasn't entered this week's complaints yet."} /> : shown.length === 0 ? <p className="text-xs py-4" style={{ color: C.muted }}>Nothing matches “{q}”.</p> : (
-            <table className="w-full text-sm">
-              <thead><tr className="text-xs text-left" style={{ color: C.muted }}>{["#", "Article ID", "Article", "Complaints", prev ? "Δ" : null, "", "Top sub-type", hasRate ? "Per 1k" : null, hasRate ? "Delivered" : null, isHead ? "" : null].filter(h => h !== null).map((h, i) => <th key={i} className="py-1.5 pr-3 font-medium" style={{ borderBottom: `1px solid ${C.line}` }}>{h}</th>)}</tr></thead>
-              <tbody>{shown.map((r) => { const p = productForArticle(s, r.articleId); const editing = editId === r.id; return (
-                <tr key={r.id} style={{ borderBottom: `1px solid ${C.line}`, background: editing ? C.accentSoft : "transparent" }}>
-                  <td className="py-1.5 pr-3 text-xs" style={{ color: C.muted, width: 28 }}>{rows.indexOf(r) + 1}</td>
-                  <td className="py-1.5 pr-3 font-mono text-xs whitespace-nowrap">{r.articleId}</td>
-                  <td className="py-1.5 pr-3">{editing ? <input value={edit.name} onChange={e => setEdit(x => ({ ...x, name: e.target.value }))} className="w-full text-sm rounded px-2 py-1 outline-none" style={{ ...inp }} /> : <>{p && openProduct ? <button onClick={() => openProduct(p.id)} className="text-left font-medium" style={{ color: C.ink }}>{r.name || p.name}</button> : <span>{r.name || "—"}</span>}{!p && <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded-full" style={{ background: C.bg, color: C.muted, border: `1px solid ${C.line}` }}>not in catalog</span>}</>}</td>
-                  <td className="py-1.5 pr-3 font-semibold" style={{ fontVariantNumeric: "tabular-nums", width: 90 }}>{editing ? <input type="number" min="0" value={edit.count} onChange={e => setEdit(x => ({ ...x, count: e.target.value }))} className="w-20 text-sm rounded px-2 py-1 outline-none" style={{ ...inp }} /> : r.count}</td>
-                  {prev && <td className="py-1.5 pr-3 text-xs whitespace-nowrap" style={{ fontVariantNumeric: "tabular-nums", color: r.delta == null ? C.muted : r.delta > 0 ? C.bad : C.ok, width: 70 }}>{r.delta == null ? "new on list" : r.delta > 0 ? `+${r.delta}` : r.delta}</td>}
-                  <td className="py-1.5 pr-3" style={{ width: 160 }}><div className="h-2 rounded-full" style={{ background: C.bg }}><div className="h-2 rounded-full" style={{ width: `${Math.round((r.count || 0) / max * 100)}%`, background: C.bad, opacity: .85 }} /></div></td>
-                  <td className="py-1.5 pr-3 text-xs">{editing ? <span className="inline-flex gap-1"><input value={edit.subType} onChange={e => setEdit(x => ({ ...x, subType: e.target.value }))} placeholder="sub-type" className="w-28 text-sm rounded px-2 py-1 outline-none" style={{ ...inp }} /><input type="number" min="0" value={edit.subCount ?? ""} onChange={e => setEdit(x => ({ ...x, subCount: e.target.value }))} placeholder="#" className="w-16 text-sm rounded px-2 py-1 outline-none" style={{ ...inp }} /></span> : r.subType ? <span className="px-1.5 py-0.5 rounded-full" style={{ background: C.warnBg, color: C.warn }}>{r.subType}{r.subCount != null ? ` (${r.subCount})` : ""}</span> : <span style={{ color: C.muted }}>—</span>}</td>
-                  {hasRate && <td className="py-1.5 pr-3 text-xs whitespace-nowrap" style={{ fontVariantNumeric: "tabular-nums", width: 80 }}>{r.per1k != null ? Math.round(r.per1k * 10) / 10 : <span style={{ color: C.muted }}>—</span>}</td>}
-                  {hasRate && <td className="py-1.5 pr-3 text-xs whitespace-nowrap" style={{ fontVariantNumeric: "tabular-nums", color: C.muted, width: 90 }}>{r.delivered != null ? r.delivered.toLocaleString("en-GB") : "—"}</td>}
-                  {isHead && <td className="py-1.5 text-right whitespace-nowrap" style={{ width: 120 }}>{editing ? <><button onClick={commitEdit} className="text-xs px-2.5 py-1 rounded-lg font-semibold mr-1" style={{ background: C.accent, color: C.onDark }}>Save</button><button onClick={() => { setEditId(null); setEdit(null); }} className="text-xs" style={{ color: C.muted }}>cancel</button></> : <><button onClick={() => { setEditId(r.id); setEdit({ name: r.name || "", count: r.count || 0, subType: r.subType || "", subCount: r.subCount ?? "" }); }} className="text-xs mr-2" style={{ color: C.accent }}>edit</button><button onClick={() => remove(r.id)} className="text-xs" style={{ color: C.muted }}>remove</button></>}</td>}
-                </tr>
-              ); })}</tbody>
-            </table>
+            <div className="grid gap-2">{shown.map((r) => { const p = productForArticle(s, r.articleId); const editing = editId === r.id; const share = Math.round((r.count || 0) / max * 100); return (
+              <div key={r.id} className="qc-tile rounded-xl px-3 py-2" style={{ background: editing ? C.accentSoft : C.bg, border: `1px solid ${editing ? C.accent : C.line}`, borderLeft: `3px solid ${share >= 60 ? C.bad : share >= 30 ? C.warn : C.line}` }}>
+                <div className="flex items-center gap-3">
+                  <span className="text-xs font-semibold rounded-full inline-flex items-center justify-center shrink-0" style={{ width: 24, height: 24, background: C.surface, border: `1px solid ${C.line}`, color: C.muted }}>{rows.indexOf(r) + 1}</span>
+                  <div className="flex-1 min-w-0">
+                    {editing ? <input value={edit.name} onChange={e => setEdit(x => ({ ...x, name: e.target.value }))} className="w-full text-sm rounded px-2 py-1 outline-none" style={{ ...inp }} /> : <p className="text-sm font-medium truncate">{p && openProduct ? <button onClick={() => openProduct(p.id)} className="text-left font-medium" style={{ color: C.ink }}>{r.name || p.name}</button> : <span>{r.name || "—"}</span>}{!p && <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded-full font-normal" style={{ background: C.surface, color: C.muted, border: `1px solid ${C.line}` }}>not in catalog</span>}</p>}
+                    <p className="text-[11px] mt-0.5 flex items-center gap-2 flex-wrap" style={{ color: C.muted }}>
+                      <span className="font-mono">{r.articleId}</span>
+                      {editing ? <span className="inline-flex gap-1"><input value={edit.subType} onChange={e => setEdit(x => ({ ...x, subType: e.target.value }))} placeholder="sub-type" className="w-28 text-xs rounded px-2 py-0.5 outline-none" style={{ ...inp }} /><input type="number" min="0" value={edit.subCount ?? ""} onChange={e => setEdit(x => ({ ...x, subCount: e.target.value }))} placeholder="#" className="w-14 text-xs rounded px-2 py-0.5 outline-none" style={{ ...inp }} /></span> : r.subType ? <span className="px-1.5 py-0.5 rounded-full" style={{ background: C.warnBg, color: C.warn }}>{r.subType}{r.subCount != null ? ` (${r.subCount})` : ""}</span> : null}
+                      {hasRate && r.per1k != null && <span style={{ fontVariantNumeric: "tabular-nums" }}>{Math.round(r.per1k * 10) / 10} per 1k</span>}
+                      {hasRate && r.delivered != null && <span style={{ fontVariantNumeric: "tabular-nums" }}>{r.delivered.toLocaleString("en-GB")} delivered</span>}
+                    </p>
+                  </div>
+                  <div className="hidden md:block shrink-0" style={{ width: 140 }}><div className="h-2 rounded-full" style={{ background: C.surface, border: `1px solid ${C.line}` }}><div className="h-full rounded-full" style={{ width: `${share}%`, background: C.bad, opacity: .85 }} /></div></div>
+                  {prev && <span className="text-xs shrink-0 text-right" style={{ fontVariantNumeric: "tabular-nums", width: 70, color: r.delta == null ? C.muted : r.delta > 0 ? C.bad : C.ok }}>{r.delta == null ? "new on list" : r.delta > 0 ? `+${r.delta}` : r.delta}</span>}
+                  <span className="shrink-0 text-right" style={{ width: 72 }}>{editing ? <input type="number" min="0" value={edit.count} onChange={e => setEdit(x => ({ ...x, count: e.target.value }))} className="w-full text-sm rounded px-2 py-1 outline-none" style={{ ...inp }} /> : <><span className="text-lg font-semibold leading-none" style={{ fontVariantNumeric: "tabular-nums" }}>{r.count}</span><span className="block text-[10px]" style={{ color: C.muted }}>complaints</span></>}</span>
+                  {isHead && <span className="shrink-0 text-right whitespace-nowrap" style={{ width: 110 }}>{editing ? <><button onClick={commitEdit} className="text-xs px-2.5 py-1 rounded-lg font-semibold mr-1" style={{ background: C.accent, color: C.onDark }}>Save</button><button onClick={() => { setEditId(null); setEdit(null); }} className="text-xs" style={{ color: C.muted }}>cancel</button></> : <><button onClick={() => { setEditId(r.id); setEdit({ name: r.name || "", count: r.count || 0, subType: r.subType || "", subCount: r.subCount ?? "" }); }} className="text-xs mr-2" style={{ color: C.accent }}>edit</button><button onClick={() => remove(r.id)} className="text-xs" style={{ color: C.muted }}>remove</button></>}</span>}
+                </div>
+              </div>
+            ); })}</div>
           )}
         </Card>
         {snaps.length > 1 && <Card>
@@ -1802,17 +1805,18 @@ function DockMapPage({ s, user, openPallet }) {
         <FloorPeopleList people={floorPeople} s={s} user={user} sel={sel} onPick={d => setSel(sel === d ? null : d)} />
         {quick && <Card style={{ marginBottom: 12 }}>
           <div className="flex items-center gap-2 mb-2"><p className="font-medium text-sm flex-1">Quick list · every dock</p><button onClick={() => setQuick(false)} className="text-xs" style={{ color: C.muted }}>close</button></div>
-          <table className="text-sm" style={{ minWidth: 360 }}>
-            <thead><tr className="text-xs text-left" style={{ color: C.muted }}>{["Dock", "Pallets", "SKUs"].map(h => <th key={h} className="py-1.5 pr-6 font-medium" style={{ borderBottom: `1px solid ${C.line}` }}>{h}</th>)}</tr></thead>
-            <tbody>
-              {quickRows.map(q => <tr key={q.key} onClick={() => setSel(sel === q.key ? null : q.key)} style={{ borderBottom: `1px solid ${C.line}`, cursor: "pointer", background: sel === q.key ? C.accentSoft : "transparent", opacity: q.arr.length ? 1 : .5 }}>
-                <td className="py-1.5 pr-6 font-medium"><span className="inline-flex items-center gap-1.5">{q.zone && <Ic i={q.zone === "chilled" ? Snowflake : Thermometer} s={11} mr={0} style={{ color: q.zone === "chilled" ? C.accent : C.warn }} />}{q.label}</span></td>
-                <td className="py-1.5 pr-6" style={{ fontVariantNumeric: "tabular-nums" }}>{q.arr.length || "—"}</td>
-                <td className="py-1.5 pr-6" style={{ fontVariantNumeric: "tabular-nums" }}>{q.arr.length ? skusOf(q.arr) : "—"}</td>
-              </tr>)}
-              <tr className="font-semibold"><td className="py-1.5 pr-6">Total</td><td className="py-1.5 pr-6" style={{ fontVariantNumeric: "tabular-nums" }}>{rows.length}</td><td className="py-1.5 pr-6" style={{ fontVariantNumeric: "tabular-nums" }}>{skusOf(rows)}</td></tr>
-            </tbody>
-          </table>
+          <div className="grid gap-2" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))" }}>
+            {quickRows.map(q => <button key={q.key} onClick={() => setSel(sel === q.key ? null : q.key)} className="qc-tile rounded-xl px-3 py-2 text-left" style={{ background: sel === q.key ? C.accentSoft : C.bg, border: `1px solid ${sel === q.key ? C.accent : C.line}`, borderLeft: `3px solid ${q.arr.length ? (q.zone === "chilled" ? C.accent : C.warn) : C.line}`, opacity: q.arr.length ? 1 : .55 }}>
+              <p className="text-xs font-medium inline-flex items-center gap-1.5">{q.zone && <Ic i={q.zone === "chilled" ? Snowflake : Thermometer} s={11} mr={0} style={{ color: q.zone === "chilled" ? C.accent : C.warn }} />}{q.label}</p>
+              <p className="text-lg font-semibold leading-tight mt-0.5" style={{ fontVariantNumeric: "tabular-nums" }}>{q.arr.length || "—"}<span className="text-[11px] font-normal ml-1" style={{ color: C.muted }}>{q.arr.length === 1 ? "pallet" : "pallets"}</span></p>
+              <p className="text-[11px]" style={{ color: C.muted }}>{q.arr.length ? `${skusOf(q.arr)} SKU${skusOf(q.arr) === 1 ? "" : "s"}` : "empty"}</p>
+            </button>)}
+            <div className="qc-tile rounded-xl px-3 py-2" style={{ background: C.surface, border: `1px solid ${C.line}`, borderLeft: `3px solid ${C.ink}` }}>
+              <p className="text-xs font-medium">Total</p>
+              <p className="text-lg font-semibold leading-tight mt-0.5" style={{ fontVariantNumeric: "tabular-nums" }}>{rows.length}<span className="text-[11px] font-normal ml-1" style={{ color: C.muted }}>pallets</span></p>
+              <p className="text-[11px]" style={{ color: C.muted }}>{skusOf(rows)} SKUs</p>
+            </div>
+          </div>
         </Card>}
         {sel === null && <div className="grid grid-cols-2 gap-3">
           <ZoneCard icon={Snowflake} title="Chilled hall" st={chilled} tint={C.accent} />
@@ -1836,20 +1840,24 @@ function DockMapPage({ s, user, openPallet }) {
               ); })}
             </div>
           ); })()}
-          {shown.length === 0 ? <p className="text-xs py-3" style={{ color: C.muted }}>{searching ? "Nothing matches." : "Nothing standing here right now."}</p> : <table className="w-full text-sm">
-            <thead><tr className="text-xs text-left" style={{ color: C.muted }}>{["Product", "Pallets", sel === "other" ? "Location" : "Spot", "Status", "Article", "Arrived", "Transporter", "PO", "Report"].map(h => <th key={h} className="py-1.5 pr-3 font-medium" style={{ borderBottom: `1px solid ${C.line}` }}>{h}</th>)}</tr></thead>
-            <tbody>{shown.map(it => <tr key={it.key} style={{ borderBottom: `1px solid ${C.line}` }}>
-              <td className="py-1.5 pr-3"><span className="inline-flex items-center gap-2">{openPallet && (it.openKey || it.hu || it.article) ? <button onClick={() => openPallet(it.openKey || it.hu || it.article)} className="text-left font-medium" style={{ color: C.ink }}>{it.name}</button> : <span>{it.name}</span>}<ComplaintChip s={s} articleId={it.article} /></span></td>
-              <td className="py-1.5 pr-3 text-xs">{it.count > 1 ? <span className="px-1.5 py-0.5 rounded-full" style={{ background: C.accentSoft, color: C.accent }}>×{it.count}</span> : "1"}</td>
-              <td className="py-1.5 pr-3 text-xs">{sel === "other" ? it.locations : (it.subs.join("/") || "—")}</td>
-              <td className="py-1.5 pr-3 text-xs"><StatusPill k={it.status} />{it.blocking && it.priority && it.priority !== "Skippable" && <span className="ml-1 text-[10px]" style={{ color: C.muted }}>{it.priority}</span>}</td>
-              <td className="py-1.5 pr-3 font-mono text-xs">{it.article}</td>
-              <td className="py-1.5 pr-3 text-xs">{it.arrived ? `${dayLabel(it.arrived + "T12:00:00")} ` : ""}{it.arrivedTime}</td>
-              <td className="py-1.5 pr-3 text-xs">{it.transporter || "—"}</td>
-              <td className="py-1.5 pr-3 text-xs">{it.po || "—"}{it.mixedPO && <span className="ml-1 text-[10px] px-1.5 py-0.5 rounded-full" style={{ background: C.warnBg, color: C.warn }}>mixed</span>}</td>
-              <td className="py-1.5 pr-3 text-xs">{it.checked > 0 ? <span className="px-1.5 py-0.5 rounded-full inline-flex items-center gap-1" style={{ background: C.okBg, color: C.ok }}><Ic i={Check} s={10} mr={0} />{it.checked === it.count ? "inspected" : `${it.checked}/${it.count} inspected`}</span> : <span style={{ color: C.muted }}>not yet</span>}</td>
-            </tr>)}</tbody>
-          </table>}
+          {shown.length === 0 ? <p className="text-xs py-3" style={{ color: C.muted }}>{searching ? "Nothing matches." : "Nothing standing here right now."}</p> : <div className="grid gap-2">
+            {shown.map(it => <div key={it.key} className="qc-tile rounded-xl px-3 py-2" style={{ background: C.bg, border: `1px solid ${C.line}`, borderLeft: `3px solid ${dockStatusColor(it.status)}` }}>
+              <div className="flex items-center gap-3 flex-wrap">
+                <div className="flex-1 min-w-0" style={{ minWidth: 220 }}>
+                  <p className="text-sm font-medium truncate inline-flex items-center gap-2 max-w-full">{openPallet && (it.openKey || it.hu || it.article) ? <button onClick={() => openPallet(it.openKey || it.hu || it.article)} className="text-left font-medium truncate" style={{ color: C.ink }}>{it.name}</button> : <span className="truncate">{it.name}</span>}{it.count > 1 && <span className="text-[11px] px-1.5 py-0.5 rounded-full shrink-0" style={{ background: C.accentSoft, color: C.accent }}>×{it.count}</span>}<ComplaintChip s={s} articleId={it.article} /></p>
+                  <p className="text-[11px] mt-0.5 flex items-center gap-x-2 gap-y-0.5 flex-wrap" style={{ color: C.muted }}>
+                    <span className="font-mono">{it.article}</span>
+                    <span>{sel === "other" ? (it.locations || "no location") : (it.subs.join("/") ? `spot ${it.subs.join("/")}` : "no spot")}</span>
+                    {(it.arrived || it.arrivedTime) && <span>arrived {it.arrived ? `${dayLabel(it.arrived + "T12:00:00")} ` : ""}{it.arrivedTime}</span>}
+                    {it.transporter && <span>{it.transporter}</span>}
+                    {it.po && <span>PO {it.po}{it.mixedPO && <span className="ml-1 text-[10px] px-1.5 py-0.5 rounded-full" style={{ background: C.warnBg, color: C.warn }}>mixed</span>}</span>}
+                  </p>
+                </div>
+                <span className="text-xs shrink-0 inline-flex items-center gap-1"><StatusPill k={it.status} />{it.blocking && it.priority && it.priority !== "Skippable" && <span className="text-[10px]" style={{ color: C.muted }}>{it.priority}</span>}</span>
+                <span className="text-xs shrink-0" style={{ minWidth: 90, textAlign: "right" }}>{it.checked > 0 ? <span className="px-1.5 py-0.5 rounded-full inline-flex items-center gap-1" style={{ background: C.okBg, color: C.ok }}><Ic i={Check} s={10} mr={0} />{it.checked === it.count ? "inspected" : `${it.checked}/${it.count} inspected`}</span> : <span style={{ color: C.muted }}>not yet</span>}</span>
+              </div>
+            </div>)}
+          </div>}
         </Card>}
       </>}
     </div>
@@ -2113,16 +2121,15 @@ function Dashboard({ s, setPage, seed, user, openPallet, onAssign, set, openToda
       </div>
       {prioSel && <Card style={{ marginBottom: 12 }}>
         <div className="flex items-center gap-2 mb-2"><p className="font-medium text-sm flex-1">{prioSel} · {prioRows.length} pallet{prioRows.length === 1 ? "" : "s"} · {prioGroups.length} product{prioGroups.length === 1 ? "" : "s"} · oldest first{prioSel === "Needed today" ? " · flagged on the dock sheet — picking waits for these" : ""}</p><SearchBox value={prioQ} onChange={setPrioQ} placeholder="Search name, article, supplier…" style={{ width: 260 }} inputClass="rounded-lg" size={13} /><button onClick={() => setPrioSel(null)} className="text-xs" style={{ color: C.muted }}>close</button></div>
-        {prioRows.length === 0 ? <p className="text-xs py-3" style={{ color: C.muted }}>Nothing at this priority.</p> : prioShown.length === 0 ? <p className="text-xs py-3" style={{ color: C.muted }}>Nothing matches.</p> : <table className="w-full text-sm" style={{ borderCollapse: "collapse" }}>
-          <thead><tr className="text-xs text-left" style={{ color: C.muted }}>{["Product", ...(prioSel === "Needed today" ? ["Priority"] : []), "Article", "Location", "Arrived", "Transporter", "History", ""].map(h => <th key={h || "act"} className="py-1.5 pr-3 font-medium" style={{ borderBottom: `1px solid ${C.line}` }}>{h}</th>)}</tr></thead>
-          <tbody>{prioShown.map(r => { const prod = s.products.find(p => p.articleId === r.article); const hist = recentProblemsFor(s, prod?.id); const stacked = claimOf(s, r)?.status === "stacked"; return (
-            <tr key={r.article || r.hu} style={{ borderBottom: `1px solid ${C.line}` }}>
-              <td className="py-1.5 pr-3">{(r.hu || r.article) && openPallet ? <button onClick={() => openPallet(r.hu || r.article)} className="text-left font-medium" style={{ color: C.ink }}>{r.name || prod?.name || r.article}</button> : <span>{r.name || r.article}{!prod && <span className="text-[11px] ml-1" style={{ color: C.warn }}>no profile</span>}</span>}<span className="ml-1.5 inline-flex align-middle"><ComplaintChip s={s} articleId={r.article} /></span>{r.count > 1 && <span className="text-[10px] ml-1.5 px-1.5 py-0.5 rounded-full" style={{ background: C.accentSoft, color: C.accent }}>×{r.count} on docks</span>}{r.totalOnDock > r.count && <span className="text-[10px] ml-1.5" style={{ color: C.muted }}>+{r.totalOnDock - r.count} elsewhere</span>}{r.mixedPO && <span className="text-[10px] ml-1.5 px-1.5 py-0.5 rounded-full" style={{ background: C.warnBg, color: C.warn }}>⚠ mixed PO</span>}{r.checked > 0 && <span className="text-[10px] ml-1.5 px-1.5 py-0.5 rounded-full" style={{ background: C.okBg, color: C.ok }}>✓ {r.checked === r.count ? "already inspected" : `${r.checked}/${r.count} inspected`}</span>}{r.blocking && <span className="text-[10px] ml-1.5 px-1.5 py-0.5 rounded" style={{ background: C.badBg, color: C.bad }}>needed today</span>}{stacked && <span className="text-[10px] ml-1.5 px-1.5 py-0.5 rounded inline-flex items-center" style={{ background: C.line, color: C.muted }}><Ic i={Layers} s={10} mr={3} />in stack</span>}</td>
-              {prioSel === "Needed today" && <td className="py-1.5 pr-3 text-xs">{r.priority || "—"}</td>}<td className="py-1.5 pr-3 font-mono text-xs">{r.article}</td><td className="py-1.5 pr-3">{r.location}</td><td className="py-1.5 pr-3 text-xs">{r.arrived} {r.arrivedTime}</td><td className="py-1.5 pr-3 text-xs">{r.transporter}</td>
-              <td className="py-1.5 text-xs" style={{ color: hist.count ? C.bad : C.muted }}>{hist.count ? `${hist.count} rejected · ${hist.problems.slice(0, 2).map(x => x.name).join(", ")}` : "clean"}</td>
-              <td className="py-1.5 text-right whitespace-nowrap">{stacked ? <button onClick={() => setClaim(set, r, null)} className="text-xs px-2.5 py-1 rounded-lg" style={{ border: `1px solid ${C.line}` }}>Reachable</button> : <button onClick={() => setClaim(set, r, { userId: user.id, at: nowISO(), status: "stacked" })} className="text-xs px-2.5 py-1 rounded-lg inline-flex items-center" style={{ border: `1px solid ${C.line}` }}><Ic i={Layers} s={12} />In stack</button>}</td>
-            </tr>); })}</tbody>
-        </table>}
+        {prioRows.length === 0 ? <p className="text-xs py-3" style={{ color: C.muted }}>Nothing at this priority.</p> : prioShown.length === 0 ? <p className="text-xs py-3" style={{ color: C.muted }}>Nothing matches.</p> : <div className="flex flex-col gap-1.5">{prioShown.map(r => { const prod = s.products.find(p => p.articleId === r.article); const hist = recentProblemsFor(s, prod?.id); const stacked = claimOf(s, r)?.status === "stacked"; const stt = dockStatus(r); return (
+            <div key={r.article || r.hu} className="qc-tile grid items-center gap-3 rounded-xl px-3 py-2" style={{ gridTemplateColumns: "minmax(0, 2.4fr) 120px 140px minmax(0, 1.4fr) auto", background: C.bg, border: `1px solid ${C.line}`, borderLeft: `3px solid ${r.checked === r.count ? C.ok : dockStatusColor(stt)}`, opacity: r.checked === r.count ? .7 : 1 }}>
+              <span className="min-w-0">{(r.hu || r.article) && openPallet ? <button onClick={() => openPallet(r.hu || r.article)} className="text-sm font-medium text-left truncate block max-w-full">{r.name || prod?.name || r.article}</button> : <span className="text-sm font-medium">{r.name || r.article}</span>}
+                <span className="flex flex-wrap items-center gap-1 mt-0.5 text-[11px]" style={{ color: C.muted }}><span className="font-mono">{r.article}</span>{!prod && <span style={{ color: C.warn }}>· no profile</span>}{r.transporter ? <span>· {r.transporter}</span> : null}<ComplaintChip s={s} articleId={r.article} />{r.count > 1 && <span className="px-1.5 py-0.5 rounded-full" style={{ background: C.accentSoft, color: C.accent }}>×{r.count} on docks</span>}{r.totalOnDock > r.count && <span>+{r.totalOnDock - r.count} elsewhere</span>}{r.mixedPO && <span className="px-1.5 py-0.5 rounded-full" style={{ background: C.warnBg, color: C.warn }}>mixed PO</span>}{r.checked > 0 && <span className="px-1.5 py-0.5 rounded-full" style={{ background: C.okBg, color: C.ok }}>{r.checked === r.count ? "already inspected" : `${r.checked}/${r.count} inspected`}</span>}{stacked && <span className="px-1.5 py-0.5 rounded-full inline-flex items-center" style={{ background: C.line, color: C.muted }}><Ic i={Layers} s={10} mr={3} />in stack</span>}</span></span>
+              <span className="text-xs truncate">{r.location || "—"}</span>
+              <span className="text-xs whitespace-nowrap" style={{ color: C.muted }}>{r.arrived} {r.arrivedTime}</span>
+              <span className="min-w-0"><span className="text-[11px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap" style={{ background: dockStatusColor(stt) + "22", color: dockStatusText(stt) }}>{DOCK_STATUS.find(d => d[0] === stt)?.[1] || stt}</span><span className="block text-[11px] mt-0.5 truncate" style={{ color: hist.count ? C.bad : C.muted }}>{hist.count ? `${hist.count} rejected · ${hist.problems.slice(0, 2).map(x => x.name).join(", ")}` : "clean history"}</span></span>
+              <span className="text-right whitespace-nowrap">{stacked ? <button onClick={() => setClaim(set, r, null)} className="text-xs px-3 rounded-lg" style={{ height: 28, border: `1px solid ${C.line}` }}>Reachable</button> : <button onClick={() => setClaim(set, r, { userId: user.id, at: nowISO(), status: "stacked" })} className="text-xs px-3 rounded-lg inline-flex items-center" style={{ height: 28, border: `1px solid ${C.line}` }}><Ic i={Layers} s={12} />In stack</button>}</span>
+            </div>); })}</div>}
       </Card>}
 
       <p className="label-sm mt-4 mb-1.5" style={{ color: C.muted }}>Queue</p>
@@ -2134,13 +2141,13 @@ function Dashboard({ s, setPage, seed, user, openPallet, onAssign, set, openToda
       {blSel === "blocked" && (() => { const q = blockedQueue(s); const order = { "Not started": 0, "Started": 1, "Completed": 2 }; const list = q.filter(b => b.status !== "Completed" && !b.lost).sort((a, b) => (order[a.status] ?? 9) - (order[b.status] ?? 9) || (a.time || "").localeCompare(b.time || "")); return (
         <Card style={{ marginBottom: 12 }}>
           <div className="flex items-center gap-2 mb-1"><p className="font-medium text-sm flex-1">Blocked pallets · {list.length} open{f.bl.taken ? ` · ${f.bl.taken} taken` : ""}</p><button onClick={() => setPage("blocked")} className="text-xs underline" style={{ color: C.accent }}>full page</button><button onClick={() => setBlSel(null)} className="text-xs ml-2" style={{ color: C.muted }}>close</button></div>
-          {list.length === 0 ? <p className="text-xs py-3" style={{ color: C.muted }}>Nothing in the blocked queue.</p> : list.map(b => <QueueRow key={b.key} s={s} set={set} user={user} b={b} onOpen={() => openPallet && openPallet(b.hu || claimKey(b))} />)}
+          {list.length === 0 ? <p className="text-xs py-3" style={{ color: C.muted }}>Nothing in the blocked queue.</p> : <div className="grid gap-2" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))" }}>{list.map(b => <QueueRow key={b.key} tile s={s} set={set} user={user} b={b} onOpen={() => openPallet && openPallet(b.hu || claimKey(b))} />)}</div>}
         </Card>); })()}
       {blSel === "stacked" && (
         <Card style={{ marginBottom: 12 }}>
           <div className="flex items-center gap-2 mb-1"><p className="font-medium text-sm flex-1">In stack · {f.stacked} pallet{f.stacked === 1 ? "" : "s"} · not reachable yet</p><button onClick={() => setBlSel(null)} className="text-xs" style={{ color: C.muted }}>close</button></div>
           {f.stacked === 0 ? <p className="text-xs py-3" style={{ color: C.muted }}>Nothing marked in stack.</p> : f.stackedRows.map(r => { const c = claimOf(s, r); const who = c && s.users.find(u => u.id === c.userId); return (
-            <div key={claimKey(r)} className="py-2.5 flex items-center gap-2" style={{ borderBottom: `1px solid ${C.line}` }}>
+            <div key={claimKey(r)} className="qc-tile rounded-xl px-3 py-2 mb-1.5 flex items-center gap-2" style={{ background: C.bg, border: `1px solid ${C.line}`, borderLeft: `3px solid ${C.muted}` }}>
               <span className="inline-flex items-center" style={{ color: C.muted }}><Ic i={Layers} s={14} mr={0} /></span>
               <button onClick={() => openPallet && openPallet(r.hu || claimKey(r))} className="text-sm flex-1 truncate font-medium text-left">{r.name || r.article}</button>
               <span className="text-xs" style={{ color: C.muted }}>{r.location || "—"}{who ? ` · ${who.name.split(" ")[0]}` : ""}</span>
@@ -2152,16 +2159,15 @@ function Dashboard({ s, setPage, seed, user, openPallet, onAssign, set, openToda
 
       <p className="label-sm mt-4 mb-1.5" style={{ color: C.muted }}>Team · {f.doneToday} inspection{f.doneToday === 1 ? "" : "s"} done today</p>
       <Card style={{ marginBottom: 16 }}>
-        {f.people.length === 0 ? <p className="text-xs py-2" style={{ color: C.muted }}>No controllers yet.</p> : <table className="w-full text-sm" style={{ borderCollapse: "collapse" }}>
-          <thead><tr className="text-xs text-left" style={{ color: C.muted }}>{["Controller", "Inspecting", "Done today", "Last activity"].map(h => <th key={h} className="py-1.5 pr-3 font-medium" style={{ borderBottom: `1px solid ${C.line}` }}>{h}</th>)}</tr></thead>
-          <tbody>{f.people.map(p => (
-            <tr key={p.user.id} style={{ borderBottom: `1px solid ${C.line}` }}>
-              <td className="py-2 pr-3"><span className="inline-flex items-center gap-2"><Avatar user={p.user} size={22} />{p.user.name}</span></td>
-              <td className="py-2 pr-3 text-xs">{p.inProgress.length ? p.inProgress.map(i => <div key={i.id}>{s.products.find(x => x.id === i.productId)?.name || `pallet ${(i.pallets || [])[0] || ""}`} <span style={{ color: C.muted }}>· {i.status === "PendingReview" ? "awaiting you" : "draft"}</span></div>) : <span style={{ color: C.muted }}>—</span>}</td>
-              <td className="py-2 pr-3">{p.doneToday}</td>
-              <td className="py-2 text-xs" style={{ color: C.muted }}>{agoShort(p.lastAt)}</td>
-            </tr>))}</tbody>
-        </table>}
+        {f.people.length === 0 ? <p className="text-xs py-2" style={{ color: C.muted }}>No controllers yet.</p> : <div className="grid gap-2" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))" }}>{f.people.map(p => { const busy = p.inProgress.length > 0 || p.taken.length > 0; return (
+          <div key={p.user.id} className="qc-tile rounded-xl px-3 py-2.5 flex items-start gap-3" style={{ background: C.bg, border: `1px solid ${C.line}`, borderLeft: `3px solid ${busy ? C.accent : C.line}` }}>
+            <Avatar user={p.user} size={34} />
+            <span className="min-w-0 flex-1">
+              <span className="flex items-baseline gap-2"><span className="text-sm font-medium truncate">{p.user.name}</span><span className="text-[11px] whitespace-nowrap" style={{ color: C.muted }}>{agoShort(p.lastAt)}</span></span>
+              <span className="block text-xs mt-0.5" style={{ color: busy ? C.ink : C.muted }}>{p.inProgress.length ? p.inProgress.map(i => <span key={i.id} className="block truncate">{s.products.find(x => x.id === i.productId)?.name || `pallet ${(i.pallets || [])[0] || ""}`} <span style={{ color: C.muted }}>· {i.status === "PendingReview" ? "awaiting you" : "draft"}</span></span>) : p.taken.length ? <span className="block truncate">at {p.taken[0].location || "a pallet"} · {p.taken[0].name || p.taken[0].article}</span> : "not inspecting right now"}</span>
+              <span className="block text-[11px] mt-1" style={{ color: C.muted }}><b style={{ color: p.doneToday ? C.ok : C.muted }}>{p.doneToday}</b> done today</span>
+            </span>
+          </div>); })}</div>}
       </Card>
 
       <div className="grid gap-3 mb-3" style={{ gridTemplateColumns: "repeat(5, 1fr)" }}>
@@ -2344,11 +2350,11 @@ function TempSpecsPage({ s, set, user, openProduct, openCategory }) {
       </div>
       {rows.length === 0 ? <Card><Empty icon="📏" title={tab === "active" ? "No active temporary specs" : "Nothing has expired yet"} hint={tab === "active" ? "Add one from a product or category specification — the temp button on the row." : "Dated overrides land here after their day, and anything ended by hand stays here too."} /></Card> : (
         <Card>
-          {rows.map(t => (
-            <div key={t.id} className="py-3" style={{ borderTop: `1px solid ${C.line}` }}>
+          <div className="grid gap-2" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(360px, 1fr))" }}>{rows.map(t => (
+            <div key={t.id} className="qc-tile rounded-xl px-4 py-3" style={{ background: C.bg, border: `1px solid ${C.line}`, borderLeft: `3px solid ${tab === "active" ? (t.origin === "sheet" ? C.warn : C.bad) : C.line}`, opacity: tab === "active" ? 1 : .7 }}>
               <div className="flex items-start gap-3">
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium">{t.specName || "Specification"} · {specLabel(t)}</p>
+                  <p className="text-sm font-medium">{t.specName || "Specification"} · <span style={{ color: C.bad }}>{specLabel(t)}</span>{t.origin === "sheet" && <span className="ml-2 text-[10px] font-semibold px-1.5 py-0.5 rounded-full align-middle" style={{ background: C.warnBg, color: C.warn }}>from the sheet</span>}</p>
                   <p className="text-[12px] mt-0.5" style={{ color: C.muted }}>
                     <button type="button" onClick={() => openOwner(t)} className="underline" style={{ color: C.accent }}>{tempOwnerLabel(s, t)}</button>
                     {t.ownerKind === "category" ? " · whole category" : " · this product only"}
@@ -2360,7 +2366,7 @@ function TempSpecsPage({ s, set, user, openProduct, openCategory }) {
                 {tab === "active" && <Ghost onClick={() => set(x => ({ ...x, tempSpecs: clearTempSpec(x.tempSpecs, t.id, user.id) }))}>End it</Ghost>}
               </div>
             </div>
-          ))}
+          ))}</div>
         </Card>
       )}
     </div>
@@ -3097,7 +3103,10 @@ function AnalyticsPage({ s, setPage, openInspection, initial }) {
         <div className="grid gap-4 mb-4" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(340px, 1fr))" }}>
           <Card>
             <h2 className="mb-1">Supplier scorecard</h2><p className="text-xs mb-3" style={{ color: C.muted }}>Sorted by rejection rate. “Top problem” is the most frequent remark for that supplier.</p>
-            {scorecard.length === 0 ? <p className="text-xs" style={{ color: C.muted }}>No supplier data.</p> : <table className="w-full text-sm"><thead><tr className="text-xs" style={{ color: C.muted }}><th className="text-left font-medium pb-2">Supplier</th><th className="text-right font-medium pb-2">Full</th><th className="text-right font-medium pb-2">Rejected</th><th className="text-left font-medium pb-2 pl-3">Top problem</th></tr></thead><tbody>{scorecard.map(r => <tr key={r.name} style={{ borderTop: `1px solid ${C.line}` }}><td className="py-2">{r.name}{r.skip ? <span className="text-[11px] ml-1" style={{ color: C.muted }}>· {r.skip} skip</span> : null}</td><td className="py-2 text-right">{r.full}</td><td className="py-2 text-right font-medium" style={{ color: r.rate >= 34 ? C.bad : r.rate > 0 ? C.warn : C.ok }}>{r.full ? `${r.rate}%` : "—"}</td><td className="py-2 pl-3 text-xs" style={{ color: C.muted }}>{r.top}</td></tr>)}</tbody></table>}
+            {scorecard.length === 0 ? <p className="text-xs" style={{ color: C.muted }}>No supplier data.</p> : <div className="grid gap-2">{scorecard.map(r => { const col = r.rate >= 34 ? C.bad : r.rate > 0 ? C.warn : C.ok; return <div key={r.name} className="qc-tile rounded-xl px-3 py-2 flex items-center gap-3" style={{ background: C.bg, border: `1px solid ${C.line}`, borderLeft: `3px solid ${r.full ? col : C.line}` }}>
+              <div className="flex-1 min-w-0"><p className="text-sm font-medium truncate">{r.name}</p><p className="text-[11px] truncate" style={{ color: C.muted }}>{r.full} full inspection{r.full === 1 ? "" : "s"}{r.skip ? ` · ${r.skip} skip` : ""}{r.top ? ` · top problem: ${r.top}` : ""}</p></div>
+              <span className="text-right shrink-0"><span className="text-lg font-semibold leading-none" style={{ color: r.full ? col : C.muted, fontVariantNumeric: "tabular-nums" }}>{r.full ? `${r.rate}%` : "—"}</span><span className="block text-[10px]" style={{ color: C.muted }}>rejected</span></span>
+            </div>; })}</div>}
           </Card>
           <Card>
             <h2 className="mb-1">Top problems</h2><p className="text-xs mb-3" style={{ color: C.muted }}>Remarks per problem type, full inspections only.</p>
@@ -3106,7 +3115,10 @@ function AnalyticsPage({ s, setPage, openInspection, initial }) {
         </div>
         <Card>
           <h2 className="mb-1">Controllers</h2><p className="text-xs mb-3" style={{ color: C.muted }}>Workload and calibration. A rejection rate far from the team's is a reason to talk, not a score.</p>
-          <table className="w-full text-sm"><thead><tr className="text-xs" style={{ color: C.muted }}><th className="text-left font-medium pb-2">Controller</th><th className="text-right font-medium pb-2">Full</th><th className="text-right font-medium pb-2">Visual</th><th className="text-right font-medium pb-2">Skips</th><th className="text-right font-medium pb-2">Reject rate</th><th className="text-right font-medium pb-2">Avg. time</th></tr></thead><tbody>{byCtrl.map(r => <tr key={r.name} style={{ borderTop: `1px solid ${C.line}` }}><td className="py-2">{r.name}</td><td className="py-2 text-right">{r.full}</td><td className="py-2 text-right">{r.visual}</td><td className="py-2 text-right" style={{ color: r.skip ? C.warn : C.ink }}>{r.skip}</td><td className="py-2 text-right" style={{ color: r.full && Math.abs(r.rejRate - pct1(rej, full.length)) > 25 ? C.warn : C.ink }}>{r.full ? `${r.rejRate}%` : "—"}</td><td className="py-2 text-right">{r.avg !== null ? `${fmt(r.avg)} min` : "—"}</td></tr>)}</tbody></table>
+          <div className="grid gap-2" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))" }}>{byCtrl.map(r => { const off = r.full && Math.abs(r.rejRate - pct1(rej, full.length)) > 25; const u = s.users.find(x => x.name === r.name); return <div key={r.name} className="qc-tile rounded-xl px-3 py-2" style={{ background: C.bg, border: `1px solid ${C.line}`, borderLeft: `3px solid ${off ? C.warn : C.accent}` }}>
+            <div className="flex items-center gap-2 mb-1.5"><Avatar user={u || { name: r.name }} size={24} /><p className="text-sm font-medium flex-1 truncate">{r.name}</p>{off && <span className="text-[10px] px-1.5 py-0.5 rounded-full" style={{ background: C.warnBg, color: C.warn }}>far from team</span>}</div>
+            <div className="grid grid-cols-5 gap-1 text-center">{[["Full", r.full, C.ink], ["Visual", r.visual, C.ink], ["Skips", r.skip, r.skip ? C.warn : C.ink], ["Reject", r.full ? `${r.rejRate}%` : "—", off ? C.warn : C.ink], ["Avg", r.avg !== null ? `${fmt(r.avg)}′` : "—", C.ink]].map(([l, v, c]) => <span key={l}><span className="block text-sm font-semibold" style={{ color: c, fontVariantNumeric: "tabular-nums" }}>{v}</span><span className="block text-[10px]" style={{ color: C.muted }}>{l}</span></span>)}</div>
+          </div>; })}</div>
         </Card>
       </>}
       {(() => { const series = weekSeries(complaintSnapshots(s)); if (series.length < 1) return null;
@@ -3153,18 +3165,17 @@ function AnalyticsPage({ s, setPage, openInspection, initial }) {
         return <Card style={{ marginTop: 16 }}>
           <div className="flex items-center gap-3 mb-1 flex-wrap"><h2 className="flex-1"><Ic i={ThumbsDown} s={16} />Complaints vs QC</h2><span className="text-xs" style={{ color: C.muted }}>{meta.period ? `complaints: ${meta.period} · ` : ""}QC: last {days} days</span></div>
           <p className="text-xs mb-3" style={{ color: C.muted }}>Customer freshness complaints next to what QC decided on the same article. <b style={{ color: C.bad }}>{passed}</b> article{passed === 1 ? "" : "s"} with complaints went through QC almost always accepted{unseen ? <>, <b style={{ color: C.warn }}>{unseen}</b> {unseen === 1 ? "was" : "were"} not inspected at all in this period</> : ""} — those are where the inspection or its form misses what the customer sees.</p>
-          <table className="w-full text-sm"><thead><tr className="text-xs text-left" style={{ color: C.muted }}>{["Article", "Complaints", "", "Top sub-type", "QC inspections", "Rejected", "Rej. rate", "Top QC remark", "Signal"].map((h, i) => <th key={i} className="py-1.5 pr-3 font-medium" style={{ borderBottom: `1px solid ${C.line}` }}>{h}</th>)}</tr></thead>
-            <tbody>{rows.map(r => <tr key={r.id} style={{ borderBottom: `1px solid ${C.line}` }}>
-              <td className="py-1.5 pr-3">{r.p ? <button onClick={() => { setPage && setPage("products"); }} className="text-left font-medium" style={{ color: C.ink }}>{r.name || r.p.name}</button> : <span>{r.name || r.articleId}</span>}<span className="block text-[10px] font-mono" style={{ color: C.muted }}>{r.articleId}</span></td>
-              <td className="py-1.5 pr-3 font-semibold" style={{ fontVariantNumeric: "tabular-nums" }}>{r.count}</td>
-              <td className="py-1.5 pr-3" style={{ width: 120 }}><div className="h-2 rounded-full" style={{ background: C.bg }}><div className="h-2 rounded-full" style={{ width: `${Math.round((r.count || 0) / maxC * 100)}%`, background: C.bad, opacity: .85 }} /></div></td>
-              <td className="py-1.5 pr-3 text-xs">{r.subType ? <span className="px-1.5 py-0.5 rounded-full" style={{ background: C.warnBg, color: C.warn }}>{r.subType}{r.subCount != null ? ` (${r.subCount})` : ""}</span> : "—"}</td>
-              <td className="py-1.5 pr-3" style={{ fontVariantNumeric: "tabular-nums" }}>{r.p ? r.ins : "—"}</td>
-              <td className="py-1.5 pr-3" style={{ fontVariantNumeric: "tabular-nums" }}>{r.p ? r.rej : "—"}</td>
-              <td className="py-1.5 pr-3" style={{ fontVariantNumeric: "tabular-nums", color: r.rate == null ? C.muted : r.rate < 20 ? C.bad : C.ink }}>{r.rate == null ? "—" : `${r.rate}%`}</td>
-              <td className="py-1.5 pr-3 text-xs">{r.top ? `${r.top.name} ×${r.top.count}` : "—"}</td>
-              <td className="py-1.5 pr-3 text-xs"><span className="px-1.5 py-0.5 rounded-full whitespace-nowrap" style={{ background: r.signal[2], color: r.signal[1] }}>{r.signal[0]}</span></td>
-            </tr>)}</tbody></table>
+          <div className="grid gap-2">{rows.map(r => <div key={r.id} className="qc-tile rounded-xl px-3 py-2" style={{ background: C.bg, border: `1px solid ${C.line}`, borderLeft: `3px solid ${r.signal[1]}` }}>
+            <div className="flex items-center gap-3 flex-wrap">
+              <div className="flex-1 min-w-0" style={{ minWidth: 200 }}>
+                <p className="text-sm font-medium truncate">{r.p ? <button onClick={() => { setPage && setPage("products"); }} className="text-left font-medium" style={{ color: C.ink }}>{r.name || r.p.name}</button> : <span>{r.name || r.articleId}</span>}</p>
+                <p className="text-[11px] mt-0.5 flex items-center gap-2 flex-wrap" style={{ color: C.muted }}><span className="font-mono">{r.articleId}</span>{r.subType && <span className="px-1.5 py-0.5 rounded-full" style={{ background: C.warnBg, color: C.warn }}>{r.subType}{r.subCount != null ? ` (${r.subCount})` : ""}</span>}{r.top && <span>top QC remark: {r.top.name} ×{r.top.count}</span>}</p>
+              </div>
+              <div className="hidden md:block shrink-0" style={{ width: 110 }}><div className="h-2 rounded-full" style={{ background: C.surface, border: `1px solid ${C.line}` }}><div className="h-full rounded-full" style={{ width: `${Math.round((r.count || 0) / maxC * 100)}%`, background: C.bad, opacity: .85 }} /></div></div>
+              {[["complaints", r.count, C.ink], ["QC checks", r.p ? r.ins : "—", C.ink], ["rejected", r.p ? r.rej : "—", C.ink], ["rej. rate", r.rate == null ? "—" : `${r.rate}%`, r.rate == null ? C.muted : r.rate < 20 ? C.bad : C.ink]].map(([l, v, c]) => <span key={l} className="text-right shrink-0" style={{ minWidth: 60 }}><span className="block text-sm font-semibold leading-none" style={{ color: c, fontVariantNumeric: "tabular-nums" }}>{v}</span><span className="block text-[10px]" style={{ color: C.muted }}>{l}</span></span>)}
+              <span className="text-[11px] px-2 py-0.5 rounded-full whitespace-nowrap shrink-0" style={{ background: r.signal[2], color: r.signal[1], minWidth: 120, textAlign: "center" }}>{r.signal[0]}</span>
+            </div>
+          </div>)}</div>
         </Card>; })()}
     </div>
   );
@@ -3369,7 +3380,7 @@ function DictionaryPage({ s, set, listKey, title, hint, placeholder, usageOf }) 
       <p className="text-sm mb-5" style={{ color: C.muted, maxWidth: 640 }}>{hint}</p>
       <div className="grid gap-4" style={{ gridTemplateColumns: "1.2fr 1fr" }}>
         <Card>
-          {items.length === 0 ? <Empty icon="📖" title="The list is empty" hint="Add entries on the right. This list is shared by the whole system." /> : items.map(i => { const u = usageOf ? usageOf(i.id) : 0; const on = sel === i.id; return <div key={i.id} onClick={() => rich && setSel(on ? null : i.id)} className={`flex items-center gap-2 py-2 px-2 rounded-lg ${rich ? "cursor-pointer row" : ""}`} style={{ borderTop: `1px solid ${C.line}`, background: on ? C.accentSoft : "transparent" }}><span className="flex-1 min-w-0"><span className="block text-sm truncate" style={{ color: on ? C.accent : C.ink }}>{i.name}</span>{rich && (i.contactPerson || i.email || i.phone) && <span className="block text-[11px] truncate" style={{ color: C.muted }}>{[i.contactPerson, i.email, i.phone].filter(Boolean).join(" · ")}</span>}</span>{usageOf && <span className="text-xs" style={{ color: C.muted }}>{u} prod.</span>}<button onClick={e => { e.stopPropagation(); remove(i.id); }} className="text-xs px-1" style={{ color: C.muted }}>×</button></div>; })}
+          {items.length === 0 ? <Empty icon="📖" title="The list is empty" hint="Add entries on the right. This list is shared by the whole system." /> : items.map(i => { const u = usageOf ? usageOf(i.id) : 0; const on = sel === i.id; return <div key={i.id} onClick={() => rich && setSel(on ? null : i.id)} className={`qc-tile flex items-center gap-2 py-2 px-3 rounded-xl mb-1.5 ${rich ? "cursor-pointer" : ""}`} style={{ background: on ? C.accentSoft : C.bg, border: `1px solid ${on ? C.accent : C.line}`, borderLeft: `3px solid ${on ? C.accent : C.line}` }}><span className="flex-1 min-w-0"><span className="block text-sm truncate" style={{ color: on ? C.accent : C.ink }}>{i.name}</span>{rich && (i.contactPerson || i.email || i.phone) && <span className="block text-[11px] truncate" style={{ color: C.muted }}>{[i.contactPerson, i.email, i.phone].filter(Boolean).join(" · ")}</span>}</span>{usageOf && <span className="text-xs" style={{ color: C.muted }}>{u} prod.</span>}<button onClick={e => { e.stopPropagation(); remove(i.id); }} className="text-xs px-1" style={{ color: C.muted }}>×</button></div>; })}
         </Card>
         {item ? (
           <Card>
@@ -5538,14 +5549,14 @@ function FlagsPage({ s, set, user }) {
       <h1 className="mb-1">Product flags</h1>
       <p className="text-sm mb-5" style={{ color: C.muted, maxWidth: 640 }}>The controller reports from an inspection or the catalog that something in the profile is wrong (ProductFlag). The Head resolves it.</p>
       <Card>
-        {list.length === 0 ? <Empty icon="🚩" title="No flags" hint="The controller can report a product profile issue with the 🚩 button during an inspection." /> : list.map(f => { const p = s.products.find(x => x.id === f.productId); return (
-          <div key={f.id} className="py-3" style={{ borderTop: `1px solid ${C.line}`, opacity: f.status === "Resolved" ? 0.6 : 1 }}>
-            <div className="flex items-center gap-2 mb-1"><span className="text-xs px-2 py-0.5 rounded-full" style={{ background: f.status === "Open" ? C.warnBg : C.okBg, color: f.status === "Open" ? C.warn : C.ok }}>{f.status === "Open" ? "open" : "resolved"}</span><span className="text-sm font-medium">{p?.name}</span><span className="text-xs" style={{ color: C.muted }}>{s.users.find(u => u.id === f.raisedBy)?.name} · {fmtTime(f.createdAt)}{f.inspectionId && " · from inspection"}</span></div>
+        {list.length === 0 ? <Empty icon="🚩" title="No flags" hint="The controller can report a product profile issue with the 🚩 button during an inspection." /> : <div className="flex flex-col">{list.map(f => { const p = s.products.find(x => x.id === f.productId); return (
+          <div key={f.id} className="qc-tile rounded-xl px-4 py-3 mb-2" style={{ background: C.bg, border: `1px solid ${C.line}`, borderLeft: `3px solid ${f.status === "Open" ? C.warn : C.ok}`, opacity: f.status === "Resolved" ? 0.6 : 1 }}>
+            <div className="flex items-center gap-2 mb-1 flex-wrap"><span className="text-[11px] font-semibold px-2 py-0.5 rounded-full" style={{ background: f.status === "Open" ? C.warnBg : C.okBg, color: f.status === "Open" ? C.warn : C.ok }}>{f.status === "Open" ? "Open" : "Resolved"}</span><span className="text-sm font-medium">{p?.name}</span><span className="text-xs" style={{ color: C.muted }}>{s.users.find(u => u.id === f.raisedBy)?.name} · {fmtTime(f.createdAt)}{f.inspectionId && " · from inspection"}</span></div>
             <p className="text-sm mb-2">„{f.description}"</p>
             {f.status === "Open" ? (user.role === "Head" ? <div className="flex gap-2"><input value={res[f.id] || ""} onChange={e => setRes(x => ({ ...x, [f.id]: e.target.value }))} placeholder="what was done?" className="flex-1 text-xs rounded px-2 py-1 outline-none" style={{ ...inp }} /><Primary small onClick={() => resolve(f.id)}>Resolve</Primary></div> : <p className="text-xs" style={{ color: C.muted }}>Awaiting the Head.</p>)
               : <p className="text-xs" style={{ color: C.muted }}>✓ {f.resolution} — {s.users.find(u => u.id === f.resolvedBy)?.name}, {fmtTime(f.resolvedAt)}</p>}
           </div>
-        ); })}
+        ); })}</div>}
       </Card>
     </div>
   );
@@ -5562,7 +5573,7 @@ function NotificationsPage({ s, set, user, setPage, setOpenId, setSelProduct }) 
       <p className="text-sm mb-5" style={{ color: C.muted, maxWidth: 640 }}>One generic table (Notification) fed by: tolerance exceeded, accepted despite exceeding, escalation, answer, flag, editing someone else's report.</p>
       <Card>
         {mine.length === 0 ? <Empty icon="🔔" title="Quiet" hint="Nothing needs your attention." /> : mine.map(n => (
-          <button key={n.id} onClick={() => { markRead(n.id); if (n.entityType === "Inspection" && n.entityId) { setOpenId(n.entityId); setPage("inspections"); } if (n.entityType === "ProductFlag") setPage("flags"); if (n.entityType === "Conversation") setPage("messages"); if (n.entityType === "Announcement") setPage("announcements"); if (n.entityType === "Product" && n.entityId) { setSelProduct(n.entityId); setPage(user.role === "Head" ? "products" : "catalog"); } }} className="w-full text-left flex items-center gap-3 px-2 py-2.5" style={{ borderTop: `1px solid ${C.line}`, background: n.readAt ? "transparent" : C.accentSoft }}>
+          <button key={n.id} onClick={() => { markRead(n.id); if (n.entityType === "Inspection" && n.entityId) { setOpenId(n.entityId); setPage("inspections"); } if (n.entityType === "ProductFlag") setPage("flags"); if (n.entityType === "Conversation") setPage("messages"); if (n.entityType === "Announcement") setPage("announcements"); if (n.entityType === "Product" && n.entityId) { setSelProduct(n.entityId); setPage(user.role === "Head" ? "products" : "catalog"); } }} className="qc-tile w-full text-left flex items-center gap-3 px-3 py-2.5 rounded-xl mb-1.5" style={{ background: n.readAt ? C.bg : C.accentSoft, border: `1px solid ${n.readAt ? C.line : C.accent}`, borderLeft: `3px solid ${n.readAt ? C.line : C.accent}` }}>
             <NotifIcon type={n.type} />
             <span className="flex-1 min-w-0"><span className="block text-sm" style={{ fontWeight: n.readAt ? 400 : 500 }}>{cleanMsg(n.message)}</span><span className="block text-[11px]" style={{ color: C.muted }}>{fmtTime(n.createdAt)}</span></span>
             {!n.readAt && <span className="rounded-full flex-shrink-0" style={{ width: 8, height: 8, background: C.accent }} />}
@@ -5587,24 +5598,14 @@ function LostPalletsPage({ s, set, user, setSel, setPage, setSelPallet }) {
       <h1 className="mb-1">Lost pallets</h1>
       <p className="text-sm mb-4" style={{ color: C.muted, maxWidth: 680 }}>Pallets a controller couldn't find on the docks — moved without a scan. QC stops chasing them; this is the list for whoever does. Marked ones stay in the app, dimmed, and raise no alerts.</p>
       {!marks.length ? <Card><Empty icon="🔍" title="Nothing marked lost" hint="Controllers mark a pallet lost from its screen on the phone." /></Card> : <Card>
-        <table className="w-full text-sm" style={{ borderCollapse: "collapse" }}>
-          <thead><tr style={{ color: C.muted }} className="text-xs text-left">{["Product", "Article", "HU", "Last seen", "List", "Marked by", "When", "Note", ""].map(h => <th key={h} className="py-2 pr-3 font-medium" style={{ borderBottom: `1px solid ${C.line}` }}>{h}</th>)}</tr></thead>
-          <tbody>
-            {marks.map(x => (
-              <tr key={x.key} style={{ opacity: x.cleared ? .5 : 1, borderBottom: `1px solid ${C.line}` }}>
-                <td className="py-2 pr-3">{(x.hu || x.row || x.key) ? <button onClick={() => setSelPallet(x.hu || (x.row && (x.row.hu || claimKey(x.row))) || x.key)} className="underline text-left" style={{ color: C.accent }}>{x.name}</button> : x.name}</td>
-                <td className="py-2 pr-3 font-mono text-xs">{x.article}</td>
-                <td className="py-2 pr-3 font-mono text-xs">{x.hu ? `…${String(x.hu).slice(-8)}` : "—"}</td>
-                <td className="py-2 pr-3">{x.location || "—"}</td>
-                <td className="py-2 pr-3 text-xs" style={{ color: C.muted }}>{x.row ? (x.row.kind === "blocked" ? "blocked sheet" : "dock sheet") : "off the sheets"}</td>
-                <td className="py-2 pr-3">{x.by ? <span className="inline-flex items-center gap-1.5"><Avatar user={x.by} size={18} />{x.by.name}</span> : "?"}</td>
-                <td className="py-2 pr-3 text-xs">{fmtTime(x.m.at)}</td>
-                <td className="py-2 pr-3 text-xs" style={{ color: C.muted }}>{x.m.note || ""}</td>
-                <td className="py-2 text-right whitespace-nowrap">{x.cleared ? <span className="text-xs" style={{ color: C.ok }}>found</span> : x.row ? <button onClick={() => markFound(set, x.row, user)} className="text-xs px-2.5 py-1 rounded-lg" style={{ border: `1px solid ${C.line}` }}>Found</button> : <button onClick={() => forget(x.key)} className="text-xs px-2.5 py-1 rounded-lg" style={{ border: `1px solid ${C.line}`, color: C.muted }}>Clear</button>}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <div className="flex flex-col gap-1.5">{marks.map(x => (
+          <div key={x.key} className="qc-tile grid items-center gap-3 rounded-xl px-3 py-2" style={{ gridTemplateColumns: "minmax(0, 2fr) 110px minmax(0, 1.2fr) minmax(0, 1.4fr) auto", background: C.bg, border: `1px solid ${C.line}`, borderLeft: `3px solid ${x.cleared ? C.ok : C.muted}`, opacity: x.cleared ? .55 : 1 }}>
+            <span className="min-w-0">{(x.hu || x.row || x.key) ? <button onClick={() => setSelPallet(x.hu || (x.row && (x.row.hu || claimKey(x.row))) || x.key)} className="text-sm font-medium text-left truncate block max-w-full">{x.name}</button> : <span className="text-sm font-medium">{x.name}</span>}<span className="block text-[11px] truncate" style={{ color: C.muted }}><span className="font-mono">{x.article}</span>{x.hu ? <> · HU <span className="font-mono">…{String(x.hu).slice(-8)}</span></> : null} · {x.row ? (x.row.kind === "blocked" ? "blocked sheet" : "dock sheet") : "off the sheets"}</span></span>
+            <span className="text-xs">{x.location ? <>last seen <b>{x.location}</b></> : <span style={{ color: C.muted }}>no location</span>}</span>
+            <span className="text-xs inline-flex items-center gap-1.5 min-w-0" style={{ color: C.muted }}>{x.by ? <><Avatar user={x.by} size={18} /><span className="truncate">{x.by.name.split(" ")[0]} · {fmtTime(x.m.at)}</span></> : fmtTime(x.m.at)}</span>
+            <span className="text-xs truncate" style={{ color: C.muted }}>{x.m.note || ""}</span>
+            <span className="text-right whitespace-nowrap">{x.cleared ? <span className="text-xs font-medium" style={{ color: C.ok }}>found</span> : x.row ? <button onClick={() => markFound(set, x.row, user)} className="text-xs font-semibold px-3 rounded-lg" style={{ height: 28, background: C.ink, color: C.onDark }}>Found</button> : <button onClick={() => forget(x.key)} className="text-xs px-3 rounded-lg" style={{ height: 28, border: `1px solid ${C.line}`, color: C.muted }}>Clear</button>}</span>
+          </div>))}</div>
         {open.length > 0 && <p className="text-[11px] mt-3" style={{ color: C.muted }}>{open.length} still lost. Print or share this page with whoever tracks them; an outbound message (SV / WMS) can be hooked to markLost() later.</p>}
       </Card>}
     </div>
@@ -5643,29 +5644,17 @@ function UnreportedPalletsPage({ s, set, user, setSel, setPage, setSelPallet }) 
         <div key={g.k} className="mb-5">
           <p className="label-sm mb-2" style={{ color: C.muted }}>{g.k} · {g.items.length} pallet{g.items.length === 1 ? "" : "s"}</p>
           <Card>
-            <table className="w-full text-sm" style={{ borderCollapse: "collapse" }}>
-              <thead><tr style={{ color: C.muted }} className="text-xs text-left">{["Product", "Article", "HU", "Location", "Priority", "PO", "Transporter", "Last seen", "Gone since", isHead ? "Review" : "Status"].map(h => <th key={h} className="py-2 pr-3 font-medium" style={{ borderBottom: `1px solid ${C.line}` }}>{h}</th>)}</tr></thead>
-              <tbody>
-                {g.items.map(x => { const product = s.products.find(p => p.articleId === x.article); const reviewer = s.users.find(u => u.id === x.reviewedByUserId); return (
-                  <tr key={x.id} style={{ borderBottom: `1px solid ${C.line}`, opacity: x.reviewedAt ? .6 : 1 }}>
-                    <td className="py-2 pr-3">{(x.hu || product) ? <button onClick={() => { if (x.hu && setSelPallet) setSelPallet(x.hu); else if (product) { setSel(product.id); setPage("products"); } }} className="underline text-left" style={{ color: C.accent }}>{x.name || product?.name || x.article}</button> : (x.name || x.article || "—")}</td>
-                    <td className="py-2 pr-3 font-mono text-xs">{x.article || "—"}</td>
-                    <td className="py-2 pr-3 font-mono text-xs">{x.hu ? `…${String(x.hu).slice(-8)}` : "—"}</td>
-                    <td className="py-2 pr-3">{x.location || "—"}</td>
-                    <td className="py-2 pr-3 text-xs">{x.priority || "—"}</td>
-                    <td className="py-2 pr-3 text-xs">{x.po || "—"}</td>
-                    <td className="py-2 pr-3 text-xs">{x.transporter || "—"}</td>
-                    <td className="py-2 pr-3 text-xs">{fmtTime(x.lastSeenAt)}</td>
-                    <td className="py-2 pr-3 text-xs">{fmtTime(x.detectedAt)}</td>
-                    <td className="py-2 text-right whitespace-nowrap">
-                      {x.reviewedAt ? <span className="text-xs"><span style={{ color: C.ok }}>✓ reviewed</span>{reviewer ? ` by ${reviewer.name.split(" ")[0]}` : ""}{x.reviewNote ? ` — “${x.reviewNote}”` : ""}{isHead && <button onClick={() => unreviewUnreported(set, x.id)} className="ml-2 underline" style={{ color: C.muted }}>undo</button>}</span>
-                        : isHead ? <span className="inline-flex items-center gap-1"><input value={notes[x.id] || ""} onChange={e => setNotes(n => ({ ...n, [x.id]: e.target.value }))} onKeyDown={e => e.key === "Enter" && review(x.id)} placeholder="note (optional)" className="text-xs" style={{ width: 120, padding: "3px 6px" }} /><button onClick={() => review(x.id)} className="text-xs px-2 py-1 rounded-lg" style={{ border: `1px solid ${C.line}` }}>Mark reviewed</button></span>
-                          : <span className="text-xs" style={{ color: C.warn }}>open</span>}
-                    </td>
-                  </tr>
-                ); })}
-              </tbody>
-            </table>
+            <div className="flex flex-col gap-1.5">{g.items.map(x => { const product = s.products.find(p => p.articleId === x.article); const reviewer = s.users.find(u => u.id === x.reviewedByUserId); return (
+              <div key={x.id} className="qc-tile grid items-center gap-3 rounded-xl px-3 py-2" style={{ gridTemplateColumns: "minmax(0, 2fr) minmax(0, 1.3fr) minmax(0, 1.3fr) auto", background: C.bg, border: `1px solid ${C.line}`, borderLeft: `3px solid ${x.reviewedAt ? C.ok : C.warn}`, opacity: x.reviewedAt ? .6 : 1 }}>
+                <span className="min-w-0">{(x.hu || product) ? <button onClick={() => { if (x.hu && setSelPallet) setSelPallet(x.hu); else if (product) { setSel(product.id); setPage("products"); } }} className="text-sm font-medium text-left truncate block max-w-full">{x.name || product?.name || x.article}</button> : <span className="text-sm font-medium">{x.name || x.article || "—"}</span>}<span className="block text-[11px] truncate" style={{ color: C.muted }}><span className="font-mono">{x.article || "—"}</span>{x.hu ? <> · HU <span className="font-mono">…{String(x.hu).slice(-8)}</span></> : null}{x.po ? <> · PO <span className="font-mono">{x.po}</span></> : null}{x.transporter ? ` · ${x.transporter}` : ""}</span></span>
+                <span className="text-xs min-w-0 truncate">{x.location ? <>was at <b>{x.location}</b></> : <span style={{ color: C.muted }}>no location</span>}{x.priority ? <span className="ml-1.5 text-[11px] px-1.5 py-0.5 rounded-full" style={{ background: dockStatusColor(x.priority) + "22", color: dockStatusText(x.priority) }}>{x.priority}</span> : null}</span>
+                <span className="text-xs min-w-0 truncate" style={{ color: C.muted }}>seen {fmtTime(x.lastSeenAt)} · gone {fmtTime(x.detectedAt)}</span>
+                <span className="text-right whitespace-nowrap">
+                  {x.reviewedAt ? <span className="text-xs"><span style={{ color: C.ok }}>✓ reviewed</span>{reviewer ? ` by ${reviewer.name.split(" ")[0]}` : ""}{x.reviewNote ? ` — “${x.reviewNote}”` : ""}{isHead && <button onClick={() => unreviewUnreported(set, x.id)} className="ml-2 underline" style={{ color: C.muted }}>undo</button>}</span>
+                    : isHead ? <span className="inline-flex items-center gap-1.5"><input value={notes[x.id] || ""} onChange={e => setNotes(n => ({ ...n, [x.id]: e.target.value }))} onKeyDown={e => e.key === "Enter" && review(x.id)} placeholder="note (optional)" className="text-xs rounded-lg px-2" style={{ ...inp, width: 140, height: 28 }} /><button onClick={() => review(x.id)} className="text-xs font-semibold px-3 rounded-lg" style={{ height: 28, background: C.ink, color: C.onDark }}>Mark reviewed</button></span>
+                      : <span className="text-xs font-medium" style={{ color: C.warn }}>open</span>}
+                </span>
+              </div>); })}</div>
           </Card>
         </div>
       ))}
@@ -5687,7 +5676,7 @@ function BlockedQueuePage({ s, set, user, setSel, setPage, setSelPallet }) {
           {[["Open", open.length, C.bad], ["Taken", taken.length, C.accent], ["In stack", stacked.length, C.muted], ["Unassigned", open.length - taken.length - stacked.length, C.warn]].map(([l, v, col]) => <div key={l} className="qc-tile rounded-2xl p-4" style={{ background: C.surface, border: `1px solid ${C.line}`, borderLeft: `3px solid ${col}` }}><p className="text-xs" style={{ color: C.muted }}>{l}</p><p className="text-[26px] leading-tight font-semibold">{v}</p></div>)}
         </div>
         <div className="flex gap-1.5 mb-3">{[["open", "Open"], ["mine", "Mine"], ["all", "All incl. done"]].map(([k, l]) => <button key={k} onClick={() => setView(k)} className="text-xs px-3 py-1.5 rounded-full" style={{ background: view === k ? C.ink : "transparent", color: view === k ? C.onDark : C.ink, border: `1px solid ${view === k ? C.ink : C.line}` }}>{l}</button>)}</div>
-        <Card>{list.length === 0 ? <p className="text-xs py-4" style={{ color: C.muted }}>Nothing here.</p> : list.map(b => <QueueRow key={b.key} s={s} set={set} user={user} b={b} onOpen={() => { if (setSelPallet) setSelPallet(b.hu || claimKey(b)); else { const prod = s.products.find(p => p.articleId === b.article); if (prod) { setSel(prod.id); setPage("products"); } } }} />)}</Card>
+        <Card>{list.length === 0 ? <p className="text-xs py-4" style={{ color: C.muted }}>Nothing here.</p> : <div className="grid gap-2" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))" }}>{list.map(b => <QueueRow key={b.key} tile s={s} set={set} user={user} b={b} onOpen={() => { if (setSelPallet) setSelPallet(b.hu || claimKey(b)); else { const prod = s.products.find(p => p.articleId === b.article); if (prod) { setSel(prod.id); setPage("products"); } } }} />)}</div>}</Card>
       </>}
     </div>
   );
@@ -5792,7 +5781,7 @@ function UsersPage({ s, set }) {
       <h1 className="mb-1">Users</h1>
       <p className="text-sm mb-5" style={{ color: C.muted, maxWidth: 640 }}>Accounts are created only by the Admin/Head (no public sign-up). Deactivation instead of deletion — inspection history stays.</p>
       <div className="grid gap-4" style={{ gridTemplateColumns: "1.2fr 1fr" }}>
-        <Card>{s.users.map(u => <div key={u.id} className="flex items-center gap-2 py-2" style={{ borderTop: `1px solid ${C.line}`, opacity: u.active === false ? 0.5 : 1 }}><Avatar user={u} size={30} onPick={url => set(x => ({ ...x, users: x.users.map(q => q.id === u.id ? { ...q, photoUrl: url } : q) }))} /><span className="flex-1 text-sm">{u.name}<span className="text-xs ml-2" style={{ color: C.muted }}>{u.email}</span></span><input type="password" inputMode="numeric" value={u.pin || ""} onChange={e => set(x => ({ ...x, users: x.users.map(q => q.id === u.id ? { ...q, pin: e.target.value.replace(/\D/g, "").slice(0, 6) } : q) }))} placeholder="PIN" title="Sign-in PIN (4–6 digits). Empty = signs in without a PIN." className="text-xs font-mono" style={{ width: 64, minHeight: 28 }} /><span className="text-xs px-2 py-0.5 rounded-full" style={{ background: u.role === "Head" ? C.accentSoft : C.line, color: u.role === "Head" ? C.accent : C.muted }}>{u.role === "Head" ? "Head" : "Controller"}</span><button onClick={() => toggle(u.id)} className="text-xs" style={{ color: C.muted }}>{u.active === false ? "activate" : "deactivate"}</button><button className="text-xs" style={{ color: C.muted }} title="sends a reset link (PasswordResetTokens)">reset password</button></div>)}</Card>
+        <Card>{s.users.map(u => <div key={u.id} className="qc-tile flex items-center gap-3 py-2.5 px-3 rounded-xl mb-1.5" style={{ background: C.bg, border: `1px solid ${C.line}`, borderLeft: `3px solid ${u.active === false ? C.line : u.role === "Head" ? C.accent : C.ok}`, opacity: u.active === false ? 0.5 : 1 }}><Avatar user={u} size={34} onPick={url => set(x => ({ ...x, users: x.users.map(q => q.id === u.id ? { ...q, photoUrl: url } : q) }))} /><span className="flex-1 text-sm">{u.name}<span className="text-xs ml-2" style={{ color: C.muted }}>{u.email}</span></span><input type="password" inputMode="numeric" value={u.pin || ""} onChange={e => set(x => ({ ...x, users: x.users.map(q => q.id === u.id ? { ...q, pin: e.target.value.replace(/\D/g, "").slice(0, 6) } : q) }))} placeholder="PIN" title="Sign-in PIN (4–6 digits). Empty = signs in without a PIN." className="text-xs font-mono" style={{ width: 64, minHeight: 28 }} /><span className="text-xs px-2 py-0.5 rounded-full" style={{ background: u.role === "Head" ? C.accentSoft : C.line, color: u.role === "Head" ? C.accent : C.muted }}>{u.role === "Head" ? "Head" : "Controller"}</span><button onClick={() => toggle(u.id)} className="text-xs" style={{ color: C.muted }}>{u.active === false ? "activate" : "deactivate"}</button><button className="text-xs" style={{ color: C.muted }} title="sends a reset link (PasswordResetTokens)">reset password</button></div>)}</Card>
         <Card>
           <p className="font-medium text-sm mb-3">New account</p>
           <div className="flex gap-1.5 mb-2"><input value={d.firstName || ""} onChange={e => setD(x => ({ ...x, firstName: e.target.value, name: `${e.target.value} ${x.lastName || ""}`.trim() }))} placeholder="first name" className="flex-1 text-sm" /><input value={d.lastName || ""} onChange={e => setD(x => ({ ...x, lastName: e.target.value, name: `${x.firstName || ""} ${e.target.value}`.trim() }))} placeholder="last name" className="flex-1 text-sm" /></div>
