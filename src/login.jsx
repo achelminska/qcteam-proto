@@ -6,7 +6,7 @@ import { Eye, EyeOff } from "lucide-react";
 
 export function createLoginScreen({ DARK, GLOBAL_CSS, Ic, ChevronLeft, ChevronRight, Check, notifyHeads, nowISO, writeSession }) {
 // Bump when public/login-hero.jpg changes: the service worker and the browser cache the old picture under the same URL.
-const LOGIN_HERO_V = "7";
+const LOGIN_HERO_V = "8";
 return function LoginScreen({ s, onLogin, allowRoles }) {
   // Always the prototype's dark theme, whatever the app is set to: the sign-in page is the front door, one look.
   const D = DARK;
@@ -91,8 +91,8 @@ return function LoginScreen({ s, onLogin, allowRoles }) {
           .qc-login>*{position:relative;z-index:1}
           .qc-login-brand{padding:56px 20px 0;min-height:0;background:transparent;align-items:center}
           .qc-login-brand .hero,.qc-login-brand .tint,.qc-login-brand .grain,.qc-login-brand .lines,.qc-login-brand .nav,.qc-login-brand .cap{display:none}
-          .qc-login-brand>div:first-of-type{margin:0 auto}
-          .qc-login-brand>div:first-of-type svg{width:170px;height:auto}
+          .qc-login-brand .logo{margin:0 auto}
+          .qc-login-brand .logo svg{width:170px;height:auto;color:#9FBFAA!important;opacity:.9}
           .qc-login-form{padding:28px 24px 40vh;align-items:flex-start;background:transparent}
           .qc-login-form h1{display:none}.qc-login-form h1+p{display:none}
           .qc-login-form .link{color:${D.muted}}
@@ -102,7 +102,7 @@ return function LoginScreen({ s, onLogin, allowRoles }) {
         {hero && HERO_SLIDES.map((h, i) => <img key={h.src} className={`hero ${h.cls}${slide === i ? " on" : ""}`} src={h.src} alt="" onError={() => { if (i === 0) setHero(false); }} />)}
         {hero && <div className="tint" />}
         <div className="grain" />{!hero && <div className="lines" />}
-        <div style={{ position: "relative" }}><QCWordmark width={190} style={{ color: "#EEF5F0", display: "block" }} /></div>
+        <div className="logo" style={{ position: "relative" }}><QCWordmark width={190} style={{ color: "#EEF5F0", display: "block" }} /></div>
         <div style={{ position: "relative", maxWidth: 460, paddingBottom: 44 }}>
           {hero ? HERO_SLIDES.map((h, i) => <div key={h.src} className="cap" style={{ opacity: slide === i ? 1 : 0, position: slide === i ? "relative" : "absolute", pointerEvents: slide === i ? "auto" : "none" }}><p className="text-[30px] leading-tight font-semibold" style={{ letterSpacing: "-.01em" }}>{h.title}</p><p className="text-[16px] mt-2" style={{ opacity: .82, lineHeight: 1.45 }}>{h.line}</p></div>)
             : <div><p className="text-[30px] leading-tight font-semibold">Quality control, as a team.</p><p className="text-[16px] mt-2" style={{ opacity: .82 }}>One place for the whole crew — on the dock and in the office.</p></div>}
