@@ -5,7 +5,7 @@ import { QCWordmark } from "./brand.jsx";
 
 export function createLoginScreen({ DARK, GLOBAL_CSS, Ic, ChevronLeft, ChevronRight, Check, notifyHeads, nowISO, writeSession }) {
 // Bump when public/login-hero.jpg changes: the service worker and the browser cache the old picture under the same URL.
-const LOGIN_HERO_V = "5";
+const LOGIN_HERO_V = "6";
 return function LoginScreen({ s, onLogin, allowRoles }) {
   // Always the prototype's dark theme, whatever the app is set to: the sign-in page is the front door, one look.
   const D = DARK;
@@ -83,14 +83,16 @@ return function LoginScreen({ s, onLogin, allowRoles }) {
         .qc-login .link:hover{color:#2F4438;text-decoration:underline}
         @media (max-width:860px){
           .qc-login{grid-template-columns:1fr;grid-template-rows:auto 1fr;background:#0D1410!important;position:relative}
-          .qc-login::before{content:"";position:fixed;inset:0;z-index:0;background:#0D1410 url(/login-mobile-bg.jpg?v=${LOGIN_HERO_V}) center bottom / cover no-repeat}
+          .qc-login::before{content:"";position:fixed;inset:0;z-index:0;background:#0D1410 url(/login-mobile-bg.jpg?v=${LOGIN_HERO_V}) center bottom / 100% auto no-repeat}
           .qc-login>*{position:relative;z-index:1}
           .qc-login-brand{padding:22px 20px 0;min-height:0;background:transparent}
           .qc-login-brand .hero,.qc-login-brand .tint,.qc-login-brand .grain,.qc-login-brand .lines,.qc-login-brand .nav{display:none}
-          .qc-login-brand .cap{position:relative!important;opacity:1!important;bottom:auto;margin-top:28px}
+          .qc-login-brand .cap{position:relative!important;opacity:1!important;bottom:auto;margin-top:14px}
           .qc-login-brand .cap:not(:first-of-type){display:none}
-          .qc-login-brand .cap p:first-child{font-size:24px}.qc-login-brand .cap p:last-child{font-size:14px}
-          .qc-login-form{padding:24px 20px 36vh;align-items:flex-start;background:transparent}
+          .qc-login-brand .cap p:first-child{font-size:22px}.qc-login-brand .cap p:last-child{font-size:13px;margin-top:4px}
+          .qc-login-brand>div:first-of-type svg{width:150px;height:auto}
+          .qc-login-form{padding:10px 20px 36vh;align-items:flex-start;background:transparent}
+          .qc-login-form h1{font-size:22px!important;margin-bottom:2px!important}.qc-login-form h1+p{margin-bottom:16px!important}
         }
       `}</style>
       <aside className={`qc-login-brand${hero ? " photo" : ""}`} onMouseEnter={() => setPaused(true)} onMouseLeave={() => setPaused(false)} onTouchStart={e => { touchX.current = e.touches[0].clientX; }} onTouchEnd={e => { const x0 = touchX.current; touchX.current = null; if (x0 == null) return; const dx = e.changedTouches[0].clientX - x0; if (Math.abs(dx) > 40) goSlide(dx < 0 ? 1 : -1); }}>
