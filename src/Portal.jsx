@@ -5862,16 +5862,41 @@ function SettingsPage({ s, set }) {
 }
 
 // ═══════════════════ STRONA: Users (panel admina) ═══════════════════
-function UsersPage({ s, set }) {
+function UsersPage({ s, set, me }) {
   const [d, setD] = useState({ name: "", email: "", role: "Controller" });
   const add = () => { if (!d.name.trim()) return; set(x => ({ ...x, users: [...x.users, { id: uid(), name: d.name.trim(), email: d.email.trim(), role: d.role, active: true }] })); setD({ name: "", email: "", role: "Controller" }); };
   const toggle = id => set(x => ({ ...x, users: x.users.map(u => u.id === id ? { ...u, active: !u.active } : u) }));
+  // Inline edit of one account: name, e-mail, role, and optionally a new password typed by the Head.
+  const [editId, setEditId] = useState(null); const [ed, setEd] = useState(null);
+  const startEdit = u => { const [first, ...rest] = (u.name || "").split(" "); setEditId(u.id); setEd({ firstName: first || "", lastName: rest.join(" "), email: u.email || "", role: u.role, password: "" }); };
+  const cancelEdit = () => { setEditId(null); setEd(null); };
+  const saveEdit = () => {
+    const name = `${ed.firstName} ${ed.lastName}`.trim(); if (!name) return;
+    const email = ed.email.trim(); const taken = s.users.some(q => q.id !== editId && q.email && email && q.email.toLowerCase() === email.toLowerCase());
+    if (taken) { setEd(x => ({ ...x, err: "Another account already uses this e-mail." })); return; }
+    set(x => ({ ...x, users: x.users.map(q => q.id === editId ? { ...q, name, email, role: ed.role, ...(ed.password ? { password: ed.password, pin: "", resetRequestedAt: null } : {}) } : q) }));
+    cancelEdit();
+  };
+  const field = (k, placeholder, props = {}) => <input value={ed[k]} onChange={e => setEd(x => ({ ...x, [k]: e.target.value, err: "" }))} placeholder={placeholder} className="text-sm rounded-lg px-2.5 py-1.5 outline-none" style={{ ...inp }} {...props} />;
   return (
     <div>
       <h1 className="mb-1">Users</h1>
       <p className="text-sm mb-5" style={{ color: C.muted, maxWidth: 640 }}>Accounts are created only by the Admin/Head (no public sign-up). Deactivation instead of deletion — inspection history stays.</p>
       <div className="grid gap-4" style={{ gridTemplateColumns: "1.2fr 1fr" }}>
-        <Card>{s.users.map(u => <div key={u.id} className="qc-tile flex items-center gap-3 py-2.5 px-3 rounded-xl mb-1.5" style={{ background: C.bg, border: `1px solid ${C.line}`, borderLeft: `3px solid ${u.active === false ? C.line : u.role === "Head" ? C.accent : C.ok}`, opacity: u.active === false ? 0.5 : 1 }}><Avatar user={u} size={34} onPick={url => set(x => ({ ...x, users: x.users.map(q => q.id === u.id ? { ...q, photoUrl: url } : q) }))} /><span className="flex-1 text-sm">{u.name}<span className="text-xs ml-2" style={{ color: C.muted }}>{u.email}</span></span><span className="text-[10px] px-1.5 py-0.5 rounded-full whitespace-nowrap" style={{ background: (u.password || u.pin) ? C.okBg : C.bg, color: (u.password || u.pin) ? C.ok : C.muted, border: `1px solid ${C.line}` }}>{(u.password || u.pin) ? "password set" : "no password yet"}</span>{u.resetRequestedAt && <span className="text-[10px] px-1.5 py-0.5 rounded-full whitespace-nowrap" style={{ background: C.warnBg, color: C.warn }}>asked for a reset</span>}{(u.password || u.pin || u.resetRequestedAt) && <button onClick={() => set(x => ({ ...x, users: x.users.map(q => q.id === u.id ? { ...q, password: "", pin: "", resetRequestedAt: null } : q) }))} className="text-[11px] whitespace-nowrap" style={{ color: C.accent }} title="Clears the password and PIN — the person chooses a new password at the next portal sign-in">Reset password</button>}<span className="text-xs px-2 py-0.5 rounded-full" style={{ background: u.role === "Head" ? C.accentSoft : C.line, color: u.role === "Head" ? C.accent : C.muted }}>{u.role === "Head" ? "Head" : "Controller"}</span><button onClick={() => toggle(u.id)} className="text-xs" style={{ color: C.muted }}>{u.active === false ? "activate" : "deactivate"}</button></div>)}</Card>
+        <Card>{s.users.map(u => editId === u.id ? (
+          <div key={u.id} className="qc-tile rounded-xl mb-1.5 px-3 py-3" style={{ background: C.accentSoft, border: `1px solid ${C.accent}`, borderLeft: `3px solid ${C.accent}` }}>
+            <div className="flex items-center gap-3 mb-2"><Avatar user={u} size={34} onPick={url => set(x => ({ ...x, users: x.users.map(q => q.id === u.id ? { ...q, photoUrl: url } : q) }))} /><p className="text-sm font-medium flex-1">Edit account</p><button onClick={cancelEdit} className="text-xs" style={{ color: C.muted }}>cancel</button></div>
+            <div className="grid gap-2" style={{ gridTemplateColumns: "1fr 1fr" }}>
+              {field("firstName", "first name", { autoFocus: true })}{field("lastName", "last name")}
+              {field("email", "e-mail (login)", { type: "email" })}
+              <select value={ed.role} onChange={e => setEd(x => ({ ...x, role: e.target.value }))} className="text-sm rounded-lg px-2.5 py-1.5 outline-none" style={{ ...inp }}><option value="Controller">Controller</option><option value="Head">Head of Quality</option></select>
+              {field("password", "new password (leave empty to keep)", { type: "text", autoComplete: "off" })}
+              <div className="flex items-center gap-2 justify-end"><button onClick={saveEdit} disabled={!`${ed.firstName} ${ed.lastName}`.trim()} className="text-sm px-4 py-1.5 rounded-lg font-semibold" style={{ background: C.accent, color: C.onDark }}>Save</button></div>
+            </div>
+            {ed.err && <p className="text-xs mt-2" style={{ color: C.bad }}>{ed.err}</p>}
+            {me && u.id === me.id && ed.role !== "Head" && <p className="text-xs mt-2" style={{ color: C.warn }}>This is your own account — changing the role to Controller signs you out of the Head portal.</p>}
+          </div>
+        ) : <div key={u.id} className="qc-tile flex items-center gap-3 py-2.5 px-3 rounded-xl mb-1.5" style={{ background: C.bg, border: `1px solid ${C.line}`, borderLeft: `3px solid ${u.active === false ? C.line : u.role === "Head" ? C.accent : C.ok}`, opacity: u.active === false ? 0.5 : 1 }}><Avatar user={u} size={34} onPick={url => set(x => ({ ...x, users: x.users.map(q => q.id === u.id ? { ...q, photoUrl: url } : q) }))} /><span className="flex-1 text-sm">{u.name}<span className="text-xs ml-2" style={{ color: C.muted }}>{u.email}</span></span><span className="text-[10px] px-1.5 py-0.5 rounded-full whitespace-nowrap" style={{ background: (u.password || u.pin) ? C.okBg : C.bg, color: (u.password || u.pin) ? C.ok : C.muted, border: `1px solid ${C.line}` }}>{(u.password || u.pin) ? "password set" : "no password yet"}</span>{u.resetRequestedAt && <span className="text-[10px] px-1.5 py-0.5 rounded-full whitespace-nowrap" style={{ background: C.warnBg, color: C.warn }}>asked for a reset</span>}{(u.password || u.pin || u.resetRequestedAt) && <button onClick={() => set(x => ({ ...x, users: x.users.map(q => q.id === u.id ? { ...q, password: "", pin: "", resetRequestedAt: null } : q) }))} className="text-[11px] whitespace-nowrap" style={{ color: C.accent }} title="Clears the password and PIN — the person chooses a new password at the next portal sign-in">Reset password</button>}<span className="text-xs px-2 py-0.5 rounded-full" style={{ background: u.role === "Head" ? C.accentSoft : C.line, color: u.role === "Head" ? C.accent : C.muted }}>{u.role === "Head" ? "Head" : "Controller"}</span><button onClick={() => startEdit(u)} className="text-xs" style={{ color: C.accent }}>edit</button><button onClick={() => toggle(u.id)} className="text-xs" style={{ color: C.muted }}>{u.active === false ? "activate" : "deactivate"}</button></div>)}</Card>
         <Card>
           <p className="font-medium text-sm mb-3">New account</p>
           <div className="flex gap-1.5 mb-2"><input value={d.firstName || ""} onChange={e => setD(x => ({ ...x, firstName: e.target.value, name: `${e.target.value} ${x.lastName || ""}`.trim() }))} placeholder="first name" className="flex-1 text-sm" /><input value={d.lastName || ""} onChange={e => setD(x => ({ ...x, lastName: e.target.value, name: `${x.firstName || ""} ${e.target.value}`.trim() }))} placeholder="last name" className="flex-1 text-sm" /></div>
@@ -6262,7 +6287,7 @@ export default function App() {
       {!selPallet && safePage === "analytics" && <AnalyticsPage s={s} setPage={setPage} openInspection={id => { setOpenInspId(id); setPage("inspections"); }} />}
       {!selPallet && safePage === "integrations" && <IntegrationsPage s={s} set={set} go={setPage} />}
       {!selPallet && safePage === "settings" && <SettingsPage s={s} set={set} />}
-      {!selPallet && safePage === "users" && <UsersPage s={s} set={set} />}
+      {!selPallet && safePage === "users" && <UsersPage s={s} set={set} me={user} />}
       {!selPallet && safePage === "announcements" && <AnnouncementsPage s={s} set={set} user={user} notify={notify} openProduct={id => { setSelPallet(null); setSelProduct(id); setPage(user.role === "Head" ? "products" : "catalog"); }} />}
       {!selPallet && safePage === "messages" && <MessagesPage s={s} set={set} user={user} setPage={setPage} onOpenProduct={id => setSelProduct(id)} onOpenInspection={id => { setOpenInspId(id); setPage("inspections"); }} onOpenCategory={id => setPresetCategory(id)} initialContext={pendingChatContext} clearInitialContext={() => setPendingChatContext(null)} />}
     </Shell>
