@@ -5866,15 +5866,16 @@ function UsersPage({ s, set, me }) {
   const [d, setD] = useState({ name: "", email: "", role: "Controller" });
   const add = () => { if (!d.name.trim()) return; set(x => ({ ...x, users: [...x.users, { id: uid(), name: d.name.trim(), email: d.email.trim(), role: d.role, active: true }] })); setD({ name: "", email: "", role: "Controller" }); };
   const toggle = id => set(x => ({ ...x, users: x.users.map(u => u.id === id ? { ...u, active: !u.active } : u) }));
-  // Inline edit of one account: name, e-mail, role, and optionally a new password typed by the Head.
+  // Inline edit of one account: name, e-mail, role. Passwords are never typed by the Head — the person sets their own
+  // at sign-in, and "Reset password" only clears it so they can set a new one.
   const [editId, setEditId] = useState(null); const [ed, setEd] = useState(null);
-  const startEdit = u => { const [first, ...rest] = (u.name || "").split(" "); setEditId(u.id); setEd({ firstName: first || "", lastName: rest.join(" "), email: u.email || "", role: u.role, password: "" }); };
+  const startEdit = u => { const [first, ...rest] = (u.name || "").split(" "); setEditId(u.id); setEd({ firstName: first || "", lastName: rest.join(" "), email: u.email || "", role: u.role }); };
   const cancelEdit = () => { setEditId(null); setEd(null); };
   const saveEdit = () => {
     const name = `${ed.firstName} ${ed.lastName}`.trim(); if (!name) return;
     const email = ed.email.trim(); const taken = s.users.some(q => q.id !== editId && q.email && email && q.email.toLowerCase() === email.toLowerCase());
     if (taken) { setEd(x => ({ ...x, err: "Another account already uses this e-mail." })); return; }
-    set(x => ({ ...x, users: x.users.map(q => q.id === editId ? { ...q, name, email, role: ed.role, ...(ed.password ? { password: ed.password, pin: "", resetRequestedAt: null } : {}) } : q) }));
+    set(x => ({ ...x, users: x.users.map(q => q.id === editId ? { ...q, name, email, role: ed.role } : q) }));
     cancelEdit();
   };
   const field = (k, placeholder, props = {}) => <input value={ed[k]} onChange={e => setEd(x => ({ ...x, [k]: e.target.value, err: "" }))} placeholder={placeholder} className="text-sm rounded-lg px-2.5 py-1.5 outline-none" style={{ ...inp }} {...props} />;
@@ -5890,7 +5891,7 @@ function UsersPage({ s, set, me }) {
               {field("firstName", "first name", { autoFocus: true })}{field("lastName", "last name")}
               {field("email", "e-mail (login)", { type: "email" })}
               <select value={ed.role} onChange={e => setEd(x => ({ ...x, role: e.target.value }))} className="text-sm rounded-lg px-2.5 py-1.5 outline-none" style={{ ...inp }}><option value="Controller">Controller</option><option value="Head">Head of Quality</option></select>
-              {field("password", "new password (leave empty to keep)", { type: "text", autoComplete: "off" })}
+              <p className="text-[11px] self-center" style={{ color: C.muted }}>Passwords are set by the person at sign-in. Use “Reset password” to let them choose a new one.</p>
               <div className="flex items-center gap-2 justify-end"><button onClick={saveEdit} disabled={!`${ed.firstName} ${ed.lastName}`.trim()} className="text-sm px-4 py-1.5 rounded-lg font-semibold" style={{ background: C.accent, color: C.onDark }}>Save</button></div>
             </div>
             {ed.err && <p className="text-xs mt-2" style={{ color: C.bad }}>{ed.err}</p>}
