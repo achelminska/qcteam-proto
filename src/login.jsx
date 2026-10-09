@@ -2,10 +2,11 @@
 // global CSS, icon helper and state helpers (they keep separate copies of those on purpose).
 import { useState, useEffect, useRef } from "react";
 import { QCWordmark } from "./brand.jsx";
+import { Eye, EyeOff } from "lucide-react";
 
 export function createLoginScreen({ DARK, GLOBAL_CSS, Ic, ChevronLeft, ChevronRight, Check, notifyHeads, nowISO, writeSession }) {
 // Bump when public/login-hero.jpg changes: the service worker and the browser cache the old picture under the same URL.
-const LOGIN_HERO_V = "6";
+const LOGIN_HERO_V = "7";
 return function LoginScreen({ s, onLogin, allowRoles }) {
   // Always the prototype's dark theme, whatever the app is set to: the sign-in page is the front door, one look.
   const D = DARK;
@@ -78,6 +79,9 @@ return function LoginScreen({ s, onLogin, allowRoles }) {
         .qc-login .primary{width:100%;min-height:40px;border-radius:8px;font-weight:500;font-size:14px;letter-spacing:.01em;background:#26372D;color:#EEF5F0;border:1px solid rgba(140,211,166,.16);transition:background .12s,border-color .12s}
         .qc-login .primary:hover{background:#2F4438;border-color:rgba(140,211,166,.4)}
         .qc-login .primary:disabled{background:rgba(255,255,255,.04);border-color:rgba(255,255,255,.08);color:${D.muted}}
+        .qc-login .pwwrap{position:relative;display:block}
+        .qc-login .eye{position:absolute;right:10px;top:50%;transform:translateY(-50%);color:${D.muted};background:none;border:0;padding:4px;display:inline-flex;cursor:pointer}
+        .qc-login .eye:hover{color:${D.ink}}
         .qc-login .link{color:#26372D;font-size:12px;background:none;border:0;padding:0}
         .qc-login .lbl{display:block;font-size:11px;font-weight:500;letter-spacing:.04em;text-transform:uppercase;color:${D.muted};margin-bottom:6px}
         .qc-login .link:hover{color:#2F4438;text-decoration:underline}
@@ -85,14 +89,13 @@ return function LoginScreen({ s, onLogin, allowRoles }) {
           .qc-login{grid-template-columns:1fr;grid-template-rows:auto 1fr;background:#0D1410!important;position:relative}
           .qc-login::before{content:"";position:fixed;inset:0;z-index:0;background:#0D1410 url(/login-mobile-bg.jpg?v=${LOGIN_HERO_V}) center bottom / 100% auto no-repeat}
           .qc-login>*{position:relative;z-index:1}
-          .qc-login-brand{padding:22px 20px 0;min-height:0;background:transparent}
-          .qc-login-brand .hero,.qc-login-brand .tint,.qc-login-brand .grain,.qc-login-brand .lines,.qc-login-brand .nav{display:none}
-          .qc-login-brand .cap{position:relative!important;opacity:1!important;bottom:auto;margin-top:14px}
-          .qc-login-brand .cap:not(:first-of-type){display:none}
-          .qc-login-brand .cap p:first-child{font-size:22px}.qc-login-brand .cap p:last-child{font-size:13px;margin-top:4px}
-          .qc-login-brand>div:first-of-type svg{width:150px;height:auto}
-          .qc-login-form{padding:10px 20px 36vh;align-items:flex-start;background:transparent}
-          .qc-login-form h1{font-size:22px!important;margin-bottom:2px!important}.qc-login-form h1+p{margin-bottom:16px!important}
+          .qc-login-brand{padding:56px 20px 0;min-height:0;background:transparent;align-items:center}
+          .qc-login-brand .hero,.qc-login-brand .tint,.qc-login-brand .grain,.qc-login-brand .lines,.qc-login-brand .nav,.qc-login-brand .cap{display:none}
+          .qc-login-brand>div:first-of-type{margin:0 auto}
+          .qc-login-brand>div:first-of-type svg{width:170px;height:auto}
+          .qc-login-form{padding:28px 24px 40vh;align-items:flex-start;background:transparent}
+          .qc-login-form h1{display:none}.qc-login-form h1+p{display:none}
+          .qc-login-form .link{color:${D.muted}}
         }
       `}</style>
       <aside className={`qc-login-brand${hero ? " photo" : ""}`} onMouseEnter={() => setPaused(true)} onMouseLeave={() => setPaused(false)} onTouchStart={e => { touchX.current = e.touches[0].clientX; }} onTouchEnd={e => { const x0 = touchX.current; touchX.current = null; if (x0 == null) return; const dx = e.changedTouches[0].clientX - x0; if (Math.abs(dx) > 40) goSlide(dx < 0 ? 1 : -1); }}>
@@ -112,7 +115,7 @@ return function LoginScreen({ s, onLogin, allowRoles }) {
             <h1 className="text-[22px] leading-tight" style={{ color: D.ink, fontWeight: 600, marginBottom: 4 }}>Sign in</h1>
             <p className="text-[13px]" style={{ color: D.muted, marginBottom: 28 }}>Use the e-mail the Head of Quality registered for you.</p>
             {field("E-mail", email, setEmail, { type: "email", autoComplete: "username", autoFocus: true, onKeyDown: onKey(submit) })}
-            <label className="block mb-2"><span className="lbl" style={{ display: "flex", alignItems: "center" }}>Password<button type="button" onClick={() => setShow(v => !v)} className="ml-auto normal-case tracking-normal" style={{ color: D.muted, fontSize: 11 }}>{show ? "Hide" : "Show"}</button></span><input className="fld" type={show ? "text" : "password"} autoComplete="current-password" value={pw} onChange={e => { setPw(e.target.value); setErr(""); }} onKeyDown={onKey(submit)} /></label>
+            <label className="block mb-2"><span className="lbl">Password</span><span className="pwwrap"><input className="fld" type={show ? "text" : "password"} autoComplete="current-password" value={pw} onChange={e => { setPw(e.target.value); setErr(""); }} onKeyDown={onKey(submit)} style={{ paddingRight: 40 }} /><button type="button" className="eye" onClick={() => setShow(v => !v)} aria-label={show ? "Hide password" : "Show password"}><Ic i={show ? EyeOff : Eye} s={16} mr={0} /></button></span></label>
             <p className="text-xs" style={{ color: err ? D.bad : D.muted, minHeight: 18, marginBottom: 14 }}>{err || " "}</p>
             <button className="primary" onClick={submit} disabled={!email.trim()}>Sign in</button>
             <div style={{ marginTop: 18 }}><button className="link" onClick={() => { setMode("forgot"); setErr(""); }}>Forgot your password?</button></div>
