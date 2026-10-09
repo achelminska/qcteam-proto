@@ -1281,7 +1281,7 @@ const writeSession = id => { try { if (id) localStorage.setItem(SESSION_KEY, id)
 // Any number of devices and people can be signed in at once (portal + phones). Concurrent edits are merged by the
 // shared syncer (src/sync.js): every edit is a function applied on top of the server's latest copy, never a blind overwrite.
 // Bump when public/login-hero.jpg changes: the service worker and the browser cache the old picture under the same URL.
-const LOGIN_HERO_V = "3";
+const LOGIN_HERO_V = "4";
 function LoginScreen({ s, onLogin, allowRoles }) {
   // Always the prototype's dark theme, whatever the app is set to: the sign-in page is the front door, one look.
   const D = DARK;
@@ -1324,8 +1324,8 @@ function LoginScreen({ s, onLogin, allowRoles }) {
         .qc-login-form{position:relative;overflow:hidden;display:flex;align-items:center;justify-content:center;padding:48px 32px;background:#0D1410}
         .qc-login-form>div{position:relative}
         .qc-login-brand{position:relative;overflow:hidden;display:flex;flex-direction:column;justify-content:space-between;padding:56px 56px 48px;color:#EEF5F0;background:linear-gradient(160deg,${green2} 0%,${green} 70%)}
-        .qc-login-brand .hero{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:60% 55%;opacity:.92;filter:saturate(.85) contrast(1.03)}
-        .qc-login-brand .tint{position:absolute;inset:0;background:linear-gradient(180deg,rgba(11,36,24,.8) 0%,rgba(11,36,24,.5) 34%,rgba(11,36,24,.18) 55%,rgba(11,36,24,.45) 78%,rgba(11,36,24,.92) 100%),linear-gradient(90deg,rgba(11,36,24,.35),rgba(11,36,24,0) 60%)}
+        .qc-login-brand .hero{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:50% 100%;opacity:1;filter:saturate(.95)}
+        .qc-login-brand .tint{position:absolute;inset:0;background:linear-gradient(180deg,rgba(11,36,24,.82) 0%,rgba(11,36,24,.35) 26%,rgba(11,36,24,.04) 45%,rgba(11,36,24,.04) 66%,rgba(11,36,24,.55) 82%,rgba(11,36,24,.9) 100%)}
         .qc-login-brand .grain{position:absolute;inset:0;background:radial-gradient(1100px 600px at -10% -10%,rgba(255,255,255,.12),transparent 60%);pointer-events:none}
         .qc-login-brand .lines{position:absolute;inset:0;opacity:.06;background-image:linear-gradient(rgba(255,255,255,.9) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.9) 1px,transparent 1px);background-size:48px 48px;pointer-events:none}
         .qc-login .card{background:${D.surface};border:1px solid ${D.line};box-shadow:0 1px 0 rgba(255,255,255,.05) inset,0 16px 40px rgba(0,0,0,.45)}
