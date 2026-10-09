@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, Fragment } from "react";
 import { QCMark, QCWordmark } from "./brand.jsx";
+import { demoConversation } from "./demo-chat.js";
 import { createSyncer, guardUnload } from "./sync.js";
 import { applySpecEdit, hasV, specFieldsFromForm, specFormKind, specLabel, dayLabel, problemPath, typesOf, typeById, legacyTypeId, inspType, countsAs, listCheck, matchFieldSpec, numberSpecCheck, reportStatusFields, toleranceDisplay, matchesInspSearch } from "./shared/format.js";
 import { SPEC_TARGETS, SPEC_ALIASES, SPEC_COLUMNS, applySpecSheet, fmtRange, liveNoteOf, fmtUntil, resolveSpecConflict } from "./shared/specsync.js";
@@ -5609,7 +5610,7 @@ function MessagesPage({ s, set, user, setPage, onOpenProduct, onOpenInspection, 
   const other = conv && convOther(conv, s, user.id);
   return (
     <div className="flex flex-col" style={{ height: "calc(100vh - 56px - 56px)" }}>
-      <div className="flex items-center gap-3 mb-3"><h1 className="flex-1">Messages</h1></div>
+      <div className="flex items-center gap-3 mb-3"><h1 className="flex-1">Messages</h1>{user.role === "Head" && <button onClick={() => { const c = demoConversation(s, user, dockRowsLive(s)); set(x => ({ ...x, conversations: [...x.conversations, c] })); setOpen(c.id); }} className="text-xs px-3 py-1.5 rounded-lg" style={{ border: `1px solid ${C.line}`, color: C.muted }} title="Adds a sample group thread — pallets handed out, photos, a file, a report — for demos and screenshots">Demo thread</button>}</div>
       <div className="flex-1 min-h-0 grid rounded-2xl overflow-hidden" style={{ gridTemplateColumns: "320px 1fr", background: C.surface, border: `1px solid ${C.line}` }}>
         <div className="flex flex-col min-h-0" style={{ borderRight: `1px solid ${C.line}` }}>
           <div className="px-3 pt-3 pb-2 flex items-center gap-2">
