@@ -1333,7 +1333,8 @@ function LoginScreen({ s, onLogin, allowRoles }) {
         .qc-login-brand .hero.on{opacity:.92}
         .qc-login-brand .hero.screens{object-position:50% 100%;filter:saturate(.95)}
         .qc-login-brand .hero.screens.on{opacity:1}
-        .qc-login-brand .tint.screens{background:linear-gradient(180deg,rgba(11,36,24,.82) 0%,rgba(11,36,24,.35) 26%,rgba(11,36,24,.04) 45%,rgba(11,36,24,.04) 66%,rgba(11,36,24,.55) 82%,rgba(11,36,24,.9) 100%)}
+        .qc-login-brand .tint.screens{background:linear-gradient(180deg,rgba(11,36,24,.75) 0%,rgba(11,36,24,.2) 20%,rgba(11,36,24,.02) 32%,rgba(11,36,24,.02) 78%,rgba(11,36,24,.5) 92%,rgba(11,36,24,.8) 100%)}
+        .qc-login-brand .fade{transition:opacity .4s ease}
         .qc-login-brand .nav{position:absolute;right:24px;bottom:18px;display:flex;align-items:center;gap:10px;z-index:2}
         .qc-login-brand .nav button{width:30px;height:30px;border-radius:999px;border:1px solid rgba(255,255,255,.22);background:rgba(11,36,24,.55);color:#EEF5F0;display:inline-flex;align-items:center;justify-content:center;backdrop-filter:blur(6px);transition:background .12s}
         .qc-login-brand .nav button:hover{background:rgba(11,36,24,.85)}
@@ -1361,9 +1362,9 @@ function LoginScreen({ s, onLogin, allowRoles }) {
         <div className="grain" />{!hero && <div className="lines" />}
         <div style={{ position: "relative" }}>
           <QCWordmark width={300} style={{ color: "#EEF5F0", display: "block" }} />
-          <p className="text-[17px] mt-5" style={{ opacity: .88, maxWidth: 440, lineHeight: 1.45 }}>Quality control, as a team. One place for the whole crew — on the dock and in the office.</p>
+          <p className="text-[17px] mt-5 fade" style={{ opacity: slide === 0 ? .88 : 0, maxWidth: 440, lineHeight: 1.45 }}>Quality control, as a team. One place for the whole crew — on the dock and in the office.</p>
         </div>
-        <div className="feat grid gap-3" style={{ position: "relative", maxWidth: 440 }}>
+        <div className="feat fade grid gap-3" style={{ position: "relative", maxWidth: 440, opacity: slide === 0 ? 1 : 0, pointerEvents: slide === 0 ? "auto" : "none" }}>
           {[[ScanLine, "Inspect anywhere", "Scan, check, decide — right on the dock."], [Warehouse, "See the whole floor", "Everyone works from the same live picture."], [BookOpen, "Nothing gets lost", "Every finding and note stays with the team."]].map(([I, h, d]) => <div key={h} className="flex items-start gap-3 rounded-xl px-3 py-2.5" style={{ background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)", backdropFilter: "blur(6px)" }}><span className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ background: "rgba(255,255,255,.14)" }}><Ic i={I} s={16} mr={0} /></span><span><span className="block text-sm font-medium">{h}</span><span className="block text-xs" style={{ opacity: .8 }}>{d}</span></span></div>)}
         </div>
         {hero && <div className="nav" aria-label="Pictures"><button onClick={() => goSlide(-1)} title="Previous"><Ic i={ChevronLeft} s={15} mr={0} /></button><span className="dots">{HERO_SLIDES.map((_, i) => <i key={i} className={slide === i ? "on" : ""} onClick={() => setSlide(i)} style={{ cursor: "pointer" }} />)}</span><button onClick={() => goSlide(1)} title="Next"><Ic i={ChevronRight} s={15} mr={0} /></button></div>}
