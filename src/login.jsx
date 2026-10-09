@@ -19,6 +19,14 @@ return function LoginScreen({ s, onLogin, allowRoles }) {
     { src: `/login-hero-2.jpg?v=${LOGIN_HERO_V}`, cls: "screens", title: "Inspect anywhere.", line: "Scan, check, decide — right on the dock." },
     { src: `/login-hero-3.jpg?v=${LOGIN_HERO_V}`, cls: "screens", title: "See the whole floor.", line: "Everyone works from the same live picture." },
   ];
+  useEffect(() => {
+    const html = document.documentElement, body = document.body; const prev = [html.style.background, body.style.background];
+    html.style.background = "#0D1410"; body.style.background = "#0D1410";
+    let meta = document.querySelector('meta[name="theme-color"]'); const prevTheme = meta ? meta.getAttribute("content") : null;
+    if (!meta) { meta = document.createElement("meta"); meta.name = "theme-color"; document.head.appendChild(meta); }
+    meta.setAttribute("content", "#0D1410");
+    return () => { html.style.background = prev[0]; body.style.background = prev[1]; if (prevTheme != null) meta.setAttribute("content", prevTheme); else meta.remove(); };
+  }, []);
   const [slide, setSlide] = useState(0); const touchX = useRef(null); const [paused, setPaused] = useState(false); const manual = useRef(false);
   const goSlide = (d, byUser = true) => { if (byUser) manual.current = true; setSlide(i => (i + d + HERO_SLIDES.length) % HERO_SLIDES.length); };
   useEffect(() => { if (!hero || paused || (typeof window !== "undefined" && window.matchMedia && window.matchMedia("(max-width:860px)").matches)) return; const id = setInterval(() => { if (!manual.current) goSlide(1, false); }, 7000); return () => clearInterval(id); }, [hero, paused]);
@@ -78,7 +86,7 @@ return function LoginScreen({ s, onLogin, allowRoles }) {
         .qc-login.qc input.fld:focus,.qc-login input.fld:focus{background:rgba(255,255,255,.04);border-color:rgba(140,211,166,.55);box-shadow:0 0 0 2px rgba(140,211,166,.08)}
         .qc-login .primary{width:100%;min-height:40px;border-radius:8px;font-weight:500;font-size:14px;letter-spacing:.01em;background:#26372D;color:#EEF5F0;border:1px solid rgba(140,211,166,.16);transition:background .12s,border-color .12s}
         .qc-login .primary:hover{background:#2F4438;border-color:rgba(140,211,166,.4)}
-        .qc-login .primary:disabled{background:rgba(255,255,255,.04);border-color:rgba(255,255,255,.08);color:${D.muted}}
+        .qc-login .primary:disabled{background:rgba(38,55,45,.55);border-color:rgba(140,211,166,.14);color:rgba(238,245,240,.45)}
         .qc-login .pwwrap{position:relative;display:block}
         .qc-login .eye{position:absolute;right:10px;top:50%;transform:translateY(-50%);color:${D.muted};background:none;border:0;padding:4px;display:inline-flex;cursor:pointer}
         .qc-login .eye:hover{color:${D.ink}}
@@ -93,8 +101,8 @@ return function LoginScreen({ s, onLogin, allowRoles }) {
           .qc-login-brand .hero,.qc-login-brand .tint,.qc-login-brand .grain,.qc-login-brand .lines,.qc-login-brand .nav,.qc-login-brand .cap{display:none}
           .qc-login-brand .logo{margin:0 auto}
           .qc-login-brand .logo svg{width:240px;height:auto;color:#C4DCCB!important;opacity:.95}
-          .qc-login-form{padding:28px 24px 40vh;align-items:flex-start;background:transparent}
-          .qc-login-form h1{display:block;font-size:22px!important;margin-bottom:16px!important}.qc-login-form h1+p{display:none}
+          .qc-login-form{padding:8px 24px 40vh;align-items:flex-start;background:transparent}
+          .qc-login-form h1{display:block;font-size:22px!important;margin:18px 0 12px!important}.qc-login-form h1+p{display:none}
           .qc-login-form .link{color:${D.muted}}
         }
       `}</style>
