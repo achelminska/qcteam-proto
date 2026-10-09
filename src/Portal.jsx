@@ -1282,7 +1282,7 @@ const writeSession = id => { try { if (id) localStorage.setItem(SESSION_KEY, id)
 // Any number of devices and people can be signed in at once (portal + phones). Concurrent edits are merged by the
 // shared syncer (src/sync.js): every edit is a function applied on top of the server's latest copy, never a blind overwrite.
 // Bump when public/login-hero.jpg changes: the service worker and the browser cache the old picture under the same URL.
-const LOGIN_HERO_V = "4";
+const LOGIN_HERO_V = "5";
 function LoginScreen({ s, onLogin, allowRoles }) {
   // Always the prototype's dark theme, whatever the app is set to: the sign-in page is the front door, one look.
   const D = DARK;
@@ -1290,7 +1290,7 @@ function LoginScreen({ s, onLogin, allowRoles }) {
   const [email, setEmail] = useState(""); const [pw, setPw] = useState(""); const [pw2, setPw2] = useState(""); const [err, setErr] = useState(""); const [show, setShow] = useState(false);
   const [hero, setHero] = useState(true);   // public/login-hero.jpg — optional photo behind the brand panel; the gradient alone when missing
   // Brand panel carousel: slide 0 is the inspection photo, slide 1 shows the app on phones. Arrows, dots, keys and swipe.
-  const HERO_SLIDES = [{ src: `/login-hero.jpg?v=${LOGIN_HERO_V}`, cls: "" }, { src: `/login-hero-2.jpg?v=${LOGIN_HERO_V}`, cls: "screens" }];
+  const HERO_SLIDES = [{ src: `/login-hero.jpg?v=${LOGIN_HERO_V}`, cls: "" }, { src: `/login-hero-2.jpg?v=${LOGIN_HERO_V}`, cls: "screens" }, { src: `/login-hero-3.jpg?v=${LOGIN_HERO_V}`, cls: "screens" }];
   const [slide, setSlide] = useState(0); const touchX = useRef(null);
   const goSlide = d => setSlide(i => (i + d + HERO_SLIDES.length) % HERO_SLIDES.length);
   useEffect(() => { const k = e => { if (e.target && /input|textarea|select/i.test(e.target.tagName)) return; if (e.key === "ArrowRight") goSlide(1); if (e.key === "ArrowLeft") goSlide(-1); }; window.addEventListener("keydown", k); return () => window.removeEventListener("keydown", k); }, []);
@@ -1332,7 +1332,7 @@ function LoginScreen({ s, onLogin, allowRoles }) {
         .qc-login-brand{position:relative;overflow:hidden;display:flex;flex-direction:column;justify-content:space-between;padding:56px 56px 48px;color:#EEF5F0;background:linear-gradient(160deg,${green2} 0%,${green} 70%)}
         .qc-login-brand .hero{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:55% 60%;opacity:0;filter:saturate(.85) contrast(1.03);transition:opacity .5s ease}
         .qc-login-brand .hero.on{opacity:.92}
-        .qc-login-brand .hero.screens{object-position:50% 100%;filter:saturate(.95)}
+        .qc-login-brand .hero.screens{object-position:50% 50%;filter:saturate(.95);transform:scale(1.08);transform-origin:50% 60%}
         .qc-login-brand .hero.screens.on{opacity:1}
         .qc-login-brand .tint.screens{background:linear-gradient(180deg,rgba(11,36,24,.75) 0%,rgba(11,36,24,.2) 20%,rgba(11,36,24,.02) 32%,rgba(11,36,24,.02) 78%,rgba(11,36,24,.5) 92%,rgba(11,36,24,.8) 100%)}
         .qc-login-brand .fade{transition:opacity .4s ease}
