@@ -1,4 +1,5 @@
 import { QCMark } from "./brand.jsx";
+import { createLoginScreen } from "./login.jsx";
 import { useState, useEffect, useRef, Fragment } from "react";
 import { createSyncer, guardUnload } from "./sync.js";
 import { hasV, specLabel, dayLabel, typesOf, typeById, legacyTypeId, inspType, countsAs, listCheck, matchFieldSpec, numberSpecCheck, reportStatusFields, toleranceDisplay, matchesInspSearch } from "./shared/format.js";
@@ -1190,35 +1191,7 @@ const readSession = () => { try { return localStorage.getItem(SESSION_KEY); } ca
 const writeSession = id => { try { if (id) localStorage.setItem(SESSION_KEY, id); else localStorage.removeItem(SESSION_KEY); } catch {} };
 // Any number of devices and people can be signed in at once (portal + phones). Concurrent edits are merged by the
 // shared syncer (src/sync.js): every edit is a function applied on top of the server's latest copy, never a blind overwrite.
-function LoginScreen({ s, onLogin, allowRoles, subtitle }) {
-  const [pick, setPick] = useState(null); const [pin, setPin] = useState(""); const [err, setErr] = useState("");
-  const users = (s.users || []).filter(u => u.active !== false && (!allowRoles || allowRoles.includes(u.role)));
-  const secretOf = u => u.password || u.pin || "";   // the password chosen in the portal, or the older numeric PIN
-  const submit = u => { if (secretOf(u) && secretOf(u) !== pin) { setErr("Wrong password"); setPin(""); return; } writeSession(u.id); onLogin(u.id); };
-  return (
-    <div className="qc min-h-screen flex items-center justify-center p-6" style={{ background: C.bg }}>
-      <style>{GLOBAL_CSS()}</style>
-      <div className="w-full rounded-3xl p-6" style={{ maxWidth: 380, background: C.surface, border: `1px solid ${C.line}` }}>
-        <div className="flex items-center gap-2 mb-1"><div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: C.ink, color: C.onDark }}><QCMark size={22} /></div><div><p className="font-semibold">QCteam</p><p className="text-[11px]" style={{ color: C.muted }}>{subtitle || "Who's inspecting today?"}</p></div></div>
-        {!pick ? (
-          <div className="mt-4">
-            {users.length === 0 && <p className="text-sm" style={{ color: C.muted }}>No accounts yet — the Head creates them in the portal (Users).</p>}
-            {users.map(u => <button key={u.id} onClick={() => { setPick(u); setPin(""); setErr(""); if (!secretOf(u)) submit(u); }} className="w-full flex items-center gap-3 py-3 text-left" style={{ borderBottom: `1px solid ${C.line}` }}><Avatar user={u} size={36} /><span className="flex-1"><span className="block text-sm font-medium">{u.name}</span><span className="block text-[11px]" style={{ color: C.muted }}>{u.role}{secretOf(u) ? "" : " · no password yet"}</span></span></button>)}
-          </div>
-        ) : (
-          <div className="mt-4">
-            <div className="flex items-center gap-3 mb-4"><Avatar user={pick} size={40} /><div><p className="text-sm font-medium">{pick.name}</p><p className="text-[11px]" style={{ color: C.muted }}>{pick.role}</p></div><button onClick={() => setPick(null)} className="ml-auto text-xs underline" style={{ color: C.muted }}>not me</button></div>
-            <p className="text-xs mb-2" style={{ color: C.muted }}>Enter your password</p>
-            <input autoFocus type="password" autoComplete="current-password" value={pin} onChange={e => { setPin(e.target.value); setErr(""); }} onKeyDown={e => e.key === "Enter" && submit(pick)} className="w-full text-center text-xl tracking-widest" style={{ minHeight: 52 }} placeholder="••••••" />
-            {err && <p className="text-xs mt-2" style={{ color: C.bad }}>{err}</p>}
-            <button onClick={() => submit(pick)} disabled={!pin} className="w-full py-3 rounded-xl text-sm font-medium mt-4" style={{ background: pin ? C.ink : C.line, color: pin ? C.onDark : C.muted }}>Sign in</button>
-          </div>
-        )}
-        <p className="text-[10px] mt-5" style={{ color: C.muted }}>Prototype sign-in: identifies who works, it is not a security boundary. Real authentication comes with the backend.</p>
-      </div>
-    </div>
-  );
-}
+const LoginScreen = createLoginScreen({ DARK, GLOBAL_CSS, Ic, ChevronLeft, ChevronRight, Check, notifyHeads, nowISO, writeSession });
 // ═══════════════════ BLOCKED PALLET QUEUE ROW (shared) ═══════════════════
 function QueueRow({ s, set, user, b, onOpen }) {
   const c = b.claim; const me = c && c.userId === user.id; const who = c && s.users.find(u => u.id === c.userId);
@@ -4428,7 +4401,7 @@ export default function App() {
   const toggleTheme = () => { const d = !dark; applyTheme(d); setDark(d); (async () => { try { if (window.storage) await window.storage.set(THEME_KEY, d ? "dark" : "light"); } catch (e) {} })(); };
   if (!loaded) return <div className="min-h-screen flex items-center justify-center text-sm" style={{ color: C.muted }}>Loading…</div>;
   const user = s.users.find(u => u.id === userId && u.active !== false) || null;
-  if (!user) return <LoginScreen s={s} onLogin={id => setUserId(id)} />;
+  if (!user) return <LoginScreen s={{ ...s, __set: set }} allowRoles={["Head", "Controller"]} onLogin={id => setUserId(id)} />;
   const go = (p, prm = null) => { if (p === "back") { if (depthRef.current > 0) { explicitBack = true; try { history.back(); return; } catch {} } setPage("home"); setParam(null); return; } armClickGuard(); armGestureLock(); setPage(p); setParam(prm); };
   const notify = (type, message, entityType, entityId, toUserId) => set(x => { const targets = toUserId ? [toUserId] : x.users.filter(u => u.role === "Head").map(u => u.id); return { ...x, notifications: [...x.notifications, ...targets.map(t => ({ id: uid(), userId: t, type, message, entityType, entityId, createdAt: nowISO(), readAt: null }))] }; });
   const startInspection = (pid, palletNo, force = false, typeId = "type-full") => {
