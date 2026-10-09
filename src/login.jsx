@@ -20,7 +20,7 @@ return function LoginScreen({ s, onLogin, allowRoles }) {
   ];
   const [slide, setSlide] = useState(0); const touchX = useRef(null); const [paused, setPaused] = useState(false); const manual = useRef(false);
   const goSlide = (d, byUser = true) => { if (byUser) manual.current = true; setSlide(i => (i + d + HERO_SLIDES.length) % HERO_SLIDES.length); };
-  useEffect(() => { if (!hero || paused) return; const id = setInterval(() => { if (!manual.current) goSlide(1, false); }, 7000); return () => clearInterval(id); }, [hero, paused]);
+  useEffect(() => { if (!hero || paused || (typeof window !== "undefined" && window.matchMedia && window.matchMedia("(max-width:860px)").matches)) return; const id = setInterval(() => { if (!manual.current) goSlide(1, false); }, 7000); return () => clearInterval(id); }, [hero, paused]);
   useEffect(() => { const k = e => { if (e.target && /input|textarea|select/i.test(e.target.tagName)) return; if (e.key === "ArrowRight") goSlide(1); if (e.key === "ArrowLeft") goSlide(-1); }; window.addEventListener("keydown", k); return () => window.removeEventListener("keydown", k); }, []);
   const users = (s.users || []).filter(u => u.active !== false && (!allowRoles || allowRoles.includes(u.role)));
   const norm = v => String(v || "").trim().toLowerCase();
@@ -81,7 +81,17 @@ return function LoginScreen({ s, onLogin, allowRoles }) {
         .qc-login .link{color:#26372D;font-size:12px;background:none;border:0;padding:0}
         .qc-login .lbl{display:block;font-size:11px;font-weight:500;letter-spacing:.04em;text-transform:uppercase;color:${D.muted};margin-bottom:6px}
         .qc-login .link:hover{color:#2F4438;text-decoration:underline}
-        @media (max-width:860px){.qc-login{grid-template-columns:1fr;grid-template-rows:auto 1fr}.qc-login-brand{padding:22px 20px 18px;min-height:46vh}.qc-login-brand .cap p:first-child{font-size:24px}.qc-login-brand .cap p:last-child{font-size:14px}.qc-login-brand .nav{right:16px;bottom:14px}.qc-login-form{padding:28px 20px 40px;align-items:flex-start}}
+        @media (max-width:860px){
+          .qc-login{grid-template-columns:1fr;grid-template-rows:auto 1fr;background:#0D1410!important;position:relative}
+          .qc-login::before{content:"";position:fixed;inset:0;z-index:0;background:#0D1410 url(/login-mobile-bg.jpg?v=${LOGIN_HERO_V}) center bottom / cover no-repeat}
+          .qc-login>*{position:relative;z-index:1}
+          .qc-login-brand{padding:22px 20px 0;min-height:0;background:transparent}
+          .qc-login-brand .hero,.qc-login-brand .tint,.qc-login-brand .grain,.qc-login-brand .lines,.qc-login-brand .nav{display:none}
+          .qc-login-brand .cap{position:relative!important;opacity:1!important;bottom:auto;margin-top:28px}
+          .qc-login-brand .cap:not(:first-of-type){display:none}
+          .qc-login-brand .cap p:first-child{font-size:24px}.qc-login-brand .cap p:last-child{font-size:14px}
+          .qc-login-form{padding:24px 20px 36vh;align-items:flex-start;background:transparent}
+        }
       `}</style>
       <aside className={`qc-login-brand${hero ? " photo" : ""}`} onMouseEnter={() => setPaused(true)} onMouseLeave={() => setPaused(false)} onTouchStart={e => { touchX.current = e.touches[0].clientX; }} onTouchEnd={e => { const x0 = touchX.current; touchX.current = null; if (x0 == null) return; const dx = e.changedTouches[0].clientX - x0; if (Math.abs(dx) > 40) goSlide(dx < 0 ? 1 : -1); }}>
         {hero && HERO_SLIDES.map((h, i) => <img key={h.src} className={`hero ${h.cls}${slide === i ? " on" : ""}`} src={h.src} alt="" onError={() => { if (i === 0) setHero(false); }} />)}
