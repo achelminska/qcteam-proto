@@ -92,7 +92,7 @@ return function LoginScreen({ s, onLogin, allowRoles }) {
           .qc-login-brand{padding:56px 20px 0;min-height:0;background:transparent;align-items:center}
           .qc-login-brand .hero,.qc-login-brand .tint,.qc-login-brand .grain,.qc-login-brand .lines,.qc-login-brand .nav,.qc-login-brand .cap{display:none}
           .qc-login-brand .logo{margin:0 auto}
-          .qc-login-brand .logo svg{width:170px;height:auto;color:#9FBFAA!important;opacity:.9}
+          .qc-login-brand .logo svg{width:240px;height:auto;color:#9FBFAA!important;opacity:.9}
           .qc-login-form{padding:28px 24px 40vh;align-items:flex-start;background:transparent}
           .qc-login-form h1{display:none}.qc-login-form h1+p{display:none}
           .qc-login-form .link{color:${D.muted}}
