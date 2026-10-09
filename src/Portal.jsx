@@ -1361,7 +1361,7 @@ function LoginScreen({ s, onLogin, allowRoles }) {
             <label className="block mb-2"><span className="lbl" style={{ display: "flex", alignItems: "center" }}>Password<button type="button" onClick={() => setShow(v => !v)} className="ml-auto normal-case tracking-normal" style={{ color: D.muted, fontSize: 11 }}>{show ? "Hide" : "Show"}</button></span><input className="fld" type={show ? "text" : "password"} autoComplete="current-password" value={pw} onChange={e => { setPw(e.target.value); setErr(""); }} onKeyDown={onKey(submit)} placeholder="••••••••" /></label>
             <p className="text-xs" style={{ color: err ? D.bad : D.muted, minHeight: 18, marginBottom: 14 }}>{err || " "}</p>
             <button className="primary" onClick={submit} disabled={!email.trim()}>Sign in</button>
-            <div className="flex items-center justify-between" style={{ marginTop: 18 }}><button className="link" onClick={() => { setMode("forgot"); setErr(""); }}>Forgot your password?</button><span className="text-[11px]" style={{ color: D.muted }}>First sign-in? Leave the password empty.</span></div>
+            <div style={{ marginTop: 18 }}><button className="link" onClick={() => { setMode("forgot"); setErr(""); }}>Forgot your password?</button></div>
           </div>}
           {mode === "create" && <div>
             <button onClick={() => { setMode("login"); setErr(""); }} className="text-xs inline-flex items-center mb-5" style={{ color: D.muted }}><Ic i={ChevronLeft} s={14} mr={2} />Back</button>
