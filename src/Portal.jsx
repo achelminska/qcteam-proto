@@ -1288,6 +1288,11 @@ function LoginScreen({ s, onLogin, allowRoles }) {
   const [mode, setMode] = useState("login");   // login | create | forgot | sent
   const [email, setEmail] = useState(""); const [pw, setPw] = useState(""); const [pw2, setPw2] = useState(""); const [err, setErr] = useState(""); const [show, setShow] = useState(false);
   const [hero, setHero] = useState(true);   // public/login-hero.jpg — optional photo behind the brand panel; the gradient alone when missing
+  // Brand panel carousel: slide 0 is the inspection photo, slide 1 shows the app on phones. Arrows, dots, keys and swipe.
+  const HERO_SLIDES = [{ src: `/login-hero.jpg?v=${LOGIN_HERO_V}`, cls: "" }, { src: `/login-hero-2.jpg?v=${LOGIN_HERO_V}`, cls: "screens" }];
+  const [slide, setSlide] = useState(0); const touchX = useRef(null);
+  const goSlide = d => setSlide(i => (i + d + HERO_SLIDES.length) % HERO_SLIDES.length);
+  useEffect(() => { const k = e => { if (e.target && /input|textarea|select/i.test(e.target.tagName)) return; if (e.key === "ArrowRight") goSlide(1); if (e.key === "ArrowLeft") goSlide(-1); }; window.addEventListener("keydown", k); return () => window.removeEventListener("keydown", k); }, []);
   const users = (s.users || []).filter(u => u.active !== false && (!allowRoles || allowRoles.includes(u.role)));
   const norm = v => String(v || "").trim().toLowerCase();
   const findUser = () => { const e = norm(email); if (!e) return null; return users.find(u => norm(u.email) === e) || users.find(u => norm(u.name) === e) || null; };
@@ -1324,8 +1329,18 @@ function LoginScreen({ s, onLogin, allowRoles }) {
         .qc-login-form{position:relative;overflow:hidden;display:flex;align-items:center;justify-content:center;padding:48px 32px;background:#0D1410}
         .qc-login-form>div{position:relative}
         .qc-login-brand{position:relative;overflow:hidden;display:flex;flex-direction:column;justify-content:space-between;padding:56px 56px 48px;color:#EEF5F0;background:linear-gradient(160deg,${green2} 0%,${green} 70%)}
-        .qc-login-brand .hero{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:50% 100%;opacity:1;filter:saturate(.95)}
-        .qc-login-brand .tint{position:absolute;inset:0;background:linear-gradient(180deg,rgba(11,36,24,.82) 0%,rgba(11,36,24,.35) 26%,rgba(11,36,24,.04) 45%,rgba(11,36,24,.04) 66%,rgba(11,36,24,.55) 82%,rgba(11,36,24,.9) 100%)}
+        .qc-login-brand .hero{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:55% 60%;opacity:0;filter:saturate(.85) contrast(1.03);transition:opacity .5s ease}
+        .qc-login-brand .hero.on{opacity:.92}
+        .qc-login-brand .hero.screens{object-position:50% 100%;filter:saturate(.95)}
+        .qc-login-brand .hero.screens.on{opacity:1}
+        .qc-login-brand .tint.screens{background:linear-gradient(180deg,rgba(11,36,24,.82) 0%,rgba(11,36,24,.35) 26%,rgba(11,36,24,.04) 45%,rgba(11,36,24,.04) 66%,rgba(11,36,24,.55) 82%,rgba(11,36,24,.9) 100%)}
+        .qc-login-brand .nav{position:absolute;right:24px;bottom:18px;display:flex;align-items:center;gap:10px;z-index:2}
+        .qc-login-brand .nav button{width:30px;height:30px;border-radius:999px;border:1px solid rgba(255,255,255,.22);background:rgba(11,36,24,.55);color:#EEF5F0;display:inline-flex;align-items:center;justify-content:center;backdrop-filter:blur(6px);transition:background .12s}
+        .qc-login-brand .nav button:hover{background:rgba(11,36,24,.85)}
+        .qc-login-brand .dots{display:flex;gap:6px;margin:0 4px}
+        .qc-login-brand .dots i{width:6px;height:6px;border-radius:999px;background:rgba(255,255,255,.35);display:block;transition:background .2s,width .2s}
+        .qc-login-brand .dots i.on{background:#EEF5F0;width:18px}
+        .qc-login-brand .tint{position:absolute;inset:0;transition:background .5s;background:linear-gradient(180deg,rgba(11,36,24,.8) 0%,rgba(11,36,24,.5) 34%,rgba(11,36,24,.18) 55%,rgba(11,36,24,.45) 78%,rgba(11,36,24,.92) 100%),linear-gradient(90deg,rgba(11,36,24,.35),rgba(11,36,24,0) 60%)}
         .qc-login-brand .grain{position:absolute;inset:0;background:radial-gradient(1100px 600px at -10% -10%,rgba(255,255,255,.12),transparent 60%);pointer-events:none}
         .qc-login-brand .lines{position:absolute;inset:0;opacity:.06;background-image:linear-gradient(rgba(255,255,255,.9) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.9) 1px,transparent 1px);background-size:48px 48px;pointer-events:none}
         .qc-login .card{background:${D.surface};border:1px solid ${D.line};box-shadow:0 1px 0 rgba(255,255,255,.05) inset,0 16px 40px rgba(0,0,0,.45)}
@@ -1340,9 +1355,9 @@ function LoginScreen({ s, onLogin, allowRoles }) {
         .qc-login .link:hover{color:#2F4438;text-decoration:underline}
         @media (max-width:860px){.qc-login{grid-template-columns:1fr}.qc-login-brand{padding:28px 24px 24px;min-height:0}.qc-login-brand .feat{display:none}.qc-login-form{padding:28px 20px}}
       `}</style>
-      <aside className={`qc-login-brand${hero ? " photo" : ""}`}>
-        {hero && <img className="hero" src={`/login-hero.jpg?v=${LOGIN_HERO_V}`} alt="" onError={() => setHero(false)} />}
-        {hero && <div className="tint" />}
+      <aside className={`qc-login-brand${hero ? " photo" : ""}`} onTouchStart={e => { touchX.current = e.touches[0].clientX; }} onTouchEnd={e => { const x0 = touchX.current; touchX.current = null; if (x0 == null) return; const dx = e.changedTouches[0].clientX - x0; if (Math.abs(dx) > 40) goSlide(dx < 0 ? 1 : -1); }}>
+        {hero && HERO_SLIDES.map((h, i) => <img key={h.src} className={`hero ${h.cls}${slide === i ? " on" : ""}`} src={h.src} alt="" onError={() => { if (i === 0) setHero(false); }} />)}
+        {hero && <div className={`tint ${HERO_SLIDES[slide].cls}`} />}
         <div className="grain" />{!hero && <div className="lines" />}
         <div style={{ position: "relative" }}>
           <QCWordmark width={300} style={{ color: "#EEF5F0", display: "block" }} />
@@ -1351,6 +1366,7 @@ function LoginScreen({ s, onLogin, allowRoles }) {
         <div className="feat grid gap-3" style={{ position: "relative", maxWidth: 440 }}>
           {[[ScanLine, "Inspect anywhere", "Scan, check, decide — right on the dock."], [Warehouse, "See the whole floor", "Everyone works from the same live picture."], [BookOpen, "Nothing gets lost", "Every finding and note stays with the team."]].map(([I, h, d]) => <div key={h} className="flex items-start gap-3 rounded-xl px-3 py-2.5" style={{ background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)", backdropFilter: "blur(6px)" }}><span className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ background: "rgba(255,255,255,.14)" }}><Ic i={I} s={16} mr={0} /></span><span><span className="block text-sm font-medium">{h}</span><span className="block text-xs" style={{ opacity: .8 }}>{d}</span></span></div>)}
         </div>
+        {hero && <div className="nav" aria-label="Pictures"><button onClick={() => goSlide(-1)} title="Previous"><Ic i={ChevronLeft} s={15} mr={0} /></button><span className="dots">{HERO_SLIDES.map((_, i) => <i key={i} className={slide === i ? "on" : ""} onClick={() => setSlide(i)} style={{ cursor: "pointer" }} />)}</span><button onClick={() => goSlide(1)} title="Next"><Ic i={ChevronRight} s={15} mr={0} /></button></div>}
       </aside>
       <section className="qc-login-form">
         <div className="w-full" style={{ maxWidth: 400 }}>
