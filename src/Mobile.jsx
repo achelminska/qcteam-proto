@@ -2325,13 +2325,14 @@ function RejectionLink({ href, label }) {
     </a>
   );
 }
-function ExtRejectionRow({ r }) {
+function ExtRejectionRow({ r, showName }) {
   const reason = String(r.reason || "Rejected").replace(/^./, c => c.toUpperCase());
   const Chip = ({ children }) => <span className="text-[11px] px-1.5 rounded-md leading-[18px]" style={{ background: C.bg, border: `1px solid ${C.line}` }}>{children}</span>;
   const reports = reportUrls(r);
   return (
     <div className="qc-tile rounded-2xl px-3 py-2.5" style={{ background: C.surface, border: `1px solid ${C.line}`, borderLeft: `3px solid ${C.bad}` }}>
-      <p className="text-[13px] font-semibold leading-snug">{reason}</p>
+      {showName && (r.n || r.a) && <p className="text-[13px] font-semibold leading-snug">{r.n || r.a}</p>}
+      <p className={`text-[13px] leading-snug ${showName ? "mt-0.5" : "font-semibold"}`} style={showName ? { color: C.muted } : undefined}>{reason}</p>
       <p className="text-[11px] mt-0.5 leading-snug" style={{ color: C.muted, fontVariantNumeric: "tabular-nums" }}>
         {fmtRejectionDay(r.d)}{r.tu != null ? ` · ${r.tu} TU` : ""}
       </p>
@@ -2370,21 +2371,24 @@ function ExtRejectionList({ s, articleId, go }) {
   );
 }
 function MExtRejectionHistory({ s, go, articleId }) {
-  const product = s.products.find(p => normArticle(p.articleId) === normArticle(articleId));
-  const y = extRejectionYearLine(s, articleId);
-  const rows = extRejectionsYear(s, articleId);
+  const all = !articleId;   // opened from the shift update: every rejection the sheet sent, not one article
+  const product = all ? null : s.products.find(p => normArticle(p.articleId) === normArticle(articleId));
+  const y = all ? null : extRejectionYearLine(s, articleId);
+  const rows = all ? (s.extRejections?.latest || []).filter(e => e.d) : extRejectionsYear(s, articleId);
   const months = groupRejectionsByMonth(rows);
+  const d = s.extRejections;
   return (
     <div className="pb-4">
-      <TopBar title="Dock rejections" onBack={() => go("back")} />
+      <TopBar title={all ? "All rejections" : "Dock rejections"} onBack={() => go("back")} />
       <div className="px-4 pt-3">
+        {all ? <p className="text-[12px] mt-1 mb-3" style={{ color: C.muted }}>{rows.length ? `Latest ${rows.length} from the DC5 rejections sheet, newest first${d?.articles ? ` · ${d.articles} articles in ${d.windowDays || 365} days` : ""}` : "DC5 rejections sheet"}</p> : <>
         <p className="text-[15px] font-semibold leading-snug">{product?.name || y?.name || articleId}</p>
         <p className="text-[12px] mt-1 mb-3" style={{ color: C.muted }}>{y ? `${y.count} in ${y.span} · last ${fmtRejectionDay(y.last)}${y.c30 ? ` · ${y.c30} in 30 days` : ""} · DC5 sheet` : "DC5 rejections sheet"}</p>
-        {y && rows.length < y.count && <p className="text-[11px] mb-2 leading-snug" style={{ color: C.muted }}>Showing {rows.length} of {y.count} — the rest land after the next sheet push.</p>}
+        {y && rows.length < y.count && <p className="text-[11px] mb-2 leading-snug" style={{ color: C.muted }}>Showing {rows.length} of {y.count} — the rest land after the next sheet push.</p>}</>}
         {rows.length === 0 ? <p className="text-sm py-8 text-center" style={{ color: C.muted }}>No dock rejections on this phone yet.</p> : months.map(g => (
           <div key={g.k || "none"} className="mb-3">
             <ListDayHead count={g.items.length}>{g.label}</ListDayHead>
-            <div className="flex flex-col gap-2">{g.items.map((r, ix) => <ExtRejectionRow key={`${r.d || ""}-${r.po || ""}-${ix}`} r={r} />)}</div>
+            <div className="flex flex-col gap-2">{g.items.map((r, ix) => <ExtRejectionRow key={`${r.d || ""}-${r.po || ""}-${ix}`} r={r} showName={all} />)}</div>
           </div>
         ))}
       </div>
@@ -4058,7 +4062,8 @@ function MBriefing({ s, set, user, go }) {
         <div className="flex-1 flex flex-col items-center justify-center px-8 text-center">
           <p className="text-[22px] font-semibold tracking-tight">You're up to date.</p>
           <p className="text-sm mt-2" style={{ color: C.muted }}>{emptyCopy}</p>
-          {user.role === "Head" && (s.briefingSeen || []).length > 0 && <button type="button" onClick={replayCards} className="mt-5 text-sm font-semibold px-4 py-2.5 rounded-xl" style={{ background: C.ink, color: C.onDark }}>Show all cards as new</button>}
+          <button type="button" onClick={() => go(tab === "complaints" ? "complaints" : tab === "notes" ? "announcements" : "dockRejections", "")} className="mt-5 text-sm font-semibold px-4 py-2.5 rounded-xl" style={{ background: C.ink, color: C.onDark }}>{tab === "complaints" ? "See all complaints" : tab === "notes" ? "See all notes" : "See all rejections"}</button>
+          {user.role === "Head" && (s.briefingSeen || []).length > 0 && <button type="button" onClick={replayCards} className="mt-3 text-sm font-semibold px-4 py-2.5 rounded-xl" style={{ background: C.surface, color: C.ink, border: `1px solid ${C.line}` }}>Show all cards as new</button>}
         </div>
       ) : (
         <>

@@ -1470,6 +1470,37 @@ function RejectionLink({ href, label }) {
     </a>
   );
 }
+// Every rejection the DC5 sheet sent (the digest keeps the latest 60 rows), newest first, grouped by month. Reached from
+// the shift update when there is nothing new to review; the product profile has the per-article view.
+function RejectionsPage({ s, openProduct }) {
+  const [q, setQ] = useState("");
+  const d = s.extRejections; const all = (d?.latest || []).filter(e => e.d);
+  const qq = q.trim().toLowerCase();
+  const rows = qq ? all.filter(e => `${e.n || ""} ${e.a || ""} ${e.reason || ""} ${e.user || ""} ${e.po || ""}`.toLowerCase().includes(qq)) : all;
+  const months = groupRejectionsByMonth(rows);
+  const productFor = a => (s.products || []).find(p => normArticle(p.articleId) === normArticle(a));
+  return (
+    <div>
+      <div className="flex items-center gap-3 mb-1 flex-wrap"><h1 className="flex-1">Dock rejections</h1><SearchBox value={q} onChange={setQ} placeholder="Search product, reason, controller, PO" style={{ width: 300 }} inputClass="rounded-lg" size={13} /></div>
+      <p className="text-sm mb-4" style={{ color: C.muted, maxWidth: 720 }}>{all.length ? `The latest ${all.length} rejections from the DC5 rejections sheet, newest first${d?.articles ? ` · ${d.articles} articles in the last ${d.windowDays || 365} days` : ""}. Older ones are on each product profile.` : "Nothing from the DC5 rejections sheet yet."}</p>
+      {rows.length === 0 ? <Card><Empty icon="🚫" title={qq ? `Nothing matches “${q}”.` : "No rejections on the sheet"} hint={qq ? "" : "They appear here as soon as the rejections sheet pushes."} /></Card> : months.map(g => (
+        <div key={g.k || "none"} className="mb-4">
+          <p className="label-sm mb-1.5" style={{ color: C.muted }}>{g.label} · {g.items.length}</p>
+          <div className="grid gap-2">{g.items.map((r, ix) => { const p = productFor(r.a); const reason = String(r.reason || "Rejected").replace(/^./, c => c.toUpperCase()); const reports = reportUrls(r); return (
+            <div key={`${r.d || ""}-${r.po || ""}-${ix}`} className="qc-tile rounded-xl px-3 py-2 flex items-center gap-3 flex-wrap" style={{ background: C.bg, border: `1px solid ${C.line}`, borderLeft: `3px solid ${C.bad}` }}>
+              <div className="flex-1 min-w-0" style={{ minWidth: 220 }}>
+                <p className="text-sm font-medium truncate">{p && openProduct ? <button onClick={() => openProduct(p.id)} className="text-left font-medium" style={{ color: C.ink }}>{r.n || p.name}</button> : (r.n || r.a)}</p>
+                <p className="text-[11px] mt-0.5 flex items-center gap-x-2 flex-wrap" style={{ color: C.muted }}><span className="font-mono">{r.a}</span><span style={{ fontVariantNumeric: "tabular-nums" }}>{fmtRejectionDay(r.d)}</span>{r.user && <span>{r.user}</span>}{r.po && <span>PO {r.po}</span>}{r.cat && <span>{r.cat}</span>}</p>
+              </div>
+              <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: C.badBg, color: C.bad }}>{reason}</span>
+              {r.tu != null && <span className="text-xs shrink-0" style={{ fontVariantNumeric: "tabular-nums", minWidth: 48, textAlign: "right" }}><b>{r.tu}</b> TU</span>}
+              {(reports.length > 0 || r.link) && <span className="flex gap-1.5 shrink-0">{reports.slice(0, 2).map((u, i) => <RejectionLink key={u} href={u} label={reports.length > 1 ? `Report ${i + 1}` : "Report"} />)}{r.link && <RejectionLink href={r.link} label={linkLabel(r.link)} />}</span>}
+            </div>); })}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
 function ExtRejectionsNote({ s, articleId }) {
   const y = extRejectionYearLine(s, articleId); if (!y) return null;
   const [open, setOpen] = useState(false);
@@ -2704,7 +2735,7 @@ function BriefingPage({ s, set, user, go }) {
         {unread > 0 && <button type="button" onClick={markAll} className="text-xs font-semibold px-3 rounded-xl inline-flex items-center" style={{ height: 30, background: C.accentSoft, color: C.accent }}><Ic i={Check} s={13} />Mark all {unread} as read</button>}
       </div>
       {n === 0 ? (
-        <Card><Empty icon={BookOpen} title="You're up to date." hint={emptyCopy} /></Card>
+        <Card><Empty icon={BookOpen} title="You're up to date." hint={emptyCopy} action={<Primary onClick={() => go(tab === "complaints" ? "complaints" : tab === "notes" ? "announcements" : "rejections")}>{tab === "complaints" ? "See all complaints" : tab === "notes" ? "See all notes" : "See all rejections"}</Primary>} /></Card>
       ) : (
         <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(380px, 1fr))" }}>
           {cards.map((c, ix) => renderCard(c, ix))}
@@ -6152,7 +6183,7 @@ export default function App() {
     else if (page === "inspection") { setOpenInspId(id); setPage("inspections"); }
     else setPage(page);
   };
-  const guard = key => user.role === "Head" || NAV_CONTROLLER.some(g => g.items.some(([k]) => k === key));
+  const guard = key => user.role === "Head" || key === "rejections" || NAV_CONTROLLER.some(g => g.items.some(([k]) => k === key));
   const safePage = guard(page) ? page : "dashboard";
   return (
     <Shell onSearch={q => { setSelPallet(null); setProductsQuery(q); setPage(productPage); }} onLogout={() => { writeSession(null); setUserId(null); }} page={safePage} setPage={p => { setSelPallet(null); setPage(p); }} badge={{ ...badge, complaints: complaintsNewCount(s, user.id), messages: unreadMsgs, notifications: unread, briefing: briefingNew, flags: user.role === "Head" ? s.flags.filter(f => f.status === "Open").length : s.flags.filter(f => f.raisedBy === user.id && f.status === "Open").length, inspections: user.role === "Head" ? s.inspections.filter(i => i.status === "PendingReview").length : 0, tempspecs: user.role === "Head" ? (s.tempSpecs || []).filter(t => !t.endedAt).length : 0 }} topRight={dataButton} users={s.users} user={user} setUser={id => { setUserId(id); setSelPallet(null); setPage("dashboard"); setOpenInspId(null); }} unread={unread} onBell={() => { setSelPallet(null); setPage("notifications"); }}>
@@ -6163,6 +6194,7 @@ export default function App() {
       {selPallet && <PalletPage s={s} set={set} user={user} hu={selPallet} onBack={() => setSelPallet(null)} onPickPallet={h => setSelPallet(h)} onOpenProduct={id => { setSelPallet(null); setSelProduct(id); setPage(user.role === "Head" ? "products" : "catalog"); }} onOpenInspection={id => { setSelPallet(null); setOpenInspId(id); setPage("inspections"); }} onAssign={r => { setSelPallet(null); setPendingChatContext({ kind: "pallet", id: r.hu || claimKey(r), label: `${r.name || r.article} · ${r.location || ""}`.trim() }); setPage("messages"); }} onOpenAnnouncements={() => { setSelPallet(null); setPage("announcements"); }} onOpenComplaints={() => { setSelPallet(null); setPage("complaints"); }} />}
       {!selPallet && safePage === "dashboard" && (user.role === "Head" ? <Dashboard s={s} user={user} set={set} setPage={setPage} seed={() => set(olaState(), { replace: true })} openPallet={hu => setSelPallet(hu)} onAssign={a => { setPendingChatContext({ kind: "pallet", id: a.hu, label: `${a.name} · ${a.location}` }); setPage("messages"); }} openTodayInspections={() => { setOpenInspId(null); setInspDatePreset("0"); setPage("inspections"); }} /> : <ControllerDashboard s={s} user={user} set={set} setPage={setPage} setOpenId={setOpenInspId} openPallet={hu => setSelPallet(hu)} openProduct={id => { setSelProduct(id); setPage("catalog"); }} />)}
       {!selPallet && safePage === "briefing" && <BriefingPage s={s} set={set} user={user} go={goBriefing} />}
+      {!selPallet && safePage === "rejections" && <RejectionsPage s={s} openProduct={id => { setSelProduct(id); setPage(user.role === "Head" ? "products" : "catalog"); }} />}
       {!selPallet && safePage === "profile" && <ProfilePage s={s} set={set} user={user} openInspection={id => { setOpenInspId(id); setPage("inspections"); }} />}
       {!selPallet && safePage === "categories" && <CategoriesPage s={s} set={set} onMessage={ctx => { setPendingChatContext(ctx); setPage("messages"); }} onOpenProduct={id => { setSelProduct(id); setPage("products"); }} presetSel={presetCategory} clearPresetSel={() => setPresetCategory(null)} />}
       {!selPallet && safePage === "problems" && <ProblemsPage s={s} set={set} />}
