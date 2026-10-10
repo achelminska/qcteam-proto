@@ -228,3 +228,29 @@ export function searchRejections(rows, q) {
   const words = qq.split(/\s+/);
   return rows.filter(e => { const hay = `${e.n || ""} ${e.a || ""} ${e.reason || ""} ${e.cat || ""} ${e.user || ""} ${e.po || ""} ${e.group || ""}`.toLowerCase(); return words.every(w => hay.includes(w)); });
 }
+
+// ── Head's summary of a set of rejections (the all-rejections page after its filters, or the dashboard's week) ──
+// Three breakdowns of the same rows: by product (with its reasons), by reason, by controller (with their products).
+// Everything counts rejections (sheet rows) and adds up TU where the sheet has a number. Sorted by count, then TU.
+export function summarizeRejections(rows) {
+  const byCount = (x, y) => y.count - x.count || y.tu - x.tu || x.label.localeCompare(y.label);
+  const reasonOf = r => String(r.cat || r.reason || "Not given").replace(/^./, c => c.toUpperCase()).slice(0, 60);
+  const tuOf = r => (typeof r.tu === "number" && Number.isFinite(r.tu) ? r.tu : 0);
+  const tally = (map, key, label, r, extraKey, extraLabel) => {
+    const e = map.get(key) || { key, label, count: 0, tu: 0, sub: new Map() };
+    e.count++; e.tu += tuOf(r);
+    if (extraKey != null) { const s = e.sub.get(extraKey) || { key: extraKey, label: extraLabel, count: 0, tu: 0 }; s.count++; s.tu += tuOf(r); e.sub.set(extraKey, s); }
+    map.set(key, e);
+  };
+  const products = new Map(), reasons = new Map(), users = new Map();
+  let total = 0, tu = 0;
+  for (const r of rows || []) {
+    total++; tu += tuOf(r);
+    const reason = reasonOf(r); const user = String(r.user || "Unknown").trim() || "Unknown"; const name = r.n || r.a || "?";
+    tally(products, r.a || name, name, r, reason.toLowerCase(), reason);
+    tally(reasons, reason.toLowerCase(), reason, r, r.a || name, name);
+    tally(users, user.toLowerCase(), user, r, r.a || name, name);
+  }
+  const finish = map => [...map.values()].map(e => ({ ...e, sub: [...e.sub.values()].sort(byCount) })).sort(byCount);
+  return { total, tu, products: finish(products), reasons: finish(reasons), users: finish(users) };
+}

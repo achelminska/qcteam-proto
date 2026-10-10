@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, Fragment } from "react";
 import { QCMark } from "./brand.jsx";
 import { createLoginScreen } from "./login.jsx";
 import { mergeDockLines, mergedLineCount } from "./shared/dock-merge.js";
-import { extRejectionsEverything, filterRejectionsByPeriod, searchRejections } from "./shared/rejections.js";
+import { extRejectionsEverything, filterRejectionsByPeriod, searchRejections, summarizeRejections } from "./shared/rejections.js";
 import { demoConversation } from "./demo-chat.js";
 import { createSyncer, guardUnload } from "./sync.js";
 import { applySpecEdit, hasV, specFieldsFromForm, specFormKind, specLabel, dayLabel, problemPath, typesOf, typeById, legacyTypeId, inspType, countsAs, listCheck, matchFieldSpec, numberSpecCheck, reportStatusFields, toleranceDisplay, matchesInspSearch } from "./shared/format.js";
@@ -1473,7 +1473,42 @@ function RejectionLink({ href, label }) {
 }
 // Every rejection the DC5 sheet sent (the digest keeps the latest 60 rows), newest first, grouped by month. Reached from
 // the shift update when there is nothing new to review; the product profile has the per-article view.
-function RejectionsPage({ s, openProduct }) {
+// Head's mini chart over a set of sheet rejections: which products and why, which reasons, who rejected how much of what.
+// Bars are plain divs scaled to the biggest count in the column — no chart library, prints fine, reads in both themes.
+function RejectionSummary({ rows, openProduct, productFor, compact = false }) {
+  const [metric, setMetric] = useState("count");
+  const sum = summarizeRejections(rows); if (!sum.total) return null;
+  const n = compact ? 5 : 8;
+  const val = e => metric === "tu" ? e.tu : e.count;
+  const unit = v => metric === "tu" ? `${v} TU` : `${v}×`;
+  const Col = ({ title, items, sub, onPick }) => { const max = Math.max(1, ...items.slice(0, n).map(val)); return (
+    <div className="min-w-0">
+      <p className="label-sm mb-2" style={{ color: C.muted }}>{title} · {items.length}</p>
+      <div className="grid gap-1.5">{items.slice(0, n).map(e => { const v = val(e); const pick = onPick && onPick(e); return (
+        <div key={e.key} className="min-w-0">
+          <div className="flex items-baseline gap-2 text-xs"><span className="flex-1 truncate font-medium">{pick ? <button onClick={pick} className="text-left truncate" style={{ color: C.ink, maxWidth: "100%" }}>{e.label}</button> : e.label}</span><span className="shrink-0" style={{ color: C.muted, fontVariantNumeric: "tabular-nums" }}>{unit(v)}{metric === "count" && e.tu ? ` · ${e.tu} TU` : ""}</span></div>
+          <div className="rounded-full mt-0.5" style={{ height: 6, background: C.line }}><div className="rounded-full" style={{ height: 6, width: `${Math.max(3, Math.round(100 * v / max))}%`, background: C.bad, opacity: .85 }} /></div>
+          {sub && e.sub.length > 0 && <p className="text-[11px] mt-0.5 truncate" style={{ color: C.muted }}>{e.sub.slice(0, 3).map(x => `${x.label} ${x.count}×`).join(" · ")}</p>}
+        </div>); })}
+        {items.length > n && <p className="text-[11px]" style={{ color: C.muted }}>+{items.length - n} more</p>}
+      </div>
+    </div>); };
+  const pickProduct = e => { const p = productFor && productFor(e.key); return p && openProduct ? () => openProduct(p.id) : null; };
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-3 flex-wrap">
+        <p className="text-sm"><b>{sum.total}</b> rejection{sum.total === 1 ? "" : "s"}{sum.tu ? <span style={{ color: C.muted }}> · {sum.tu} TU</span> : null}{sum.products.length ? <span style={{ color: C.muted }}> · {sum.products.length} product{sum.products.length === 1 ? "" : "s"} · {sum.users.length} controller{sum.users.length === 1 ? "" : "s"}</span> : null}</p>
+        <span className="inline-flex rounded-lg ml-auto overflow-hidden" style={{ border: `1px solid ${C.line}` }}>{[["count", "Rejections"], ["tu", "TU"]].map(([id, l]) => <button key={id} onClick={() => setMetric(id)} className="text-[11px] px-2.5 py-1 font-medium" style={{ background: metric === id ? C.ink : C.surface, color: metric === id ? C.onDark : C.muted }}>{l}</button>)}</span>
+      </div>
+      <div className="grid gap-5" style={{ gridTemplateColumns: compact ? "1fr 1fr" : "repeat(3, minmax(0, 1fr))" }}>
+        <Col title="Products" items={sum.products} sub onPick={pickProduct} />
+        {!compact && <Col title="Reasons" items={sum.reasons} sub />}
+        <Col title="Controllers" items={sum.users} sub />
+      </div>
+    </div>
+  );
+}
+function RejectionsPage({ s, openProduct, user }) {
   const today = todayISO();
   const [q, setQ] = useState(""); const [period, setPeriod] = useState("all"); const [week, setWeek] = useState(() => isoWeekOf(today)); const [limit, setLimit] = useState(40);
   const d = s.extRejections; const base = extRejectionsEverything(s);
@@ -1497,6 +1532,7 @@ function RejectionsPage({ s, openProduct }) {
         </span>}
         <span className="text-xs ml-auto" style={{ color: C.muted }}>{filtered.length} rejection{filtered.length === 1 ? "" : "s"}{filtered.length > rows.length ? ` · showing ${rows.length}` : ""}</span>
       </div>
+      {user?.role === "Head" && filtered.length > 0 && <Card style={{ marginBottom: 16 }}><RejectionSummary rows={filtered} openProduct={openProduct} productFor={productFor} /></Card>}
       {rows.length === 0 ? <Card><Empty icon="🚫" title={q ? `Nothing matches “${q}”.` : period === "today" ? "No rejections today" : period === "week" ? `No rejections in ${weekLabel(week).toLowerCase()}` : "No rejections on the sheet"} hint={q || period !== "all" ? "" : "They appear here as soon as the rejections sheet pushes."} /></Card> : months.map(g => (
         <div key={g.k || "none"} className="mb-4">
           <p className="label-sm mb-1.5" style={{ color: C.muted }}>{g.label} · {g.items.length}</p>
@@ -2205,6 +2241,10 @@ function Dashboard({ s, setPage, seed, user, openPallet, onAssign, set, openToda
           <button key={l} onClick={() => setPage(pg)} className="qc-elev qc-tile rounded-2xl p-4 text-left" style={{ background: C.surface, border: `1px solid ${C.line}`, borderLeft: `3px solid ${v > 0 && l !== "Products" ? C.warn : C.line}` }}><p className="text-xs" style={{ color: C.muted }}>{l}</p><p className="text-[26px] leading-tight font-semibold mt-0.5" style={{ color: v > 0 && l !== "Products" ? C.warn : C.ink }}>{v}</p></button>
         ))}
       </div>
+      {user.role === "Head" && (() => { const today = todayISO(); const wk = filterRejectionsByPeriod(extRejectionsEverything(s), "week", { today, weekRange: weekRange(isoWeekOf(today)) }); return wk.length > 0 && <Card style={{ marginBottom: 12 }}>
+        <div className="flex items-center gap-2 mb-3"><p className="font-medium flex-1">Dock rejections this week</p><button onClick={() => setPage("rejections")} className="text-xs underline" style={{ color: C.accent }}>all rejections</button></div>
+        <RejectionSummary compact rows={wk} openProduct={null} productFor={a => (s.products || []).find(p => normArticle(p.articleId) === normArticle(a))} />
+      </Card>; })()}
       {nextStep && <Card>
         <p className="font-medium mb-3">Getting started</p>
         {steps.map((x, i) => (
@@ -6209,7 +6249,7 @@ export default function App() {
       {selPallet && <PalletPage s={s} set={set} user={user} hu={selPallet} onBack={() => setSelPallet(null)} onPickPallet={h => setSelPallet(h)} onOpenProduct={id => { setSelPallet(null); setSelProduct(id); setPage(user.role === "Head" ? "products" : "catalog"); }} onOpenInspection={id => { setSelPallet(null); setOpenInspId(id); setPage("inspections"); }} onAssign={r => { setSelPallet(null); setPendingChatContext({ kind: "pallet", id: r.hu || claimKey(r), label: `${r.name || r.article} · ${r.location || ""}`.trim() }); setPage("messages"); }} onOpenAnnouncements={() => { setSelPallet(null); setPage("announcements"); }} onOpenComplaints={() => { setSelPallet(null); setPage("complaints"); }} />}
       {!selPallet && safePage === "dashboard" && (user.role === "Head" ? <Dashboard s={s} user={user} set={set} setPage={setPage} seed={() => set(olaState(), { replace: true })} openPallet={hu => setSelPallet(hu)} onAssign={a => { setPendingChatContext({ kind: "pallet", id: a.hu, label: `${a.name} · ${a.location}` }); setPage("messages"); }} openTodayInspections={() => { setOpenInspId(null); setInspDatePreset("0"); setPage("inspections"); }} /> : <ControllerDashboard s={s} user={user} set={set} setPage={setPage} setOpenId={setOpenInspId} openPallet={hu => setSelPallet(hu)} openProduct={id => { setSelProduct(id); setPage("catalog"); }} />)}
       {!selPallet && safePage === "briefing" && <BriefingPage s={s} set={set} user={user} go={goBriefing} />}
-      {!selPallet && safePage === "rejections" && <RejectionsPage s={s} openProduct={id => { setSelProduct(id); setPage(user.role === "Head" ? "products" : "catalog"); }} />}
+      {!selPallet && safePage === "rejections" && <RejectionsPage s={s} user={user} openProduct={id => { setSelProduct(id); setPage(user.role === "Head" ? "products" : "catalog"); }} />}
       {!selPallet && safePage === "profile" && <ProfilePage s={s} set={set} user={user} openInspection={id => { setOpenInspId(id); setPage("inspections"); }} />}
       {!selPallet && safePage === "categories" && <CategoriesPage s={s} set={set} onMessage={ctx => { setPendingChatContext(ctx); setPage("messages"); }} onOpenProduct={id => { setSelProduct(id); setPage("products"); }} presetSel={presetCategory} clearPresetSel={() => setPresetCategory(null)} />}
       {!selPallet && safePage === "problems" && <ProblemsPage s={s} set={set} />}
