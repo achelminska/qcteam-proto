@@ -231,10 +231,31 @@ export function searchRejections(rows, q) {
 
 // ── Head's summary of a set of rejections (the all-rejections page after its filters, or the dashboard's week) ──
 // Three breakdowns of the same rows: by product (with its reasons), by reason, by controller (with their products).
+// The reason is the controller's free text from "Reason for rejection" ("Freq decay, mold (12,5%)") folded into a theme so
+// it groups — the "Sortable yes / no" class is a different column and stays out of this (it is searchable, though).
+const REASON_THEMES = [
+  ["Underweight", /under\s*weight|onder\s*gewicht|light\s*weight|weight/i],
+  ["Mould", /mou?ld|schimmel|fung/i],
+  ["Decay", /decay|rot\b|rotten|bederf/i],
+  ["Insect damage", /insect|bug|worm|larva|aphid|luis/i],
+  ["Bruising", /bruis|kneuz/i],
+  ["Overripe", /over\s*ripe|overrijp|too ripe|soft/i],
+  ["Unripe", /unripe|under\s*ripe|onrijp|too green|hard/i],
+  ["Cold damage", /cold|frost|chill|vries/i],
+  ["Skin defects", /skin|stain|scar|blemish|spot|vlek/i],
+  ["Damaged pallet / packaging", /pallet|packag|box|crate|collapse|verpakking|broken/i],
+  ["Wrong product / label", /wrong|mislabel|label|different|verkeerd/i],
+  ["Temperature", /temp\b|temperature|°|degrees/i],
+];
+export function reasonTheme(raw) {
+  const v = String(raw || "").replace(/\s+/g, " ").trim(); if (!v) return "Not given";
+  for (const [t, re] of REASON_THEMES) if (re.test(v)) return t;
+  return v.replace(/[.\s]+$/, "").replace(/^./, c => c.toUpperCase()).slice(0, 40);
+}
 // Everything counts rejections (sheet rows) and adds up TU where the sheet has a number. Sorted by count, then TU.
 export function summarizeRejections(rows) {
   const byCount = (x, y) => y.count - x.count || y.tu - x.tu || x.label.localeCompare(y.label);
-  const reasonOf = r => String(r.cat || r.reason || "Not given").replace(/^./, c => c.toUpperCase()).slice(0, 60);
+  const reasonOf = r => reasonTheme(r.reason);
   const tuOf = r => (typeof r.tu === "number" && Number.isFinite(r.tu) ? r.tu : 0);
   const tally = (map, key, label, r, extraKey, extraLabel) => {
     const e = map.get(key) || { key, label, count: 0, tu: 0, sub: new Map() };

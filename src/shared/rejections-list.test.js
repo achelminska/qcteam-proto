@@ -26,8 +26,8 @@ describe("everything the digest holds", () => {
 import { summarizeRejections } from "./rejections.js";
 describe("summarizeRejections", () => {
   const rows = [
-    { a: "1", n: "Avocado", d: "2026-10-05T10:00", tu: 10, cat: "Overripe", user: "Damian Mrowka" },
-    { a: "1", n: "Avocado", d: "2026-10-06T10:00", tu: 5, cat: "Overripe", user: "Snizhana Myshkina" },
+    { a: "1", n: "Avocado", d: "2026-10-05T10:00", tu: 10, reason: "Freq mold (12,5%)", cat: "Quality (according to list)", user: "Damian Mrowka" },
+    { a: "1", n: "Avocado", d: "2026-10-06T10:00", tu: 5, reason: "Low brix", cat: "Quality (according to list)", user: "Snizhana Myshkina" },
     { a: "2", n: "Oranges", d: "2026-10-06T11:00", tu: 20, reason: "low brix", user: "Damian Mrowka" },
     { a: "3", n: "Grapes", d: "2026-10-07T11:00", user: "" },
   ];
@@ -35,11 +35,21 @@ describe("summarizeRejections", () => {
     const s = summarizeRejections(rows);
     expect(s.total).toBe(4); expect(s.tu).toBe(35);
     expect(s.products[0]).toMatchObject({ label: "Avocado", count: 2, tu: 15 });
-    expect(s.products[0].sub[0]).toMatchObject({ label: "Overripe", count: 2 });
-    expect(s.reasons.map(r => r.label)).toEqual(["Overripe", "Low brix", "Not given"]);
+    expect(s.products[0].sub.map(x => x.label).sort()).toEqual(["Low brix", "Mould"]);
+    expect(s.reasons.map(r => r.label)).toEqual(["Low brix", "Mould", "Not given"]);
     expect(s.users[0]).toMatchObject({ label: "Damian Mrowka", count: 2, tu: 30 });
     expect(s.users[0].sub.map(x => x.label)).toEqual(["Oranges", "Avocado"]);
     expect(s.users.at(-1).label).toBe("Unknown");
   });
   it("is empty for no rows", () => { expect(summarizeRejections([])).toMatchObject({ total: 0, tu: 0, products: [], reasons: [], users: [] }); });
+});
+
+import { reasonTheme } from "./rejections.js";
+it("folds the free-text reason into a theme and never uses the sortable class", () => {
+  expect(reasonTheme("Freq decay, mold (12,5%)")).toBe("Mould");
+  expect(reasonTheme("Underweight 16,6% (partial rejection)")).toBe("Underweight");
+  expect(reasonTheme("Major remarks (insect damage)")).toBe("Insect damage");
+  expect(reasonTheme("damaged pallet, risk to collapse")).toBe("Damaged pallet / packaging");
+  expect(reasonTheme("low brix.")).toBe("Low brix");
+  expect(reasonTheme("")).toBe("Not given");
 });
