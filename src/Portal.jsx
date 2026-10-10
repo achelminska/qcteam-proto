@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, Fragment } from "react";
 import { QCMark } from "./brand.jsx";
 import { createLoginScreen } from "./login.jsx";
 import { mergeDockLines, mergedLineCount } from "./shared/dock-merge.js";
+import { extRejectionsEverything, filterRejectionsByPeriod, searchRejections } from "./shared/rejections.js";
 import { demoConversation } from "./demo-chat.js";
 import { createSyncer, guardUnload } from "./sync.js";
 import { applySpecEdit, hasV, specFieldsFromForm, specFormKind, specLabel, dayLabel, problemPath, typesOf, typeById, legacyTypeId, inspType, countsAs, listCheck, matchFieldSpec, numberSpecCheck, reportStatusFields, toleranceDisplay, matchesInspSearch } from "./shared/format.js";
@@ -1473,17 +1474,30 @@ function RejectionLink({ href, label }) {
 // Every rejection the DC5 sheet sent (the digest keeps the latest 60 rows), newest first, grouped by month. Reached from
 // the shift update when there is nothing new to review; the product profile has the per-article view.
 function RejectionsPage({ s, openProduct }) {
-  const [q, setQ] = useState("");
-  const d = s.extRejections; const all = (d?.latest || []).filter(e => e.d);
-  const qq = q.trim().toLowerCase();
-  const rows = qq ? all.filter(e => `${e.n || ""} ${e.a || ""} ${e.reason || ""} ${e.user || ""} ${e.po || ""}`.toLowerCase().includes(qq)) : all;
+  const today = todayISO();
+  const [q, setQ] = useState(""); const [period, setPeriod] = useState("all"); const [week, setWeek] = useState(() => isoWeekOf(today)); const [limit, setLimit] = useState(40);
+  const d = s.extRejections; const base = extRejectionsEverything(s);
+  const wr = weekRange(week);
+  const filtered = searchRejections(filterRejectionsByPeriod(base, period, { today, weekRange: wr }), q);
+  const rows = filtered.slice(0, limit);
   const months = groupRejectionsByMonth(rows);
   const productFor = a => (s.products || []).find(p => normArticle(p.articleId) === normArticle(a));
+  const Pill = ({ id, label }) => <button onClick={() => { setPeriod(id); setLimit(40); }} className="text-xs px-3 py-1.5 rounded-full font-medium" style={{ background: period === id ? C.ink : C.surface, color: period === id ? C.onDark : C.ink, border: `1px solid ${period === id ? C.ink : C.line}` }}>{label}</button>;
+  const thisWeek = week === isoWeekOf(today);
   return (
     <div>
-      <div className="flex items-center gap-3 mb-1 flex-wrap"><h1 className="flex-1">Dock rejections</h1><SearchBox value={q} onChange={setQ} placeholder="Search product, reason, controller, PO" style={{ width: 300 }} inputClass="rounded-lg" size={13} /></div>
-      <p className="text-sm mb-4" style={{ color: C.muted, maxWidth: 720 }}>{all.length ? `The latest ${all.length} rejections from the DC5 rejections sheet, newest first${d?.articles ? ` · ${d.articles} articles in the last ${d.windowDays || 365} days` : ""}. Older ones are on each product profile.` : "Nothing from the DC5 rejections sheet yet."}</p>
-      {rows.length === 0 ? <Card><Empty icon="🚫" title={qq ? `Nothing matches “${q}”.` : "No rejections on the sheet"} hint={qq ? "" : "They appear here as soon as the rejections sheet pushes."} /></Card> : months.map(g => (
+      <div className="flex items-center gap-3 mb-1 flex-wrap"><h1 className="flex-1">Dock rejections</h1><SearchBox value={q} onChange={v => { setQ(v); setLimit(40); }} placeholder="Search product, reason, controller, PO" style={{ width: 320 }} inputClass="rounded-lg" size={13} /></div>
+      <p className="text-sm mb-3" style={{ color: C.muted, maxWidth: 720 }}>Every rejection on the DC5 rejections sheet that the phones carry{d?.articles ? ` — ${d.articles} articles in the last ${d.windowDays || 365} days` : ""}. Older ones per article are on the product profile.</p>
+      <div className="flex items-center gap-2 mb-4 flex-wrap">
+        <Pill id="today" label="Today" /><Pill id="week" label={thisWeek ? "This week" : weekLabel(week)} /><Pill id="all" label="All" />
+        {period === "week" && <span className="inline-flex items-center rounded-lg ml-2" style={{ border: `1px solid ${C.line}`, background: C.surface }}>
+          <button onClick={() => { setWeek(w => shiftWeek(w, -1)); setLimit(40); }} className="px-1.5 py-1" style={{ color: C.muted }} title="previous week"><Ic i={ChevronLeft} s={14} mr={0} /></button>
+          <span className="text-xs font-medium px-1" style={{ minWidth: 150, textAlign: "center" }}>{weekLabel(week)}{wr ? <span className="font-normal" style={{ color: C.muted }}> · {wr.from.slice(8)}.{wr.from.slice(5, 7)} – {wr.to.slice(8)}.{wr.to.slice(5, 7)}</span> : null}</span>
+          <button onClick={() => { setWeek(w => shiftWeek(w, 1)); setLimit(40); }} disabled={thisWeek} className="px-1.5 py-1" style={{ color: C.muted, opacity: thisWeek ? .4 : 1 }} title="next week"><Ic i={ChevronRight} s={14} mr={0} /></button>
+        </span>}
+        <span className="text-xs ml-auto" style={{ color: C.muted }}>{filtered.length} rejection{filtered.length === 1 ? "" : "s"}{filtered.length > rows.length ? ` · showing ${rows.length}` : ""}</span>
+      </div>
+      {rows.length === 0 ? <Card><Empty icon="🚫" title={q ? `Nothing matches “${q}”.` : period === "today" ? "No rejections today" : period === "week" ? `No rejections in ${weekLabel(week).toLowerCase()}` : "No rejections on the sheet"} hint={q || period !== "all" ? "" : "They appear here as soon as the rejections sheet pushes."} /></Card> : months.map(g => (
         <div key={g.k || "none"} className="mb-4">
           <p className="label-sm mb-1.5" style={{ color: C.muted }}>{g.label} · {g.items.length}</p>
           <div className="grid gap-2">{g.items.map((r, ix) => { const p = productFor(r.a); const reason = String(r.reason || "Rejected").replace(/^./, c => c.toUpperCase()); const reports = reportUrls(r); return (
@@ -1492,12 +1506,13 @@ function RejectionsPage({ s, openProduct }) {
                 <p className="text-sm font-medium truncate">{p && openProduct ? <button onClick={() => openProduct(p.id)} className="text-left font-medium" style={{ color: C.ink }}>{r.n || p.name}</button> : (r.n || r.a)}</p>
                 <p className="text-[11px] mt-0.5 flex items-center gap-x-2 flex-wrap" style={{ color: C.muted }}><span className="font-mono">{r.a}</span><span style={{ fontVariantNumeric: "tabular-nums" }}>{fmtRejectionDay(r.d)}</span>{r.user && <span>{r.user}</span>}{r.po && <span>PO {r.po}</span>}{r.cat && <span>{r.cat}</span>}</p>
               </div>
-              <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: C.badBg, color: C.bad }}>{reason}</span>
+              <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: C.badBg, color: C.bad, maxWidth: 360 }}>{reason}</span>
               {r.tu != null && <span className="text-xs shrink-0" style={{ fontVariantNumeric: "tabular-nums", minWidth: 48, textAlign: "right" }}><b>{r.tu}</b> TU</span>}
               {(reports.length > 0 || r.link) && <span className="flex gap-1.5 shrink-0">{reports.slice(0, 2).map((u, i) => <RejectionLink key={u} href={u} label={reports.length > 1 ? `Report ${i + 1}` : "Report"} />)}{r.link && <RejectionLink href={r.link} label={linkLabel(r.link)} />}</span>}
             </div>); })}</div>
         </div>
       ))}
+      {filtered.length > rows.length && <div className="flex justify-center"><Ghost onClick={() => setLimit(l => l + 40)}>Show more · {filtered.length - rows.length} left</Ghost></div>}
     </div>
   );
 }

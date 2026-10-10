@@ -204,3 +204,27 @@ export const extRejectionKey = e => `${e.a}:${e.d}:${e.po || ""}`;
 export const fmtRejectionDay = (t, now = new Date()) => { if (!t) return "—"; const d = new Date(t); const day = x => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime(); const diff = Math.round((day(now) - day(d)) / 86400000); return diff === 0 ? "today" : diff === 1 ? "yesterday" : diff < 7 ? `${diff} days ago` : d.toLocaleDateString("en-GB", { day: "numeric", month: "short" }); };
 export const reportUrls = e => e?.pdfs?.length ? e.pdfs : e?.pdf ? [e.pdf] : [];
 export const linkLabel = url => /slack\.com/i.test(url || "") ? "Slack thread" : /drive\.google|docs\.google/i.test(url || "") ? "Attached file" : "Open link";
+
+// Everything the digest holds, for every article: the newest 60 (`latest`) plus each article's own recent rows (up to 30 per
+// article, which reaches further back for the articles that matter). Deduped, newest first. Enough for "this week" and
+// the weeks before it without another sheet push.
+export function extRejectionsEverything(s) {
+  const d = s?.extRejections; if (!d) return [];
+  const seen = new Set(); const out = [];
+  const add = e => { if (!e || !e.d) return; const k = `${e.a}|${rejectionRowKey(e)}`; if (seen.has(k)) return; seen.add(k); out.push(e); };
+  for (const e of d.latest || []) add(e);
+  for (const [a, g] of Object.entries(d.byArticle || {})) for (const r of g.recent || []) add({ ...r, a, n: r.n || g.name || "" });
+  return out.sort((x, y) => (y.d || "").localeCompare(x.d || ""));
+}
+// Period filters for the rejection lists. `week` is an ISO week key (see complaints.js isoWeekOf) when period === "week".
+export function filterRejectionsByPeriod(rows, period, { today, weekRange: wr } = {}) {
+  const day = e => String(e.d || "").slice(0, 10);
+  if (period === "today") return rows.filter(e => day(e) === today);
+  if (period === "week" && wr) return rows.filter(e => { const x = day(e); return x >= wr.from && x <= wr.to; });
+  return rows;
+}
+export function searchRejections(rows, q) {
+  const qq = String(q || "").trim().toLowerCase(); if (!qq) return rows;
+  const words = qq.split(/\s+/);
+  return rows.filter(e => { const hay = `${e.n || ""} ${e.a || ""} ${e.reason || ""} ${e.cat || ""} ${e.user || ""} ${e.po || ""} ${e.group || ""}`.toLowerCase(); return words.every(w => hay.includes(w)); });
+}
