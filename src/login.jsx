@@ -29,7 +29,7 @@ return function LoginScreen({ s, onLogin, allowRoles }) {
   }, []);
   const [slide, setSlide] = useState(0); const touchX = useRef(null); const [paused, setPaused] = useState(false); const manual = useRef(false);
   const goSlide = (d, byUser = true) => { if (byUser) manual.current = true; setSlide(i => (i + d + HERO_SLIDES.length) % HERO_SLIDES.length); };
-  useEffect(() => { if (!hero || paused || (typeof window !== "undefined" && window.matchMedia && window.matchMedia("(max-width:860px)").matches)) return; const id = setInterval(() => { if (!manual.current) goSlide(1, false); }, 3000); return () => clearInterval(id); }, [hero, paused]);
+  useEffect(() => { if (!hero || paused || (typeof window !== "undefined" && window.matchMedia && window.matchMedia("(max-width:860px)").matches)) return; const id = setInterval(() => { if (!manual.current) goSlide(1, false); }, 4000); return () => clearInterval(id); }, [hero, paused]);
   useEffect(() => { const k = e => { if (e.target && /input|textarea|select/i.test(e.target.tagName)) return; if (e.key === "ArrowRight") goSlide(1); if (e.key === "ArrowLeft") goSlide(-1); }; window.addEventListener("keydown", k); return () => window.removeEventListener("keydown", k); }, []);
   const users = (s.users || []).filter(u => u.active !== false && (!allowRoles || allowRoles.includes(u.role)));
   const norm = v => String(v || "").trim().toLowerCase();
