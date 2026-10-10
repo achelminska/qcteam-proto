@@ -269,7 +269,7 @@ export function summarizeRejections(rows) {
     if (extraKey != null) { const s = e.sub.get(extraKey) || { key: extraKey, label: extraLabel, count: 0, tu: 0 }; s.count++; s.tu += tuOf(r); e.sub.set(extraKey, s); }
     map.set(key, e);
   };
-  const products = new Map(), reasons = new Map(), users = new Map();
+  const products = new Map(), reasons = new Map(), users = new Map(), groups = new Map(), outcomes = new Map(), sortables = new Map(), days = new Map();
   let total = 0, tu = 0;
   for (const r of rows || []) {
     total++; tu += tuOf(r);
@@ -277,7 +277,39 @@ export function summarizeRejections(rows) {
     tally(products, r.a || name, name, r, reason.toLowerCase(), reason);
     tally(reasons, reason.toLowerCase(), reason, r, reasonText(r.reason), reasonText(r.reason));
     tally(users, user.toLowerCase(), user, r, r.a || name, name);
+    const g = String(r.group || "Not given").trim() || "Not given"; tally(groups, g.toLowerCase(), g, r, r.a || name, name);
+    const o = String(r.outcome || "Not filled in").trim() || "Not filled in"; tally(outcomes, o.toLowerCase(), o, r, null);
+    const sk = r.sortable === true ? "yes" : r.sortable === false ? "no" : "unknown"; tally(sortables, sk, sk === "yes" ? "Sortable" : sk === "no" ? "Not sortable" : "Sortable not filled in", r, (r.cat || "").toLowerCase() || null, r.cat || "");
+    const day = String(r.d || "").slice(0, 10); if (day) tally(days, day, day, r, null);
   }
   const finish = map => [...map.values()].map(e => ({ ...e, sub: [...e.sub.values()].sort(byCount) })).sort(byCount);
-  return { total, tu, products: finish(products), reasons: finish(reasons), users: finish(users) };
+  return { total, tu, products: finish(products), reasons: finish(reasons), users: finish(users), groups: finish(groups), outcomes: finish(outcomes), sortables: finish(sortables), days: finish(days).sort((x, y) => x.key.localeCompare(y.key)) };
+}
+// Drill-down: { product, reason, user, group, outcome, sortable } — each an entry key from the summary above, all ANDed.
+export const REJECTION_FACETS = ["product", "reason", "user", "group", "outcome", "sortable"];
+export function matchesRejectionFacets(r, sel) {
+  if (!sel) return true;
+  if (sel.product && (r.a || r.n || "?") !== sel.product) return false;
+  if (sel.reason && reasonTheme(r.reason).toLowerCase() !== sel.reason) return false;
+  if (sel.user && (String(r.user || "Unknown").trim() || "Unknown").toLowerCase() !== sel.user) return false;
+  if (sel.group && (String(r.group || "Not given").trim() || "Not given").toLowerCase() !== sel.group) return false;
+  if (sel.outcome && (String(r.outcome || "Not filled in").trim() || "Not filled in").toLowerCase() !== sel.outcome) return false;
+  if (sel.sortable && (r.sortable === true ? "yes" : r.sortable === false ? "no" : "unknown") !== sel.sortable) return false;
+  return true;
+}
+export const filterRejectionsByFacets = (rows, sel) => (sel && Object.values(sel).some(Boolean)) ? rows.filter(r => matchesRejectionFacets(r, sel)) : rows;
+// Counts per calendar day → buckets for a timeline: by day when the span is short, by ISO week otherwise.
+export function rejectionTimeline(days, { byWeek, isoWeekOf, weekLabel, shiftWeek, fromDay, toDay } = {}) {
+  const out = new Map();
+  const add = (k, label, e) => { const b = out.get(k) || { key: k, label, count: 0, tu: 0 }; b.count += e.count; b.tu += e.tu; out.set(k, b); };
+  if (byWeek) {
+    for (const e of days) { const w = isoWeekOf(e.key); if (w) add(w, weekLabel(w), e); }
+    // fill the quiet weeks in between so the bars sit on a real time axis
+    if (shiftWeek && out.size > 1) { const keys = [...out.keys()].sort(); let w = keys[0], guard = 0; while (w < keys[keys.length - 1] && guard++ < 120) { w = shiftWeek(w, 1); if (!out.has(w)) out.set(w, { key: w, label: weekLabel(w), count: 0, tu: 0 }); } }
+  }
+  else {
+    if (fromDay && toDay) { for (let d = new Date(fromDay + "T12:00:00Z"); d.toISOString().slice(0, 10) <= toDay; d.setUTCDate(d.getUTCDate() + 1)) { const k = d.toISOString().slice(0, 10); out.set(k, { key: k, label: `${k.slice(8)}.${k.slice(5, 7)}`, count: 0, tu: 0 }); } }
+    for (const e of days) { if (fromDay && toDay && (e.key < fromDay || e.key > toDay)) continue; add(e.key, `${e.key.slice(8)}.${e.key.slice(5, 7)}`, e); }
+  }
+  return [...out.values()].sort((x, y) => x.key.localeCompare(y.key));
 }

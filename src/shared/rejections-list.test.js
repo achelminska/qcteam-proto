@@ -23,7 +23,7 @@ describe("everything the digest holds", () => {
   });
 });
 
-import { summarizeRejections } from "./rejections.js";
+import { summarizeRejections, matchesRejectionFacets, filterRejectionsByFacets, rejectionTimeline } from "./rejections.js";
 describe("summarizeRejections", () => {
   const rows = [
     { a: "1", n: "Avocado", d: "2026-10-05T10:00", tu: 10, reason: "Freq mold (12,5%)", cat: "Quality (according to list)", user: "Damian Mrowka" },
@@ -60,4 +60,35 @@ it("keeps the sheet's own wording under each reason theme", () => {
   const s = summarizeRejections([{ a: "1", n: "A", reason: "Freq mold (12,5%)" }, { a: "1", n: "A", reason: "mold." }, { a: "2", n: "B", reason: "Mold " }]);
   expect(s.reasons[0].label).toBe("Mold");
   expect(s.reasons[0].sub.map(x => [x.label, x.count])).toEqual([["mold", 2], ["freq mold (12,5%)", 1]]);
+});
+
+describe("rejection facets", () => {
+  const rows = [
+    { a: "1", n: "Avocado", d: "2026-10-05T10:00", tu: 10, reason: "mold", user: "Damian Mrowka", group: "DC5-everest", outcome: "Picked up", sortable: true, cat: "Quality (according to list)" },
+    { a: "2", n: "Oranges", d: "2026-10-06T11:00", tu: 20, reason: "decay", user: "Damian Mrowka", outcome: "Destroy", sortable: false },
+    { a: "1", n: "Avocado", d: "2026-10-13T10:00", reason: "Freq mold", user: "Snizhana" },
+  ];
+  it("ANDs the selected facets", () => {
+    expect(filterRejectionsByFacets(rows, { product: "1" }).length).toBe(2);
+    expect(filterRejectionsByFacets(rows, { product: "1", user: "damian mrowka" }).length).toBe(1);
+    expect(filterRejectionsByFacets(rows, { reason: "mold" }).length).toBe(2);
+    expect(filterRejectionsByFacets(rows, { sortable: "unknown" }).map(r => r.d)).toEqual(["2026-10-13T10:00"]);
+    expect(filterRejectionsByFacets(rows, { outcome: "destroy", group: "not given" }).length).toBe(1);
+    expect(filterRejectionsByFacets(rows, {})).toBe(rows);
+    expect(matchesRejectionFacets(rows[0], null)).toBe(true);
+  });
+  it("summarises suppliers, outcomes, sortable and days", () => {
+    const s = summarizeRejections(rows);
+    expect(s.groups[0]).toMatchObject({ label: "Not given", count: 2 });
+    expect(s.outcomes.map(o => o.label).sort()).toEqual(["Destroy", "Not filled in", "Picked up"]);
+    expect(s.sortables.find(x => x.key === "yes").sub[0].label).toBe("Quality (according to list)");
+    expect(s.days.map(d => d.key)).toEqual(["2026-10-05", "2026-10-06", "2026-10-13"]);
+  });
+  it("buckets the timeline by week or by day with empty days filled in", () => {
+    const s = summarizeRejections(rows);
+    const weeks = rejectionTimeline(s.days, { byWeek: true, isoWeekOf: d => d < "2026-10-12" ? "2026-W41" : "2026-W42", weekLabel: w => w });
+    expect(weeks.map(w => [w.key, w.count])).toEqual([["2026-W41", 2], ["2026-W42", 1]]);
+    const days = rejectionTimeline(s.days, { fromDay: "2026-10-05", toDay: "2026-10-07" });
+    expect(days.map(d => [d.label, d.count])).toEqual([["05.10", 1], ["06.10", 1], ["07.10", 0]]);
+  });
 });

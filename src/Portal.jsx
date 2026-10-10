@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, Fragment } from "react";
 import { QCMark } from "./brand.jsx";
 import { createLoginScreen } from "./login.jsx";
 import { mergeDockLines, mergedLineCount } from "./shared/dock-merge.js";
-import { extRejectionsEverything, filterRejectionsByPeriod, searchRejections, summarizeRejections } from "./shared/rejections.js";
+import { extRejectionsEverything, filterRejectionsByPeriod, searchRejections, summarizeRejections, filterRejectionsByFacets, rejectionTimeline } from "./shared/rejections.js";
 import { demoConversation } from "./demo-chat.js";
 import { createSyncer, guardUnload } from "./sync.js";
 import { applySpecEdit, hasV, specFieldsFromForm, specFormKind, specLabel, dayLabel, problemPath, typesOf, typeById, legacyTypeId, inspType, countsAs, listCheck, matchFieldSpec, numberSpecCheck, reportStatusFields, toleranceDisplay, matchesInspSearch } from "./shared/format.js";
@@ -1473,51 +1473,82 @@ function RejectionLink({ href, label }) {
 }
 // Every rejection the DC5 sheet sent (the digest keeps the latest 60 rows), newest first, grouped by month. Reached from
 // the shift update when there is nothing new to review; the product profile has the per-article view.
-// Head's mini chart over a set of sheet rejections: which products and why, which reasons, who rejected how much of what.
-// Bars are plain divs scaled to the biggest count in the column — no chart library, prints fine, reads in both themes.
-function RejectionSummary({ rows, openProduct, productFor, compact = false }) {
+// Head's analytics over a set of sheet rejections: which products and why, which reasons (in the sheet's own words), who
+// rejected how much of what, which suppliers, what Inbound did with the pallet, sortable or not — and a timeline.
+// Every bar is a drill-down: clicking it narrows the whole panel and the list below to that product / reason / controller…
+// (facets AND together; active ones are chips up top). Bars are plain divs scaled to the column's biggest value.
+const FACET_LABEL = { product: "Product", reason: "Reason", user: "Controller", group: "Supplier", outcome: "Outcome", sortable: "Sortable" };
+function RejectionSummary({ rows, openProduct, productFor, compact = false, sel = {}, onSelect, timeline, onPickWeek, onPickDay }) {
   const [metric, setMetric] = useState("count");
-  const sum = summarizeRejections(rows); if (!sum.total) return null;
+  const [open, setOpen] = useState({});
+  const sum = summarizeRejections(rows); if (!sum.total && !Object.values(sel).some(Boolean)) return null;
   const n = compact ? 5 : 8;
   const val = e => metric === "tu" ? e.tu : e.count;
   const unit = v => metric === "tu" ? `${v} TU` : `${v}×`;
-  const Col = ({ title, items, sub, onPick }) => { const max = Math.max(1, ...items.slice(0, n).map(val)); return (
+  const pick = (facet, e) => onSelect ? () => onSelect(facet, sel[facet] === e.key ? null : e.key, e.label) : null;
+  const Col = ({ id, title, items, sub, subFacet, hint }) => { const all = !!open[id]; const shown = all ? items : items.slice(0, n); const max = Math.max(1, ...items.map(val)); return (
     <div className="min-w-0">
-      <p className="label-sm mb-2" style={{ color: C.muted }}>{title} · {items.length}</p>
-      <div className="grid gap-1.5">{items.slice(0, n).map(e => { const v = val(e); const pick = onPick && onPick(e); return (
-        <div key={e.key} className="min-w-0">
-          <div className="flex items-baseline gap-2 text-xs"><span className="flex-1 truncate font-medium">{pick ? <button onClick={pick} className="text-left truncate" style={{ color: C.ink, maxWidth: "100%" }}>{e.label}</button> : e.label}</span><span className="shrink-0" style={{ color: C.muted, fontVariantNumeric: "tabular-nums" }}>{unit(v)}{metric === "count" && e.tu ? ` · ${e.tu} TU` : ""}</span></div>
-          <div className="rounded-full mt-0.5" style={{ height: 6, background: C.line }}><div className="rounded-full" style={{ height: 6, width: `${Math.max(3, Math.round(100 * v / max))}%`, background: C.bad, opacity: .85 }} /></div>
-          {sub && e.sub.length > 0 && <p className="text-[11px] mt-0.5 truncate" style={{ color: C.muted }}>{e.sub.slice(0, 3).map(x => `${x.label} ${x.count}×`).join(" · ")}</p>}
+      <p className="label-sm mb-2 flex items-baseline gap-2" style={{ color: C.muted }}><span className="flex-1 truncate">{title} · {items.length}</span>{hint && <span className="font-normal normal-case truncate" style={{ opacity: .8 }}>{hint}</span>}</p>
+      <div className="grid gap-1.5" style={all && items.length > 14 ? { maxHeight: 520, overflowY: "auto", paddingRight: 4 } : null}>{shown.map(e => { const v = val(e); const on = sel[id] === e.key; const click = pick(id, e); return (
+        <div key={e.key} className="min-w-0 rounded-lg" style={on ? { background: C.badBg, margin: "0 -6px", padding: "2px 6px" } : null}>
+          <div className="flex items-baseline gap-2 text-xs"><span className="flex-1 truncate font-medium">{click ? <button onClick={click} className="text-left truncate" title={on ? "Click to clear this filter" : `Only ${e.label}`} style={{ color: on ? C.bad : C.ink, maxWidth: "100%" }}>{e.label}</button> : e.label}</span><span className="shrink-0" style={{ color: C.muted, fontVariantNumeric: "tabular-nums" }}>{unit(v)}{metric === "count" && e.tu ? ` · ${e.tu} TU` : ""}</span></div>
+          <div className="rounded-full mt-0.5" style={{ height: 6, background: C.line }}><div className="rounded-full" style={{ height: 6, width: `${Math.max(3, Math.round(100 * v / max))}%`, background: C.bad, opacity: on ? 1 : .85 }} /></div>
+          {sub && e.sub.length > 0 && <p className="text-[11px] mt-0.5 truncate" style={{ color: C.muted }} title={e.sub.map(x => `${x.label} ${x.count}×`).join(" · ")}>{e.sub.slice(0, all ? 6 : 3).map((x, i) => { const sp = subFacet && onSelect ? () => onSelect(subFacet, x.key, x.label) : null; return <span key={x.key}>{i ? " · " : ""}{sp ? <button onClick={sp} className="underline decoration-dotted" style={{ color: C.muted }}>{x.label}</button> : x.label} {x.count}×</span>; })}{e.sub.length > (all ? 6 : 3) ? ` · +${e.sub.length - (all ? 6 : 3)}` : ""}</p>}
         </div>); })}
-        {items.length > n && <p className="text-[11px]" style={{ color: C.muted }}>+{items.length - n} more</p>}
+        {items.length > n && <button onClick={() => setOpen(o => ({ ...o, [id]: !all }))} className="text-[11px] text-left underline" style={{ color: C.accent }}>{all ? "Show top" : `Show all ${items.length}`}</button>}
       </div>
     </div>); };
-  const pickProduct = e => { const p = productFor && productFor(e.key); return p && openProduct ? () => openProduct(p.id) : null; };
+  const chips = Object.entries(sel).filter(([k, v]) => v && FACET_LABEL[k]);
+  const tl = timeline || null; const tlMax = tl ? Math.max(1, ...tl.map(val)) : 1;
   return (
     <div>
       <div className="flex items-center gap-2 mb-3 flex-wrap">
         <p className="text-sm"><b>{sum.total}</b> rejection{sum.total === 1 ? "" : "s"}{sum.tu ? <span style={{ color: C.muted }}> · {sum.tu} TU</span> : null}{sum.products.length ? <span style={{ color: C.muted }}> · {sum.products.length} product{sum.products.length === 1 ? "" : "s"} · {sum.users.length} controller{sum.users.length === 1 ? "" : "s"}</span> : null}</p>
+        {chips.map(([f, v]) => <button key={f} onClick={() => onSelect && onSelect(f, null)} className="text-[11px] px-2 py-0.5 rounded-full inline-flex items-center gap-1" style={{ background: C.badBg, color: C.bad, border: `1px solid ${C.bad}` }} title="remove this filter">{FACET_LABEL[f]}: {sel[`${f}Label`] || v} ×</button>)}
+        {chips.length > 1 && <button onClick={() => onSelect && onSelect(null)} className="text-[11px] underline" style={{ color: C.muted }}>clear all</button>}
         <span className="inline-flex rounded-lg ml-auto overflow-hidden" style={{ border: `1px solid ${C.line}` }}>{[["count", "Rejections"], ["tu", "TU"]].map(([id, l]) => <button key={id} onClick={() => setMetric(id)} className="text-[11px] px-2.5 py-1 font-medium" style={{ background: metric === id ? C.ink : C.surface, color: metric === id ? C.onDark : C.muted }}>{l}</button>)}</span>
       </div>
+      {!sum.total && <p className="text-xs mb-3" style={{ color: C.muted }}>Nothing matches this combination.</p>}
+      {tl && tl.length > 1 && <div className="mb-4">
+        <p className="label-sm mb-1.5" style={{ color: C.muted }}>{tl.byWeek ? "Per week" : "Per day"} · click a bar to zoom in</p>
+        <div className="flex items-end gap-[3px]" style={{ height: 64 }}>{tl.map(b => { const v = val(b); const h = Math.max(v ? 3 : 1, Math.round(56 * v / tlMax)); const click = tl.byWeek ? (onPickWeek && (() => onPickWeek(b.key))) : (onPickDay && (() => onPickDay(b.key))); return (
+          <button key={b.key} onClick={click || undefined} title={`${b.label}: ${b.count} rejection${b.count === 1 ? "" : "s"}${b.tu ? ` · ${b.tu} TU` : ""}`} className="flex-1 min-w-0 flex flex-col items-center justify-end" style={{ height: "100%", cursor: click ? "pointer" : "default" }}>
+            <span className="block w-full rounded-t" style={{ height: h, background: v ? C.bad : C.line, opacity: v ? .8 : 1, maxWidth: 28 }} />
+          </button>); })}</div>
+        <div className="flex gap-[3px] mt-1">{tl.map((b, i) => <span key={b.key} className="flex-1 min-w-0 text-center text-[10px] truncate" style={{ color: C.muted }}>{tl.length <= 16 || i % Math.ceil(tl.length / 12) === 0 ? b.label.replace(/^Week /, "W") : ""}</span>)}</div>
+      </div>}
       <div className="grid gap-5" style={{ gridTemplateColumns: compact ? "1fr 1fr" : "repeat(3, minmax(0, 1fr))" }}>
-        <Col title="Products" items={sum.products} sub onPick={pickProduct} />
-        {!compact && <Col title="Reasons · grouped from the sheet wording" items={sum.reasons} sub />}
-        <Col title="Controllers" items={sum.users} sub />
+        <Col id="product" title="Products" items={sum.products} sub subFacet="reason" />
+        {!compact && <Col id="reason" title="Reasons" items={sum.reasons} sub hint="grouped from the sheet wording" />}
+        <Col id="user" title="Controllers" items={sum.users} sub subFacet="product" />
       </div>
+      {!compact && <div className="grid gap-5 mt-5 pt-4" style={{ gridTemplateColumns: "repeat(3, minmax(0, 1fr))", borderTop: `1px solid ${C.line}` }}>
+        <Col id="group" title="Suppliers (order group)" items={sum.groups} sub subFacet="product" />
+        <Col id="outcome" title="What Inbound did with the pallet" items={sum.outcomes} />
+        <Col id="sortable" title="Sortable" items={sum.sortables} sub />
+      </div>}
+      {!compact && openProduct && sel.product && productFor && productFor(sel.product) && <p className="text-xs mt-3"><button onClick={() => openProduct(productFor(sel.product).id)} className="underline" style={{ color: C.accent }}>Open the product profile →</button></p>}
     </div>
   );
 }
 function RejectionsPage({ s, openProduct, user }) {
   const today = todayISO();
   const [q, setQ] = useState(""); const [period, setPeriod] = useState("all"); const [week, setWeek] = useState(() => isoWeekOf(today)); const [limit, setLimit] = useState(40);
+  const [sel, setSel] = useState({});
+  const [day, setDay] = useState(null); // a day picked on the timeline — narrows "This week" to one day
+  const onSelect = (facet, key, label) => { setLimit(40); if (facet == null) return setSel({}); setSel(x => { const y = { ...x }; if (key) { y[facet] = key; y[`${facet}Label`] = label || key; } else { delete y[facet]; delete y[`${facet}Label`]; } return y; }); };
   const d = s.extRejections; const base = extRejectionsEverything(s);
   const wr = weekRange(week);
-  const filtered = searchRejections(filterRejectionsByPeriod(base, period, { today, weekRange: wr }), q);
+  const inPeriod = filterRejectionsByPeriod(base, period, { today, weekRange: wr });
+  const inDay = day && period === "week" ? inPeriod.filter(e => String(e.d || "").slice(0, 10) === day) : inPeriod;
+  const searched = searchRejections(inDay, q);
+  const filtered = filterRejectionsByFacets(searched, sel);
+  const isHead = user?.role === "Head";
+  const timeline = isHead ? (() => { const sum = summarizeRejections(filtered); const byWeek = period === "all"; const t = rejectionTimeline(sum.days, byWeek ? { byWeek, isoWeekOf, weekLabel, shiftWeek } : { fromDay: period === "today" ? today : wr?.from, toDay: period === "today" ? today : wr?.to }); t.byWeek = byWeek; return t; })() : null;
   const rows = filtered.slice(0, limit);
   const months = groupRejectionsByMonth(rows);
   const productFor = a => (s.products || []).find(p => normArticle(p.articleId) === normArticle(a));
-  const Pill = ({ id, label }) => <button onClick={() => { setPeriod(id); setLimit(40); }} className="text-xs px-3 py-1.5 rounded-full font-medium" style={{ background: period === id ? C.ink : C.surface, color: period === id ? C.onDark : C.ink, border: `1px solid ${period === id ? C.ink : C.line}` }}>{label}</button>;
+  const Pill = ({ id, label }) => <button onClick={() => { setPeriod(id); setDay(null); setLimit(40); }} className="text-xs px-3 py-1.5 rounded-full font-medium" style={{ background: period === id ? C.ink : C.surface, color: period === id ? C.onDark : C.ink, border: `1px solid ${period === id ? C.ink : C.line}` }}>{label}</button>;
   const thisWeek = week === isoWeekOf(today);
   return (
     <div>
@@ -1526,14 +1557,15 @@ function RejectionsPage({ s, openProduct, user }) {
       <div className="flex items-center gap-2 mb-4 flex-wrap">
         <Pill id="today" label="Today" /><Pill id="week" label={thisWeek ? "This week" : weekLabel(week)} /><Pill id="all" label="All" />
         {period === "week" && <span className="inline-flex items-center rounded-lg ml-2" style={{ border: `1px solid ${C.line}`, background: C.surface }}>
-          <button onClick={() => { setWeek(w => shiftWeek(w, -1)); setLimit(40); }} className="px-1.5 py-1" style={{ color: C.muted }} title="previous week"><Ic i={ChevronLeft} s={14} mr={0} /></button>
+          <button onClick={() => { setWeek(w => shiftWeek(w, -1)); setDay(null); setLimit(40); }} className="px-1.5 py-1" style={{ color: C.muted }} title="previous week"><Ic i={ChevronLeft} s={14} mr={0} /></button>
           <span className="text-xs font-medium px-1" style={{ minWidth: 150, textAlign: "center" }}>{weekLabel(week)}{wr ? <span className="font-normal" style={{ color: C.muted }}> · {wr.from.slice(8)}.{wr.from.slice(5, 7)} – {wr.to.slice(8)}.{wr.to.slice(5, 7)}</span> : null}</span>
-          <button onClick={() => { setWeek(w => shiftWeek(w, 1)); setLimit(40); }} disabled={thisWeek} className="px-1.5 py-1" style={{ color: C.muted, opacity: thisWeek ? .4 : 1 }} title="next week"><Ic i={ChevronRight} s={14} mr={0} /></button>
+          <button onClick={() => { setWeek(w => shiftWeek(w, 1)); setDay(null); setLimit(40); }} disabled={thisWeek} className="px-1.5 py-1" style={{ color: C.muted, opacity: thisWeek ? .4 : 1 }} title="next week"><Ic i={ChevronRight} s={14} mr={0} /></button>
         </span>}
+        {day && period === "week" && <button onClick={() => setDay(null)} className="text-[11px] px-2 py-0.5 rounded-full" style={{ background: C.badBg, color: C.bad, border: `1px solid ${C.bad}` }} title="back to the whole week">Day {day.slice(8)}.{day.slice(5, 7)} ×</button>}
         <span className="text-xs ml-auto" style={{ color: C.muted }}>{filtered.length} rejection{filtered.length === 1 ? "" : "s"}{filtered.length > rows.length ? ` · showing ${rows.length}` : ""}</span>
       </div>
-      {user?.role === "Head" && filtered.length > 0 && <Card style={{ marginBottom: 16 }}><RejectionSummary rows={filtered} openProduct={openProduct} productFor={productFor} /></Card>}
-      {rows.length === 0 ? <Card><Empty icon="🚫" title={q ? `Nothing matches “${q}”.` : period === "today" ? "No rejections today" : period === "week" ? `No rejections in ${weekLabel(week).toLowerCase()}` : "No rejections on the sheet"} hint={q || period !== "all" ? "" : "They appear here as soon as the rejections sheet pushes."} /></Card> : months.map(g => (
+      {isHead && (filtered.length > 0 || Object.values(sel).some(Boolean)) && <Card style={{ marginBottom: 16 }}><RejectionSummary rows={filtered} openProduct={openProduct} productFor={productFor} sel={sel} onSelect={onSelect} timeline={timeline} onPickWeek={w => { setPeriod("week"); setWeek(w); setDay(null); setLimit(40); }} onPickDay={dd => { setDay(x => x === dd ? null : dd); setLimit(40); }} /></Card>}
+      {rows.length === 0 ? <Card><Empty icon="🚫" title={Object.values(sel).some(Boolean) ? "Nothing matches these filters." : q ? `Nothing matches “${q}”.` : period === "today" ? "No rejections today" : period === "week" ? `No rejections in ${weekLabel(week).toLowerCase()}` : "No rejections on the sheet"} hint={q || period !== "all" ? "" : "They appear here as soon as the rejections sheet pushes."} /></Card> : months.map(g => (
         <div key={g.k || "none"} className="mb-4">
           <p className="label-sm mb-1.5" style={{ color: C.muted }}>{g.label} · {g.items.length}</p>
           <div className="grid gap-2">{g.items.map((r, ix) => { const p = productFor(r.a); const reason = String(r.reason || "Rejected").replace(/^./, c => c.toUpperCase()); const reports = reportUrls(r); return (
