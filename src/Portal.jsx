@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, Fragment } from "react";
-import { QCMark, QCLockup } from "./brand.jsx";
+import { QCMark, QCWordmark } from "./brand.jsx";
 import { createLoginScreen } from "./login.jsx";
 import { mergeDockLines, mergedLineCount } from "./shared/dock-merge.js";
 import { extRejectionsEverything, filterRejectionsByPeriod, searchRejections, summarizeRejections, filterRejectionsByFacets, rejectionTimeline } from "./shared/rejections.js";
@@ -1383,7 +1383,7 @@ function Shell({ page, setPage, children, badge, topRight, users, user, setUser,
       <style>{GLOBAL_CSS()}</style>
       <div className="flex items-center gap-4 px-5 sticky top-0" style={{ height: 56, background: C.surface, borderBottom: `1px solid ${C.line}`, zIndex: 20 }}>
         <button onClick={toggleNav} className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{ color: C.ink }} title={navOpen ? "Collapse menu" : "Expand menu"} aria-label={navOpen ? "Collapse menu" : "Expand menu"}><Ic i={MenuIcon} s={18} mr={0} /></button>
-        <div className="flex items-center gap-2.5"><span className="rounded-lg flex items-center justify-center" style={{ width: 32, height: 32, background: "#1F5C3E", color: "#EEF5F0" }}><QCLockup size={23} /></span><span className="font-semibold text-[15px] tracking-tight">QCteam</span><span className="text-[11px] px-1.5 py-0.5 rounded-md" style={{ background: C.accentSoft, color: C.accent }}>{user.role}</span></div>
+        <div className="flex items-center gap-2.5"><QCWordmark width={104} style={{ color: C.isDark ? "#EEF5F0" : "#1F5C3E", display: "block" }} /><span className="text-[11px] px-1.5 py-0.5 rounded-md" style={{ background: C.accentSoft, color: C.accent }}>{user.role}</span></div>
 <SearchBox value={topQ} onChange={setTopQ} placeholder="Search products, inspections…" className="hidden md:block" style={{ width: 320 }} inputClass="rounded-xl" onKeyDown={e => { if (e.key === "Enter" && topQ.trim()) { onSearch && onSearch(topQ.trim()); } }} />
         <div className="flex-1" />
         {topRight}
