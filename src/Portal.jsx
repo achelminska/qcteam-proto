@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, Fragment } from "react";
 import { QCMark } from "./brand.jsx";
 import { createLoginScreen } from "./login.jsx";
+import { mergeDockLines, mergedLineCount } from "./shared/dock-merge.js";
 import { demoConversation } from "./demo-chat.js";
 import { createSyncer, guardUnload } from "./sync.js";
 import { applySpecEdit, hasV, specFieldsFromForm, specFormKind, specLabel, dayLabel, problemPath, typesOf, typeById, legacyTypeId, inspType, countsAs, listCheck, matchFieldSpec, numberSpecCheck, reportStatusFields, toleranceDisplay, matchesInspSearch } from "./shared/format.js";
@@ -868,8 +869,8 @@ const blockedSummary = s => { const it = (s.integrations || []).find(i => i.purp
 // Sheets repeat rows (same HU twice). One handling unit is one pallet: the first occurrence wins.
 // One HU = one pallet, first occurrence wins. A row with no HU on the sheet isn't dropped — it gets a fallback key
 // (article + location + arrival time) so it's still counted, just not individually scannable by SSCC.
-const dedupeByHu = rows => { const seen = new Set(); return rows.filter(r => { const norm = String(r.hu || "").replace(/\D/g, "").replace(/^0+/, ""); const k = norm || `noHU:${r.article}|${r.location}|${r.arrivedTime}`; if (seen.has(k)) return false; seen.add(k); return true; }); };
-const duplicateHuCount = rows => rows.length - dedupeByHu(rows).length;
+const dedupeByHu = mergeDockLines;   // one HU on several sheet lines = one pallet, quantities added (src/shared/dock-merge.js)
+const duplicateHuCount = mergedLineCount;
 // Blocked-pallet work queue (PalletClaim): who took which blocked batch, or flagged it as stacked/unreachable. Keyed by article + location
 // because the blocked sheet has no handling units. Claims live in the shared state, so everyone sees them within a minute.
 const claimKey = b => b.hu ? `hu:${b.hu}` : `${b.article}|${b.location}`;
@@ -906,7 +907,7 @@ const blockedQueue = s => blockedRowsLive(s).map(b => { const claim = claimOf(s,
 // How much stands on the pallet, as the sheet gives it: "40 TU". (It used to multiply by CU/TU as well — nobody needs
 // the CU total on the dock, it only made the chip longer.)
 const palletQty = r => r?.quantity == null ? "" : `${r.quantity} TU`;
-const dockRowsLive = s => { const it = (s.integrations || []).find(i => i.purpose === "Dock" && i.rows?.length); if (!it) return CLEAN_START ? [] : SHEET.dock; return dedupeByHu(it.rows.filter(r => !r._errors?.length)).map(r => ({ hu: String(r.hu || "").trim(), article: String(r.article || ""), name: r.name || "", location: r.location || "", priority: r.priority || (r.skippable ? "Skippable" : "Inspection due"), blocking: !!r.blocking, skippable: !!r.skippable, arrived: r.arrived || "", arrivedTime: r.arrivedTime || "", transporter: r.transporter || "", supplier: r.supplier || "", po: r.po || "", cusPerTu: r.cusPerTu ? Number(r.cusPerTu) : null, quantity: r.quantity !== undefined && r.quantity !== null && r.quantity !== "" && !isNaN(Number(r.quantity)) ? Number(r.quantity) : null, sortable: !!r.sortable, onDock: 0, inBuffer: 0 })); };
+const dockRowsLive = s => { const it = (s.integrations || []).find(i => i.purpose === "Dock" && i.rows?.length); if (!it) return CLEAN_START ? [] : SHEET.dock; return dedupeByHu(it.rows.filter(r => !r._errors?.length)).map(r => ({ hu: String(r.hu || "").trim(), article: String(r.article || ""), name: r.name || "", location: r.location || "", priority: r.priority || (r.skippable ? "Skippable" : "Inspection due"), blocking: !!r.blocking, skippable: !!r.skippable, arrived: r.arrived || "", arrivedTime: r.arrivedTime || "", transporter: r.transporter || "", supplier: r.supplier || "", po: r.po || "", cusPerTu: r.cusPerTu ? Number(r.cusPerTu) : null, quantity: r.quantity !== undefined && r.quantity !== null && r.quantity !== "" && !isNaN(Number(r.quantity)) ? Number(r.quantity) : null, sortable: !!r.sortable, onDock: 0, inBuffer: 0, sheetLines: r.sheetLines || 1, lineQuantities: r.lineQuantities || [], pos: r.pos || (r.po ? [String(r.po)] : []), locations: r.locations || (r.location ? [r.location] : []) })); };
 // Resolve a pallet key (HU, claimKey, lostKey, or unreported id) to a row the portal pallet sheet can render.
 const findPalletRow = (s, key) => {
   if (!key) return null;
@@ -1947,7 +1948,7 @@ function PalletPage({ s, set, user, hu, onBack, onOpenProduct, onOpenInspection,
                 <Fact k="PO" v={r.po} />
                 <Fact k="Transporter" v={r.transporter} />
               </div>
-              {(r.quantity != null || r.supplier || ("sortable" in r) || r.deadline) && <p className="text-[12px] mt-3 flex flex-wrap gap-x-3" style={{ color: C.muted }}>{r.quantity != null && <span><b style={{ color: C.ink }}>{palletQty(r)}</b> on the pallet</span>}{r.supplier && <span>supplier <b style={{ color: C.ink }}>{r.supplier}</b></span>}{"sortable" in r && <span>{r.sortable ? "sortable" : "not sortable"}</span>}{r.deadline && <span>departure <b style={{ color: C.ink }}>{r.deadline}</b></span>}</p>}
+              {(r.quantity != null || r.supplier || ("sortable" in r) || r.deadline) && <p className="text-[12px] mt-3 flex flex-wrap gap-x-3" style={{ color: C.muted }}>{r.quantity != null && <span><b style={{ color: C.ink }}>{palletQty(r)}</b> on the pallet{r.sheetLines > 1 && <span title={`The dock sheet lists this HU on ${r.sheetLines} lines (${(r.lineQuantities || []).join(" + ")} TU) — one pallet, added up`}> · {r.sheetLines} sheet lines, {(r.lineQuantities || []).join(" + ")}</span>}</span>}{(r.pos || []).length > 1 && <span>POs <b style={{ color: C.ink }}>{r.pos.join(", ")}</b></span>}{r.supplier && <span>supplier <b style={{ color: C.ink }}>{r.supplier}</b></span>}{"sortable" in r && <span>{r.sortable ? "sortable" : "not sortable"}</span>}{r.deadline && <span>departure <b style={{ color: C.ink }}>{r.deadline}</b></span>}</p>}
             </div>
             {(lost || al || done || draft) && <div className="px-5 pb-3 flex flex-col gap-1.5" style={{ borderTop: `1px solid ${C.line}`, paddingTop: 12 }}>
               {lost && <NoteRow icon={Search} tone="warn">Marked lost · {s.users.find(u => u.id === lost.byUserId)?.name.split(" ")[0] || "?"} · {dayLabel(lost.at)}{lost.at ? `, ${palletTime(lost.at)}` : ""}{lost.note ? ` — ${lost.note}` : ""}</NoteRow>}

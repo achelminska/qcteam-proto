@@ -1,5 +1,6 @@
 import { QCMark } from "./brand.jsx";
 import { createLoginScreen } from "./login.jsx";
+import { mergeDockLines, mergedLineCount } from "./shared/dock-merge.js";
 import { useState, useEffect, useRef, Fragment } from "react";
 import { createSyncer, guardUnload } from "./sync.js";
 import { hasV, specLabel, dayLabel, typesOf, typeById, legacyTypeId, inspType, countsAs, listCheck, matchFieldSpec, numberSpecCheck, reportStatusFields, toleranceDisplay, matchesInspSearch } from "./shared/format.js";
@@ -913,8 +914,8 @@ const blockedSummary = s => { const it = (s.integrations || []).find(i => i.purp
 // Sheets repeat rows (same HU twice). One handling unit is one pallet: the first occurrence wins.
 // One HU = one pallet, first occurrence wins. A row with no HU on the sheet isn't dropped — it gets a fallback key
 // (article + location + arrival time) so it's still counted, just not individually scannable by SSCC.
-const dedupeByHu = rows => { const seen = new Set(); return rows.filter(r => { const norm = String(r.hu || "").replace(/\D/g, "").replace(/^0+/, ""); const k = norm || `noHU:${r.article}|${r.location}|${r.arrivedTime}`; if (seen.has(k)) return false; seen.add(k); return true; }); };
-const duplicateHuCount = rows => rows.length - dedupeByHu(rows).length;
+const dedupeByHu = mergeDockLines;   // one HU on several sheet lines = one pallet, quantities added (src/shared/dock-merge.js)
+const duplicateHuCount = mergedLineCount;
 // Blocked-pallet work queue (PalletClaim): who took which blocked batch, or flagged it as stacked/unreachable. Keyed by article + location
 // because the blocked sheet has no handling units. Claims live in the shared state, so everyone sees them within a minute.
 const claimKey = b => b.hu ? `hu:${b.hu}` : `${b.article}|${b.location}`;
@@ -942,7 +943,7 @@ const blockedQueue = s => blockedRowsLive(s).map(b => { const claim = claimOf(s,
 // How much stands on the pallet, as the sheet gives it: "40 TU". (It used to multiply by CU/TU as well — nobody needs
 // the CU total on the dock, it only made the chip longer.)
 const palletQty = r => r?.quantity == null ? "" : `${r.quantity} TU`;
-const dockRowsLive = s => { const it = (s.integrations || []).find(i => i.purpose === "Dock" && i.rows?.length); if (!it) return CLEAN_START ? [] : SHEET.dock; return dedupeByHu(it.rows.filter(r => !r._errors?.length)).map(r => ({ hu: String(r.hu || "").trim(), article: String(r.article || ""), name: r.name || "", location: r.location || "", priority: r.priority || (r.skippable ? "Skippable" : "Inspection due"), blocking: !!r.blocking, skippable: !!r.skippable, arrived: r.arrived || "", arrivedTime: r.arrivedTime || "", transporter: r.transporter || "", supplier: r.supplier || "", po: r.po || "", cusPerTu: r.cusPerTu ? Number(r.cusPerTu) : null, quantity: r.quantity !== undefined && r.quantity !== null && r.quantity !== "" && !isNaN(Number(r.quantity)) ? Number(r.quantity) : null, sortable: !!r.sortable, onDock: 0, inBuffer: 0 })); };
+const dockRowsLive = s => { const it = (s.integrations || []).find(i => i.purpose === "Dock" && i.rows?.length); if (!it) return CLEAN_START ? [] : SHEET.dock; return dedupeByHu(it.rows.filter(r => !r._errors?.length)).map(r => ({ hu: String(r.hu || "").trim(), article: String(r.article || ""), name: r.name || "", location: r.location || "", priority: r.priority || (r.skippable ? "Skippable" : "Inspection due"), blocking: !!r.blocking, skippable: !!r.skippable, arrived: r.arrived || "", arrivedTime: r.arrivedTime || "", transporter: r.transporter || "", supplier: r.supplier || "", po: r.po || "", cusPerTu: r.cusPerTu ? Number(r.cusPerTu) : null, quantity: r.quantity !== undefined && r.quantity !== null && r.quantity !== "" && !isNaN(Number(r.quantity)) ? Number(r.quantity) : null, sortable: !!r.sortable, onDock: 0, inBuffer: 0, sheetLines: r.sheetLines || 1, lineQuantities: r.lineQuantities || [], pos: r.pos || (r.po ? [String(r.po)] : []), locations: r.locations || (r.location ? [r.location] : []) })); };
 // Shared: read what the sheet pushed to the server and refresh the matching integration inside the app state.
 // Used by the portal (every 60 s on any page) and by the phone (on open / Sync now), so no device depends on the other.
 const refreshPushedIntegrations = async (getState, set, force = false) => {
@@ -2453,7 +2454,7 @@ function MPalletSheet({ s, set, user, go, row: r, onStart, onPickPallet, onAssig
           <div className="flex items-center gap-1.5 flex-wrap mt-2.5">
             <span className="text-[11px] px-2 py-0.5 rounded-md inline-flex items-center gap-1" style={{ background: C.surface, border: `1px solid ${C.line}`, color: C.ink }}><span style={{ color: C.muted }}>PO</span><span className="font-mono font-medium">{r.po || "—"}</span></span>
             <span className="text-[11px] px-2 py-0.5 rounded-md inline-flex items-center gap-1" style={{ background: r.sortable ? C.okBg : C.surface, border: `1px solid ${r.sortable ? "transparent" : C.line}`, color: r.sortable ? C.ok : C.muted }}>{r.sortable ? <Ic i={Check} s={11} mr={0} /> : <Ic i={X} s={11} mr={0} />}{r.sortable ? "Sortable" : "Not sortable"}</span>
-            {r.quantity != null && <span className="text-[11px] px-2 py-0.5 rounded-md font-medium" style={{ background: C.accentSoft, color: C.accent }} title="how much is on this pallet, from the dock sheet">{palletQty(r)}</span>}
+            {r.quantity != null && <span className="text-[11px] px-2 py-0.5 rounded-md font-medium" style={{ background: C.accentSoft, color: C.accent }} title={r.sheetLines > 1 ? `${r.sheetLines} lines on the dock sheet (${(r.lineQuantities || []).join(" + ")} TU), one pallet` : "how much is on this pallet, from the dock sheet"}>{palletQty(r)}{r.sheetLines > 1 ? ` · ${r.sheetLines} lines` : ""}</span>}
             {r.cusPerTu != null && r.cusPerTu !== "" && r.quantity == null && <span className="text-[11px] px-2 py-0.5 rounded-md" style={{ background: C.surface, border: `1px solid ${C.line}`, color: C.muted }}>{r.cusPerTu} CU/TU</span>}
           </div>
         </div>
