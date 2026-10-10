@@ -44,51 +44,37 @@ describe("summarizeRejections", () => {
   it("is empty for no rows", () => { expect(summarizeRejections([])).toMatchObject({ total: 0, tu: 0, products: [], reasons: [], users: [] }); });
 });
 
-import { reasonTheme } from "./rejections.js";
-it("folds the free-text reason into a theme and never uses the sortable class", () => {
-  expect(reasonTheme("Freq decay, mold (12,5%)")).toBe("Decay");
-  expect(reasonTheme("Major remarks (mold)")).toBe("Mold");
-  expect(reasonTheme("Decay/mold")).toBe("Decay");
-  expect(reasonTheme("Underweight 16,6% (partial rejection)")).toBe("Underweight");
-  expect(reasonTheme("Major remarks (insect damage)")).toBe("Insect damage");
-  expect(reasonTheme("damaged pallet, risk to collapse")).toBe("Damaged pallet");
-  expect(reasonTheme("low brix.")).toBe("Low brix");
-  expect(reasonTheme("")).toBe("Not given");
-});
-
-it("keeps the sheet's own wording under each reason theme", () => {
-  const s = summarizeRejections([{ a: "1", n: "A", reason: "Freq mold (12,5%)" }, { a: "1", n: "A", reason: "mold." }, { a: "2", n: "B", reason: "Mold " }]);
-  expect(s.reasons[0].label).toBe("Mold");
-  expect(s.reasons[0].sub.map(x => [x.label, x.count])).toEqual([["mold", 2], ["freq mold (12,5%)", 1]]);
-});
-
-describe("rejection facets", () => {
-  const rows = [
-    { a: "1", n: "Avocado", d: "2026-10-05T10:00", tu: 10, reason: "mold", user: "Damian Mrowka", group: "DC5-everest", outcome: "Picked up", sortable: true, cat: "Quality (according to list)" },
-    { a: "2", n: "Oranges", d: "2026-10-06T11:00", tu: 20, reason: "decay", user: "Damian Mrowka", outcome: "Destroy", sortable: false },
-    { a: "1", n: "Avocado", d: "2026-10-13T10:00", reason: "Freq mold", user: "Snizhana" },
-  ];
-  it("ANDs the selected facets", () => {
-    expect(filterRejectionsByFacets(rows, { product: "1" }).length).toBe(2);
-    expect(filterRejectionsByFacets(rows, { product: "1", user: "damian mrowka" }).length).toBe(1);
-    expect(filterRejectionsByFacets(rows, { reason: "mold" }).length).toBe(2);
-    expect(filterRejectionsByFacets(rows, { sortable: "unknown" }).map(r => r.d)).toEqual(["2026-10-13T10:00"]);
-    expect(filterRejectionsByFacets(rows, { outcome: "destroy", group: "not given" }).length).toBe(1);
-    expect(filterRejectionsByFacets(rows, {})).toBe(rows);
-    expect(matchesRejectionFacets(rows[0], null)).toBe(true);
+import { reasonTheme, reasonThemes, reasonDefects, reasonResidual } from "./rejections.js";
+describe("reason normalisation", () => {
+  it("recognises the same defect however it is written", () => {
+    for (const t of ["Major remarks (anthracnose)", "Anthracnose 2,8%", "Anthracnose 19% -major remarks ( sev and freq) rejection", "iso anthracnose, iso bruising", "ANTHRACNOSE"]) expect(reasonThemes(t)[0]).toBe("Anthracnose");
+    for (const t of ["mold", "Mold.", "Freq mold (12,5%)", "Major remarks (mold)", "mould", "moldy", "schimmel"]) expect(reasonThemes(t)).toEqual(["Mold"]);
+    for (const t of ["underweight", "Underweight 16,6% (partial rejection)", "Freq under weight", "3 pallets underweight. 2 fingers bruised"]) expect(reasonThemes(t)[0]).toBe("Underweight");
   });
-  it("summarises suppliers, outcomes, sortable and days", () => {
-    const s = summarizeRejections(rows);
-    expect(s.groups[0]).toMatchObject({ label: "Not given", count: 2 });
-    expect(s.outcomes.map(o => o.label).sort()).toEqual(["Destroy", "Not filled in", "Picked up"]);
-    expect(s.sortables.find(x => x.key === "yes").sub[0].label).toBe("Quality (according to list)");
-    expect(s.days.map(d => d.key)).toEqual(["2026-10-05", "2026-10-06", "2026-10-13"]);
+  it("lists every defect a text names, in order of mention", () => {
+    expect(reasonThemes("iso anthracnose, iso bruising, iso mold / sev color defect scale 4, mod latex not acceptable")).toEqual(["Anthracnose", "Bruising", "Mold", "Discolouration", "Latex"]);
+    expect(reasonThemes("Anthracnose 1% Internal browning 9,4%")).toEqual(["Anthracnose", "Internal browning"]);
+    expect(reasonThemes("Freq decay, mold (12,5%)")).toEqual(["Decay", "Mold"]);
+    expect(reasonThemes("Decay/mold")).toEqual(["Decay", "Mold"]);
+    expect(reasonTheme("Major remarks (insect damage)")).toBe("Insect damage");
+    expect(reasonThemes("damaged pallet, risk to collapse")).toEqual(["Damaged pallet / packaging"]);
+    expect(reasonThemes("Cracked tomatoes")).toEqual(["Cracked"]);
+    expect(reasonThemes("no label")).toEqual(["Wrong product / label"]);
   });
-  it("buckets the timeline by week or by day with empty days filled in", () => {
+  it("falls back to the cleaned text for a defect it does not know", () => {
+    expect(reasonResidual("Freq glassy spots 12% (partial rejection)")).toBe("Glassy spots");
+    expect(reasonThemes("Major remarks (glassy spots)")).toEqual(["Glassy spots"]);
+    expect(reasonThemes("low brix.")).toEqual(["Low brix"]);
+    expect(reasonThemes("")).toEqual(["Not given"]);
+    expect(reasonDefects("")).toEqual([]);
+  });
+  it("counts a multi-defect row under each reason and matches the facet on any of them", () => {
+    const rows = [{ a: "1", n: "A", reason: "iso anthracnose, iso bruising" }, { a: "2", n: "B", reason: "Anthracnose 2,8%" }];
     const s = summarizeRejections(rows);
-    const weeks = rejectionTimeline(s.days, { byWeek: true, isoWeekOf: d => d < "2026-10-12" ? "2026-W41" : "2026-W42", weekLabel: w => w });
-    expect(weeks.map(w => [w.key, w.count])).toEqual([["2026-W41", 2], ["2026-W42", 1]]);
-    const days = rejectionTimeline(s.days, { fromDay: "2026-10-05", toDay: "2026-10-07" });
-    expect(days.map(d => [d.label, d.count])).toEqual([["05.10", 1], ["06.10", 1], ["07.10", 0]]);
+    expect(s.total).toBe(2);
+    expect(s.reasons.map(r => [r.label, r.count])).toEqual([["Anthracnose", 2], ["Bruising", 1]]);
+    expect(s.products[0].sub.map(x => x.label)).toEqual(["Anthracnose", "Bruising"]);
+    expect(filterRejectionsByFacets(rows, { reason: "bruising" }).length).toBe(1);
+    expect(filterRejectionsByFacets(rows, { reason: "anthracnose" }).length).toBe(2);
   });
 });

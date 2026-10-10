@@ -1477,7 +1477,7 @@ function RejectionLink({ href, label }) {
 // rejected how much of what, which suppliers, what Inbound did with the pallet, sortable or not — and a timeline.
 // Every bar is a drill-down: clicking it narrows the whole panel and the list below to that product / reason / controller…
 // (facets AND together; active ones are chips up top). Bars are plain divs scaled to the column's biggest value.
-const FACET_LABEL = { product: "Product", reason: "Reason", user: "Controller", group: "Supplier", outcome: "Outcome", sortable: "Sortable" };
+const FACET_LABEL = { product: "Product", reason: "Defect", user: "Controller", group: "Supplier", outcome: "Outcome", sortable: "Sortable" };
 function RejectionSummary({ rows, openProduct, productFor, compact = false, sel = {}, onSelect, timeline, onPickWeek, onPickDay }) {
   const [metric, setMetric] = useState("count");
   const [open, setOpen] = useState({});
@@ -1521,7 +1521,7 @@ function RejectionSummary({ rows, openProduct, productFor, compact = false, sel 
       </div>}
       <div className="grid gap-5" style={{ gridTemplateColumns: compact ? "1fr 1fr" : "repeat(3, minmax(0, 1fr))" }}>
         <Col id="product" title="Products" items={sum.products} sub subFacet="reason" />
-        {!compact && <Col id="reason" title="Reasons" items={sum.reasons} sub hint="grouped from the sheet wording" />}
+        {!compact && <Col id="reason" title="Defects" items={sum.reasons} sub hint="read out of the sheet wording · a row naming several counts under each" />}
         <Col id="user" title="Controllers" items={sum.users} sub subFacet="product" />
       </div>
       {!compact && <div className="grid gap-5 mt-5 pt-4" style={{ gridTemplateColumns: "repeat(3, minmax(0, 1fr))", borderTop: `1px solid ${C.line}` }}>

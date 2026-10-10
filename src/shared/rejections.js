@@ -234,52 +234,96 @@ export function searchRejections(rows, q) {
 // controller (with their products).
 // The reason is the controller's free text from "Reason for rejection" ("Freq decay, mold (12,5%)") folded into a theme so
 // it groups — the "Sortable yes / no" class is a different column and stays out of this (it is searchable, though).
-// Theme names are spelled the way the sheet spells them ("mold", not "mould") so a Head can search the sheet for them.
-// When a text names several ("Freq decay, mold"), the one mentioned first wins.
-const REASON_THEMES = [
-  ["Underweight", /under\s*weight|onder\s*gewicht|light\s*weight/i],
-  ["Mold", /mou?ld|schimmel|fung/i],
-  ["Decay", /decay|rot\b|rotten|bederf/i],
-  ["Insect damage", /insect|bug|worm|larva|aphid|luis/i],
-  ["Bruising", /bruis|kneuz/i],
-  ["Overripe", /over\s*ripe|overrijp|too ripe/i],
-  ["Unripe", /unripe|under\s*ripe|onrijp|too green/i],
-  ["Cold damage", /cold damage|frost|chill|vries/i],
-  ["Skin defects", /skin|stain|scar|blemish|vlek/i],
-  ["Damaged pallet", /pallet|collapse|packag|crate\b|broken/i],
-  ["Wrong product", /wrong|mislabel|verkeerd/i],
-  ["Temperature", /temperature|temp\b|°/i],
+// ── Reason normalisation ──
+// Controllers type the reason by hand, QC One-style: "iso anthracnose, iso bruising, iso mold / sev color defect scale 4",
+// "Anthracnose 2,8%", "Major remarks (anthracnose)", "Freq decay, mold (12,5%)", "Underweight 16,6% (partial rejection)".
+// The same defect is spelled a dozen ways, so the text is reduced to the DEFECTS it names: severity words (iso / mod /
+// freq / sev), "major / minor remarks", percentages, counts and filler are stripped, then every known defect is picked out
+// of what is left. Names are spelled the way the sheet mostly spells them ("mold"), so a Head can search the sheet for them.
+const DEFECTS = [
+  ["Underweight", /under\s*-?\s*weight|onder\s*gewicht|light\s*weight|too light|low weight/],
+  ["Overweight", /over\s*-?\s*weight/],
+  ["Mold", /\bmou?ld(y|ed|ing)?\b|schimmel|fung|mildew/],
+  ["Decay", /\bdecay(ed|ing)?\b|\brot(ten|ting)?\b|bederf|\brotting\b/],
+  ["Anthracnose", /anthrac|antrac/],
+  ["Internal browning", /internal brown|int\.? brown|brown(ing)? inside|interne? bruin/],
+  ["Browning", /\bbrown(ing)?\b|bruinverkleuring/],
+  ["Insect damage", /insect|\bbugs?\b|\bworms?\b|larva|aphid|\bluis|caterpillar|\bmites?\b|thrips/],
+  ["Bruising", /bruis|kneuz|\bbruise/],
+  ["Overripe", /over\s*-?\s*ripe|overrijp|too ripe|overmature/],
+  ["Unripe", /\bunripe|under\s*-?\s*ripe|onrijp|too green|immature|not ripe/],
+  ["Cold damage", /cold damage|chill|frost|freez|\bvries|koudeschade/],
+  ["Soft", /\bsoft(ness)?\b|\bzacht|\bsquishy|\bmushy/],
+  ["Skin defect", /skin (defect|break|damage|spot)|skin breakdown|\bscar|blemish|\bvlek|peel (defect|damage)/],
+  ["Cracked", /crack|split|burst|\bgebarst|scheur/],
+  ["Shrivelled", /shriv|wrinkl|dehydrat|dry(ing)? out|\bverschrompel|slap/],
+  ["Discolouration", /colou?r defect|discolo|off[- ]?colou?r|yellowing|\byellow\b|verkleur|blackening|\bblack spots?/],
+  ["Latex", /latex/],
+  ["Stem damage", /stem (damage|rot|end)|\bsteel/],
+  ["Sunburn", /sunburn|sun damage|zonnebrand/],
+  ["Wet / condensation", /\bwet\b|condens|moist|water damage|\bnat\b/],
+  ["Dirt", /\bdirt|\bsoil\b|\bmud|\bsand\b|\bvuil/],
+  ["Foreign object", /foreign (object|material|body)|plastic|\bglass\b|\bstone|vreemd/],
+  ["Low brix", /\bbrix|sugar|\bsweetness/],
+  ["Size / count", /\bsize|\bcount\b|too small|too big|\bcalib|mixed sizes|\bmaat/],
+  ["Shelf life / date", /shelf ?life|\bdate\b|\bthtl?\b|expir|\bold stock|best before|houdbaar/],
+  ["Collapsed / leaking", /collaps(ed|ing)? (fruit|berries|pieces)|\bcollapsed\b|bleed|leak|\bjuice|\bjuicy/],
+  ["Damaged pallet / packaging", /damaged pallet|pallet (damaged|broken|collaps|unstable|leaning)|risk to collapse|packag|\bcrates? (damaged|broken)|\bboxes? (damaged|broken|crushed)|broken (boxes?|crates?|packag)|crushed|\bverpakking|wrapping|\bfoil\b/],
+  ["Wrong product / label", /wrong (product|article|item|label|sku)|mislabel|\bno label|missing label|\bverkeerd|different product|not ordered/],
+  ["Temperature", /temperature|\btemp\b|\btoo (warm|hot|cold)\b|°/],
+  ["Hollow / woody", /hollow|woody|\bhol\b|houtig/],
+  ["Sprouting", /sprout|\bkiem/],
+  ["Scab / russeting", /\bscab|russet|schurft/],
+  ["Mechanical damage", /mechanical|handling damage|\bcuts?\b|punctur|broken pieces|\bbroken\b|beschadig/],
+  ["Quality (according to list)", /according to (the )?list|quality list/],
 ];
-export function reasonTheme(raw) {
-  const v = String(raw || "").replace(/\s+/g, " ").trim(); if (!v) return "Not given";
-  let best = null;
-  for (const [t, re] of REASON_THEMES) { const m = re.exec(v); if (m && (best == null || m.index < best.i)) best = { t, i: m.index }; }
-  if (best) return best.t;
-  return v.replace(/[.\s]+$/, "").replace(/^./, c => c.toUpperCase()).slice(0, 40);
+// Words that say how bad, not what: QC One severities and the sheet's own filler. Removed before matching the fallback.
+const NOISE = /\b(iso|isolated|sl|slight(ly)?|mod|moderate|freq|frequent(ly)?|sev|severe(ly)?|major|minor|remarks?|remark|partial(ly)?|rejection|rejected|reject|scale|not acceptable|not accepted|according to list|explain reason in thread|and|or|with|of|the|a|on|in|pcs|pieces|stuks|boxes|box|hands|hand|per|out|approx|ca|circa|about|around)\b/g;
+const PERCENT_OR_NUMBER = /\d+(?:[.,]\d+)?\s*%?|\(\s*\)|\[\s*\]/g;
+export function reasonDefects(raw) {
+  const v = String(raw || "").toLowerCase().replace(/\s+/g, " ").trim(); if (!v) return [];
+  const hits = [];
+  for (const [label, re] of DEFECTS) { const m = re.exec(v); if (m) hits.push({ label, i: m.index }); }
+  hits.sort((a, b) => a.i - b.i);
+  // "Internal browning" also matches the generic "Browning" — keep the specific one
+  const labels = hits.map(h => h.label).filter((l, i, arr) => !(l === "Browning" && arr.includes("Internal browning")));
+  return [...new Set(labels)];
 }
+// What is left once severities, numbers and filler are gone — the fallback name for a defect the vocabulary does not know.
+export function reasonResidual(raw) {
+  const v = String(raw || "").toLowerCase().replace(PERCENT_OR_NUMBER, " ").replace(/[()[\]{}]/g, " ").replace(NOISE, " ").replace(/[\/,;:.\-–—+]+/g, " ").replace(/\s+/g, " ").trim();
+  return v ? v.replace(/^./, c => c.toUpperCase()).slice(0, 40) : "";
+}
+// All the defects a text names (in order of mention), or its residual, or "Not given".
+export function reasonThemes(raw) {
+  const d = reasonDefects(raw); if (d.length) return d;
+  const r = reasonResidual(raw); return [r || "Not given"];
+}
+export const reasonTheme = raw => reasonThemes(raw)[0];
 // The sheet text itself, tidied just enough to group identical entries ("Mold." and "mold " are one line).
 export const reasonText = raw => String(raw || "").replace(/\s+/g, " ").replace(/[.\s]+$/, "").trim().toLowerCase() || "not given";
 export function summarizeRejections(rows) {
   const byCount = (x, y) => y.count - x.count || y.tu - x.tu || x.label.localeCompare(y.label);
-  const reasonOf = r => reasonTheme(r.reason);
   const tuOf = r => (typeof r.tu === "number" && Number.isFinite(r.tu) ? r.tu : 0);
-  const tally = (map, key, label, r, extraKey, extraLabel) => {
+  const tally = (map, key, label, r, extras) => {
     const e = map.get(key) || { key, label, count: 0, tu: 0, sub: new Map() };
     e.count++; e.tu += tuOf(r);
-    if (extraKey != null) { const s = e.sub.get(extraKey) || { key: extraKey, label: extraLabel, count: 0, tu: 0 }; s.count++; s.tu += tuOf(r); e.sub.set(extraKey, s); }
+    for (const [extraKey, extraLabel] of extras || []) { if (extraKey == null) continue; const s = e.sub.get(extraKey) || { key: extraKey, label: extraLabel, count: 0, tu: 0 }; s.count++; s.tu += tuOf(r); e.sub.set(extraKey, s); }
     map.set(key, e);
   };
   const products = new Map(), reasons = new Map(), users = new Map(), groups = new Map(), outcomes = new Map(), sortables = new Map(), days = new Map();
   let total = 0, tu = 0;
   for (const r of rows || []) {
     total++; tu += tuOf(r);
-    const reason = reasonOf(r); const user = String(r.user || "Unknown").trim() || "Unknown"; const name = r.n || r.a || "?";
-    tally(products, r.a || name, name, r, reason.toLowerCase(), reason);
-    tally(reasons, reason.toLowerCase(), reason, r, reasonText(r.reason), reasonText(r.reason));
-    tally(users, user.toLowerCase(), user, r, r.a || name, name);
-    const g = String(r.group || "Not given").trim() || "Not given"; tally(groups, g.toLowerCase(), g, r, r.a || name, name);
+    const themes = reasonThemes(r.reason); const themeExtras = themes.map(t => [t.toLowerCase(), t]);
+    const user = String(r.user || "Unknown").trim() || "Unknown"; const name = r.n || r.a || "?"; const prod = [[r.a || name, name]];
+    tally(products, r.a || name, name, r, themeExtras);
+    // a row naming three defects counts once under each — the column header says so
+    for (const t of themes) tally(reasons, t.toLowerCase(), t, r, [[reasonText(r.reason), reasonText(r.reason)]]);
+    tally(users, user.toLowerCase(), user, r, prod);
+    const g = String(r.group || "Not given").trim() || "Not given"; tally(groups, g.toLowerCase(), g, r, prod);
     const o = String(r.outcome || "Not filled in").trim() || "Not filled in"; tally(outcomes, o.toLowerCase(), o, r, null);
-    const sk = r.sortable === true ? "yes" : r.sortable === false ? "no" : "unknown"; tally(sortables, sk, sk === "yes" ? "Sortable" : sk === "no" ? "Not sortable" : "Sortable not filled in", r, (r.cat || "").toLowerCase() || null, r.cat || "");
+    const sk = r.sortable === true ? "yes" : r.sortable === false ? "no" : "unknown"; tally(sortables, sk, sk === "yes" ? "Sortable" : sk === "no" ? "Not sortable" : "Sortable not filled in", r, [[(r.cat || "").toLowerCase() || null, r.cat || ""]]);
     const day = String(r.d || "").slice(0, 10); if (day) tally(days, day, day, r, null);
   }
   const finish = map => [...map.values()].map(e => ({ ...e, sub: [...e.sub.values()].sort(byCount) })).sort(byCount);
@@ -290,7 +334,7 @@ export const REJECTION_FACETS = ["product", "reason", "user", "group", "outcome"
 export function matchesRejectionFacets(r, sel) {
   if (!sel) return true;
   if (sel.product && (r.a || r.n || "?") !== sel.product) return false;
-  if (sel.reason && reasonTheme(r.reason).toLowerCase() !== sel.reason) return false;
+  if (sel.reason && !reasonThemes(r.reason).some(t => t.toLowerCase() === sel.reason)) return false;
   if (sel.user && (String(r.user || "Unknown").trim() || "Unknown").toLowerCase() !== sel.user) return false;
   if (sel.group && (String(r.group || "Not given").trim() || "Not given").toLowerCase() !== sel.group) return false;
   if (sel.outcome && (String(r.outcome || "Not filled in").trim() || "Not filled in").toLowerCase() !== sel.outcome) return false;
