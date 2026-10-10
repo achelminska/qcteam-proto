@@ -1481,6 +1481,7 @@ const FACET_LABEL = { product: "Product", reason: "Reason", user: "Controller", 
 function RejectionSummary({ rows, openProduct, productFor, compact = false, sel = {}, onSelect, timeline, onPickWeek, onPickDay }) {
   const [metric, setMetric] = useState("count");
   const [open, setOpen] = useState({});
+  const [hover, setHover] = useState(null); // timeline bucket key under the mouse
   const sum = summarizeRejections(rows); if (!sum.total && !Object.values(sel).some(Boolean)) return null;
   const n = compact ? 5 : 8;
   const val = e => metric === "tu" ? e.tu : e.count;
@@ -1511,9 +1512,10 @@ function RejectionSummary({ rows, openProduct, productFor, compact = false, sel 
       {!sum.total && <p className="text-xs mb-3" style={{ color: C.muted }}>Nothing matches this combination.</p>}
       {tl && tl.length > 1 && <div className="mb-4">
         <p className="label-sm mb-1.5" style={{ color: C.muted }}>{tl.byWeek ? "Per week" : "Per day"} · click a bar to zoom in</p>
-        <div className="flex items-end gap-[3px]" style={{ height: 64 }}>{tl.map(b => { const v = val(b); const h = Math.max(v ? 3 : 1, Math.round(56 * v / tlMax)); const click = tl.byWeek ? (onPickWeek && (() => onPickWeek(b.key))) : (onPickDay && (() => onPickDay(b.key))); return (
-          <button key={b.key} onClick={click || undefined} title={`${b.label}: ${b.count} rejection${b.count === 1 ? "" : "s"}${b.tu ? ` · ${b.tu} TU` : ""}`} className="flex-1 min-w-0 flex flex-col items-center justify-end" style={{ height: "100%", cursor: click ? "pointer" : "default" }}>
-            <span className="block w-full rounded-t" style={{ height: h, background: v ? C.bad : C.line, opacity: v ? .8 : 1, maxWidth: 28 }} />
+        <div className="flex items-end gap-[3px]" style={{ height: 64 }} onMouseLeave={() => setHover(null)}>{tl.map(b => { const v = val(b); const h = Math.max(v ? 3 : 1, Math.round(56 * v / tlMax)); const click = tl.byWeek ? (onPickWeek && (() => onPickWeek(b.key))) : (onPickDay && (() => onPickDay(b.key))); const hot = hover === b.key; return (
+          <button key={b.key} onClick={click || undefined} onMouseEnter={() => setHover(b.key)} onFocus={() => setHover(b.key)} onBlur={() => setHover(null)} className="flex-1 min-w-0 flex flex-col items-center justify-end relative" style={{ height: "100%", cursor: click ? "pointer" : "default" }}>
+            {hot && <span className="absolute text-[11px] px-2 py-1 rounded-lg whitespace-nowrap pointer-events-none" style={{ bottom: h + 6, left: "50%", transform: "translateX(-50%)", background: C.ink, color: C.onDark, boxShadow: lift(), zIndex: 5 }}><b>{b.label}</b> · {b.count} rejection{b.count === 1 ? "" : "s"}{b.tu ? ` · ${b.tu} TU` : ""}</span>}
+            <span className="block w-full rounded-t" style={{ height: h, background: v ? C.bad : C.line, opacity: v ? (hot ? 1 : .8) : 1, maxWidth: 28, outline: hot ? `2px solid ${C.ink}` : "none", outlineOffset: 1 }} />
           </button>); })}</div>
         <div className="flex gap-[3px] mt-1">{tl.map((b, i) => <span key={b.key} className="flex-1 min-w-0 text-center text-[10px] truncate" style={{ color: C.muted }}>{tl.length <= 16 || i % Math.ceil(tl.length / 12) === 0 ? b.label.replace(/^Week /, "W") : ""}</span>)}</div>
       </div>}
