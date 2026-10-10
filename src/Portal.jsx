@@ -1502,7 +1502,7 @@ function RejectionSummary({ rows, openProduct, productFor, compact = false }) {
       </div>
       <div className="grid gap-5" style={{ gridTemplateColumns: compact ? "1fr 1fr" : "repeat(3, minmax(0, 1fr))" }}>
         <Col title="Products" items={sum.products} sub onPick={pickProduct} />
-        {!compact && <Col title="Reasons" items={sum.reasons} sub />}
+        {!compact && <Col title="Reasons · grouped from the sheet wording" items={sum.reasons} sub />}
         <Col title="Controllers" items={sum.users} sub />
       </div>
     </div>

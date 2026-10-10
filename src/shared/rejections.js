@@ -230,29 +230,35 @@ export function searchRejections(rows, q) {
 }
 
 // ── Head's summary of a set of rejections (the all-rejections page after its filters, or the dashboard's week) ──
-// Three breakdowns of the same rows: by product (with its reasons), by reason, by controller (with their products).
+// Three breakdowns of the same rows: by product (with its reasons), by reason (with the sheet's own wording under it), by
+// controller (with their products).
 // The reason is the controller's free text from "Reason for rejection" ("Freq decay, mold (12,5%)") folded into a theme so
 // it groups — the "Sortable yes / no" class is a different column and stays out of this (it is searchable, though).
+// Theme names are spelled the way the sheet spells them ("mold", not "mould") so a Head can search the sheet for them.
+// When a text names several ("Freq decay, mold"), the one mentioned first wins.
 const REASON_THEMES = [
-  ["Underweight", /under\s*weight|onder\s*gewicht|light\s*weight|weight/i],
-  ["Mould", /mou?ld|schimmel|fung/i],
+  ["Underweight", /under\s*weight|onder\s*gewicht|light\s*weight/i],
+  ["Mold", /mou?ld|schimmel|fung/i],
   ["Decay", /decay|rot\b|rotten|bederf/i],
   ["Insect damage", /insect|bug|worm|larva|aphid|luis/i],
   ["Bruising", /bruis|kneuz/i],
-  ["Overripe", /over\s*ripe|overrijp|too ripe|soft/i],
-  ["Unripe", /unripe|under\s*ripe|onrijp|too green|hard/i],
-  ["Cold damage", /cold|frost|chill|vries/i],
-  ["Skin defects", /skin|stain|scar|blemish|spot|vlek/i],
-  ["Damaged pallet / packaging", /pallet|packag|box|crate|collapse|verpakking|broken/i],
-  ["Wrong product / label", /wrong|mislabel|label|different|verkeerd/i],
-  ["Temperature", /temp\b|temperature|°|degrees/i],
+  ["Overripe", /over\s*ripe|overrijp|too ripe/i],
+  ["Unripe", /unripe|under\s*ripe|onrijp|too green/i],
+  ["Cold damage", /cold damage|frost|chill|vries/i],
+  ["Skin defects", /skin|stain|scar|blemish|vlek/i],
+  ["Damaged pallet", /pallet|collapse|packag|crate\b|broken/i],
+  ["Wrong product", /wrong|mislabel|verkeerd/i],
+  ["Temperature", /temperature|temp\b|°/i],
 ];
 export function reasonTheme(raw) {
   const v = String(raw || "").replace(/\s+/g, " ").trim(); if (!v) return "Not given";
-  for (const [t, re] of REASON_THEMES) if (re.test(v)) return t;
+  let best = null;
+  for (const [t, re] of REASON_THEMES) { const m = re.exec(v); if (m && (best == null || m.index < best.i)) best = { t, i: m.index }; }
+  if (best) return best.t;
   return v.replace(/[.\s]+$/, "").replace(/^./, c => c.toUpperCase()).slice(0, 40);
 }
-// Everything counts rejections (sheet rows) and adds up TU where the sheet has a number. Sorted by count, then TU.
+// The sheet text itself, tidied just enough to group identical entries ("Mold." and "mold " are one line).
+export const reasonText = raw => String(raw || "").replace(/\s+/g, " ").replace(/[.\s]+$/, "").trim().toLowerCase() || "not given";
 export function summarizeRejections(rows) {
   const byCount = (x, y) => y.count - x.count || y.tu - x.tu || x.label.localeCompare(y.label);
   const reasonOf = r => reasonTheme(r.reason);
@@ -269,7 +275,7 @@ export function summarizeRejections(rows) {
     total++; tu += tuOf(r);
     const reason = reasonOf(r); const user = String(r.user || "Unknown").trim() || "Unknown"; const name = r.n || r.a || "?";
     tally(products, r.a || name, name, r, reason.toLowerCase(), reason);
-    tally(reasons, reason.toLowerCase(), reason, r, r.a || name, name);
+    tally(reasons, reason.toLowerCase(), reason, r, reasonText(r.reason), reasonText(r.reason));
     tally(users, user.toLowerCase(), user, r, r.a || name, name);
   }
   const finish = map => [...map.values()].map(e => ({ ...e, sub: [...e.sub.values()].sort(byCount) })).sort(byCount);

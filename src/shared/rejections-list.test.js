@@ -35,8 +35,8 @@ describe("summarizeRejections", () => {
     const s = summarizeRejections(rows);
     expect(s.total).toBe(4); expect(s.tu).toBe(35);
     expect(s.products[0]).toMatchObject({ label: "Avocado", count: 2, tu: 15 });
-    expect(s.products[0].sub.map(x => x.label).sort()).toEqual(["Low brix", "Mould"]);
-    expect(s.reasons.map(r => r.label)).toEqual(["Low brix", "Mould", "Not given"]);
+    expect(s.products[0].sub.map(x => x.label).sort()).toEqual(["Low brix", "Mold"]);
+    expect(s.reasons.map(r => r.label)).toEqual(["Low brix", "Mold", "Not given"]);
     expect(s.users[0]).toMatchObject({ label: "Damian Mrowka", count: 2, tu: 30 });
     expect(s.users[0].sub.map(x => x.label)).toEqual(["Oranges", "Avocado"]);
     expect(s.users.at(-1).label).toBe("Unknown");
@@ -46,10 +46,18 @@ describe("summarizeRejections", () => {
 
 import { reasonTheme } from "./rejections.js";
 it("folds the free-text reason into a theme and never uses the sortable class", () => {
-  expect(reasonTheme("Freq decay, mold (12,5%)")).toBe("Mould");
+  expect(reasonTheme("Freq decay, mold (12,5%)")).toBe("Decay");
+  expect(reasonTheme("Major remarks (mold)")).toBe("Mold");
+  expect(reasonTheme("Decay/mold")).toBe("Decay");
   expect(reasonTheme("Underweight 16,6% (partial rejection)")).toBe("Underweight");
   expect(reasonTheme("Major remarks (insect damage)")).toBe("Insect damage");
-  expect(reasonTheme("damaged pallet, risk to collapse")).toBe("Damaged pallet / packaging");
+  expect(reasonTheme("damaged pallet, risk to collapse")).toBe("Damaged pallet");
   expect(reasonTheme("low brix.")).toBe("Low brix");
   expect(reasonTheme("")).toBe("Not given");
+});
+
+it("keeps the sheet's own wording under each reason theme", () => {
+  const s = summarizeRejections([{ a: "1", n: "A", reason: "Freq mold (12,5%)" }, { a: "1", n: "A", reason: "mold." }, { a: "2", n: "B", reason: "Mold " }]);
+  expect(s.reasons[0].label).toBe("Mold");
+  expect(s.reasons[0].sub.map(x => [x.label, x.count])).toEqual([["mold", 2], ["freq mold (12,5%)", 1]]);
 });
