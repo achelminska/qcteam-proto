@@ -44,7 +44,7 @@ describe("summarizeRejections", () => {
   it("is empty for no rows", () => { expect(summarizeRejections([])).toMatchObject({ total: 0, tu: 0, products: [], reasons: [], users: [] }); });
 });
 
-import { reasonTheme, reasonThemes, reasonDefects, reasonResidual } from "./rejections.js";
+import { reasonTheme, reasonThemes, reasonDefects, reasonResidual, fuzzyDefect } from "./rejections.js";
 describe("reason normalisation", () => {
   it("recognises the same defect however it is written", () => {
     for (const t of ["Major remarks (anthracnose)", "Anthracnose 2,8%", "Anthracnose 19% -major remarks ( sev and freq) rejection", "iso anthracnose, iso bruising", "ANTHRACNOSE"]) expect(reasonThemes(t)[0]).toBe("Anthracnose");
@@ -77,4 +77,16 @@ describe("reason normalisation", () => {
     expect(filterRejectionsByFacets(rows, { reason: "bruising" }).length).toBe(1);
     expect(filterRejectionsByFacets(rows, { reason: "anthracnose" }).length).toBe(2);
   });
+});
+
+it("forgives typos", () => {
+  expect(reasonThemes("underwedight")).toEqual(["Underweight"]);
+  expect(reasonThemes("15% underweighjt")).toEqual(["Underweight"]);
+  expect(reasonThemes("freq molkd")).toEqual(["Mold"]);
+  expect(reasonThemes("freq mold, dehydration")).toEqual(["Mold", "Dehydration"]);
+  expect(reasonThemes("antracnose, bruisng")).toEqual(["Anthracnose", "Bruising"]);
+  expect(fuzzyDefect("decayy")).toBe("Decay");
+  expect(fuzzyDefect("mould")).toBe("Mold");
+  expect(fuzzyDefect("tomatoes")).toBe(null);
+  expect(reasonThemes("major remarks (anthracnose)")).toEqual(["Anthracnose"]);
 });

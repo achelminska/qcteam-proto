@@ -256,7 +256,7 @@ const DEFECTS = [
   ["Soft", /\bsoft(ness)?\b|\bzacht|\bsquishy|\bmushy/],
   ["Skin defect", /skin (defect|break|damage|spot)|skin breakdown|\bscar|blemish|\bvlek|peel (defect|damage)/],
   ["Cracked", /crack|split|burst|\bgebarst|scheur/],
-  ["Shrivelled", /shriv|wrinkl|dehydrat|dry(ing)? out|\bverschrompel|slap/],
+  ["Dehydration", /dehydrat|shriv|wrinkl|dry(ing)? out|\bverschrompel|slap/],
   ["Discolouration", /colou?r defect|discolo|off[- ]?colou?r|yellowing|\byellow\b|verkleur|blackening|\bblack spots?/],
   ["Latex", /latex/],
   ["Stem damage", /stem (damage|rot|end)|\bsteel/],
@@ -280,10 +280,41 @@ const DEFECTS = [
 // Words that say how bad, not what: QC One severities and the sheet's own filler. Removed before matching the fallback.
 const NOISE = /\b(iso|isolated|sl|slight(ly)?|mod|moderate|freq|frequent(ly)?|sev|severe(ly)?|major|minor|remarks?|remark|partial(ly)?|rejection|rejected|reject|scale|not acceptable|not accepted|according to list|explain reason in thread|and|or|with|of|the|a|on|in|pcs|pieces|stuks|boxes|box|hands|hand|per|out|approx|ca|circa|about|around)\b/g;
 const PERCENT_OR_NUMBER = /\d+(?:[.,]\d+)?\s*%?|\(\s*\)|\[\s*\]/g;
+// Typo tolerance: every word that no pattern caught is compared with the defect vocabulary by edit distance
+// ("underwedight", "underweighjt", "molkd"). One slip is allowed in a word of 5+ letters, two in 9+; the first letter must match.
+const KEYWORDS = [
+  ["underweight", "Underweight"], ["overweight", "Overweight"], ["mold", "Mold"], ["mould", "Mold"], ["moldy", "Mold"], ["schimmel", "Mold"],
+  ["decay", "Decay"], ["rotten", "Decay"], ["anthracnose", "Anthracnose"], ["browning", "Browning"], ["insect", "Insect damage"], ["insects", "Insect damage"],
+  ["bruising", "Bruising"], ["bruised", "Bruising"], ["bruises", "Bruising"], ["overripe", "Overripe"], ["unripe", "Unripe"], ["chilling", "Cold damage"], ["frost", "Cold damage"],
+  ["softness", "Soft"], ["cracked", "Cracked"], ["cracks", "Cracked"], ["split", "Cracked"], ["dehydration", "Dehydration"], ["dehydrated", "Dehydration"], ["shrivelled", "Dehydration"], ["shriveled", "Dehydration"], ["wrinkled", "Dehydration"],
+  ["discoloration", "Discolouration"], ["discolouration", "Discolouration"], ["yellowing", "Discolouration"], ["latex", "Latex"], ["sunburn", "Sunburn"], ["condensation", "Wet / condensation"],
+  ["sprouting", "Sprouting"], ["russeting", "Scab / russeting"], ["mechanical", "Mechanical damage"],
+  ["temperature", "Temperature"], ["blemish", "Skin defect"], ["blemishes", "Skin defect"], ["scarring", "Skin defect"],
+];
+function editDistance(a, b, max) {
+  if (Math.abs(a.length - b.length) > max) return max + 1;
+  let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i]; let rowMin = i;
+    for (let j = 1; j <= b.length; j++) { const d = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)); cur.push(d); if (d < rowMin) rowMin = d; }
+    if (rowMin > max) return max + 1;
+    prev = cur;
+  }
+  return prev[b.length];
+}
+export function fuzzyDefect(word) {
+  const w = String(word || "").toLowerCase(); if (w.length < 5) return null;
+  const max = w.length >= 9 ? 2 : 1; let best = null;
+  for (const [kw, label] of KEYWORDS) { if (kw[0] !== w[0] || Math.abs(kw.length - w.length) > max) continue; const d = editDistance(w, kw, max); if (d <= max && (!best || d < best.d)) best = { label, d }; }
+  return best ? best.label : null;
+}
 export function reasonDefects(raw) {
   const v = String(raw || "").toLowerCase().replace(/\s+/g, " ").trim(); if (!v) return [];
   const hits = [];
   for (const [label, re] of DEFECTS) { const m = re.exec(v); if (m) hits.push({ label, i: m.index }); }
+  // words no pattern caught → spelling tolerance
+  const covered = new Set(hits.map(h => h.label));
+  for (const m of v.matchAll(/[a-z]{5,}/g)) { if (NOISE.test(m[0] + " ")) { NOISE.lastIndex = 0; continue; } NOISE.lastIndex = 0; const label = fuzzyDefect(m[0]); if (label && !covered.has(label)) { covered.add(label); hits.push({ label, i: m.index }); } }
   hits.sort((a, b) => a.i - b.i);
   // "Internal browning" also matches the generic "Browning" — keep the specific one
   const labels = hits.map(h => h.label).filter((l, i, arr) => !(l === "Browning" && arr.includes("Internal browning")));
