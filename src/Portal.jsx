@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, Fragment } from "react";
+import { useState, useEffect, useRef, useMemo, Fragment } from "react";
 import { QCMark, QCWordmark } from "./brand.jsx";
 import { createLoginScreen } from "./login.jsx";
 import { mergeDockLines, mergedLineCount } from "./shared/dock-merge.js";
@@ -1538,6 +1538,7 @@ function RejectionsPage({ s, openProduct, user }) {
   const [q, setQ] = useState(""); const [period, setPeriod] = useState("all"); const [week, setWeek] = useState(() => isoWeekOf(today)); const [limit, setLimit] = useState(40);
   const [sel, setSel] = useState({});
   const [day, setDay] = useState(null); // a day picked on the timeline — narrows "This week" to one day
+  const [wkOpen, setWkOpen] = useState(false); // the quick week picker (grid of weeks with counts)
   const onSelect = (facet, key, label) => { setLimit(40); if (facet == null) return setSel({}); setSel(x => { const y = { ...x }; if (key) { y[facet] = key; y[`${facet}Label`] = label || key; } else { delete y[facet]; delete y[`${facet}Label`]; } return y; }); };
   const d = s.extRejections; const base = extRejectionsEverything(s);
   const wr = weekRange(week);
@@ -1546,6 +1547,10 @@ function RejectionsPage({ s, openProduct, user }) {
   const searched = searchRejections(inDay, q);
   const filtered = filterRejectionsByFacets(searched, sel);
   const isHead = user?.role === "Head";
+  const weekGrid = useMemo(() => { const counts = {}; for (const e of base) { const w = isoWeekOf(String(e.d || "").slice(0, 10)); if (w) counts[w] = (counts[w] || 0) + 1; }
+    const cur = isoWeekOf(today); const years = {}; let w = cur; // walk back 60 weeks from this one so quiet weeks are offered too
+    for (let i = 0; i < 60; i++) { const y = w.slice(0, 4); (years[y] ||= []).push({ key: w, n: Number(w.slice(6)), count: counts[w] || 0 }); w = shiftWeek(w, -1); }
+    return Object.entries(years).sort((a, b) => b[0].localeCompare(a[0])).map(([y, ws]) => [y, ws.sort((a, b) => a.n - b.n)]); }, [base, today]);
   const timeline = isHead ? (() => { const sum = summarizeRejections(filtered); const byWeek = period === "all"; const t = rejectionTimeline(sum.days, byWeek ? { byWeek, isoWeekOf, weekLabel, shiftWeek } : { fromDay: period === "today" ? today : wr?.from, toDay: period === "today" ? today : wr?.to }); t.byWeek = byWeek; return t; })() : null;
   const rows = filtered.slice(0, limit);
   const months = groupRejectionsByMonth(rows);
@@ -1560,7 +1565,26 @@ function RejectionsPage({ s, openProduct, user }) {
         <Pill id="today" label="Today" /><Pill id="week" label={thisWeek ? "This week" : weekLabel(week)} /><Pill id="all" label="All" />
         {period === "week" && <span className="inline-flex items-center rounded-lg ml-2" style={{ border: `1px solid ${C.line}`, background: C.surface }}>
           <button onClick={() => { setWeek(w => shiftWeek(w, -1)); setDay(null); setLimit(40); }} className="px-1.5 py-1" style={{ color: C.muted }} title="previous week"><Ic i={ChevronLeft} s={14} mr={0} /></button>
-          <span className="text-xs font-medium px-1" style={{ minWidth: 150, textAlign: "center" }}>{weekLabel(week)}{wr ? <span className="font-normal" style={{ color: C.muted }}> · {wr.from.slice(8)}.{wr.from.slice(5, 7)} – {wr.to.slice(8)}.{wr.to.slice(5, 7)}</span> : null}</span>
+          <span className="relative">
+            <button onClick={() => setWkOpen(o => !o)} className="text-xs font-medium px-1 inline-flex items-center gap-1" style={{ minWidth: 150, justifyContent: "center" }} title="pick a week">{weekLabel(week)}{wr ? <span className="font-normal" style={{ color: C.muted }}> · {wr.from.slice(8)}.{wr.from.slice(5, 7)} – {wr.to.slice(8)}.{wr.to.slice(5, 7)}</span> : null}<Ic i={ChevronDown} s={12} mr={0} /></button>
+            {wkOpen && <>
+              <div className="fixed inset-0" style={{ zIndex: 30 }} onClick={() => setWkOpen(false)} />
+              <div className="absolute left-0 mt-1 rounded-xl p-3" style={{ zIndex: 31, top: "100%", width: 560, background: C.surface, border: `1px solid ${C.line}`, boxShadow: lift(2) }}>
+                <div className="flex items-center gap-2 mb-2 text-xs">
+                  <button onClick={() => { setWeek(isoWeekOf(today)); setDay(null); setLimit(40); setWkOpen(false); }} className="px-2 py-1 rounded-lg" style={{ border: `1px solid ${C.line}` }}>This week</button>
+                  <button onClick={() => { setWeek(shiftWeek(isoWeekOf(today), -1)); setDay(null); setLimit(40); setWkOpen(false); }} className="px-2 py-1 rounded-lg" style={{ border: `1px solid ${C.line}` }}>Last week</button>
+                  <span className="ml-auto" style={{ color: C.muted }}>number = rejections that week</span>
+                </div>
+                {weekGrid.map(([y, ws]) => <div key={y} className="mb-2">
+                  <p className="label-sm mb-1" style={{ color: C.muted }}>{y}</p>
+                  <div className="grid gap-1" style={{ gridTemplateColumns: "repeat(13, minmax(0, 1fr))" }}>{ws.map(x => { const on = x.key === week; return (
+                    <button key={x.key} onClick={() => { setWeek(x.key); setDay(null); setLimit(40); setWkOpen(false); }} className="rounded-md px-1 py-1 text-center" title={`${weekLabel(x.key)} · ${x.count} rejection${x.count === 1 ? "" : "s"}`} style={{ background: on ? C.ink : x.count ? C.badBg : C.bg, color: on ? C.onDark : x.count ? C.bad : C.muted, border: `1px solid ${on ? C.ink : C.line}` }}>
+                      <span className="block text-[11px] font-semibold leading-none">{x.n}</span><span className="block text-[10px] leading-none mt-0.5" style={{ opacity: .8 }}>{x.count || "·"}</span>
+                    </button>); })}</div>
+                </div>)}
+              </div>
+            </>}
+          </span>
           <button onClick={() => { setWeek(w => shiftWeek(w, 1)); setDay(null); setLimit(40); }} disabled={thisWeek} className="px-1.5 py-1" style={{ color: C.muted, opacity: thisWeek ? .4 : 1 }} title="next week"><Ic i={ChevronRight} s={14} mr={0} /></button>
         </span>}
         {day && period === "week" && <button onClick={() => setDay(null)} className="text-[11px] px-2 py-0.5 rounded-full" style={{ background: C.badBg, color: C.bad, border: `1px solid ${C.bad}` }} title="back to the whole week">Day {day.slice(8)}.{day.slice(5, 7)} ×</button>}
