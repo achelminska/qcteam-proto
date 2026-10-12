@@ -2327,10 +2327,13 @@ function RejectionLink({ href, label }) {
     </a>
   );
 }
-function ExtRejectionRow({ r, showName }) {
+function ExtRejectionRow({ r, showName, s, go, articleId }) {
   const reason = String(r.reason || "Rejected").replace(/^./, c => c.toUpperCase());
   const Chip = ({ children }) => <span className="text-[11px] px-1.5 rounded-md leading-[18px]" style={{ background: C.bg, border: `1px solid ${C.line}` }}>{children}</span>;
   const reports = reportUrls(r);
+  const article = r.a || articleId;
+  const product = s && article ? productForArticle(s, article) : null;
+  const openProfile = product && go ? () => go("catalog", product.id) : null;
   return (
     <div className="qc-tile rounded-2xl px-3 py-2.5" style={{ background: C.surface, border: `1px solid ${C.line}`, borderLeft: `3px solid ${C.bad}` }}>
       {showName && (r.n || r.a) && <p className="text-[13px] font-semibold leading-snug">{r.n || r.a}</p>}
@@ -2342,9 +2345,10 @@ function ExtRejectionRow({ r, showName }) {
         {r.user && <Chip>{r.user}</Chip>}
         {r.po && <Chip><span className="font-mono">PO {r.po}</span></Chip>}
       </div>}
-      {(reports.length > 0 || r.link) && <div className="flex flex-wrap gap-1.5 mt-2">
+      {(reports.length > 0 || r.link || openProfile) && <div className="flex flex-wrap gap-1.5 mt-2">
         {reports.map((u, i) => <RejectionLink key={u} href={u} label={reports.length > 1 ? `Inspection report ${i + 1}` : "Inspection report"} />)}
         {r.link && <RejectionLink href={r.link} label={linkLabel(r.link)} />}
+        {openProfile && <button type="button" onClick={openProfile} className="qc-elev qc-tile inline-flex items-center gap-1.5 text-[11px] font-semibold rounded-lg px-2.5" style={{ height: 28, background: C.ink, color: C.onDark }}><Ic i={BookOpen} s={12} mr={0} />Product profile</button>}
       </div>}
     </div>
   );
@@ -2365,7 +2369,7 @@ function ExtRejectionList({ s, articleId, go }) {
       {open && <div className="mt-2">
         <p className="text-[11px] mb-1.5 leading-snug" style={{ color: C.muted }}>Last {fmtRejectionDay(l.last)} · {l.span} · DC5 sheet</p>
         <div className="flex flex-col gap-2">
-          {(l.preview || l.recent).map((r, ix) => <ExtRejectionRow key={`${r.d || ""}-${r.po || ""}-${ix}`} r={r} />)}
+          {(l.preview || l.recent).map((r, ix) => <ExtRejectionRow key={`${r.d || ""}-${r.po || ""}-${ix}`} r={r} s={s} go={go} articleId={articleId} />)}
           {more && go && <button type="button" onClick={openAll} className="qc-elev qc-tile w-full rounded-2xl px-3.5 inline-flex items-center justify-center gap-1.5 text-[13px] font-semibold" style={{ height: 42, background: C.ink, color: C.onDark }}>All {l.total} dock rejections<Ic i={ChevronRight} s={15} mr={0} /></button>}
         </div>
       </div>}
@@ -2406,7 +2410,7 @@ function MExtRejectionHistory({ s, go, articleId }) {
         {rows.length === 0 ? <p className="text-sm py-8 text-center" style={{ color: C.muted }}>{all ? (q ? `Nothing matches “${q}”.` : "No rejections in this period.") : "No dock rejections on this phone yet."}</p> : months.map(g => (
           <div key={g.k || "none"} className="mb-3">
             <ListDayHead count={g.items.length}>{g.label}</ListDayHead>
-            <div className="flex flex-col gap-2">{g.items.map((r, ix) => <ExtRejectionRow key={`${r.d || ""}-${r.po || ""}-${ix}`} r={r} showName={all} />)}</div>
+            <div className="flex flex-col gap-2">{g.items.map((r, ix) => <ExtRejectionRow key={`${r.d || ""}-${r.po || ""}-${ix}`} r={r} showName={all} s={s} go={go} articleId={articleId} />)}</div>
           </div>
         ))}
         {all && filtered.length > rows.length && <button type="button" onClick={() => setLimit(l => l + 30)} className="w-full py-2.5 rounded-xl text-sm font-medium mt-1" style={{ background: C.surface, border: `1px solid ${C.line}` }}>Show more · {filtered.length - rows.length} left</button>}
