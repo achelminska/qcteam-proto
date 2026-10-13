@@ -27,7 +27,7 @@ import { PhotoReview } from "./shared/PhotoReview.jsx";
 import { drawReportPdf } from "./shared/report-pdf.js";
 import { needsShareToSave, savePdfFile, triggerAnchorDownload } from "./shared/pdf-save.js";
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceArea, ReferenceLine, Legend } from "recharts";
-import { GripVertical, Clock, MessageCircle, Link2, List as ListIcon, BarChart3, Printer, SlidersHorizontal, SkipForward, LayoutDashboard, ClipboardList, Flag, Bell, FolderTree, ListTree, Package, LayoutTemplate, Truck, Globe, Megaphone, MessageSquare, Users, Search, Sun, Moon, Database, Home, Menu as MenuIcon, ScanLine, Plus, ChevronLeft, ChevronDown, ChevronRight, User, Camera, Image as ImageIcon, Paperclip, Send, Star, Pencil, Sparkles, HelpCircle, Download, Lock as LockIcon, AlertTriangle, Inbox, FileText, ShieldAlert, Tag, Layers, BookOpen, Filter, Check, X, Ruler, Boxes, Warehouse, Snowflake, Thermometer, ThumbsDown, ClipboardPaste, Trash2, Eye, ExternalLink } from "lucide-react";
+import { GripVertical, Clock, MessageCircle, Link2, List as ListIcon, BarChart3, Printer, SlidersHorizontal, SkipForward, LayoutDashboard, ClipboardList, Flag, Bell, FolderTree, ListTree, Package, LayoutTemplate, Truck, Globe, Megaphone, MessageSquare, Users, Search, Sun, Moon, Database, Home, Menu as MenuIcon, ScanLine, Plus, ChevronLeft, ChevronDown, ChevronRight, User, Camera, Image as ImageIcon, Paperclip, Send, Star, Pencil, Sparkles, HelpCircle, Download, Lock as LockIcon, AlertTriangle, Inbox, FileText, ShieldAlert, Tag, Layers, BookOpen, Filter, Check, X, Ruler, Boxes, Warehouse, Snowflake, Thermometer, ThumbsDown, ClipboardPaste, Trash2, Eye, ExternalLink, Ban } from "lucide-react";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // QCteam — portal Head of Quality (mini-aplikacja, stan startowy pusty)
@@ -83,13 +83,14 @@ const notifLook = t => { const [I, tone] = NOTIF[t] || [Bell, "info"]; const fg 
 const cleanMsg = m => String(m || "").replace(/^[\p{Extended_Pictographic}\uFE0F\s]+/u, "");
 const NotifIcon = ({ type, size = 32 }) => { const { I, fg, bg } = notifLook(type); return <span className="rounded-full flex items-center justify-center flex-shrink-0" style={{ width: size, height: size, background: bg, color: fg }}><I size={Math.round(size * 0.5)} strokeWidth={2} /></span>; };
 const Dot = ({ on }) => <span className="inline-block rounded-full ml-2 align-middle" style={{ width: 7, height: 7, background: on ? C.ok : C.line }} />;
-const NAV_ICON = { blocked: LockIcon, lost: Search, unreported: ShieldAlert, integrations: Link2, lists: ListIcon, analytics: BarChart3, settings: SlidersHorizontal, dashboard: LayoutDashboard, inspections: ClipboardList, flags: Flag, notifications: Bell, categories: FolderTree, problems: ListTree, products: Package, forms: LayoutTemplate, suppliers: Truck, countries: Globe, announcements: Megaphone, messages: MessageSquare, users: Users, catalog: Package, home: Home, chat: MessageSquare, menu: MenuIcon, docks: Warehouse, complaints: ThumbsDown, tempspecs: Clock, briefing: BookOpen, profile: User };
+const NAV_ICON = { blocked: LockIcon, lost: Search, unreported: ShieldAlert, integrations: Link2, lists: ListIcon, analytics: BarChart3, settings: SlidersHorizontal, dashboard: LayoutDashboard, inspections: ClipboardList, flags: Flag, notifications: Bell, categories: FolderTree, problems: ListTree, products: Package, forms: LayoutTemplate, suppliers: Truck, countries: Globe, announcements: Megaphone, messages: MessageSquare, users: Users, catalog: Package, home: Home, chat: MessageSquare, menu: MenuIcon, docks: Warehouse, complaints: ThumbsDown, rejections: Ban, tempspecs: Clock, briefing: BookOpen, profile: User };
 const EMPTY_ICON = { "📁": FolderTree, "🌳": ListTree, "📦": Package, "🧩": LayoutTemplate, "📖": BookOpen, "📏": Ruler, "📋": ClipboardList, "🚩": Flag, "🔔": Bell, "📣": Megaphone, "💬": MessageSquare, "🔒": LockIcon };
 
 
 const GLOBAL_CSS = () => `
   :root{color-scheme:${C.bg === DARK.bg ? "dark" : "light"}}
   .qc *{box-sizing:border-box}
+  .qc .qc-row{transition:background .12s}.qc .qc-row:hover{background:${C.isDark ? "rgba(255,255,255,.035)" : "rgba(0,0,0,.035)"} !important}
   .qc{font-family:"SF Pro Text","Segoe UI Variable",-apple-system,system-ui,"Helvetica Neue",Arial,sans-serif;font-size:14px;line-height:1.45;color:${C.ink};-webkit-font-smoothing:antialiased;font-variant-numeric:tabular-nums}
   .qc h1{font-size:22px;line-height:1.2;letter-spacing:-.015em;font-weight:650;margin:0}
   .qc h2{font-size:17px;line-height:1.3;letter-spacing:-.01em;font-weight:600;margin:0}
@@ -1359,7 +1360,7 @@ function SearchSelect({ value, onChange, options, empty = "—", placeholder = "
 }
 // ═══════════════════ SHELL: top bar + sidebar ═══════════════════
 const NAV_HEAD = [
-  { group: null, items: [["dashboard", "🏠", "Dashboard"], ["docks", "🏭", "Dock map"], ["inspections", "📋", "Inspections"], ["complaints", "👎", "Complaints"], ["blocked", "🔒", "Blocked pallets"], ["lost", "🔍", "Lost pallets"], ["unreported", "🛡️", "Unreported pallets"], ["analytics", "📊", "Analytics"], ["flags", "🚩", "Flags"], ["notifications", "🔔", "Notifications"]] },
+  { group: null, items: [["dashboard", "🏠", "Dashboard"], ["docks", "🏭", "Dock map"], ["inspections", "📋", "Inspections"], ["complaints", "👎", "Complaints"], ["rejections", "🚫", "Dock rejections"], ["blocked", "🔒", "Blocked pallets"], ["lost", "🔍", "Lost pallets"], ["unreported", "🛡️", "Unreported pallets"], ["analytics", "📊", "Analytics"], ["flags", "🚩", "Flags"], ["notifications", "🔔", "Notifications"]] },
   { group: "Catalog", items: [["categories", "📁", "Categories"], ["problems", "🌳", "Problem types"], ["products", "📦", "Products"], ["tempspecs", "⏱️", "Temporary specs"], ["forms", "🧩", "Forms"]] },
   { group: "Dictionaries", items: [["suppliers", "🚚", "Suppliers"], ["lists", "📋", "Lists"]] },
   { group: "Communication", items: [["announcements", "📣", "Announcements"], ["messages", "💬", "Messages"]] },
@@ -1477,6 +1478,10 @@ function RejectionLink({ href, label }) {
 // rejected how much of what, which suppliers, what Inbound did with the pallet, sortable or not — and a timeline.
 // Every bar is a drill-down: clicking it narrows the whole panel and the list below to that product / reason / controller…
 // (facets AND together; active ones are chips up top). Bars are plain divs scaled to the column's biggest value.
+// One colour per defect, the same everywhere in the panel. Mid-saturation hues that hold up on the dark and the light theme;
+// anything not listed gets a stable hue from its name.
+const DEFECT_COLORS = { "mold": "#8E7CC3", "decay": "#C4703F", "underweight": "#4A8FD1", "overripe": "#D9A441", "unripe": "#7FB069", "insect damage": "#5FA86B", "bruising": "#B5607A", "mechanical damage": "#9A9A9A", "dehydration": "#D98B5B", "soft": "#C96FA8", "cold damage": "#6FB7D9", "skin defect": "#B89B5E", "cracked": "#D1605A", "anthracnose": "#7E6A4F", "damaged pallet / packaging": "#8C8C8C", "wrong product / label": "#6E6E9E", "discolouration": "#C9B458", "internal browning": "#A5744D", "collapsed / leaking": "#B05C5C", "not given": "#777777" };
+const defectColor = label => { const k = String(label || "").toLowerCase(); if (DEFECT_COLORS[k]) return DEFECT_COLORS[k]; let h = 0; for (const ch of k) h = (h * 31 + ch.charCodeAt(0)) % 360; return `hsl(${h} 42% 58%)`; };
 const FACET_LABEL = { product: "Product", reason: "Defect", user: "Controller", group: "Supplier", outcome: "Outcome", sortable: "Sortable" };
 function RejectionSummary({ rows, openProduct, productFor, compact = false, sel = {}, onSelect, timeline, onPickWeek, onPickDay }) {
   const [metric, setMetric] = useState("count");
@@ -1487,16 +1492,38 @@ function RejectionSummary({ rows, openProduct, productFor, compact = false, sel 
   const val = e => metric === "tu" ? e.tu : e.count;
   const unit = v => metric === "tu" ? `${v} TU` : `${v}×`;
   const pick = (facet, e) => onSelect ? () => onSelect(facet, sel[facet] === e.key ? null : e.key, e.label) : null;
-  const Col = ({ id, title, items, sub, subFacet, hint }) => { const all = !!open[id]; const shown = all ? items : items.slice(0, n); const max = Math.max(1, ...items.map(val)); return (
+  // Ranked bar rows. The bar is segmented by the row's breakdown (a product's defects, a controller's products…), and
+  // the chips under it are the legend — same colour as the segment, clickable to drill down. Defects keep one colour
+  // across the whole panel so "Mold" looks the same under every product; other breakdowns use shades of the base hue.
+  const fmtN = v => Number(v).toLocaleString("en-US", { maximumFractionDigits: 1 }).replace(/,/g, " ");
+  const Col = ({ id, title, items, sub, subFacet, hint }) => { const all = !!open[id]; const shown = all ? items : items.slice(0, n); const max = Math.max(1, ...items.map(val)); const segs = all ? 6 : 4; return (
     <div className="min-w-0">
-      <p className="label-sm mb-2 flex items-baseline gap-2" style={{ color: C.muted }}><span className="flex-1 truncate">{title} · {items.length}</span>{hint && <span className="font-normal normal-case truncate" style={{ opacity: .8 }}>{hint}</span>}</p>
-      <div className="grid gap-1.5" style={all && items.length > 14 ? { maxHeight: 520, overflowY: "auto", paddingRight: 4 } : null}>{shown.map(e => { const v = val(e); const on = sel[id] === e.key; const click = pick(id, e); return (
-        <div key={e.key} className="min-w-0 rounded-lg" style={on ? { background: C.badBg, margin: "0 -6px", padding: "2px 6px" } : null}>
-          <div className="flex items-baseline gap-2 text-xs"><span className="flex-1 truncate font-medium">{click ? <button onClick={click} className="text-left truncate" title={on ? "Click to clear this filter" : `Only ${e.label}`} style={{ color: on ? C.bad : C.ink, maxWidth: "100%" }}>{e.label}</button> : e.label}</span><span className="shrink-0" style={{ color: C.muted, fontVariantNumeric: "tabular-nums" }}>{unit(v)}{metric === "count" && e.tu ? ` · ${e.tu} TU` : ""}</span></div>
-          <div className="rounded-full mt-0.5" style={{ height: 6, background: C.line }}><div className="rounded-full" style={{ height: 6, width: `${Math.max(3, Math.round(100 * v / max))}%`, background: C.bad, opacity: on ? 1 : .85 }} /></div>
-          {sub && e.sub.length > 0 && <p className="text-[11px] mt-0.5 truncate" style={{ color: C.muted }} title={e.sub.map(x => `${x.label} ${x.count}×`).join(" · ")}>{e.sub.slice(0, all ? 6 : 3).map((x, i) => { const sp = subFacet && onSelect ? () => onSelect(subFacet, x.key, x.label) : null; return <span key={x.key}>{i ? " · " : ""}{sp ? <button onClick={sp} className="underline decoration-dotted" style={{ color: C.muted }}>{x.label}</button> : x.label} {x.count}×</span>; })}{e.sub.length > (all ? 6 : 3) ? ` · +${e.sub.length - (all ? 6 : 3)}` : ""}</p>}
+      <p className="label-sm mb-2 flex items-baseline gap-1.5" style={{ color: C.muted }}><span className="shrink-0">{title} · {items.length}</span>{hint && <span className="font-normal normal-case truncate" style={{ opacity: .7, minWidth: 0 }} title={hint}>{hint}</span>}</p>
+      <div className="grid" style={all && items.length > 14 ? { maxHeight: 520, overflowY: "auto", paddingRight: 4 } : null}>{shown.map((e, i) => { const v = val(e); const on = sel[id] === e.key; const click = pick(id, e);
+        const parts = sub ? e.sub.slice(0, segs) : []; const partTotal = parts.reduce((a, x) => a + val(x), 0); const rest = Math.max(0, v - partTotal);
+        const colorOf = (x, k) => subFacet === "reason" ? defectColor(x.label) : `rgba(${C.isDark ? "214,110,95" : "171,54,43"},${[.9, .7, .52, .38, .28, .2][k] ?? .2})`;
+        return (
+        <div key={e.key} className="qc-row min-w-0 rounded-lg" style={{ padding: "5px 6px", margin: "0 -6px", background: on ? C.badBg : "transparent", borderLeft: `2px solid ${on ? C.bad : "transparent"}` }}>
+          <div className="flex items-baseline gap-2 text-xs">
+            <span className="shrink-0 font-mono text-[10px]" style={{ color: C.muted, width: 16, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{i + 1}</span>
+            <span className="flex-1 truncate font-medium">{click ? <button onClick={click} className="text-left truncate" title={on ? "Click to clear this filter" : `Only ${e.label}`} style={{ color: on ? C.bad : C.ink, maxWidth: "100%" }}>{e.label}</button> : e.label}</span>
+            <span className="shrink-0 font-semibold" style={{ fontVariantNumeric: "tabular-nums" }}>{fmtN(v)}{metric === "tu" ? <span className="font-normal" style={{ color: C.muted }}> TU</span> : null}</span>
+            {metric === "count" && e.tu ? <span className="shrink-0 text-[11px]" style={{ color: C.muted, fontVariantNumeric: "tabular-nums", minWidth: 58, textAlign: "right" }}>{fmtN(e.tu)} TU</span> : null}
+          </div>
+          <div className="flex rounded-full overflow-hidden mt-1" style={{ height: 6, background: C.line, marginLeft: 24, width: "calc(100% - 24px)" }} title={parts.length ? parts.map(x => `${x.label} ${val(x)}${metric === "tu" ? " TU" : "×"}`).join(" · ") : undefined}>
+            {parts.length ? <>
+              {parts.map((x, k) => <span key={x.key} style={{ width: `${100 * val(x) / max}%`, background: colorOf(x, k), minWidth: val(x) ? 2 : 0 }} />)}
+              {rest > 0 && <span style={{ width: `${100 * rest / max}%`, background: C.bad, opacity: .22 }} />}
+            </> : <span style={{ width: `${Math.max(2, 100 * v / max)}%`, background: C.bad, opacity: on ? 1 : .85 }} />}
+          </div>
+          {parts.length > 0 && <div className="flex flex-wrap gap-x-2.5 gap-y-0.5 mt-1 text-[11px]" style={{ marginLeft: 24, color: C.muted }}>
+            {parts.map((x, k) => { const sp = subFacet && onSelect ? () => onSelect(subFacet, x.key, x.label) : null; const dot = <span className="inline-block rounded-full" style={{ width: 7, height: 7, background: colorOf(x, k), marginRight: 4, verticalAlign: "middle" }} />;
+              return sp ? <button key={x.key} onClick={sp} className="inline-flex items-center whitespace-nowrap" style={{ color: C.muted }} title={`Only ${x.label}`}>{dot}<span className="truncate" style={{ maxWidth: 160 }}>{x.label}</span><span className="ml-1" style={{ fontVariantNumeric: "tabular-nums", opacity: .8 }}>{val(x)}</span></button>
+                : <span key={x.key} className="inline-flex items-center whitespace-nowrap">{dot}<span className="truncate" style={{ maxWidth: 160 }}>{x.label}</span><span className="ml-1" style={{ fontVariantNumeric: "tabular-nums", opacity: .8 }}>{val(x)}</span></span>; })}
+            {e.sub.length > segs && <span style={{ opacity: .7 }}>+{e.sub.length - segs} more</span>}
+          </div>}
         </div>); })}
-        {items.length > n && <button onClick={() => setOpen(o => ({ ...o, [id]: !all }))} className="text-[11px] text-left underline" style={{ color: C.accent }}>{all ? "Show top" : `Show all ${items.length}`}</button>}
+        {items.length > n && <button onClick={() => setOpen(o => ({ ...o, [id]: !all }))} className="text-[11px] text-left mt-1.5 underline" style={{ color: C.accent, marginLeft: 18 }}>{all ? "Show top" : `Show all ${items.length}`}</button>}
       </div>
     </div>); };
   const chips = Object.entries(sel).filter(([k, v]) => v && FACET_LABEL[k]);
@@ -1521,7 +1548,7 @@ function RejectionSummary({ rows, openProduct, productFor, compact = false, sel 
       </div>}
       <div className="grid gap-5" style={{ gridTemplateColumns: compact ? "1fr 1fr" : "repeat(3, minmax(0, 1fr))" }}>
         <Col id="product" title="Products" items={sum.products} sub subFacet="reason" />
-        {!compact && <Col id="reason" title="Defects" items={sum.reasons} sub hint="read out of the sheet wording · a row naming several counts under each" />}
+        {!compact && <Col id="reason" title="Defects" items={sum.reasons} sub hint="from the sheet wording; a row naming several counts under each" />}
         <Col id="user" title="Controllers" items={sum.users} sub subFacet="product" />
       </div>
       {!compact && <div className="grid gap-5 mt-5 pt-4" style={{ gridTemplateColumns: "repeat(3, minmax(0, 1fr))", borderTop: `1px solid ${C.line}` }}>
