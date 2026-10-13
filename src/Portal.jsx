@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useMemo, Fragment } from "react";
 import { QCMark, QCWordmark } from "./brand.jsx";
 import { createLoginScreen } from "./login.jsx";
 import { mergeDockLines, mergedLineCount } from "./shared/dock-merge.js";
-import { extRejectionsEverything, filterRejectionsByPeriod, searchRejections, summarizeRejections, filterRejectionsByFacets, rejectionTimeline } from "./shared/rejections.js";
+import { extRejectionsEverything, filterRejectionsByPeriod, searchRejections, summarizeRejections, filterRejectionsByFacets, rejectionTimeline, reasonThemes } from "./shared/rejections.js";
 import { demoConversation } from "./demo-chat.js";
 import { createSyncer, guardUnload } from "./sync.js";
 import { applySpecEdit, hasV, specFieldsFromForm, specFormKind, specLabel, dayLabel, problemPath, typesOf, typeById, legacyTypeId, inspType, countsAs, listCheck, matchFieldSpec, numberSpecCheck, reportStatusFields, toleranceDisplay, matchesInspSearch } from "./shared/format.js";
@@ -1480,10 +1480,13 @@ function RejectionLink({ href, label }) {
 // (facets AND together; active ones are chips up top). Bars are plain divs scaled to the column's biggest value.
 // One colour per defect, the same everywhere in the panel. Mid-saturation hues that hold up on the dark and the light theme;
 // anything not listed gets a stable hue from its name.
-const DEFECT_COLORS = { "mold": "#8E7CC3", "decay": "#C4703F", "underweight": "#4A8FD1", "overripe": "#D9A441", "unripe": "#7FB069", "insect damage": "#5FA86B", "bruising": "#B5607A", "mechanical damage": "#9A9A9A", "dehydration": "#D98B5B", "soft": "#C96FA8", "cold damage": "#6FB7D9", "skin defect": "#B89B5E", "cracked": "#D1605A", "anthracnose": "#7E6A4F", "damaged pallet / packaging": "#8C8C8C", "wrong product / label": "#6E6E9E", "discolouration": "#C9B458", "internal browning": "#A5744D", "collapsed / leaking": "#B05C5C", "not given": "#777777" };
-const defectColor = label => { const k = String(label || "").toLowerCase(); if (DEFECT_COLORS[k]) return DEFECT_COLORS[k]; let h = 0; for (const ch of k) h = (h * 31 + ch.charCodeAt(0)) % 360; return `hsl(${h} 42% 58%)`; };
+// Defect colours: the six most common defects own a fixed categorical slot (validated for CVD on both surfaces), the
+// rest get a stable muted hue from their name, "Other" is gray. The same defect is the same colour everywhere in the panel.
+const DEFECT_SLOTS = { "underweight": 0, "decay": 1, "insect damage": 2, "overripe": 3, "bruising": 4, "mold": 5 };
+const CAT_LIGHT = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#6250d6"], CAT_DARK = ["#3987e5", "#d95926", "#199e70", "#c98500", "#d55181", "#9085e9"];
+const defectColor = label => { const k = String(label || "").toLowerCase(); if (k === "other") return C.isDark ? "#5f6660" : "#b8bdb9"; const slot = DEFECT_SLOTS[k]; if (slot != null) return (C.isDark ? CAT_DARK : CAT_LIGHT)[slot]; let h = 0; for (const ch of k) h = (h * 31 + ch.charCodeAt(0)) % 360; return `hsl(${h} 30% ${C.isDark ? 62 : 48}%)`; };
 const FACET_LABEL = { product: "Product", reason: "Defect", user: "Controller", group: "Supplier", outcome: "Outcome", sortable: "Sortable" };
-function RejectionSummary({ rows, openProduct, productFor, compact = false, sel = {}, onSelect, timeline, onPickWeek, onPickDay }) {
+function RejectionSummary({ rows, prevRows = null, prevLabel = "", openProduct, productFor, compact = false, sel = {}, onSelect, timeline, bucketOf, onPickWeek, onPickDay }) {
   const [metric, setMetric] = useState("count");
   const [open, setOpen] = useState({});
   const [hover, setHover] = useState(null); // timeline bucket key under the mouse
@@ -1528,6 +1531,37 @@ function RejectionSummary({ rows, openProduct, productFor, compact = false, sel 
     </div>); };
   const chips = Object.entries(sel).filter(([k, v]) => v && FACET_LABEL[k]);
   const tl = timeline || null; const tlMax = tl ? Math.max(1, ...tl.map(val)) : 1;
+  const tuOf = r => (typeof r.tu === "number" && Number.isFinite(r.tu) ? r.tu : 0);
+  const rowVal = r => metric === "tu" ? tuOf(r) : 1;
+  // the six defects that carry the colour legend everywhere below; everything else folds into Other
+  const topDefects = sum.reasons.slice(0, 6).map(r => r.label); const topSet = new Set(topDefects.map(x => x.toLowerCase()));
+  const legendDefects = [...topDefects, ...(sum.reasons.length > 6 ? ["Other"] : [])];
+  const foldDefect = t => topSet.has(t.toLowerCase()) ? t : "Other";
+  // composition per timeline bucket — the stacked bars
+  const comp = useMemo(() => { if (!tl || !bucketOf) return null; const m = {}; for (const r of rows) { const b = bucketOf(r); if (!b) continue; const themes = reasonThemes(r.reason); const share = rowVal(r) / themes.length; const e = m[b] ||= {}; for (const t of themes) { const k = foldDefect(t); e[k] = (e[k] || 0) + share; } } return m; }, [rows, tl, metric]);
+  // product × defect grid
+  const heat = useMemo(() => { const prods = sum.products.slice(0, 10); const idx = new Map(prods.map((p, i) => [p.key, i])); const cells = prods.map(() => Object.fromEntries(legendDefects.map(d => [d, 0])));
+    for (const r of rows) { const i = idx.get(r.a || r.n || "?"); if (i == null) continue; const themes = reasonThemes(r.reason); const share = rowVal(r) / themes.length; for (const t of themes) cells[i][foldDefect(t)] += share; }
+    const max = Math.max(1, ...cells.flatMap(c => Object.values(c))); return { prods, cells, max }; }, [rows, metric]);
+  // weekday profile
+  const weekday = useMemo(() => { const w = [0, 0, 0, 0, 0, 0, 0]; for (const r of rows) { const d = String(r.d || "").slice(0, 10); if (!d) continue; const dt = new Date(d + "T12:00:00"); if (isNaN(dt)) continue; w[(dt.getDay() + 6) % 7] += rowVal(r); } return w; }, [rows, metric]);
+  const prev = prevRows ? summarizeRejections(prevRows) : null;
+  const pct = (a, b) => b ? Math.round(100 * a / b) : 0;
+  const fmt1 = v => Number(v).toLocaleString("en-US", { maximumFractionDigits: metric === "tu" ? 0 : 0 }).replace(/,/g, " ");
+  const Delta = ({ now, before }) => { if (before == null) return null; const d = now - before; const up = d > 0; return <span className="text-[11px] font-medium" style={{ color: d === 0 ? C.muted : up ? C.bad : C.ok }} title={`${prevLabel}: ${fmt1(before)}`}>{d === 0 ? "— same as " : (up ? "▲ +" : "▼ ") + fmt1(Math.abs(d)) + " vs "}{prevLabel}</span>; };
+  const Spark = ({ series, color }) => { const w = 120, h = 28, mx = Math.max(1, ...series); if (series.length < 2) return null; const pts = series.map((v, i) => `${(i / (series.length - 1)) * w},${h - 2 - (h - 4) * v / mx}`).join(" "); return <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} className="block"><polyline points={pts} fill="none" stroke={color} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" /><circle cx={w} cy={h - 2 - (h - 4) * series.at(-1) / mx} r="2.5" fill={color} /></svg>; };
+  const Tile = ({ label, value, unit: u, delta, spark, color }) => <div className="rounded-xl px-3.5 py-3 min-w-0" style={{ background: C.bg, border: `1px solid ${C.line}` }}>
+    <p className="text-[11px] uppercase tracking-wide" style={{ color: C.muted }}>{label}</p>
+    <div className="flex items-end gap-2 mt-0.5"><span className="text-[26px] font-semibold leading-none" style={{ fontVariantNumeric: "tabular-nums", letterSpacing: "-.01em" }}>{value}</span>{u && <span className="text-xs mb-0.5" style={{ color: C.muted }}>{u}</span>}<span className="ml-auto">{spark}</span></div>
+    <div className="mt-1.5" style={{ minHeight: 14 }}>{delta}</div>
+  </div>;
+  const ShareBar = ({ items, colorOf, onPick: pickFn, total }) => { const tot = total || items.reduce((a, x) => a + val(x), 0) || 1; return <div>
+    <div className="flex rounded-md overflow-hidden" style={{ height: 14, gap: 2 }}>{items.map(x => { const w = 100 * val(x) / tot; return w > 0 && <button key={x.key} onClick={pickFn ? () => pickFn(x) : undefined} title={`${x.label} · ${fmt1(val(x))} · ${Math.round(w)}%`} style={{ width: `${w}%`, background: colorOf(x), minWidth: 2, cursor: pickFn ? "pointer" : "default" }} />; })}</div>
+    <div className="flex flex-wrap gap-x-3 gap-y-1 mt-2 text-[11px]" style={{ color: C.muted }}>{items.map(x => { const w = Math.round(100 * val(x) / tot); return <button key={x.key} onClick={pickFn ? () => pickFn(x) : undefined} className="inline-flex items-center gap-1.5" style={{ color: C.muted, cursor: pickFn ? "pointer" : "default" }}><span className="inline-block rounded-full" style={{ width: 8, height: 8, background: colorOf(x) }} /><span style={{ color: C.ink }}>{x.label}</span><span style={{ fontVariantNumeric: "tabular-nums" }}>{w}%</span></button>; })}</div>
+  </div>; };
+  const defectItems = [...sum.reasons.slice(0, 6), ...(sum.reasons.length > 6 ? [{ key: "other", label: "Other", count: sum.reasons.slice(6).reduce((a, x) => a + x.count, 0), tu: sum.reasons.slice(6).reduce((a, x) => a + x.tu, 0) }] : [])];
+  const sparkSeries = tl ? tl.map(b => val(b)) : [];
+  const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]; const wdMax = Math.max(1, ...weekday);
   return (
     <div>
       <div className="flex items-center gap-2 mb-3 flex-wrap">
@@ -1537,14 +1571,51 @@ function RejectionSummary({ rows, openProduct, productFor, compact = false, sel 
         <span className="inline-flex rounded-lg ml-auto overflow-hidden" style={{ border: `1px solid ${C.line}` }}>{[["count", "Rejections"], ["tu", "TU"]].map(([id, l]) => <button key={id} onClick={() => setMetric(id)} className="text-[11px] px-2.5 py-1 font-medium" style={{ background: metric === id ? C.ink : C.surface, color: metric === id ? C.onDark : C.muted }}>{l}</button>)}</span>
       </div>
       {!sum.total && <p className="text-xs mb-3" style={{ color: C.muted }}>Nothing matches this combination.</p>}
-      {tl && tl.length > 1 && <div className="mb-4">
-        <p className="label-sm mb-1.5" style={{ color: C.muted }}>{tl.byWeek ? "Per week" : "Per day"} · click a bar to zoom in</p>
-        <div className="flex items-end gap-[3px]" style={{ height: 64 }} onMouseLeave={() => setHover(null)}>{tl.map(b => { const v = val(b); const h = Math.max(v ? 3 : 1, Math.round(56 * v / tlMax)); const click = tl.byWeek ? (onPickWeek && (() => onPickWeek(b.key))) : (onPickDay && (() => onPickDay(b.key))); const hot = hover === b.key; return (
+      {!compact && <div className="grid gap-3 mb-4" style={{ gridTemplateColumns: "repeat(4, minmax(0, 1fr))" }}>
+        <Tile label="Rejections" value={fmt1(sum.total)} delta={<Delta now={sum.total} before={prev?.total} />} spark={<Spark series={tl ? tl.map(b => b.count) : []} color={C.bad} />} />
+        <Tile label="Trade units" value={fmt1(sum.tu)} unit="TU" delta={<Delta now={sum.tu} before={prev?.tu} />} spark={<Spark series={tl ? tl.map(b => b.tu) : []} color={C.bad} />} />
+        <Tile label="Products hit" value={fmt1(sum.products.length)} delta={<Delta now={sum.products.length} before={prev?.products.length} />} spark={sum.products[0] && <span className="text-[11px] text-right block truncate" style={{ color: C.muted, maxWidth: 130 }}>top: {sum.products[0].label}</span>} />
+        <Tile label="Controllers" value={fmt1(sum.users.length)} delta={<Delta now={sum.users.length} before={prev?.users.length} />} spark={sum.users[0] && <span className="text-[11px] text-right block truncate" style={{ color: C.muted, maxWidth: 130 }}>most: {sum.users[0].label}</span>} />
+      </div>}
+      {tl && tl.length > 1 && <div className="mb-5">
+        <div className="flex items-baseline gap-3 mb-1.5 flex-wrap"><p className="label-sm" style={{ color: C.muted }}>{tl.byWeek ? "Per week" : "Per day"} · stacked by defect · click a bar to zoom in</p>
+          {comp && <span className="flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] ml-auto" style={{ color: C.muted }}>{legendDefects.map(d => <span key={d} className="inline-flex items-center gap-1"><span className="inline-block rounded-full" style={{ width: 8, height: 8, background: defectColor(d) }} />{d}</span>)}</span>}
+        </div>
+        <div className="flex items-end gap-[3px]" style={{ height: 96 }} onMouseLeave={() => setHover(null)}>{tl.map(b => { const v = val(b); const h = Math.max(v ? 3 : 1, Math.round(88 * v / tlMax)); const click = tl.byWeek ? (onPickWeek && (() => onPickWeek(b.key))) : (onPickDay && (() => onPickDay(b.key))); const hot = hover === b.key; const parts = comp?.[b.key]; const order = legendDefects.filter(d => parts && parts[d] > 0); const tot = order.reduce((a, d) => a + parts[d], 0) || 1; return (
           <button key={b.key} onClick={click || undefined} onMouseEnter={() => setHover(b.key)} onFocus={() => setHover(b.key)} onBlur={() => setHover(null)} className="flex-1 min-w-0 flex flex-col items-center justify-end relative" style={{ height: "100%", cursor: click ? "pointer" : "default" }}>
-            {hot && <span className="absolute text-[11px] px-2 py-1 rounded-lg whitespace-nowrap pointer-events-none" style={{ bottom: h + 6, left: "50%", transform: "translateX(-50%)", background: C.ink, color: C.onDark, boxShadow: lift(), zIndex: 5 }}><b>{b.label}</b> · {b.count} rejection{b.count === 1 ? "" : "s"}{b.tu ? ` · ${b.tu} TU` : ""}</span>}
-            <span className="block w-full rounded-t" style={{ height: h, background: v ? C.bad : C.line, opacity: v ? (hot ? 1 : .8) : 1, maxWidth: 28, outline: hot ? `2px solid ${C.ink}` : "none", outlineOffset: 1 }} />
+            {hot && <span className="absolute text-[11px] px-2 py-1.5 rounded-lg whitespace-nowrap pointer-events-none text-left" style={{ bottom: h + 6, left: "50%", transform: "translateX(-50%)", background: C.ink, color: C.onDark, boxShadow: lift(), zIndex: 5 }}><b>{b.label}</b> · {b.count} rejection{b.count === 1 ? "" : "s"}{b.tu ? ` · ${fmt1(b.tu)} TU` : ""}{order.length > 0 && <span className="block mt-1" style={{ opacity: .85 }}>{order.slice(0, 4).map(d => `${d} ${Math.round(100 * parts[d] / tot)}%`).join(" · ")}</span>}</span>}
+            <span className="block w-full rounded-t overflow-hidden flex flex-col-reverse" style={{ height: h, maxWidth: 28, outline: hot ? `2px solid ${C.ink}` : "none", outlineOffset: 1, background: v ? "transparent" : C.line, gap: 1 }}>
+              {order.length ? order.map(d => <span key={d} className="block w-full" style={{ height: `${100 * parts[d] / tot}%`, background: defectColor(d), opacity: hot ? 1 : .9 }} />) : v ? <span className="block w-full h-full" style={{ background: C.bad, opacity: .8 }} /> : null}
+            </span>
           </button>); })}</div>
         <div className="flex gap-[3px] mt-1">{tl.map((b, i) => <span key={b.key} className="flex-1 min-w-0 text-center text-[10px] truncate" style={{ color: C.muted }}>{tl.length <= 16 || i % Math.ceil(tl.length / 12) === 0 ? b.label.replace(/^Week /, "W") : ""}</span>)}</div>
+      </div>}
+      {!compact && sum.total > 0 && <div className="grid gap-5 mb-5" style={{ gridTemplateColumns: "minmax(0, 5fr) minmax(0, 4fr) minmax(0, 3fr)" }}>
+        <div className="min-w-0">
+          <p className="label-sm mb-2" style={{ color: C.muted }}>What goes wrong · share of {metric === "tu" ? "TU" : "rejections"}</p>
+          <ShareBar items={defectItems} colorOf={x => defectColor(x.label)} onPick={onSelect ? x => x.key !== "other" && onSelect("reason", sel.reason === x.key ? null : x.key, x.label) : null} />
+          <p className="label-sm mt-4 mb-2" style={{ color: C.muted }}>Sortable?</p>
+          <ShareBar items={sum.sortables} colorOf={x => x.key === "yes" ? C.ok : x.key === "no" ? C.bad : (C.isDark ? "#5f6660" : "#b8bdb9")} onPick={onSelect ? x => onSelect("sortable", sel.sortable === x.key ? null : x.key, x.label) : null} />
+          <p className="label-sm mt-4 mb-2" style={{ color: C.muted }}>What Inbound did with the pallet</p>
+          <ShareBar items={sum.outcomes.slice(0, 5)} colorOf={x => { const k = x.label.toLowerCase(); return /picked/.test(k) ? C.ok : /thrown|destroy/.test(k) ? C.bad : /not filled/.test(k) ? (C.isDark ? "#5f6660" : "#b8bdb9") : C.warn; }} onPick={onSelect ? x => onSelect("outcome", sel.outcome === x.key ? null : x.key, x.label) : null} />
+        </div>
+        <div className="min-w-0">
+          <p className="label-sm mb-2" style={{ color: C.muted }}>Product × defect · top {heat.prods.length}</p>
+          <div className="grid" style={{ gridTemplateColumns: `minmax(0, 1fr) repeat(${legendDefects.length}, 44px)`, gap: 2, alignItems: "center" }}>
+            <span />{legendDefects.map(d => <span key={d} className="text-[10px] text-center truncate leading-tight" title={d} style={{ color: C.muted }}><span className="inline-block rounded-full mr-1" style={{ width: 7, height: 7, background: defectColor(d) }} />{d.split(/[ /]/)[0]}</span>)}
+            {heat.prods.map((p, i) => <Fragment key={p.key}>
+              <button onClick={pick("product", p) || undefined} className="text-[11px] truncate text-left pr-1" title={p.label} style={{ color: sel.product === p.key ? C.bad : C.ink }}>{p.label.replace(/^Merkloos /, "")}</button>
+              {legendDefects.map(d => { const v = heat.cells[i][d]; const a = v ? 0.18 + 0.82 * v / heat.max : 0; const on = sel.product === p.key && sel.reason === d.toLowerCase(); return <button key={d} onClick={onSelect && v && d !== "Other" ? () => { onSelect("product", p.key, p.label); onSelect("reason", d.toLowerCase(), d); } : undefined} title={`${p.label} · ${d}: ${fmt1(v)}`} className="rounded-sm text-[10px] font-medium" style={{ height: 22, background: v ? `rgba(${C.isDark ? "214,110,95" : "171,54,43"},${a.toFixed(2)})` : (C.isDark ? "rgba(255,255,255,.03)" : "rgba(0,0,0,.03)"), color: a > .55 ? "#fff" : C.muted, outline: on ? `2px solid ${C.ink}` : "none", fontVariantNumeric: "tabular-nums", cursor: v && d !== "Other" ? "pointer" : "default" }}>{v ? fmt1(v) : ""}</button>; })}
+            </Fragment>)}
+          </div>
+        </div>
+        <div className="min-w-0">
+          <p className="label-sm mb-2" style={{ color: C.muted }}>By weekday</p>
+          <div className="flex items-end gap-1.5" style={{ height: 90 }}>{weekday.map((v, i) => <div key={i} className="flex-1 flex flex-col items-center justify-end h-full" title={`${DAYS[i]} · ${fmt1(v)}`}><span className="text-[10px] mb-0.5" style={{ color: C.muted, fontVariantNumeric: "tabular-nums" }}>{v ? fmt1(v) : ""}</span><span className="block w-full rounded-t" style={{ height: Math.max(v ? 3 : 1, Math.round(64 * v / wdMax)), background: v === wdMax ? C.bad : C.bad, opacity: v === wdMax ? .95 : .45 }} /></div>)}</div>
+          <div className="flex gap-1.5 mt-1">{DAYS.map(d => <span key={d} className="flex-1 text-center text-[10px]" style={{ color: C.muted }}>{d}</span>)}</div>
+          <p className="label-sm mt-4 mb-2" style={{ color: C.muted }}>Controllers · share</p>
+          <ShareBar items={[...sum.users.slice(0, 5), ...(sum.users.length > 5 ? [{ key: "other", label: "Others", count: sum.users.slice(5).reduce((a, x) => a + x.count, 0), tu: sum.users.slice(5).reduce((a, x) => a + x.tu, 0) }] : [])]} colorOf={x => x.key === "other" ? (C.isDark ? "#5f6660" : "#b8bdb9") : `rgba(${C.isDark ? "214,110,95" : "171,54,43"},${[.95, .75, .58, .44, .32][sum.users.findIndex(u => u.key === x.key)] ?? .3})`} onPick={onSelect ? x => x.key !== "other" && onSelect("user", sel.user === x.key ? null : x.key, x.label) : null} />
+        </div>
       </div>}
       <div className="grid gap-5" style={{ gridTemplateColumns: compact ? "1fr 1fr" : "repeat(3, minmax(0, 1fr))" }}>
         <Col id="product" title="Products" items={sum.products} sub subFacet="reason" />
@@ -1553,8 +1624,8 @@ function RejectionSummary({ rows, openProduct, productFor, compact = false, sel 
       </div>
       {!compact && <div className="grid gap-5 mt-5 pt-4" style={{ gridTemplateColumns: "repeat(3, minmax(0, 1fr))", borderTop: `1px solid ${C.line}` }}>
         <Col id="group" title="Suppliers (order group)" items={sum.groups} sub subFacet="product" />
-        <Col id="outcome" title="What Inbound did with the pallet" items={sum.outcomes} />
-        <Col id="sortable" title="Sortable" items={sum.sortables} sub />
+        <Col id="outcome" title="Outcome · all values" items={sum.outcomes} />
+        <Col id="sortable" title="Sortable · with the class" items={sum.sortables} sub />
       </div>}
       {!compact && openProduct && sel.product && productFor && productFor(sel.product) && <p className="text-xs mt-3"><button onClick={() => openProduct(productFor(sel.product).id)} className="underline" style={{ color: C.accent }}>Open the product profile →</button></p>}
     </div>
@@ -1579,6 +1650,14 @@ function RejectionsPage({ s, openProduct, user }) {
     for (let i = 0; i < 60; i++) { const y = w.slice(0, 4); (years[y] ||= []).push({ key: w, n: Number(w.slice(6)), count: counts[w] || 0 }); w = shiftWeek(w, -1); }
     return Object.entries(years).sort((a, b) => b[0].localeCompare(a[0])).map(([y, ws]) => [y, ws.sort((a, b) => a.n - b.n)]); }, [base, today]);
   const timeline = isHead ? (() => { const sum = summarizeRejections(filtered); const byWeek = period === "all"; const t = rejectionTimeline(sum.days, byWeek ? { byWeek, isoWeekOf, weekLabel, shiftWeek } : { fromDay: period === "today" ? today : wr?.from, toDay: period === "today" ? today : wr?.to }); t.byWeek = byWeek; return t; })() : null;
+  const bucketOf = period === "all" ? (r => isoWeekOf(String(r.d || "").slice(0, 10))) : (r => String(r.d || "").slice(0, 10));
+  // the same slice one period back, for the deltas on the tiles
+  const shiftDay = (d, n) => { const x = new Date(d + "T12:00:00Z"); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); };
+  const [prevRows, prevLabel] = isHead ? (() => {
+    if (period === "today") { const y = shiftDay(today, -1); return [base.filter(e => String(e.d || "").slice(0, 10) === y), "yesterday"]; }
+    if (period === "week" && day) { const y = shiftDay(day, -1); return [base.filter(e => String(e.d || "").slice(0, 10) === y), "the day before"]; }
+    if (period === "week") { const pw = weekRange(shiftWeek(week, -1)); return [pw ? base.filter(e => { const x = String(e.d || "").slice(0, 10); return x >= pw.from && x <= pw.to; }) : [], weekLabel(shiftWeek(week, -1)).toLowerCase()]; }
+    return [null, ""]; })().map((v, i) => i === 0 && v ? filterRejectionsByFacets(searchRejections(v, q), sel) : v) : [null, ""];
   const rows = filtered.slice(0, limit);
   const months = groupRejectionsByMonth(rows);
   const productFor = a => (s.products || []).find(p => normArticle(p.articleId) === normArticle(a));
@@ -1617,7 +1696,7 @@ function RejectionsPage({ s, openProduct, user }) {
         {day && period === "week" && <button onClick={() => setDay(null)} className="text-[11px] px-2 py-0.5 rounded-full" style={{ background: C.badBg, color: C.bad, border: `1px solid ${C.bad}` }} title="back to the whole week">Day {day.slice(8)}.{day.slice(5, 7)} ×</button>}
         <span className="text-xs ml-auto" style={{ color: C.muted }}>{filtered.length} rejection{filtered.length === 1 ? "" : "s"}{filtered.length > rows.length ? ` · showing ${rows.length}` : ""}</span>
       </div>
-      {isHead && (filtered.length > 0 || Object.values(sel).some(Boolean)) && <Card style={{ marginBottom: 16 }}><RejectionSummary rows={filtered} openProduct={openProduct} productFor={productFor} sel={sel} onSelect={onSelect} timeline={timeline} onPickWeek={w => { setPeriod("week"); setWeek(w); setDay(null); setLimit(40); }} onPickDay={dd => { setDay(x => x === dd ? null : dd); setLimit(40); }} /></Card>}
+      {isHead && (filtered.length > 0 || Object.values(sel).some(Boolean)) && <Card style={{ marginBottom: 16 }}><RejectionSummary rows={filtered} prevRows={prevRows} prevLabel={prevLabel} bucketOf={bucketOf} openProduct={openProduct} productFor={productFor} sel={sel} onSelect={onSelect} timeline={timeline} onPickWeek={w => { setPeriod("week"); setWeek(w); setDay(null); setLimit(40); }} onPickDay={dd => { setDay(x => x === dd ? null : dd); setLimit(40); }} /></Card>}
       {rows.length === 0 ? <Card><Empty icon="🚫" title={Object.values(sel).some(Boolean) ? "Nothing matches these filters." : q ? `Nothing matches “${q}”.` : period === "today" ? "No rejections today" : period === "week" ? `No rejections in ${weekLabel(week).toLowerCase()}` : "No rejections on the sheet"} hint={q || period !== "all" ? "" : "They appear here as soon as the rejections sheet pushes."} /></Card> : months.map(g => (
         <div key={g.k || "none"} className="mb-4">
           <p className="label-sm mb-1.5" style={{ color: C.muted }}>{g.label} · {g.items.length}</p>
