@@ -2065,9 +2065,13 @@ const olaState = () => normalize(JSON.parse(JSON.stringify(OLA_STATE)));
 // MOBILE — ramka telefonu, ekrany kontrolera
 // ═══════════════════════════════════════════════════════════════════════════
 const M = { pad: 18 };
-// One sheet row = one pallet (Handling Unit). "SKU on dock" = distinct articles. Matches the summary block on the sheet itself.
-// Totals come from the sheet's own summary cells when present; per-priority counts come from the rows.
-const sheetStats = s => { const rows = dockRowsLive(s).filter(r => !lostOf(s, r)); const lost = dockRowsLive(s).length - rows.length; const sm = dockSummary(s) || {}; const has = k => sm[k] != null; const pallets = has("nonUrgentPallets") || has("urgentPallets") ? (sm.nonUrgentPallets || 0) + (sm.urgentPallets || 0) : rows.length; const skus = has("skus") ? sm.skus : new Set(rows.map(r => r.article)).size; const blocked = has("urgentPallets") ? sm.urgentPallets : rows.filter(r => r.blocking).length; // "Skippable" is a boolean flag on the sheet, not mutually exclusive with Priority item — count it by the flag, not the label.
+// One sheet row = one pallet (Handling Unit). SKUs are distinct articles on those live
+// rows — the same count the Pallets-on-docks list prints ("N pallets · M SKUs"). The
+// sheet's "SKU on dock" summary cell is a different total (it includes articles the row
+// dump does not show), so the dashboard must not use it. Pallet / expected / skippable
+// totals still come from the sheet summary when present; per-priority counts come from the rows.
+const dockSkuCount = rows => new Set((rows || []).map(r => r.article || r.hu)).size;
+const sheetStats = s => { const rows = dockRowsLive(s).filter(r => !lostOf(s, r)); const lost = dockRowsLive(s).length - rows.length; const sm = dockSummary(s) || {}; const has = k => sm[k] != null; const pallets = has("nonUrgentPallets") || has("urgentPallets") ? (sm.nonUrgentPallets || 0) + (sm.urgentPallets || 0) : rows.length; const skus = dockSkuCount(rows); const blocked = has("urgentPallets") ? sm.urgentPallets : rows.filter(r => r.blocking).length; // "Skippable" is a boolean flag on the sheet, not mutually exclusive with Priority item — count it by the flag, not the label.
   const prio = k => k === "Skippable" ? rows.filter(r => r.skippable).length : rows.filter(r => r.priority === k).length; return { pallets, skus, blocked, prio, lost, expected: sm.expected, skippableSkus: sm.skippableSkus, skippablePallets: sm.skippablePallets, fromSheet: Object.keys(sm).length > 0 }; };
 const PRIORITY = { "Now needed": [C.bad, C.onDark, true], "High risk": [C.bad, C.badBg, false], "High issues": [C.warn, C.warnBg, false], "Late inspection": [C.warn, C.warnBg, false], "Inspection due": [C.muted, C.line, false], "Skippable": [C.muted, C.line, false] };
 const hhmm = iso => { const d = new Date(iso); return isNaN(d) ? "" : d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }); };
@@ -2577,8 +2581,8 @@ function MPriorityList({ s, user, go, priority, focus }) {
     }).sort((a, b) => (b.hist.count > 0) - (a.hist.count > 0) || (a.arrivedTime || "99").localeCompare(b.arrivedTime || "99")); };
   const dayTitle = d => { if (!d) return "Arrival date unknown"; const label = dayLabel(d + "T12:00:00"); const full = new Date(d + "T12:00:00").toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" }); return label === "Today" || label === "Yesterday" ? `${label} · ${full}` : full; };
   const ageDays = d => d ? Math.round((new Date().setHours(12, 0, 0, 0) - new Date(d + "T12:00:00").getTime()) / 86400000) : 0;
-  const skus = new Set(rows.map(r => r.article || r.hu)).size;
-  const skusAll = new Set(liveRows.map(r => r.article || r.hu)).size;
+  const skus = dockSkuCount(rows);
+  const skusAll = dockSkuCount(liveRows);
   const searching = !!q.trim();
   return (
     <div className="pb-4">
@@ -2730,7 +2734,7 @@ function MDashboard({ s, set, user, go, dismissed, setDismissed, onAssign }) {
           );
         };
         const Block = ({ title, compact, children }) => <div className="px-5 mb-3"><p className="label-sm mb-1.5" style={{ color: C.muted }}>{title}</p><div className={compact ? "grid grid-cols-4 sm:grid-cols-2 gap-1.5 sm:gap-2" : "grid grid-cols-2 gap-2"}>{children}</div></div>;
-        const neededRows = dockRowsLive(s).filter(r => r.blocking && !lostOf(s, r)); const neededSkus = new Set(neededRows.map(r => r.article || r.hu)).size;
+        const neededRows = dockRowsLive(s).filter(r => r.blocking && !lostOf(s, r)); const neededSkus = dockSkuCount(neededRows);
         const nowNeeded = st.prio("Now needed");
         const bs = blockedSummary(s) || {}; const bRows = blockedRowsLive(s); const bLost = blockedQueue(s).filter(b => b.lost && b.status !== "Completed").length;
         const blockedOpen = Math.max(0, (bs.notStarted != null ? (bs.notStarted || 0) + (bs.started || 0) : bRows.filter(r => r.status !== "Completed").length) - bLost);
