@@ -188,7 +188,7 @@ const GLOBAL_CSS = () => `
   .qc button:disabled{cursor:not-allowed;opacity:.6}
   .qc button:focus-visible,.qc a:focus-visible{outline:2px solid ${C.accent};outline-offset:2px}
   .qc .label-sm{font-size:11.5px;font-weight:600;color:${C.muted};letter-spacing:0;text-transform:none}
-  .qc-sticky-bar{position:-webkit-sticky;position:sticky;top:0;z-index:100;isolation:isolate;-webkit-transform:translate3d(0,0,0);transform:translate3d(0,0,0)}
+  .qc-sticky-bar{position:-webkit-sticky;position:sticky;top:0;z-index:40;background:${C.surface}}
   .qc .row:hover{background:${C.bg}}
   .qc ::-webkit-scrollbar{width:10px;height:10px}.qc ::-webkit-scrollbar-thumb{background:${C.line};border-radius:8px;border:2px solid transparent;background-clip:padding-box}
   @media (prefers-reduced-motion:reduce){.qc *{transition:none!important}}
@@ -2098,7 +2098,7 @@ const useRealDevice = () => { const [real, setReal] = useState(() => typeof wind
 // (plus 10px) left a dead band below the labels. Keep a fraction so icons stay above the home
 // indicator without doubling the inset. Never 0 — taps would land on the home gesture.
 const NAV_SAFE_BOTTOM = "calc(8px + env(safe-area-inset-bottom) * 0.4)";
-function Phone({ children, nav, onNav, page, badges, fab, dark, onTheme, overlay, banner }) {
+function Phone({ children, nav, onNav, page, badges, fab, dark, onTheme, overlay, banner, head }) {
   const items = [["home", "🏠", "Dashboard"], ["chat", "💬", "Chat"], ["catalog", "🧺", "Catalog"], ["menu", "☰", "Menu"]];
   const real = useRealDevice();
   const outer = real ? { background: C.surface, minHeight: "100dvh" } : { background: C.frameBg };
@@ -2109,6 +2109,7 @@ function Phone({ children, nav, onNav, page, badges, fab, dark, onTheme, overlay
       <div className="relative flex flex-col" style={shell}>
         {!real && <div className="flex items-center justify-between px-6 pt-3 pb-1 text-[11px] font-medium" style={{ color: C.ink }}><span>{new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}</span><span className="flex items-center gap-2"><button onClick={onTheme} title="theme" className="flex">{dark ? <Ic i={Sun} s={13} mr={0} /> : <Ic i={Moon} s={13} mr={0} />}</button>●●● ᯤ ▮</span></div>}
         {banner}
+        {head}
         <div className="flex-1 overflow-y-auto relative" style={{ color: C.ink }}>{children}</div>
         {overlay}
         {fab && (
@@ -2668,6 +2669,25 @@ function MAnnouncementModal({ a, onClose }) {
     </div>
   );
 }
+function MDashHead({ s, user, go }) {
+  const unread = s.notifications.filter(n => n.userId === user.id && !n.readAt).length;
+  const fr = sheetFreshness(s);
+  const now = Date.now();
+  const ago = t => { const m = Math.round((now - new Date(t).getTime()) / 60000); return m < 1 ? "just now" : m < 60 ? `${m} min ago` : `${Math.round(m / 60)} h ago`; };
+  return (
+    <div style={{ background: C.surface, borderBottom: `1px solid ${C.line}`, flexShrink: 0 }}>
+      <div className="flex items-center justify-between px-5 pt-2 pb-2">
+        <div><p className="text-xs" style={{ color: C.muted }}>{new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "short" })}</p><p className="text-lg font-semibold">Hi, {user.name.split(" ")[0]}</p></div>
+        <div className="flex items-center gap-3">{(() => { const n = complaintsNewCount(s, user.id); return <button onClick={() => go("complaints")} className="relative flex" title="Complaints"><Ic i={ThumbsDown} s={22} mr={0} />{n > 0 && <span className="absolute -top-1 -right-2 text-[9px] px-1 rounded-full" style={{ background: C.bad, color: C.onDark }}>{n}</span>}</button>; })()}<button onClick={() => go("notifications")} className="relative flex"><Ic i={Bell} s={22} mr={0} />{unread > 0 && <span className="absolute -top-1 -right-2 text-[9px] px-1 rounded-full" style={{ background: C.bad, color: C.onDark }}>{unread}</span>}</button><button onClick={() => go("profile")} className="flex"><Avatar user={user} size={36} /></button></div>
+      </div>
+      {fr.length > 0 && (
+        <div className="px-5 pb-2 flex items-center gap-3 flex-wrap">
+          {fr.map(f => { const stale = now - new Date(f.at).getTime() > 10 * 60000; return <span key={f.purpose} className="text-[11px] flex items-center gap-1" style={{ color: stale ? C.warn : C.muted }}><Ic i={stale ? AlertTriangle : Clock} s={11} mr={0} />{f.purpose === "Dock" ? "Dock data" : "Blocked pallets"} · {ago(f.at)}</span>; })}
+        </div>
+      )}
+    </div>
+  );
+}
 function MDashboard({ s, set, user, go, dismissed, setDismissed, onAssign }) {
   const [now, setNow] = useState(Date.now()); useEffect(() => { const id = setInterval(() => setNow(Date.now()), 30000); return () => clearInterval(id); }, []);
   const [annOpen, setAnnOpen] = useState(null);
@@ -2678,23 +2698,11 @@ function MDashboard({ s, set, user, go, dismissed, setDismissed, onAssign }) {
   const doneToday = doneTodayCount(s);
   // All of them at once — one gets its full preview text, several collapse to titles only so they don't take over the dashboard.
   const anns = s.announcements.filter(a => a.showOnDashboard && annActive(a) && !dismissed.includes(a.id)).sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
-  const unread = s.notifications.filter(n => n.userId === user.id && !n.readAt).length;
   // The dashboard shows the latest 15 inspections and no more — the full history has its own screen ("all ›").
   const HISTORY_LIMIT = 15;
   const groups = []; mine.slice(0, HISTORY_LIMIT).forEach(i => { const k = dayLabel(i.completedAt || i.startedAt); let g = groups.find(x => x.k === k); if (!g) { g = { k, items: [] }; groups.push(g); } g.items.push(i); });
   return (
     <div style={bottomPad}>
-      <div className="qc-sticky-bar" style={{ background: C.surface, borderBottom: `1px solid ${C.line}` }}>
-      <div className="flex items-center justify-between px-5 pt-2 pb-2">
-        <div><p className="text-xs" style={{ color: C.muted }}>{new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "short" })}</p><p className="text-lg font-semibold">Hi, {user.name.split(" ")[0]}</p><p className="text-[11px] font-semibold" style={{ color: C.accent }}>wersja {QC_BUILD}</p></div>
-        <div className="flex items-center gap-3">{(() => { const n = complaintsNewCount(s, user.id); return <button onClick={() => go("complaints")} className="relative flex" title="Complaints"><Ic i={ThumbsDown} s={22} mr={0} />{n > 0 && <span className="absolute -top-1 -right-2 text-[9px] px-1 rounded-full" style={{ background: C.bad, color: C.onDark }}>{n}</span>}</button>; })()}<button onClick={() => go("notifications")} className="relative flex"><Ic i={Bell} s={22} mr={0} />{unread > 0 && <span className="absolute -top-1 -right-2 text-[9px] px-1 rounded-full" style={{ background: C.bad, color: C.onDark }}>{unread}</span>}</button><button onClick={() => go("profile")} className="flex"><Avatar user={user} size={36} /></button></div>
-      </div>
-      {(() => { const fr = sheetFreshness(s); if (!fr.length) return null; const now = Date.now(); const ago = t => { const m = Math.round((now - new Date(t).getTime()) / 60000); return m < 1 ? "just now" : m < 60 ? `${m} min ago` : `${Math.round(m / 60)} h ago`; }; return (
-        <div className="px-5 pb-2 flex items-center gap-3 flex-wrap">
-          {fr.map(f => { const stale = now - new Date(f.at).getTime() > 10 * 60000; return <span key={f.purpose} className="text-[11px] flex items-center gap-1" style={{ color: stale ? C.warn : C.muted }}><Ic i={stale ? AlertTriangle : Clock} s={11} mr={0} />{f.purpose === "Dock" ? "Dock data" : "Blocked pallets"} · {ago(f.at)}</span>; })}
-        </div>
-      ); })()}
-      </div>
       {(() => {
         const pulse = briefingUnseen(s, user.id);
         const seen = pulse.total === 0;
@@ -2707,8 +2715,8 @@ function MDashboard({ s, set, user, go, dismissed, setDismissed, onAssign }) {
           notes && `${notes} note${notes === 1 ? "" : "s"} from the Head`,
         ].filter(Boolean);
         return (
-          <div className="px-5 mb-3">
-            <div className="relative overflow-hidden" style={{ padding: 10, margin: -10 }}>
+          <div className="px-5 pt-3 mb-3">
+            <div className="relative overflow-hidden rounded-2xl" style={{ padding: 3 }}>
               {!seen && <span aria-hidden className="qc-led-halo" />}
               <button onClick={() => go("briefing")} className="qc-elev qc-tile w-full text-left rounded-2xl px-3.5 py-3 flex items-center gap-3 relative" style={{ background: C.bg, border: `1px solid ${C.line}`, borderLeft: `3px solid ${seen ? C.line : C.accent}` }}>
                 <span className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: C.accentSoft, color: C.accent }}><Ic i={BookOpen} s={18} mr={0} /></span>
@@ -4156,7 +4164,7 @@ function MMenu({ s, set, user, go, users, setUser, onLogout, dark, onTheme, simO
           </div>
         )}
         <p className="text-xs mt-4 mb-2" style={{ color: C.muted }}>The portal and the phone share the same state format — after importing, an inspection done here can be exported back to the portal.</p>
-        <p className="text-[11px] font-semibold mb-8" style={{ color: C.accent }}>wersja {QC_BUILD}</p>
+        <p className="text-[11px] mb-8" style={{ color: C.muted }}>wersja {QC_BUILD}</p>
       </div>
     </div>
   );
@@ -4498,7 +4506,7 @@ export default function App() {
   const unreadMsgs = s.conversations.filter(c => c.participantIds.includes(user.id)).reduce((a, c) => a + unreadIn(c, user.id), 0);
   const withNav = true;
   return (
-    <Phone overlay={<MBlocking s={s} set={set} user={user} />} nav={withNav} page={navPage} onNav={k => go(k)} badges={{ chat: unreadMsgs }} fab={page === "home" ? { scan: () => go("scan"), add: () => go("search") } : null} dark={dark} onTheme={toggleTheme} banner={<>
+    <Phone overlay={<MBlocking s={s} set={set} user={user} />} nav={withNav} page={navPage} onNav={k => go(k)} badges={{ chat: unreadMsgs }} fab={page === "home" ? { scan: () => go("scan"), add: () => go("search") } : null} dark={dark} onTheme={toggleTheme} head={page === "home" ? <MDashHead s={s} user={user} go={go} /> : null} banner={<>}
       {!online && <div className="flex items-center gap-2 px-4 py-2 text-xs font-semibold" style={{ background: C.warn, color: "#fff" }}><Ic i={AlertTriangle} s={14} mr={0} /><span className="flex-1">No connection — working offline. {pendingSync ? `${pendingSync} change${pendingSync === 1 ? "" : "s"} waiting to sync.` : "Changes will sync when you're back online."} Others can't see what you're working on.</span></div>}
       {newVersion && <div className="flex items-center gap-2 px-4 py-2 text-xs font-semibold" style={{ background: C.accent, color: C.onDark }}><span className="flex-1">A new version is live</span><button onClick={hardReload} className="px-2.5 py-1 rounded-lg" style={{ background: C.onDark, color: C.accent }}>Refresh</button></div>}
     </>}>
