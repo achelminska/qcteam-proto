@@ -10,6 +10,6 @@ createRoot(document.getElementById("root")).render(<App />);
 // Offline app shell (production only — in dev Vite serves modules the worker must not cache).
 if (import.meta.env.PROD && "serviceWorker" in navigator) {
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("/sw.js?v=5", { updateViaCache: "none" }).catch(() => {});
+    navigator.serviceWorker.register("/sw.js?v=6", { updateViaCache: "none" }).catch(() => {});
   });
 }

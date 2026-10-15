@@ -20,7 +20,7 @@ const serveStatic = (req, res) => {
   if (!fs.existsSync(DIST)) return res.writeHead(404, corsFor(req)).end("no dist/ — run npm run build");
   let p = decodeURIComponent(req.url.split("?")[0]); if (p === "/") p = "/index.html";
   let file = path.join(DIST, p); if (!file.startsWith(DIST) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) file = path.join(DIST, "index.html");
-  res.writeHead(200, { "Content-Type": MIME[path.extname(file)] || "application/octet-stream", "Cache-Control": file.endsWith("index.html") || file.endsWith("sw.js") || file.endsWith(".webmanifest") ? "no-cache" : "public, max-age=31536000, immutable" });
+  res.writeHead(200, { "Content-Type": MIME[path.extname(file)] || "application/octet-stream", "Cache-Control": file.endsWith("index.html") || file.endsWith("sw.js") || file.endsWith(".webmanifest") ? "no-store" : "public, max-age=31536000, immutable" });
   fs.createReadStream(file).pipe(res);
 };
 const SYNC_KEY = process.env.QC_SYNC_KEY || "";
@@ -240,7 +240,7 @@ const handler = async (req, res) => {
     if (req.method === "GET") { const sh = store.__sheets?.[purpose]; if (!sh) { res.writeHead(404, cors); return res.end(""); } return sendJson(req, res, 200, sh); }
   }
   // Cheap poll target: just the version, so the app can check "did anything change?" every few seconds without pulling the whole state.
-  if (req.url === "/boot") { res.writeHead(200, { ...cors, "Content-Type": "application/json" }); return res.end(JSON.stringify({ bootId: BOOT_ID })); }
+  if (req.url === "/boot") { res.writeHead(200, { ...cors, "Content-Type": "application/json", "Cache-Control": "no-store" }); return res.end(JSON.stringify({ bootId: BOOT_ID })); }
   if (req.url.startsWith("/meta/")) { const k = decodeURIComponent(req.url.replace(/^\/meta\//, "").split("?")[0]); const sheets = Object.fromEntries(Object.entries(store.__sheets || {}).map(([p, v]) => [p, v.receivedAt])); res.writeHead(200, { ...cors, "Content-Type": "application/json", "Cache-Control": "no-store" }); return res.end(JSON.stringify({ updatedAt: store.__meta?.[k] || null, sheets, bytes: (store[k] || "").length })); }
   const key = decodeURIComponent(req.url.replace(/^\/storage\//, "").split("?")[0]);
   if (!req.url.startsWith("/storage/")) return serveStatic(req, res);

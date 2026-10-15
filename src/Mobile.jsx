@@ -27,7 +27,7 @@ import { PhotoReview } from "./shared/PhotoReview.jsx";
 import { drawReportPdf } from "./shared/report-pdf.js";
 import { needsShareToSave, savePdfFile, triggerAnchorDownload } from "./shared/pdf-save.js";
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceArea, ReferenceLine, Legend } from "recharts";
-import { Clock, MapPin, MessageCircle, Link2, List as ListIcon, BarChart3, Printer, SlidersHorizontal, SkipForward, LayoutDashboard, ClipboardList, Flag, Bell, FolderTree, ListTree, Package, LayoutTemplate, Truck, Globe, Megaphone, MessageSquare, Users, Search, Sun, Moon, Database, Home, Menu as MenuIcon, ScanLine, Plus, ChevronLeft, ChevronRight, ChevronDown, User, Camera, Image as ImageIcon, Paperclip, Send, Star, Pencil, Sparkles, HelpCircle, Download, Lock as LockIcon, AlertTriangle, Inbox, FileText, ShieldAlert, Tag, Layers, BookOpen, Filter, Check, X, Ruler, Boxes, Warehouse, Snowflake, Thermometer, ThumbsDown, ExternalLink } from "lucide-react";
+import { Clock, MapPin, MessageCircle, Link2, List as ListIcon, BarChart3, Printer, SlidersHorizontal, SkipForward, LayoutDashboard, ClipboardList, Flag, Bell, FolderTree, ListTree, Package, LayoutTemplate, Truck, Globe, Megaphone, MessageSquare, Users, Search, Sun, Moon, Database, Home, Menu as MenuIcon, ScanLine, Plus, ChevronLeft, ChevronRight, ChevronDown, User, Camera, Image as ImageIcon, Paperclip, Send, Star, Pencil, Sparkles, HelpCircle, Download, Lock as LockIcon, AlertTriangle, Inbox, FileText, ShieldAlert, Tag, Layers, BookOpen, Filter, Check, X, Ruler, Boxes, Warehouse, Snowflake, Thermometer, ThumbsDown, ExternalLink, RefreshCw } from "lucide-react";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // QCteam — controller mobile app (prototype) — shares the state format with the Head portal
@@ -2097,7 +2097,7 @@ const useRealDevice = () => { const [real, setReal] = useState(() => typeof wind
 // (plus 10px) left a dead band below the labels. Keep a fraction so icons stay above the home
 // indicator without doubling the inset. Never 0 — taps would land on the home gesture.
 const NAV_SAFE_BOTTOM = "calc(8px + env(safe-area-inset-bottom) * 0.4)";
-function Phone({ children, nav, onNav, page, badges, fab, dark, onTheme, overlay }) {
+function Phone({ children, nav, onNav, page, badges, fab, dark, onTheme, overlay, banner }) {
   const items = [["home", "🏠", "Dashboard"], ["chat", "💬", "Chat"], ["catalog", "🧺", "Catalog"], ["menu", "☰", "Menu"]];
   const real = useRealDevice();
   const outer = real ? { background: C.surface, minHeight: "100dvh" } : { background: C.frameBg };
@@ -2107,6 +2107,7 @@ function Phone({ children, nav, onNav, page, badges, fab, dark, onTheme, overlay
       <style>{GLOBAL_CSS() + (real ? " html,body,#root{overscroll-behavior:none;background:" + C.surface + ";min-height:100dvh} body{position:fixed;inset:0;} .qc-sheet{position:fixed;} " : "")}</style>
       <div className="relative flex flex-col" style={shell}>
         {!real && <div className="flex items-center justify-between px-6 pt-3 pb-1 text-[11px] font-medium" style={{ color: C.ink }}><span>{new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}</span><span className="flex items-center gap-2"><button onClick={onTheme} title="theme" className="flex">{dark ? <Ic i={Sun} s={13} mr={0} /> : <Ic i={Moon} s={13} mr={0} />}</button>●●● ᯤ ▮</span></div>}
+        {banner}
         <div className="flex-1 overflow-y-auto relative" style={{ color: C.ink }}>{children}</div>
         {overlay}
         {fab && (
@@ -4128,7 +4129,7 @@ function MBriefing({ s, set, user, go }) {
     </div>
   );
 }
-function MMenu({ s, set, user, go, users, setUser, onLogout, dark, onTheme, simOffline, onSimOffline, onSync, syncMsg }) {
+function MMenu({ s, set, user, go, users, setUser, onLogout, dark, onTheme, simOffline, onSimOffline, onSync, syncMsg, onReload }) {
   const items = user.role === "Head" ? [["briefing", BookOpen, "Shift update"], ["profile", User, "Profile and statistics"], ["docks", Warehouse, "Dock map"], ["complaints", ThumbsDown, "Complaints"], ["head-escalations", HelpCircle, "Questions from controllers"], ["head-flags", Flag, "Flags to resolve"], ["head-announce", Megaphone, "New announcement"], ["announcements", Megaphone, "Announcements"], ["unreported", ShieldAlert, "Unreported pallets"], ["notifications", Bell, "Notifications"], ["history", ClipboardList, "Inspection history"]] : [["briefing", BookOpen, "Shift update"], ["profile", User, "Profile and statistics"], ["docks", Warehouse, "Dock map"], ["complaints", ThumbsDown, "Complaints"], ["announcements", Megaphone, "Announcements"], ["unreported", ShieldAlert, "Unreported pallets"], ["notifications", Bell, "Notifications"], ["flags", Flag, "My flags"], ["history", ClipboardList, "Inspection history"]];
   const [dataOpen, setDataOpen] = useState(false); const [io, setIo] = useState(""); const [msg, setMsg] = useState("");
   const exportState = async () => { const json = JSON.stringify(s, null, 2); setIo(json); try { await navigator.clipboard.writeText(json); setMsg("Copied."); } catch { setMsg("Copy manually from the field."); } };
@@ -4143,6 +4144,7 @@ function MMenu({ s, set, user, go, users, setUser, onLogout, dark, onTheme, simO
         <div className="flex items-center gap-3 py-2.5" style={{ borderBottom: `1px solid ${C.line}` }}><Avatar user={user} size={32} /><span className="text-sm flex-1">{user.name}<span className="block text-[11px]" style={{ color: C.muted }}>{user.role}</span></span><button onClick={onLogout} className="text-xs px-3 py-1.5 rounded-lg" style={{ border: `1px solid ${C.line}`, color: C.muted }}>Log out</button></div>
         <p className="label-sm mt-5 mb-2" style={{ color: C.muted }}>Date</p>
         <button onClick={onSync} className="w-full flex items-center gap-3 py-3 text-left" style={{ borderBottom: `1px solid ${C.line}` }}><span className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: C.bg, color: C.accent }}><Ic i={Download} s={17} mr={0} /></span><span className="text-sm flex-1">Sync now<span className="block text-[11px]" style={{ color: C.muted }}>{syncMsg || "pull the latest state from the server"}</span></span></button>
+        <button onClick={onReload} className="w-full flex items-center gap-3 py-3 text-left" style={{ borderBottom: `1px solid ${C.line}` }}><span className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: C.bg, color: C.accent }}><Ic i={RefreshCw} s={17} mr={0} /></span><span className="text-sm flex-1">Reload app<span className="block text-[11px]" style={{ color: C.muted }}>drop the cached copy and load the latest version</span></span></button>
         <button onClick={() => setDataOpen(o => !o)} className="w-full flex items-center gap-3 py-3 text-left" style={{ borderBottom: `1px solid ${C.line}` }}><span className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: C.bg, color: C.accent }}><Ic i={Database} s={17} mr={0} /></span><span className="text-sm flex-1">Export / import state</span><span style={{ color: C.muted }}>{dataOpen ? "▾" : "›"}</span></button>
         {dataOpen && (
           <div className="rounded-xl p-3 mt-2" style={{ background: C.bg }}>
@@ -4442,6 +4444,11 @@ export default function App() {
   // Cheap poll every ~5s while the app is open: retry anything unsaved, otherwise pull when the server's version moved.
   // iOS home-screen PWAs sometimes misreport document.visibilityState even while genuinely on screen, so this doesn't
   // gate on visibility — the cost of an occasional background fetch is negligible for a prototype. Also notices a redeploy.
+  const hardReload = async () => {
+    try { const keys = await caches.keys(); await Promise.all(keys.map(k => caches.delete(k))); } catch {}
+    try { const regs = await navigator.serviceWorker.getRegistrations(); await Promise.all(regs.map(r => r.unregister())); } catch {}
+    const u = new URL(location.href); u.searchParams.set("_", String(Date.now())); location.replace(u.toString());
+  };
   useEffect(() => { if (!loaded) return; const tick = async () => {
     if (window.storage?.getBootId) { const b = await window.storage.getBootId(); if (b) { if (bootIdRef.current === null) bootIdRef.current = b; else if (b !== bootIdRef.current) setNewVersion(true); } }
     try {
@@ -4452,7 +4459,7 @@ export default function App() {
       if (next && cur && !cur.includes(next.replace(/^\//, ""))) setNewVersion(true);
     } catch {}
     await syncerRef.current.tick();
-  }; const id = setInterval(tick, 5000); return () => clearInterval(id); }, [loaded]);
+  }; tick(); const id = setInterval(tick, 5000); return () => clearInterval(id); }, [loaded]);
   useEffect(() => { const h = () => { if (document.visibilityState === "visible") syncerRef.current.tick(); }; document.addEventListener("visibilitychange", h); window.addEventListener("focus", h); window.addEventListener("pageshow", h); return () => { document.removeEventListener("visibilitychange", h); window.removeEventListener("focus", h); window.removeEventListener("pageshow", h); }; }, []);
   useEffect(() => { (async () => { try { if (window.storage) { const r = await window.storage.get(THEME_KEY); if (r?.value === "dark") { applyTheme(true); setDark(true); } } } catch (e) {} })(); }, []);
   useEffect(() => { if (!loaded || !userId) return; adoptDeviceBriefingSeen(set, userId); }, [loaded, userId]);
@@ -4489,10 +4496,11 @@ export default function App() {
   const unreadMsgs = s.conversations.filter(c => c.participantIds.includes(user.id)).reduce((a, c) => a + unreadIn(c, user.id), 0);
   const withNav = true;
   return (
-    <Phone overlay={<MBlocking s={s} set={set} user={user} />} nav={withNav} page={navPage} onNav={k => go(k)} badges={{ chat: unreadMsgs }} fab={page === "home" ? { scan: () => go("scan"), add: () => go("search") } : null} dark={dark} onTheme={toggleTheme}>
-      {toast && <div className="absolute left-4 right-4 rounded-xl px-3.5 py-2.5 text-sm" style={{ top: 44, zIndex: 60, background: C.ink, color: C.onDark, boxShadow: "0 8px 20px rgba(0,0,0,.25)" }}>{toast}</div>}
-      {!online && <div className="absolute left-0 right-0 flex items-center gap-2 px-4 py-2 text-xs font-semibold" style={{ top: 28, zIndex: 55, background: C.warn, color: "#fff" }}><Ic i={AlertTriangle} s={14} mr={0} /><span className="flex-1">No connection — working offline. {pendingSync ? `${pendingSync} change${pendingSync === 1 ? "" : "s"} waiting to sync.` : "Changes will sync when you're back online."} Others can't see what you're working on.</span></div>}
-      {newVersion && <div className="absolute left-0 right-0 flex items-center gap-2 px-4 py-2 text-xs font-semibold" style={{ top: !online ? 54 : 28, zIndex: 56, background: C.accent, color: C.onDark }}><span className="flex-1">A new version is live</span><button onClick={() => location.reload()} className="px-2.5 py-1 rounded-lg" style={{ background: C.onDark, color: C.accent }}>Refresh</button></div>}
+    <Phone overlay={<MBlocking s={s} set={set} user={user} />} nav={withNav} page={navPage} onNav={k => go(k)} badges={{ chat: unreadMsgs }} fab={page === "home" ? { scan: () => go("scan"), add: () => go("search") } : null} dark={dark} onTheme={toggleTheme} banner={<>
+      {!online && <div className="flex items-center gap-2 px-4 py-2 text-xs font-semibold" style={{ background: C.warn, color: "#fff" }}><Ic i={AlertTriangle} s={14} mr={0} /><span className="flex-1">No connection — working offline. {pendingSync ? `${pendingSync} change${pendingSync === 1 ? "" : "s"} waiting to sync.` : "Changes will sync when you're back online."} Others can't see what you're working on.</span></div>}
+      {newVersion && <div className="flex items-center gap-2 px-4 py-2 text-xs font-semibold" style={{ background: C.accent, color: C.onDark }}><span className="flex-1">A new version is live</span><button onClick={hardReload} className="px-2.5 py-1 rounded-lg" style={{ background: C.onDark, color: C.accent }}>Refresh</button></div>}
+    </>}>
+      {toast && <div className="absolute left-4 right-4 rounded-xl px-3.5 py-2.5 text-sm" style={{ top: 12, zIndex: 60, background: C.ink, color: C.onDark, boxShadow: "0 8px 20px rgba(0,0,0,.25)" }}>{toast}</div>}
       <Modal open={!!pendingStart}>
         <p className="font-semibold mb-1">Someone is already on this product</p>
         <p className="text-sm mb-4" style={{ color: C.muted }}>{pendingStart && s.users.find(u => u.id === pendingStart.collision.controllerId)?.name} has an open inspection ({pendingStart && STATUS[pendingStart.collision.status][0]}). Continue anyway?</p>
@@ -4510,7 +4518,7 @@ export default function App() {
       {page === "productHistory" && <MProductHistory s={s} user={user} go={go} productId={param && typeof param === "object" ? param.id : param} initialResult={param && typeof param === "object" ? param.result : undefined} />}
       {page === "dockRejections" && <MExtRejectionHistory s={s} go={go} articleId={param} />}
       {page === "chat" && <MChat s={s} set={set} user={user} go={go} initialContext={pendingChatContext} clearInitialContext={() => setPendingChatContext(null)} />}
-      {page === "menu" && <MMenu s={s} set={set} user={user} go={go} users={s.users} setUser={id => { setUserId(id); go("home"); }} onLogout={() => { writeSession(null); setUserId(null); }} dark={dark} onTheme={toggleTheme} simOffline={simOffline} onSimOffline={() => setSimOffline(o => !o)} onSync={() => pullState(true)} syncMsg={syncMsg} />}
+      {page === "menu" && <MMenu s={s} set={set} user={user} go={go} users={s.users} setUser={id => { setUserId(id); go("home"); }} onLogout={() => { writeSession(null); setUserId(null); }} dark={dark} onTheme={toggleTheme} simOffline={simOffline} onSimOffline={() => setSimOffline(o => !o)} onSync={() => pullState(true)} syncMsg={syncMsg} onReload={hardReload} />}
       {page === "profile" && <MProfile s={s} set={set} user={user} go={go} />}
       {page === "notifications" && <MNotifications s={s} set={set} user={user} go={go} />}
       {page === "announcements" && <MAnnouncements s={s} set={set} user={user} go={go} />}
