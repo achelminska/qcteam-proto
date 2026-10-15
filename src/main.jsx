@@ -7,9 +7,11 @@ import React from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App.jsx";
 createRoot(document.getElementById("root")).render(<App />);
-// Offline app shell (production only — in dev Vite serves modules the worker must not cache).
-if (import.meta.env.PROD && "serviceWorker" in navigator) {
+// Stop controlling this origin with a service worker. The shell cache kept iOS home-screen copies
+// on an old bundle after every Render deploy; the data layer already works offline without it.
+if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("/sw.js?v=6", { updateViaCache: "none" }).catch(() => {});
+    navigator.serviceWorker.getRegistrations().then(rs => Promise.all(rs.map(r => r.unregister()))).catch(() => {});
+    caches.keys().then(keys => Promise.all(keys.filter(k => String(k).startsWith("qc-shell")).map(k => caches.delete(k)))).catch(() => {});
   });
 }

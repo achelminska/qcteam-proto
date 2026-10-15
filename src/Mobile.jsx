@@ -37,6 +37,7 @@ import { Clock, MapPin, MessageCircle, Link2, List as ListIcon, BarChart3, Print
 // ProblemToleranceOverride per szablon · Summary zawsze ostatnie.
 // ═══════════════════════════════════════════════════════════════════════════
 
+const QC_BUILD = typeof __QC_BUILD__ === "string" ? __QC_BUILD__ : "dev";
 const LIGHT = {
   bg: "#DEE4DA", surface: "#EBEFE8", ink: "#182219", muted: "#5C6960", line: "#C4CCC6",
   accent: "#1F5C3E", accentSoft: "rgba(31,92,62,.09)",
@@ -2685,7 +2686,7 @@ function MDashboard({ s, set, user, go, dismissed, setDismissed, onAssign }) {
     <div style={bottomPad}>
       <div className="qc-sticky-bar" style={{ background: C.surface, borderBottom: `1px solid ${C.line}` }}>
       <div className="flex items-center justify-between px-5 pt-2 pb-2">
-        <div><p className="text-xs" style={{ color: C.muted }}>{new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "short" })}</p><p className="text-lg font-semibold">Hi, {user.name.split(" ")[0]}</p></div>
+        <div><p className="text-xs" style={{ color: C.muted }}>{new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "short" })}</p><p className="text-lg font-semibold">Hi, {user.name.split(" ")[0]}</p><p className="text-[11px] font-semibold" style={{ color: C.accent }}>wersja {QC_BUILD}</p></div>
         <div className="flex items-center gap-3">{(() => { const n = complaintsNewCount(s, user.id); return <button onClick={() => go("complaints")} className="relative flex" title="Complaints"><Ic i={ThumbsDown} s={22} mr={0} />{n > 0 && <span className="absolute -top-1 -right-2 text-[9px] px-1 rounded-full" style={{ background: C.bad, color: C.onDark }}>{n}</span>}</button>; })()}<button onClick={() => go("notifications")} className="relative flex"><Ic i={Bell} s={22} mr={0} />{unread > 0 && <span className="absolute -top-1 -right-2 text-[9px] px-1 rounded-full" style={{ background: C.bad, color: C.onDark }}>{unread}</span>}</button><button onClick={() => go("profile")} className="flex"><Avatar user={user} size={36} /></button></div>
       </div>
       {(() => { const fr = sheetFreshness(s); if (!fr.length) return null; const now = Date.now(); const ago = t => { const m = Math.round((now - new Date(t).getTime()) / 60000); return m < 1 ? "just now" : m < 60 ? `${m} min ago` : `${Math.round(m / 60)} h ago`; }; return (
@@ -4155,6 +4156,7 @@ function MMenu({ s, set, user, go, users, setUser, onLogout, dark, onTheme, simO
           </div>
         )}
         <p className="text-xs mt-4 mb-2" style={{ color: C.muted }}>The portal and the phone share the same state format — after importing, an inspection done here can be exported back to the portal.</p>
+        <p className="text-[11px] font-semibold mb-8" style={{ color: C.accent }}>wersja {QC_BUILD}</p>
       </div>
     </div>
   );

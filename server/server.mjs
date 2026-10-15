@@ -18,9 +18,12 @@ const DIST = new URL("../dist/", import.meta.url).pathname;
 const MIME = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css", ".png": "image/png", ".svg": "image/svg+xml", ".webmanifest": "application/manifest+json", ".json": "application/json", ".ico": "image/x-icon", ".woff2": "font/woff2", ".ttf": "font/ttf" };
 const serveStatic = (req, res) => {
   if (!fs.existsSync(DIST)) return res.writeHead(404, corsFor(req)).end("no dist/ — run npm run build");
-  let p = decodeURIComponent(req.url.split("?")[0]); if (p === "/") p = "/index.html";
+  let p = decodeURIComponent(req.url.split("?")[0]); if (p === "/") p = "/index.html"; if (p === "/refresh") p = "/refresh.html";
   let file = path.join(DIST, p); if (!file.startsWith(DIST) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) file = path.join(DIST, "index.html");
-  res.writeHead(200, { "Content-Type": MIME[path.extname(file)] || "application/octet-stream", "Cache-Control": file.endsWith("index.html") || file.endsWith("sw.js") || file.endsWith(".webmanifest") ? "no-store" : "public, max-age=31536000, immutable" });
+  const html = file.endsWith(".html");
+  const headers = { "Content-Type": MIME[path.extname(file)] || "application/octet-stream", "Cache-Control": html || file.endsWith("sw.js") || file.endsWith(".webmanifest") ? "no-store" : "public, max-age=31536000, immutable" };
+  if (html) headers["Clear-Site-Data"] = "\"cache\"";
+  res.writeHead(200, headers);
   fs.createReadStream(file).pipe(res);
 };
 const SYNC_KEY = process.env.QC_SYNC_KEY || "";

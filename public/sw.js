@@ -8,7 +8,7 @@ const VERSION = "qc-shell-v6";
 // network again, and the product / inspection screens work offline. Capped so a long-lived phone does not fill up.
 const PHOTO_CACHE = "qc-photos-v1", PHOTO_CACHE_MAX = 600;
 const SHELL = ["/", "/index.html", "/manifest.webmanifest", "/icon.svg", "/icon-192.png", "/icon-512.png"];
-const NEVER_CACHE = [/^\/storage\//, /^\/meta\//, /^\/boot$/, /^\/sheet\//, /^\/sheets\//, /^\/api\//, /^\/files\//, /^\/backups/, /^\/proxy/, /^\/auth\//];
+const NEVER_CACHE = [/^\/storage\//, /^\/meta\//, /^\/boot$/, /^\/sheet\//, /^\/sheets\//, /^\/api\//, /^\/files\//, /^\/backups/, /^\/proxy/, /^\/auth\//, /^\/refresh(?:\.html)?$/];
 
 self.addEventListener("install", e => {
   e.waitUntil(caches.open(VERSION).then(c => Promise.allSettled(SHELL.map(u => c.add(u)))).then(() => self.skipWaiting()));
@@ -30,7 +30,10 @@ self.addEventListener("fetch", e => {
   // HTML is always network-first — including fetch("/index.html") from the in-app version check. Serving a
   // cached shell here is what kept iOS home-screen PWAs on an old bundle after a redeploy.
   if (req.mode === "navigate" || url.pathname === "/" || url.pathname === "/index.html" || url.pathname.endsWith(".html")) {
-    e.respondWith(fetch(req).then(r => { const copy = r.clone(); caches.open(VERSION).then(c => c.put("/index.html", copy)); return r; }).catch(() => caches.match("/index.html")));
+    e.respondWith(fetch(req).then(r => {
+      if (url.pathname === "/" || url.pathname === "/index.html") { const copy = r.clone(); caches.open(VERSION).then(c => c.put("/index.html", copy)); }
+      return r;
+    }).catch(() => caches.match("/index.html")));
     return;
   }
   if (url.pathname.startsWith("/assets/")) {
