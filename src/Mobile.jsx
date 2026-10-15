@@ -3368,7 +3368,7 @@ function MProductHistory({ s, user, go, productId, initialResult }) {
   const rows = (problem ? resultFiltered.filter(i => (i.remarks || []).some(r => (pm[r.leafId]?.name || "?") === problem)) : resultFiltered).sort((a, b) => (b.completedAt || "").localeCompare(a.completedAt || ""));
   return (
     <div className="pb-4">
-      <TopBar title={product ? product.name : "Inspection history"} onBack={() => go("catalog", productId)} />
+      <TopBar title={product ? product.name : "Inspection history"} onBack={() => go("back")} />
       <div className="px-4 pt-3">
         {histVerdict.length === 0 ? (
           <p className="text-sm py-8 text-center" style={{ color: C.muted }}>No inspections yet for this product.</p>
@@ -3431,7 +3431,9 @@ function MCatalog({ s, user, go, onStart, setState, notify, onVisual, preset }) 
   const [q, setQ] = useState(""); const [sel, setSel] = useBackSel("catalogSel", preset || null); const [cat, setCat] = useBackSel("catalogCat", null); const [fOpen, setFOpen] = useState(false);
   const [f, setF] = useState({ bio: "", supplier: "", flagged: false, reference: false, sort: "name" });
   const product = s.products.find(p => p.id === sel);
-  if (product) return <MProductCard s={s} user={user} product={product} onBack={() => setSel(null)} onStart={typeId => onStart(product.id, null, typeId)} go={go} setState={setState} notify={notify} onVisual={onVisual} />;
+  // `preset` means we were opened as go("catalog", productId) from another screen (rejections, pallet, chat, …).
+  // Back must pop that screen; clearing sel would dump the controller onto the category grid.
+  if (product) return <MProductCard s={s} user={user} product={product} onBack={() => preset ? go("back") : setSel(null)} onStart={typeId => onStart(product.id, null, typeId)} go={go} setState={setState} notify={notify} onVisual={onVisual} />;
   const supName = id => (s.suppliers || []).find(x => x.id === id)?.name || "";
   const catOf = id => s.categories.find(c => c.id === id);
   const catChain = id => { const out = []; let c = catOf(id); while (c) { out.unshift(c); c = c.parentId ? catOf(c.parentId) : null; } return out; };
