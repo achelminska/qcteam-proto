@@ -3,7 +3,7 @@
  * app opens without a network — the data layer (sync.js) already copes with being offline. Data endpoints are never
  * cached here. Navigations are network-first, so a redeploy is picked up as soon as there is a connection; the hashed
  * /assets/* files are immutable and served cache-first. */
-const VERSION = "qc-shell-v4";
+const VERSION = "qc-shell-v5";
 // Photos are content-addressed and immutable, so they are safe to keep cache-first — a picture seen once never hits the
 // network again, and the product / inspection screens work offline. Capped so a long-lived phone does not fill up.
 const PHOTO_CACHE = "qc-photos-v1", PHOTO_CACHE_MAX = 600;
