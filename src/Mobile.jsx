@@ -187,7 +187,8 @@ const GLOBAL_CSS = () => `
   .qc button:disabled{cursor:not-allowed;opacity:.6}
   .qc button:focus-visible,.qc a:focus-visible{outline:2px solid ${C.accent};outline-offset:2px}
   .qc .label-sm{font-size:11.5px;font-weight:600;color:${C.muted};letter-spacing:0;text-transform:none}
-  .qc-sticky-bar{position:sticky;top:0;z-index:20}
+  .qc-sticky-bar{position:sticky;top:0;z-index:25;isolation:isolate}
+  .qc-tile,.qc-elev{position:relative;z-index:0}
   .qc .row:hover{background:${C.bg}}
   .qc ::-webkit-scrollbar{width:10px;height:10px}.qc ::-webkit-scrollbar-thumb{background:${C.line};border-radius:8px;border:2px solid transparent;background-clip:padding-box}
   @media (prefers-reduced-motion:reduce){.qc *{transition:none!important}}
@@ -2604,7 +2605,7 @@ function MPriorityList({ s, user, go, priority, focus }) {
         {rows.length === 0 && <p className="text-sm py-8 text-center" style={{ color: C.muted }}>{searching ? (lostRows.length ? "Nothing findable matches — only lost pallets below." : "Nothing matches.") : lostRows.length ? "Nothing findable here — only lost pallets below." : isNeeded ? "Nothing is flagged as needed today." : isAll ? (subTab === "skippable" ? "No skippable pallets on the docks right now." : "Nothing on the docks right now.") : "Nothing at this priority right now."}</p>}
         {days.map(d => { const items = itemsFor(byDay[d]); const n = byDay[d].length; const old = ageDays(d) >= 1; return (
           <div key={d || "none"} className="mt-3">
-            <div className="flex items-center gap-2 py-1.5 sticky z-10" style={{ top: 52, background: C.surface }}>
+            <div className="flex items-center gap-2 py-1.5">
               <p className="text-xs font-semibold flex-1" style={{ color: old && d ? C.bad : C.ink }}>{dayTitle(d)}</p>
               <span className="text-[10px] px-1.5 py-0.5 rounded-full" style={{ background: old && d ? C.badBg : C.bg, color: old && d ? C.bad : C.muted, border: old && d ? "none" : `1px solid ${C.line}` }}>{n} pallet{n === 1 ? "" : "s"}{old && d ? ` · ${ageDays(d)}d on dock` : ""}</span>
             </div>
@@ -2706,9 +2707,9 @@ function MDashboard({ s, set, user, go, dismissed, setDismissed, onAssign }) {
         ].filter(Boolean);
         return (
           <div className="px-5 mb-3">
-            <div className="relative">
+            <div className="relative overflow-hidden" style={{ padding: 10, margin: -10 }}>
               {!seen && <span aria-hidden className="qc-led-halo" />}
-              <button onClick={() => go("briefing")} className="qc-elev qc-tile w-full text-left rounded-2xl px-3.5 py-3 flex items-center gap-3 relative" style={{ background: C.bg, border: `1px solid ${C.line}`, borderLeft: `3px solid ${seen ? C.line : C.accent}`, zIndex: 1 }}>
+              <button onClick={() => go("briefing")} className="qc-elev qc-tile w-full text-left rounded-2xl px-3.5 py-3 flex items-center gap-3 relative" style={{ background: C.bg, border: `1px solid ${C.line}`, borderLeft: `3px solid ${seen ? C.line : C.accent}` }}>
                 <span className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: C.accentSoft, color: C.accent }}><Ic i={BookOpen} s={18} mr={0} /></span>
                 <span className="min-w-0 flex-1">
                   <span className="flex items-center gap-2">
