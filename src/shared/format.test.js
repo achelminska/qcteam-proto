@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applySpecEdit, countsAs, dayLabel, foundDisplay, hasV, legacyTypeId, listCheck, matchFieldSpec, numberSpecCheck, problemPath, reportStatusFields, specFieldsFromForm, specFormKind, specLabel, statusBarRatio, toleranceDisplay } from "./format.js";
+import { applySpecEdit, countsAs, dayLabel, foundDisplay, hasV, legacyTypeId, listCheck, matchFieldSpec, numberSpecCheck, problemPath, reportStatusFields, specFieldsFromForm, specFormKind, specLabel, specOriginLabel, statusBarRatio, toleranceDisplay } from "./format.js";
 
 describe("specLabel", () => {
   it("renders a range, a one-sided limit, or an em dash", () => {
@@ -11,6 +11,16 @@ describe("specLabel", () => {
   it("treats empty string as missing", () => {
     expect(hasV("")).toBe(false);
     expect(hasV(0)).toBe(true);
+  });
+});
+
+describe("specOriginLabel", () => {
+  it("names the origin the controller sees on the profile", () => {
+    expect(specOriginLabel({ origin: "sheet", source: "product" })).toBe("commercial sheet");
+    expect(specOriginLabel({ source: "category Appels" })).toBe("category Appels");
+    expect(specOriginLabel({ source: "product" })).toBe("product");
+    expect(specOriginLabel({ origin: "sheet", temp: { min: 1 } })).toBe("temporary");
+    expect(specOriginLabel({})).toBe("product");
   });
 });
 
