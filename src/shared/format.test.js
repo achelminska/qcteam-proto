@@ -18,9 +18,9 @@ describe("specOriginLabel", () => {
   it("names the origin the controller sees on the profile", () => {
     expect(specOriginLabel({ origin: "sheet", source: "product" })).toBe("commercial sheet");
     expect(specOriginLabel({ source: "category Appels" })).toBe("category Appels");
-    expect(specOriginLabel({ source: "product" })).toBe("product");
+    expect(specOriginLabel({ source: "product" })).toBe("head");
     expect(specOriginLabel({ origin: "sheet", temp: { min: 1 } })).toBe("temporary");
-    expect(specOriginLabel({})).toBe("product");
+    expect(specOriginLabel({})).toBe("head");
   });
 });
 

@@ -10,12 +10,13 @@ export const specLabel = q => {
 };
 
 // Where a spec on the product profile came from — same wording as the portal catalog.
+// Product-level rows are set by the Head, so the controller sees "head", not "product".
 export const specOriginLabel = q => {
-  if (!q) return "product";
+  if (!q) return "head";
   if (q.temp) return "temporary";
   if (q.origin === "sheet") return "commercial sheet";
   if (q.source && q.source !== "product") return q.source;
-  return "product";
+  return "head";
 };
 
 // Kind of the add/edit spec form: a range, a floor, or a ceiling.
