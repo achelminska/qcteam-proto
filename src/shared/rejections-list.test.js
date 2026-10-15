@@ -21,6 +21,13 @@ describe("everything the digest holds", () => {
     expect(searchRejections(all, "P3")).toHaveLength(1);
     expect(searchRejections(all, "")).toHaveLength(4);
   });
+  it("a hidden row is gone from the union and from search", () => {
+    const hid = { ...s, hiddenExtRejections: [{ a: "1", d: "2026-10-10T07:00", po: "P1", reason: "Mould" }] };
+    const all = extRejectionsEverything(hid);
+    expect(all.map(e => `${e.n}:${e.d.slice(0, 10)}`)).toEqual(["Appels:2026-10-08", "Prei:2026-10-03", "Kiwi:2026-09-20"]);
+    expect(searchRejections(all, "mould")).toHaveLength(0);
+    expect(searchRejections(all, "kiwi")).toHaveLength(1);
+  });
 });
 
 import { summarizeRejections, matchesRejectionFacets, filterRejectionsByFacets, rejectionTimeline } from "./rejections.js";

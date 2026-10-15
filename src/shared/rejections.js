@@ -138,7 +138,11 @@ export function buildRejectionDigest(rows, { now = new Date().toISOString(), win
 
 // ── Reading the digest ──────────────────────────────────────────────────────────────────────────────────────────
 export const extRejectionsFor = (s, articleId) => { const k = normArticle(articleId); return k && s?.extRejections?.byArticle ? s.extRejections.byArticle[k] || null : null; };
-export const extRejectedRecently = (s, articleId, days, nowMs = Date.now()) => { const g = extRejectionsFor(s, articleId); if (!g?.last) return false; return nowMs - new Date(g.last).getTime() <= days * 86400000; };
+export const extRejectedRecently = (s, articleId, days, nowMs = Date.now()) => {
+  const last = (extRejectionsYear(s, articleId).find(e => e.d) || {}).d;
+  if (!last) return false;
+  return nowMs - new Date(last).getTime() <= days * 86400000;
+};
 export const topCats = (g, n = 2) => Object.entries(g?.cats || {}).sort((a, b) => b[1] - a[1]).slice(0, n).map(([name, count]) => ({ name, count }));
 // One line for the pallet header / scan result / product profile. The apps only care about the last 30 days: an article
 // rejected in spring says nothing about today's pallet. Nothing in 30 days → null → nothing shown. (The Head's Integrations
@@ -148,15 +152,52 @@ export const EXT_REJECTION_DAYS = 30;
 export const EXT_REJECTION_YEAR_DAYS = 365;
 export const EXT_REJECTION_PREVIEW = 3;
 const rejectionRowKey = e => `${e.d || ""}|${e.po || ""}|${e.tu ?? ""}|${e.reason || ""}`;
+// One sheet row the Head hid because it is cancelled or was entered by mistake. Controllers never see it.
+export const extRejectionHideKey = e => `${normArticle(e?.a)}|${rejectionRowKey(e || {})}`;
+export function normalizeHiddenExtRejections(list) {
+  return (Array.isArray(list) ? list : []).map(h => {
+    if (!h) return null;
+    if (typeof h === "string") { const [a, d, po, tu, reason] = String(h).split("|"); return { key: h, a: a || "", d: d || "", po: po || "", tu: tu || "", reason: reason || "", n: "", user: "", hiddenAt: "", hiddenBy: null }; }
+    const key = h.key || extRejectionHideKey(h);
+    return { key, a: normArticle(h.a), n: h.n || "", d: h.d || "", po: h.po || "", reason: h.reason || "", tu: h.tu ?? null, user: h.user || "", hiddenAt: h.hiddenAt || "", hiddenBy: h.hiddenBy || null };
+  }).filter(Boolean);
+}
+export const hiddenExtRejectionKeySet = s => new Set(normalizeHiddenExtRejections(s?.hiddenExtRejections).map(h => h.key));
+export const isExtRejectionHidden = (s, e) => hiddenExtRejectionKeySet(s).has(extRejectionHideKey(e));
+export function hideExtRejection(list, e, { userId, at } = {}) {
+  const rec = { key: extRejectionHideKey(e), a: normArticle(e?.a), n: e?.n || "", d: e?.d || "", po: e?.po || "", reason: e?.reason || "", tu: e?.tu ?? null, user: e?.user || "", hiddenAt: at || "", hiddenBy: userId || null };
+  const cur = normalizeHiddenExtRejections(list);
+  if (cur.some(h => h.key === rec.key)) return cur;
+  return [...cur, rec];
+}
+export const unhideExtRejection = (list, key) => normalizeHiddenExtRejections(list).filter(h => h.key !== key);
+export function withoutHiddenExtRejections(s, rows, articleId) {
+  const hid = hiddenExtRejectionKeySet(s);
+  if (!hid.size) return rows || [];
+  const a = articleId ? normArticle(articleId) : "";
+  return (rows || []).filter(e => !hid.has(extRejectionHideKey(a && !e.a ? { ...e, a } : e)));
+}
 // Every row we have for this article (already clipped to the year window when the digest was built).
 export function extRejectionsYear(s, articleId) {
   const g = extRejectionsFor(s, articleId);
-  return [...(g?.recent || [])].sort((x, y) => (y.d || "").localeCompare(x.d || ""));
+  const a = normArticle(articleId);
+  return withoutHiddenExtRejections(s, [...(g?.recent || [])].map(e => ({ ...e, a })), articleId).sort((x, y) => (y.d || "").localeCompare(x.d || ""));
 }
 export function extRejectionYearLine(s, articleId) {
-  const g = extRejectionsFor(s, articleId); if (!g || !g.count) return null;
+  const g = extRejectionsFor(s, articleId); if (!g) return null;
+  const a = normArticle(articleId);
   const rows = extRejectionsYear(s, articleId);
-  return { count: g.count, span: "12 months", total: g.count, shown: rows.length, tu: g.tu, last: g.last, cats: topCats(g), name: g.name, c30: g.c30 || 0, c90: g.c90 || 0 };
+  const hid = hiddenExtRejectionKeySet(s);
+  const hiddenLive = (g.recent || []).filter(e => hid.has(extRejectionHideKey({ ...e, a }))).length;
+  const count = Math.max(rows.length, (g.count || 0) - hiddenLive);
+  if (!count) return null;
+  const tu = rows.reduce((n, e) => n + (e.tu || 0), 0);
+  const last = (rows.find(e => e.d) || {}).d || "";
+  const catsMap = {}; rows.forEach(e => { if (e.cat) catsMap[e.cat] = (catsMap[e.cat] || 0) + 1; });
+  const nowMs = Date.now();
+  const c30 = rows.filter(e => e.d && nowMs - new Date(e.d).getTime() <= 30 * 86400000).length;
+  const c90 = rows.filter(e => e.d && nowMs - new Date(e.d).getTime() <= 90 * 86400000).length;
+  return { count, span: "12 months", total: count, shown: rows.length, tu, last, cats: topCats({ cats: catsMap }), name: g.name, c30, c90 };
 }
 export function groupRejectionsByMonth(rows) {
   const groups = [];
@@ -176,9 +217,11 @@ export function groupRejectionsByMonth(rows) {
 export function extRejectionsAll(s, articleId, nowMs = Date.now(), days = EXT_REJECTION_DAYS) {
   const k = normArticle(articleId); if (!k) return [];
   const cutoff = nowMs - days * 86400000;
+  const hid = hiddenExtRejectionKeySet(s);
   const seen = new Set(); const out = [];
   const add = e => {
     if (!e?.d || new Date(e.d).getTime() < cutoff) return;
+    if (hid.has(extRejectionHideKey({ ...e, a: e.a || k }))) return;
     const key = rejectionRowKey(e); if (seen.has(key)) return;
     seen.add(key); const { a, n, ...rest } = e; out.push(rest);
   };
@@ -187,19 +230,26 @@ export function extRejectionsAll(s, articleId, nowMs = Date.now(), days = EXT_RE
   return out.sort((x, y) => (y.d || "").localeCompare(x.d || ""));
 }
 export function extRejectionLine(s, articleId, nowMs = Date.now(), days = EXT_REJECTION_DAYS) {
-  const g = extRejectionsFor(s, articleId); if (!g || !g.count) return null;
+  const g = extRejectionsFor(s, articleId); if (!g) return null;
+  const a = normArticle(articleId);
+  const hid = hiddenExtRejectionKeySet(s);
   const cutoff = nowMs - days * 86400000;
-  const kept = (g.recent || []).filter(e => e.d && new Date(e.d).getTime() >= cutoff);
+  const rawKept = (g.recent || []).filter(e => e.d && new Date(e.d).getTime() >= cutoff);
+  const kept = rawKept.filter(e => !hid.has(extRejectionHideKey({ ...e, a })));
   const recent = extRejectionsAll(s, articleId, nowMs, days);
   if (!kept.length && !recent.length) return null;
-  const count = kept.length >= (g.recent || []).length && g.c30 > Math.max(kept.length, recent.length) ? g.c30 : Math.max(recent.length, kept.length);
+  const hidden30 = rawKept.length - kept.length;
+  const saturated = rawKept.length >= (g.recent || []).length && g.c30 > rawKept.length;
+  const count = saturated ? Math.max(0, g.c30 - hidden30) : Math.max(recent.length, kept.length);
+  const yearHidden = (g.recent || []).filter(e => hid.has(extRejectionHideKey({ ...e, a }))).length;
+  const yearCount = Math.max(0, (g.count || 0) - yearHidden);
   const catsMap = {}; recent.forEach(e => { if (e.cat) catsMap[e.cat] = (catsMap[e.cat] || 0) + 1; });
   const cats = topCats({ cats: catsMap }); const mostly = cats[0] && count > 1 && cats[0].count * 2 > recent.length ? `mostly ${cats[0].name}` : "";
-  const tu = recent.reduce((a, e) => a + (e.tu || 0), 0);
-  return { count, span: `${days} days`, total: count, tu, last: (recent[0] || kept[0]).d, cats, mostly, tail: mostly, recent, preview: recent.slice(0, EXT_REJECTION_PREVIEW), name: g.name, yearCount: g.count };
+  const tu = recent.reduce((n, e) => n + (e.tu || 0), 0);
+  return { count, span: `${days} days`, total: count, tu, last: (recent[0] || kept[0]).d, cats, mostly, tail: mostly, recent, preview: recent.slice(0, EXT_REJECTION_PREVIEW), name: g.name, yearCount };
 }
 // Shift-update cards: sheet rejections from the last `days` days, newest first (latest holds the newest 60 rows).
-export const extRejectionsRecent = (s, days = 7, nowMs = Date.now()) => (s?.extRejections?.latest || []).filter(e => e.d && nowMs - new Date(e.d).getTime() <= days * 86400000);
+export const extRejectionsRecent = (s, days = 7, nowMs = Date.now()) => withoutHiddenExtRejections(s, (s?.extRejections?.latest || []).filter(e => e.d && nowMs - new Date(e.d).getTime() <= days * 86400000));
 export const extRejectionKey = e => `${e.a}:${e.d}:${e.po || ""}`;
 export const fmtRejectionDay = (t, now = new Date()) => { if (!t) return "—"; const d = new Date(t); const day = x => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime(); const diff = Math.round((day(now) - day(d)) / 86400000); return diff === 0 ? "today" : diff === 1 ? "yesterday" : diff < 7 ? `${diff} days ago` : d.toLocaleDateString("en-GB", { day: "numeric", month: "short" }); };
 export const reportUrls = e => e?.pdfs?.length ? e.pdfs : e?.pdf ? [e.pdf] : [];
@@ -210,8 +260,9 @@ export const linkLabel = url => /slack\.com/i.test(url || "") ? "Slack thread" :
 // the weeks before it without another sheet push.
 export function extRejectionsEverything(s) {
   const d = s?.extRejections; if (!d) return [];
+  const hid = hiddenExtRejectionKeySet(s);
   const seen = new Set(); const out = [];
-  const add = e => { if (!e || !e.d) return; const k = `${e.a}|${rejectionRowKey(e)}`; if (seen.has(k)) return; seen.add(k); out.push(e); };
+  const add = e => { if (!e || !e.d) return; if (hid.has(extRejectionHideKey(e))) return; const k = `${e.a}|${rejectionRowKey(e)}`; if (seen.has(k)) return; seen.add(k); out.push(e); };
   for (const e of d.latest || []) add(e);
   for (const [a, g] of Object.entries(d.byArticle || {})) for (const r of g.recent || []) add({ ...r, a, n: r.n || g.name || "" });
   return out.sort((x, y) => (y.d || "").localeCompare(x.d || ""));

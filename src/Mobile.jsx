@@ -1,7 +1,7 @@
 import { QCMark } from "./brand.jsx";
 import { createLoginScreen } from "./login.jsx";
 import { isoWeekOf as isoWeekOfDay, weekRange as isoWeekRange, shiftWeek as shiftIsoWeek, weekLabel as isoWeekLabel } from "./shared/complaints.js";
-import { extRejectionsEverything, filterRejectionsByPeriod, searchRejections } from "./shared/rejections.js";
+import { extRejectionsEverything, filterRejectionsByPeriod, searchRejections, hideExtRejection, unhideExtRejection, normalizeHiddenExtRejections, extRejectionHideKey } from "./shared/rejections.js";
 import { mergeDockLines, mergedLineCount } from "./shared/dock-merge.js";
 import { useState, useEffect, useRef, Fragment } from "react";
 import { createSyncer, guardUnload } from "./sync.js";
@@ -27,7 +27,7 @@ import { PhotoReview } from "./shared/PhotoReview.jsx";
 import { drawReportPdf } from "./shared/report-pdf.js";
 import { needsShareToSave, savePdfFile, triggerAnchorDownload } from "./shared/pdf-save.js";
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceArea, ReferenceLine, Legend } from "recharts";
-import { Clock, MapPin, MessageCircle, Link2, List as ListIcon, BarChart3, Printer, SlidersHorizontal, SkipForward, LayoutDashboard, ClipboardList, Flag, Bell, FolderTree, ListTree, Package, LayoutTemplate, Truck, Globe, Megaphone, MessageSquare, Users, Search, Sun, Moon, Database, Home, Menu as MenuIcon, ScanLine, Plus, ChevronLeft, ChevronRight, ChevronDown, User, Camera, Image as ImageIcon, Paperclip, Send, Star, Pencil, Sparkles, HelpCircle, Download, Lock as LockIcon, AlertTriangle, Inbox, FileText, ShieldAlert, Tag, Layers, BookOpen, Filter, Check, X, Ruler, Boxes, Warehouse, Snowflake, Thermometer, ThumbsDown, ExternalLink } from "lucide-react";
+import { Clock, MapPin, MessageCircle, Link2, List as ListIcon, BarChart3, Printer, SlidersHorizontal, SkipForward, LayoutDashboard, ClipboardList, Flag, Bell, FolderTree, ListTree, Package, LayoutTemplate, Truck, Globe, Megaphone, MessageSquare, Users, Search, Sun, Moon, Database, Home, Menu as MenuIcon, ScanLine, Plus, ChevronLeft, ChevronRight, ChevronDown, User, Camera, Image as ImageIcon, Paperclip, Send, Star, Pencil, Sparkles, HelpCircle, Download, Lock as LockIcon, AlertTriangle, Inbox, FileText, ShieldAlert, Tag, Layers, BookOpen, Filter, Check, X, Ruler, Boxes, Warehouse, Snowflake, Thermometer, ThumbsDown, ExternalLink, Ban } from "lucide-react";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // QCteam — controller mobile app (prototype) — shares the state format with the Head portal
@@ -1913,7 +1913,7 @@ const convName = (conv, s, userId) => conv.name || conv.participantIds.filter(id
 
 const SEED_USERS = () => [{ id: "u-head", name: "Aleksandra Chełmińska", firstName: "Aleksandra", lastName: "Chełmińska", email: "aleksandra.chelminska@qcteam.nl", role: "Head", active: true }, { id: "u-anna", name: "Damian Mrówka", firstName: "Damian", lastName: "Mrówka", email: "damian.mrowka@qcteam.nl", role: "Controller", active: true }, { id: "u-jakub", name: "Snizhana Myshkina", firstName: "Snizhana", lastName: "Myshkina", email: "snizhana.myshkina@qcteam.nl", role: "Controller", active: true }];
 
-const EMPTY = { categories: [], problems: [], problemNotes: [], products: [], templates: [], suppliers: [], countries: [], users: SEED_USERS(), inspections: [], flags: [], notifications: [], announcements: [], conversations: [], dictionaries: [], inspectionTypes: SEED_TYPES(), tempSpecs: [], settings: { defaultPolicy: "Visual", skipReasonRequired: false }, briefingSeen: [] };
+const EMPTY = { categories: [], problems: [], problemNotes: [], products: [], templates: [], suppliers: [], countries: [], users: SEED_USERS(), inspections: [], flags: [], notifications: [], announcements: [], conversations: [], dictionaries: [], inspectionTypes: SEED_TYPES(), tempSpecs: [], settings: { defaultPolicy: "Visual", skipReasonRequired: false }, briefingSeen: [], hiddenExtRejections: [] };
 
 // Migration of older exports: product.suppliers as names → global list + supplierIds
 
@@ -1934,6 +1934,7 @@ const normalize = raw => {
   s.categoryRules = Array.isArray(s.categoryRules) ? s.categoryRules : [];
   s.palletClaims = s.palletClaims && typeof s.palletClaims === "object" ? s.palletClaims : {};
   s.briefingSeen = Array.isArray(s.briefingSeen) ? s.briefingSeen.filter(r => r && r.id && r.userId && r.fp) : [];
+  s.hiddenExtRejections = normalizeHiddenExtRejections(s.hiddenExtRejections);
   s.settings = settingsOf(s);
   s.inspectionTypes = Array.isArray(s.inspectionTypes) ? s.inspectionTypes : [];
   // Migration: drop the previously seeded types (and their auto-generated templates) when nothing uses them — the Head defines types from scratch.
@@ -2279,7 +2280,7 @@ function MBlockedInfo({ s, set, user, go, itemKey }) {
         <MLostControls s={s} set={set} user={user} row={b} open={lost ? undefined : lostOpen} onClose={() => setLostOpen(false)} />
         {live && <div className="qc-tile rounded-2xl px-3.5 py-3 mb-2" style={{ background: C.bg, border: `1px solid ${C.line}`, borderLeft: `4px solid ${C.warn}` }}><p className="text-sm font-medium">Temporary spec</p><p className="text-[12px] mt-1 leading-snug" style={{ color: C.muted }}>{live.text}{live.until ? ` · until ${fmtUntil(live.until)}` : ""}</p></div>}
         {hist.count > 0 && <div className="qc-tile rounded-2xl px-3.5 py-3 mb-2" style={{ background: C.bg, border: `1px solid ${C.line}`, borderLeft: `4px solid ${C.bad}` }}><p className="text-sm font-medium">{hist.count} rejected in 14 days</p><p className="text-[12px] mt-1 leading-snug" style={{ color: C.muted }}>{hist.problems.slice(0, 3).map(p => `${p.name} ×${p.count}`).join(", ")}{hist.problems.length > 3 ? "…" : ""}</p></div>}
-        <ExtRejectionList s={s} articleId={b.article} go={go} />
+        <ExtRejectionList s={s} articleId={b.article} go={go} user={user} setState={set} />
         {!done && !lost && <div className="flex flex-col gap-2 mb-2">
           {!c && <><Act solid onClick={take}>Take</Act><Act onClick={stack}><Ic i={Layers} s={15} mr={0} />In stack</Act></>}
           {c && me && <><Act solid onClick={stacked ? take : stack}>{stacked ? "Reachable now — take" : "Mark in stack"}</Act><Act onClick={release}>Release</Act></>}
@@ -2337,15 +2338,17 @@ function RejectionLink({ href, label }) {
     </a>
   );
 }
-function ExtRejectionRow({ r, showName, s, go, articleId }) {
+function ExtRejectionRow({ r, showName, s, go, articleId, user, setState, hidden }) {
   const reason = String(r.reason || "Rejected").replace(/^./, c => c.toUpperCase());
   const Chip = ({ children }) => <span className="text-[11px] px-1.5 rounded-md leading-[18px]" style={{ background: C.bg, border: `1px solid ${C.line}` }}>{children}</span>;
   const reports = reportUrls(r);
   const article = r.a || articleId;
   const product = s && article ? productForArticle(s, article) : null;
   const openProfile = product && go ? () => go("catalog", product.id) : null;
+  const canHide = user?.role === "Head" && setState;
+  const row = { ...r, a: article, n: r.n || product?.name || "" };
   return (
-    <div className="qc-tile rounded-2xl px-3 py-2.5" style={{ background: C.surface, border: `1px solid ${C.line}`, borderLeft: `3px solid ${C.bad}` }}>
+    <div className="qc-tile rounded-2xl px-3 py-2.5" style={{ background: C.surface, border: `1px solid ${C.line}`, borderLeft: `3px solid ${hidden ? C.warn : C.bad}` }}>
       {showName && (r.n || r.a) && <p className="text-[13px] font-semibold leading-snug">{r.n || r.a}</p>}
       <p className={`text-[13px] leading-snug ${showName ? "mt-0.5" : "font-semibold"}`} style={showName ? { color: C.muted } : undefined}>{reason}</p>
       <p className="text-[11px] mt-0.5 leading-snug" style={{ color: C.muted, fontVariantNumeric: "tabular-nums" }}>
@@ -2355,15 +2358,17 @@ function ExtRejectionRow({ r, showName, s, go, articleId }) {
         {r.user && <Chip>{r.user}</Chip>}
         {r.po && <Chip><span className="font-mono">PO {r.po}</span></Chip>}
       </div>}
-      {(reports.length > 0 || r.link || openProfile) && <div className="flex flex-wrap gap-1.5 mt-2">
+      {(reports.length > 0 || r.link || openProfile || canHide) && <div className="flex flex-wrap gap-1.5 mt-2">
         {reports.map((u, i) => <RejectionLink key={u} href={u} label={reports.length > 1 ? `Inspection report ${i + 1}` : "Inspection report"} />)}
         {r.link && <RejectionLink href={r.link} label={linkLabel(r.link)} />}
         {openProfile && <button type="button" onClick={openProfile} className="qc-elev qc-tile inline-flex items-center gap-1.5 text-[11px] font-semibold rounded-lg px-2.5" style={{ height: 28, background: C.ink, color: C.onDark }}><Ic i={BookOpen} s={12} mr={0} />Product profile</button>}
+        {canHide && hidden && <button type="button" onClick={() => setState(x => ({ ...x, hiddenExtRejections: unhideExtRejection(x.hiddenExtRejections, r.key || extRejectionHideKey(row)) }))} className="qc-elev qc-tile inline-flex items-center gap-1.5 text-[11px] font-semibold rounded-lg px-2.5" style={{ height: 28, background: C.ink, color: C.onDark }}>Show again</button>}
+        {canHide && !hidden && <button type="button" onClick={() => setState(x => ({ ...x, hiddenExtRejections: hideExtRejection(x.hiddenExtRejections, row, { userId: user.id, at: nowISO() }) }))} className="qc-elev qc-tile inline-flex items-center gap-1.5 text-[11px] font-semibold rounded-lg px-2.5" style={{ height: 28, background: C.surface, color: C.muted, border: `1px solid ${C.line}` }} title="Controllers will not see this rejection"><Ic i={Ban} s={12} mr={0} />Hide</button>}
       </div>}
     </div>
   );
 }
-function ExtRejectionList({ s, articleId, go }) {
+function ExtRejectionList({ s, articleId, go, user, setState }) {
   const l = extRejectionLine(s, articleId); if (!l) return null;
   const [open, setOpen] = useState(false);
   const more = l.total > (l.preview || l.recent).length;
@@ -2379,24 +2384,29 @@ function ExtRejectionList({ s, articleId, go }) {
       {open && <div className="mt-2">
         <p className="text-[11px] mb-1.5 leading-snug" style={{ color: C.muted }}>Last {fmtRejectionDay(l.last)} · {l.span} · DC5 sheet</p>
         <div className="flex flex-col gap-2">
-          {(l.preview || l.recent).map((r, ix) => <ExtRejectionRow key={`${r.d || ""}-${r.po || ""}-${ix}`} r={r} s={s} go={go} articleId={articleId} />)}
+          {(l.preview || l.recent).map((r, ix) => <ExtRejectionRow key={`${r.d || ""}-${r.po || ""}-${ix}`} r={r} s={s} go={go} articleId={articleId} user={user} setState={setState} />)}
           {more && go && <button type="button" onClick={openAll} className="qc-elev qc-tile w-full rounded-2xl px-3.5 inline-flex items-center justify-center gap-1.5 text-[13px] font-semibold" style={{ height: 42, background: C.ink, color: C.onDark }}>All {l.total} dock rejections<Ic i={ChevronRight} s={15} mr={0} /></button>}
         </div>
       </div>}
     </div>
   );
 }
-function MExtRejectionHistory({ s, go, articleId }) {
+function MExtRejectionHistory({ s, go, articleId, user, setState }) {
   const all = !articleId;   // opened from the shift update: every rejection the sheet sent, not one article
   const product = all ? null : s.products.find(p => normArticle(p.articleId) === normArticle(articleId));
   const y = all ? null : extRejectionYearLine(s, articleId);
   // Filters (the all-rejections view): period pills, an ISO-week picker, word search, and a cap with "show more".
   const today = new Date().toISOString().slice(0, 10);
   const [period, setPeriod] = useState("all"); const [week, setWeek] = useState(() => isoWeekOfDay(today)); const [q, setQ] = useState(""); const [limit, setLimit] = useState(30);
+  const [showHidden, setShowHidden] = useState(false);
+  const isHead = user?.role === "Head";
+  const hiddenRows = normalizeHiddenExtRejections(s.hiddenExtRejections);
+  const viewingHidden = isHead && showHidden && hiddenRows.length > 0;
   const base = all ? extRejectionsEverything(s) : extRejectionsYear(s, articleId);
   const wr = isoWeekRange(week);
-  const filtered = all ? searchRejections(filterRejectionsByPeriod(base, period, { today, weekRange: wr }), q) : base;
-  const rows = all ? filtered.slice(0, limit) : filtered;
+  const live = all ? searchRejections(filterRejectionsByPeriod(base, period, { today, weekRange: wr }), q) : base;
+  const filtered = viewingHidden ? searchRejections(all ? hiddenRows : hiddenRows.filter(h => normArticle(h.a) === normArticle(articleId)), q) : live;
+  const rows = all || viewingHidden ? filtered.slice(0, limit) : filtered;
   const months = groupRejectionsByMonth(rows);
   const d = s.extRejections;
   const Pill = ({ id, label }) => <button type="button" onClick={() => { setPeriod(id); setLimit(30); }} className="text-[12px] px-3 py-1.5 rounded-full font-medium whitespace-nowrap" style={{ background: period === id ? C.ink : C.surface, color: period === id ? C.onDark : C.ink, border: `1px solid ${period === id ? C.ink : C.line}` }}>{label}</button>;
@@ -2406,24 +2416,25 @@ function MExtRejectionHistory({ s, go, articleId }) {
       <div className="px-4 pt-3">
         {all ? <>
           <SearchBox value={q} onChange={v => { setQ(v); setLimit(30); }} placeholder="Search product, reason, controller, PO…" inputClass="rounded-xl" className="mb-2" />
-          <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-4 px-4" style={{ scrollbarWidth: "none" }}><Pill id="today" label="Today" /><Pill id="week" label={week === isoWeekOfDay(today) ? "This week" : isoWeekLabel(week)} /><Pill id="all" label="All" /></div>
+          <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-4 px-4" style={{ scrollbarWidth: "none" }}><Pill id="today" label="Today" /><Pill id="week" label={week === isoWeekOfDay(today) ? "This week" : isoWeekLabel(week)} /><Pill id="all" label="All" />{isHead && hiddenRows.length > 0 && <button type="button" onClick={() => { setShowHidden(v => !v); setLimit(30); }} className="text-[12px] px-3 py-1.5 rounded-full font-medium whitespace-nowrap" style={{ background: viewingHidden ? C.warn : C.surface, color: viewingHidden ? C.onDark : C.warn, border: `1px solid ${viewingHidden ? C.warn : C.line}` }}>Hidden · {hiddenRows.length}</button>}</div>
           {period === "week" && <div className="flex items-center gap-2 mt-2 mb-1">
             <button type="button" onClick={() => { setWeek(w => shiftIsoWeek(w, -1)); setLimit(30); }} className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: C.surface, border: `1px solid ${C.line}` }}><Ic i={ChevronLeft} s={15} mr={0} /></button>
             <span className="text-[13px] font-medium flex-1 text-center">{isoWeekLabel(week)}{wr ? <span className="font-normal" style={{ color: C.muted }}> · {wr.from.slice(8)}.{wr.from.slice(5, 7)}–{wr.to.slice(8)}.{wr.to.slice(5, 7)}</span> : null}</span>
             <button type="button" onClick={() => { setWeek(w => shiftIsoWeek(w, 1)); setLimit(30); }} disabled={week === isoWeekOfDay(today)} className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: C.surface, border: `1px solid ${C.line}`, opacity: week === isoWeekOfDay(today) ? .4 : 1 }}><Ic i={ChevronRight} s={15} mr={0} /></button>
           </div>}
-          <p className="text-[12px] mt-2 mb-3" style={{ color: C.muted }}>{filtered.length ? `${filtered.length} rejection${filtered.length === 1 ? "" : "s"}${filtered.length > rows.length ? ` · showing ${rows.length}` : ""} · DC5 rejections sheet` : "Nothing in this period."}{d?.articles ? ` · ${d.articles} articles in ${d.windowDays || 365} days` : ""}</p>
+          <p className="text-[12px] mt-2 mb-3" style={{ color: viewingHidden ? C.warn : C.muted }}>{viewingHidden ? "Hidden from controllers. The sheet row is unchanged." : filtered.length ? `${filtered.length} rejection${filtered.length === 1 ? "" : "s"}${filtered.length > rows.length ? ` · showing ${rows.length}` : ""} · DC5 rejections sheet` : "Nothing in this period."}{!viewingHidden && d?.articles ? ` · ${d.articles} articles in ${d.windowDays || 365} days` : ""}</p>
         </> : <>
         <p className="text-[15px] font-semibold leading-snug">{product?.name || y?.name || articleId}</p>
         <p className="text-[12px] mt-1 mb-3" style={{ color: C.muted }}>{y ? `${y.count} in ${y.span} · last ${fmtRejectionDay(y.last)}${y.c30 ? ` · ${y.c30} in 30 days` : ""} · DC5 sheet` : "DC5 rejections sheet"}</p>
-        {y && rows.length < y.count && <p className="text-[11px] mb-2 leading-snug" style={{ color: C.muted }}>Showing {rows.length} of {y.count} — the rest land after the next sheet push.</p>}</>}
-        {rows.length === 0 ? <p className="text-sm py-8 text-center" style={{ color: C.muted }}>{all ? (q ? `Nothing matches “${q}”.` : "No rejections in this period.") : "No dock rejections on this phone yet."}</p> : months.map(g => (
+        {isHead && hiddenRows.some(h => normArticle(h.a) === normArticle(articleId)) && <button type="button" onClick={() => { setShowHidden(v => !v); setLimit(30); }} className="text-[12px] px-3 py-1.5 rounded-full font-medium mb-2" style={{ background: viewingHidden ? C.warn : C.surface, color: viewingHidden ? C.onDark : C.warn, border: `1px solid ${viewingHidden ? C.warn : C.line}` }}>{viewingHidden ? "Back to live" : `Hidden · ${hiddenRows.filter(h => normArticle(h.a) === normArticle(articleId)).length}`}</button>}
+        {y && rows.length < y.count && !viewingHidden && <p className="text-[11px] mb-2 leading-snug" style={{ color: C.muted }}>Showing {rows.length} of {y.count} — the rest land after the next sheet push.</p>}</>}
+        {rows.length === 0 ? <p className="text-sm py-8 text-center" style={{ color: C.muted }}>{viewingHidden ? (q ? `Nothing matches “${q}”.` : "No hidden rejections.") : all ? (q ? `Nothing matches “${q}”.` : "No rejections in this period.") : "No dock rejections on this phone yet."}</p> : months.map(g => (
           <div key={g.k || "none"} className="mb-3">
             <ListDayHead count={g.items.length}>{g.label}</ListDayHead>
-            <div className="flex flex-col gap-2">{g.items.map((r, ix) => <ExtRejectionRow key={`${r.d || ""}-${r.po || ""}-${ix}`} r={r} showName={all} s={s} go={go} articleId={articleId} />)}</div>
+            <div className="flex flex-col gap-2">{g.items.map((r, ix) => <ExtRejectionRow key={`${r.d || ""}-${r.po || ""}-${ix}`} r={r} showName={all || viewingHidden} s={s} go={go} articleId={articleId} user={user} setState={setState} hidden={viewingHidden} />)}</div>
           </div>
         ))}
-        {all && filtered.length > rows.length && <button type="button" onClick={() => setLimit(l => l + 30)} className="w-full py-2.5 rounded-xl text-sm font-medium mt-1" style={{ background: C.surface, border: `1px solid ${C.line}` }}>Show more · {filtered.length - rows.length} left</button>}
+        {(all || viewingHidden) && filtered.length > rows.length && <button type="button" onClick={() => setLimit(l => l + 30)} className="w-full py-2.5 rounded-xl text-sm font-medium mt-1" style={{ background: C.surface, border: `1px solid ${C.line}` }}>Show more · {filtered.length - rows.length} left</button>}
       </div>
     </div>
   );
@@ -2507,7 +2518,7 @@ function MPalletSheet({ s, set, user, go, row: r, onStart, onPickPallet, onAssig
       </div>}
       {al && !lost && <div className="rounded-xl px-3 py-2 mb-2 flex items-start gap-2" style={{ background: C.badBg, color: C.bad }}><Ic i={Clock} s={14} mr={0} style={{ marginTop: 2 }} /><div className="text-[13px] leading-snug"><b>{al.level === "breached" ? "Rejection window expired" : `Rejection window closes in ${Math.max(0, Math.round(al.hoursLeft))} h`}</b><span className="block text-[11px] mt-0.5" style={{ opacity: .85 }}>{al.level === "breached" ? "Rejecting is no longer possible — inspect anyway and note it." : al.risky ? "This product was rejected recently, so it's flagged early." : "Inspect it before the window closes."}</span></div></div>}
       {hist.count > 0 && <div className="rounded-xl px-3 py-2 mb-2 flex items-start gap-2" style={{ background: C.badBg, color: C.bad }}><Ic i={AlertTriangle} s={14} mr={0} style={{ marginTop: 2 }} /><div className="text-[13px] leading-snug"><b>{hist.count} rejected</b> in 14 days · {hist.problems.slice(0, 3).map(x => `${x.name} ×${x.count}`).join(", ")}{hist.problems.length > 3 ? "…" : ""}</div></div>}
-      <ExtRejectionList s={s} articleId={r.article} go={go} />
+      <ExtRejectionList s={s} articleId={r.article} go={go} user={user} setState={set} />
       {compl && <div className="rounded-xl px-3 py-2 mb-2 flex items-start gap-2" style={{ background: C.badBg, color: C.bad }}><Ic i={ThumbsDown} s={14} mr={0} style={{ marginTop: 2 }} /><div className="text-[13px] leading-snug"><b>{compl.count} freshness complaint{compl.count === 1 ? "" : "s"}</b>{compl.sub ? <> · mostly <b>{compl.sub}</b></> : null}{compl.rate ? <> · {compl.rate}</> : null}{compl.period ? <span style={{ opacity: .8 }}> · {compl.period}</span> : null}</div></div>}
       {anns.map(a => <div key={a.id} className="w-full text-left rounded-xl px-3 py-2 mb-2 flex items-start gap-2" style={{ background: a.isBlocking ? C.badBg : C.accentSoft, color: C.ink }}><Ic i={Megaphone} s={14} mr={0} style={{ marginTop: 2, color: a.isBlocking ? C.bad : C.accent }} /><span className="min-w-0 text-[13px] leading-snug"><button type="button" onClick={() => go("announcements")} className="text-left"><b>{a.title}</b>{a.body ? <span style={{ color: C.muted }}> — {a.body}</span> : null}{a.isBlocking && <span className="block text-[11px] mt-0.5" style={{ color: C.bad }}>Blocking — read it before you inspect</span>}</button><AnnounceFileList announcement={a} colors={C} compact /></span></div>)}
       {draft && <div className="rounded-xl px-3 py-2 mb-2 flex items-start gap-2 text-[13px] leading-snug" style={{ background: C.warnBg, color: C.warn }}><Ic i={Clock} s={14} mr={0} style={{ marginTop: 2 }} /><span><b>{s.users.find(u => u.id === draft.controllerId)?.name.split(" ")[0]}</b> has this pallet in progress ({STATUS[draft.status][0]}){draft.controllerId === user.id && <button onClick={() => go("inspection", draft.id)} className="ml-2 underline">continue</button>}</span></div>}
@@ -4496,7 +4507,7 @@ export default function App() {
       {page === "palletInfo" && <MPalletInfo s={s} set={set} user={user} go={go} hu={param} onStart={(pid, palletNo, typeId) => startInspection(pid, palletNo, false, typeId)} onAssign={r => { setPendingChatContext({ kind: "pallet", id: r.hu, label: `${r.name || r.article} · ${r.location}` }); go("chat"); }} />}
       {page === "catalog" && <MCatalog key={param || "catalog"} s={s} user={user} go={go} onStart={(pid, palletNo, typeId) => startInspection(pid, palletNo, false, typeId)} setState={set} notify={notify} onVisual={visualInspection} preset={param} />}
       {page === "productHistory" && <MProductHistory s={s} user={user} go={go} productId={param && typeof param === "object" ? param.id : param} initialResult={param && typeof param === "object" ? param.result : undefined} />}
-      {page === "dockRejections" && <MExtRejectionHistory s={s} go={go} articleId={param} />}
+      {page === "dockRejections" && <MExtRejectionHistory s={s} go={go} articleId={param} user={user} setState={set} />}
       {page === "chat" && <MChat s={s} set={set} user={user} go={go} initialContext={pendingChatContext} clearInitialContext={() => setPendingChatContext(null)} />}
       {page === "menu" && <MMenu s={s} set={set} user={user} go={go} users={s.users} setUser={id => { setUserId(id); go("home"); }} onLogout={() => { writeSession(null); setUserId(null); }} dark={dark} onTheme={toggleTheme} simOffline={simOffline} onSimOffline={() => setSimOffline(o => !o)} onSync={() => pullState(true)} syncMsg={syncMsg} />}
       {page === "profile" && <MProfile s={s} set={set} user={user} go={go} />}

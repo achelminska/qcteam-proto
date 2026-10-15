@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useMemo, Fragment } from "react";
 import { QCMark, QCWordmark } from "./brand.jsx";
 import { createLoginScreen } from "./login.jsx";
 import { mergeDockLines, mergedLineCount } from "./shared/dock-merge.js";
-import { extRejectionsEverything, filterRejectionsByPeriod, searchRejections, summarizeRejections, filterRejectionsByFacets, rejectionTimeline, reasonThemes } from "./shared/rejections.js";
+import { extRejectionsEverything, filterRejectionsByPeriod, searchRejections, summarizeRejections, filterRejectionsByFacets, rejectionTimeline, reasonThemes, hideExtRejection, unhideExtRejection, normalizeHiddenExtRejections, extRejectionHideKey } from "./shared/rejections.js";
 import { demoConversation } from "./demo-chat.js";
 import { createSyncer, guardUnload } from "./sync.js";
 import { applySpecEdit, hasV, specFieldsFromForm, specFormKind, specLabel, dayLabel, problemPath, typesOf, typeById, legacyTypeId, inspType, countsAs, listCheck, matchFieldSpec, numberSpecCheck, reportStatusFields, toleranceDisplay, matchesInspSearch } from "./shared/format.js";
@@ -1631,20 +1631,23 @@ function RejectionSummary({ rows, prevRows = null, prevLabel = "", openProduct, 
     </div>
   );
 }
-function RejectionsPage({ s, openProduct, user }) {
+function RejectionsPage({ s, set, openProduct, user }) {
   const today = todayISO();
   const [q, setQ] = useState(""); const [period, setPeriod] = useState("all"); const [week, setWeek] = useState(() => isoWeekOf(today)); const [limit, setLimit] = useState(40);
   const [sel, setSel] = useState({});
   const [day, setDay] = useState(null); // a day picked on the timeline — narrows "This week" to one day
   const [wkOpen, setWkOpen] = useState(false); // the quick week picker (grid of weeks with counts)
+  const [showHidden, setShowHidden] = useState(false);
   const onSelect = (facet, key, label) => { setLimit(40); if (facet == null) return setSel({}); setSel(x => { const y = { ...x }; if (key) { y[facet] = key; y[`${facet}Label`] = label || key; } else { delete y[facet]; delete y[`${facet}Label`]; } return y; }); };
   const d = s.extRejections; const base = extRejectionsEverything(s);
   const wr = weekRange(week);
   const inPeriod = filterRejectionsByPeriod(base, period, { today, weekRange: wr });
   const inDay = day && period === "week" ? inPeriod.filter(e => String(e.d || "").slice(0, 10) === day) : inPeriod;
   const searched = searchRejections(inDay, q);
-  const filtered = filterRejectionsByFacets(searched, sel);
   const isHead = user?.role === "Head";
+  const hiddenRows = normalizeHiddenExtRejections(s.hiddenExtRejections);
+  const viewingHidden = isHead && showHidden && hiddenRows.length > 0;
+  const filtered = viewingHidden ? searchRejections(hiddenRows, q) : filterRejectionsByFacets(searched, sel);
   const weekGrid = useMemo(() => { const counts = {}; for (const e of base) { const w = isoWeekOf(String(e.d || "").slice(0, 10)); if (w) counts[w] = (counts[w] || 0) + 1; }
     const cur = isoWeekOf(today); const years = {}; let w = cur; // walk back 60 weeks from this one so quiet weeks are offered too
     for (let i = 0; i < 60; i++) { const y = w.slice(0, 4); (years[y] ||= []).push({ key: w, n: Number(w.slice(6)), count: counts[w] || 0 }); w = shiftWeek(w, -1); }
@@ -1666,9 +1669,10 @@ function RejectionsPage({ s, openProduct, user }) {
   return (
     <div>
       <div className="flex items-center gap-3 mb-1 flex-wrap"><h1 className="flex-1">Dock rejections</h1><SearchBox value={q} onChange={v => { setQ(v); setLimit(40); }} placeholder="Search product, reason, controller, PO" style={{ width: 320 }} inputClass="rounded-lg" size={13} /></div>
-      <p className="text-sm mb-3" style={{ color: C.muted, maxWidth: 720 }}>Every rejection on the DC5 rejections sheet that the phones carry{d?.articles ? ` — ${d.articles} articles in the last ${d.windowDays || 365} days` : ""}. Older ones per article are on the product profile.</p>
+      <p className="text-sm mb-3" style={{ color: C.muted, maxWidth: 720 }}>Every rejection on the DC5 rejections sheet that the phones carry{d?.articles ? ` — ${d.articles} articles in the last ${d.windowDays || 365} days` : ""}. Older ones per article are on the product profile.{isHead ? " Hide a row that was cancelled or entered by mistake — controllers will not see it in lists or search." : ""}</p>
       <div className="flex items-center gap-2 mb-4 flex-wrap">
         <Pill id="today" label="Today" /><Pill id="week" label={thisWeek ? "This week" : weekLabel(week)} /><Pill id="all" label="All" />
+        {isHead && hiddenRows.length > 0 && <button type="button" onClick={() => { setShowHidden(v => !v); setLimit(40); }} className="text-xs px-3 py-1.5 rounded-full font-medium" style={{ background: showHidden ? C.warn : C.surface, color: showHidden ? C.onDark : C.warn, border: `1px solid ${showHidden ? C.warn : C.line}` }}>Hidden · {hiddenRows.length}</button>}
         {period === "week" && <span className="inline-flex items-center rounded-lg ml-2" style={{ border: `1px solid ${C.line}`, background: C.surface }}>
           <button onClick={() => { setWeek(w => shiftWeek(w, -1)); setDay(null); setLimit(40); }} className="px-1.5 py-1" style={{ color: C.muted }} title="previous week"><Ic i={ChevronLeft} s={14} mr={0} /></button>
           <span className="relative">
@@ -1696,8 +1700,9 @@ function RejectionsPage({ s, openProduct, user }) {
         {day && period === "week" && <button onClick={() => setDay(null)} className="text-[11px] px-2 py-0.5 rounded-full" style={{ background: C.badBg, color: C.bad, border: `1px solid ${C.bad}` }} title="back to the whole week">Day {day.slice(8)}.{day.slice(5, 7)} ×</button>}
         <span className="text-xs ml-auto" style={{ color: C.muted }}>{filtered.length} rejection{filtered.length === 1 ? "" : "s"}{filtered.length > rows.length ? ` · showing ${rows.length}` : ""}</span>
       </div>
-      {isHead && (filtered.length > 0 || Object.values(sel).some(Boolean)) && <Card style={{ marginBottom: 16 }}><RejectionSummary rows={filtered} prevRows={prevRows} prevLabel={prevLabel} bucketOf={bucketOf} openProduct={openProduct} productFor={productFor} sel={sel} onSelect={onSelect} timeline={timeline} onPickWeek={w => { setPeriod("week"); setWeek(w); setDay(null); setLimit(40); }} onPickDay={dd => { setDay(x => x === dd ? null : dd); setLimit(40); }} /></Card>}
-      {rows.length === 0 ? <Card><Empty icon="🚫" title={Object.values(sel).some(Boolean) ? "Nothing matches these filters." : q ? `Nothing matches “${q}”.` : period === "today" ? "No rejections today" : period === "week" ? `No rejections in ${weekLabel(week).toLowerCase()}` : "No rejections on the sheet"} hint={q || period !== "all" ? "" : "They appear here as soon as the rejections sheet pushes."} /></Card> : months.map(g => (
+      {isHead && !viewingHidden && (filtered.length > 0 || Object.values(sel).some(Boolean)) && <Card style={{ marginBottom: 16 }}><RejectionSummary rows={filtered} prevRows={prevRows} prevLabel={prevLabel} bucketOf={bucketOf} openProduct={openProduct} productFor={productFor} sel={sel} onSelect={onSelect} timeline={timeline} onPickWeek={w => { setPeriod("week"); setWeek(w); setDay(null); setLimit(40); }} onPickDay={dd => { setDay(x => x === dd ? null : dd); setLimit(40); }} /></Card>}
+      {viewingHidden && <p className="text-xs mb-3" style={{ color: C.warn }}>Hidden from controllers. The DC5 sheet row itself is unchanged — Show again to put it back.</p>}
+      {rows.length === 0 ? <Card><Empty icon="🚫" title={viewingHidden ? (q ? `Nothing matches “${q}”.` : "No hidden rejections") : Object.values(sel).some(Boolean) ? "Nothing matches these filters." : q ? `Nothing matches “${q}”.` : period === "today" ? "No rejections today" : period === "week" ? `No rejections in ${weekLabel(week).toLowerCase()}` : "No rejections on the sheet"} hint={viewingHidden ? "Hidden rows stay off every phone until you show them again." : q || period !== "all" ? "" : "They appear here as soon as the rejections sheet pushes."} /></Card> : months.map(g => (
         <div key={g.k || "none"} className="mb-4">
           <p className="label-sm mb-1.5" style={{ color: C.muted }}>{g.label} · {g.items.length}</p>
           <div className="grid gap-2">{g.items.map((r, ix) => { const p = productFor(r.a); const reason = String(r.reason || "Rejected").replace(/^./, c => c.toUpperCase()); const reports = reportUrls(r); return (
@@ -1709,6 +1714,9 @@ function RejectionsPage({ s, openProduct, user }) {
               <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: C.badBg, color: C.bad, maxWidth: 360 }}>{reason}</span>
               {r.tu != null && <span className="text-xs shrink-0" style={{ fontVariantNumeric: "tabular-nums", minWidth: 48, textAlign: "right" }}><b>{r.tu}</b> TU</span>}
               {(reports.length > 0 || r.link) && <span className="flex gap-1.5 shrink-0">{reports.slice(0, 2).map((u, i) => <RejectionLink key={u} href={u} label={reports.length > 1 ? `Report ${i + 1}` : "Report"} />)}{r.link && <RejectionLink href={r.link} label={linkLabel(r.link)} />}</span>}
+              {isHead && set && (viewingHidden
+                ? <button type="button" onClick={() => set(x => ({ ...x, hiddenExtRejections: unhideExtRejection(x.hiddenExtRejections, r.key || extRejectionHideKey(r)) }))} className="text-[11px] px-2 py-1 rounded-lg font-semibold" style={{ background: C.ink, color: C.onDark }}>Show again</button>
+                : <button type="button" onClick={() => set(x => ({ ...x, hiddenExtRejections: hideExtRejection(x.hiddenExtRejections, r, { userId: user.id, at: nowISO() }) }))} className="text-[11px] px-2 py-1 rounded-lg font-medium" style={{ color: C.muted, border: `1px solid ${C.line}` }} title="Controllers will not see this rejection — cancelled or entered by mistake">Hide</button>)}
             </div>); })}</div>
         </div>
       ))}
@@ -1716,11 +1724,13 @@ function RejectionsPage({ s, openProduct, user }) {
     </div>
   );
 }
-function ExtRejectionsNote({ s, articleId }) {
+function ExtRejectionsNote({ s, set, user, articleId }) {
   const y = extRejectionYearLine(s, articleId); if (!y) return null;
   const [open, setOpen] = useState(false);
   const rows = extRejectionsYear(s, articleId);
   const months = groupRejectionsByMonth(rows);
+  const canHide = user?.role === "Head" && set;
+  const hideRow = r => set(x => ({ ...x, hiddenExtRejections: hideExtRejection(x.hiddenExtRejections, { ...r, a: r.a || articleId, n: r.n || y.name }, { userId: user.id, at: nowISO() }) }));
   return <Note tone="bad"><span className="inline-flex items-center gap-1.5 flex-wrap"><Ic i={AlertTriangle} s={14} mr={0} /><b>Rejected on the dock {y.count}×</b><span>this year</span><span style={{ color: C.muted }}>· last {fmtRejectionDay(y.last)}{y.c30 ? ` · ${y.c30} in 30 days` : ""} · DC5 sheet</span><button onClick={() => setOpen(v => !v)} className="underline text-xs" style={{ color: C.accent }}>{open ? "hide" : `all ${y.count}`}</button></span>
     {open && <div className="mt-2" style={{ color: C.ink }}>{rows.length < y.count && <p className="text-xs mb-2" style={{ color: C.muted }}>Showing {rows.length} of {y.count} — the rest land after the next sheet push.</p>}
       {months.map(g => <div key={g.k || "none"} className="mb-2">
@@ -1732,10 +1742,11 @@ function ExtRejectionsNote({ s, articleId }) {
             <p className="text-sm font-semibold leading-snug">{reason}</p>
             <p className="text-xs mt-0.5" style={{ color: C.muted, fontVariantNumeric: "tabular-nums" }}>{fmtRejectionDay(r.d)}{r.tu != null ? ` · ${r.tu} TU` : ""}</p>
             {(r.user || r.po) && <p className="text-xs mt-1" style={{ color: C.muted }}>{[r.user, r.po && `PO ${r.po}`].filter(Boolean).join(" · ")}</p>}
-            {(reports.length > 0 || r.link) && <div className="flex flex-wrap gap-1.5 mt-2">
+            <div className="flex flex-wrap gap-1.5 mt-2">
               {reports.map((u, i) => <RejectionLink key={u} href={u} label={reports.length > 1 ? `Inspection report ${i + 1}` : "Inspection report"} />)}
               {r.link && <RejectionLink href={r.link} label={linkLabel(r.link)} />}
-            </div>}
+              {canHide && <button type="button" onClick={() => hideRow(r)} className="text-[11px] px-2 py-1 rounded-lg font-medium" style={{ color: C.muted, border: `1px solid ${C.line}` }} title="Controllers will not see this rejection">Hide</button>}
+            </div>
           </div>;
         })}</div>
       </div>)}
@@ -4055,7 +4066,7 @@ function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset, onMessag
                     <button type="button" onClick={() => setTab("refreport")} className="text-xs px-2.5 py-1 rounded-lg flex-shrink-0" style={{ color: refInsp ? C.ok : C.accent, border: `1px solid ${refInsp ? C.ok : C.line}` }}>{refInsp ? "Open" : "Set one"}</button>
                   </div>
                   <ComplaintsNote s={s} articleId={product.articleId} />
-                  <LiveNote product={product} /><ExtRejectionsNote s={s} articleId={product.articleId} />
+                  <LiveNote product={product} /><ExtRejectionsNote s={s} set={set} user={user} articleId={product.articleId} />
                   <Group title="Identity" cols={6}>
                     <Field label="Name" className="col-span-4"><FastInput value={product.name} onCommit={v => patchP({ name: v })} /></Field>
                     <Field label="Article ID"><FastInput value={product.articleId || ""} onCommit={v => patchP({ articleId: v })} className="font-mono" style={{ borderColor: product.articleId ? C.line : C.warn }} /></Field>
@@ -5408,7 +5419,7 @@ function CatalogPage({ s, set, user, notify, onStartInspection, onOpenInspection
               {/* Notes that change how you inspect */}
               <div className="mt-4">
                 {s.announcements.filter(a => annMatchesProduct(s, a, product)).map(a => <Note key={a.id} tone="warn">📣 <b>{a.title}</b>{a.body ? <> — {richText(a.body)}</> : null}<AnnounceFileList announcement={a} colors={C} compact /></Note>)}
-                <LiveNote product={product} /><ComplaintsNote s={s} articleId={product.articleId} /><ExtRejectionsNote s={s} articleId={product.articleId} />
+                <LiveNote product={product} /><ComplaintsNote s={s} articleId={product.articleId} /><ExtRejectionsNote s={s} set={set} user={user} articleId={product.articleId} />
                 {hist?.count > 0 && <Note tone="bad"><b>{hist.count} rejected by the team in the last 14 days</b>{hist.problems.length ? <> — {hist.problems.slice(0, 3).map(p => `${p.name} ×${p.count}`).join(", ")}</> : null}</Note>}
                 {openFlags.length > 0 && <Note tone="warn">🚩 {openFlags.length} open flag{openFlags.length === 1 ? "" : "s"} on this product — the Head hasn't resolved {openFlags.length === 1 ? "it" : "them"} yet.</Note>}
               </div>
@@ -5978,6 +5989,19 @@ function SettingsPage({ s, set }) {
         <button type="button" onClick={() => set(x => clearBriefingSeen(x))} disabled={!(s.briefingSeen || []).length} className="text-sm px-3 py-2 rounded-xl font-semibold" style={{ background: (s.briefingSeen || []).length ? C.ink : C.line, color: (s.briefingSeen || []).length ? C.onDark : C.muted }}>Show all cards as new</button>
       </Card>
       <Card style={{ marginBottom: 16 }}>
+        <h2 className="mb-1">Hidden dock rejections</h2>
+        <p className="text-xs mb-3" style={{ color: C.muted }}>Rows you hid from the DC5 sheet because they were cancelled or entered by mistake. Controllers cannot see or search them. The sheet itself is unchanged.</p>
+        {!(s.hiddenExtRejections || []).length ? <p className="text-xs" style={{ color: C.muted }}>None hidden.</p> : (s.hiddenExtRejections || []).map(h => (
+          <div key={h.key} className="flex items-center gap-2 py-2" style={{ borderTop: `1px solid ${C.line}` }}>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium truncate">{h.n || h.a || "Rejection"}</p>
+              <p className="text-[11px]" style={{ color: C.muted }}>{[h.a, h.d && fmtRejectionDay(h.d), h.po && `PO ${h.po}`, h.reason].filter(Boolean).join(" · ")}</p>
+            </div>
+            <button type="button" onClick={() => set(x => ({ ...x, hiddenExtRejections: unhideExtRejection(x.hiddenExtRejections, h.key) }))} className="text-xs px-2.5 py-1 rounded-lg font-semibold" style={{ background: C.ink, color: C.onDark }}>Show again</button>
+          </div>
+        ))}
+      </Card>
+      <Card style={{ marginBottom: 16 }}>
         <h2 className="mb-1">PO on rejection</h2>
         <p className="text-xs mb-3" style={{ color: C.muted }}>Off by default. When on, a Rejected inspection must have a PO. The system fills it from the dock sheet when the pallet is there; if the inspection was not started from the sheet, the controller types it.</p>
         <label className="flex items-start gap-3 text-sm cursor-pointer">
@@ -6057,7 +6081,7 @@ function UsersPage({ s, set, me }) {
 
 // ═══════════════════ APLIKACJA ═══════════════════
 const SEED_USERS = () => [{ id: "u-head", name: "Aleksandra Chełmińska", firstName: "Aleksandra", lastName: "Chełmińska", email: "aleksandra.chelminska@qcteam.nl", role: "Head", active: true }, { id: "u-anna", name: "Damian Mrówka", firstName: "Damian", lastName: "Mrówka", email: "damian.mrowka@qcteam.nl", role: "Controller", active: true }, { id: "u-jakub", name: "Snizhana Myshkina", firstName: "Snizhana", lastName: "Myshkina", email: "snizhana.myshkina@qcteam.nl", role: "Controller", active: true }];
-const EMPTY = { categories: [], problems: [], problemNotes: [], products: [], templates: [], suppliers: [], countries: [], users: SEED_USERS(), inspections: [], flags: [], notifications: [], announcements: [], conversations: [], dictionaries: [], inspectionTypes: SEED_TYPES(), tempSpecs: [], settings: { defaultPolicy: "Visual", skipReasonRequired: false }, briefingSeen: [] };
+const EMPTY = { categories: [], problems: [], problemNotes: [], products: [], templates: [], suppliers: [], countries: [], users: SEED_USERS(), inspections: [], flags: [], notifications: [], announcements: [], conversations: [], dictionaries: [], inspectionTypes: SEED_TYPES(), tempSpecs: [], settings: { defaultPolicy: "Visual", skipReasonRequired: false }, briefingSeen: [], hiddenExtRejections: [] };
 
 // Migration of older exports: product.suppliers as names → global list + supplierIds
 const normalize = raw => {
@@ -6080,6 +6104,7 @@ const normalize = raw => {
   s.categoryRules = Array.isArray(s.categoryRules) ? s.categoryRules : [];
   s.palletClaims = s.palletClaims && typeof s.palletClaims === "object" ? s.palletClaims : {};
   s.briefingSeen = Array.isArray(s.briefingSeen) ? s.briefingSeen.filter(r => r && r.id && r.userId && r.fp) : [];
+  s.hiddenExtRejections = normalizeHiddenExtRejections(s.hiddenExtRejections);
   s.settings = settingsOf(s);
   s.inspectionTypes = Array.isArray(s.inspectionTypes) ? s.inspectionTypes : [];
   // Migration: drop the previously seeded types (and their auto-generated templates) when nothing uses them — the Head defines types from scratch.
@@ -6413,7 +6438,7 @@ export default function App() {
       {selPallet && <PalletPage s={s} set={set} user={user} hu={selPallet} onBack={() => setSelPallet(null)} onPickPallet={h => setSelPallet(h)} onOpenProduct={id => { setSelPallet(null); setSelProduct(id); setPage(user.role === "Head" ? "products" : "catalog"); }} onOpenInspection={id => { setSelPallet(null); setOpenInspId(id); setPage("inspections"); }} onAssign={r => { setSelPallet(null); setPendingChatContext({ kind: "pallet", id: r.hu || claimKey(r), label: `${r.name || r.article} · ${r.location || ""}`.trim() }); setPage("messages"); }} onOpenAnnouncements={() => { setSelPallet(null); setPage("announcements"); }} onOpenComplaints={() => { setSelPallet(null); setPage("complaints"); }} />}
       {!selPallet && safePage === "dashboard" && (user.role === "Head" ? <Dashboard s={s} user={user} set={set} setPage={setPage} seed={() => set(olaState(), { replace: true })} openPallet={hu => setSelPallet(hu)} onAssign={a => { setPendingChatContext({ kind: "pallet", id: a.hu, label: `${a.name} · ${a.location}` }); setPage("messages"); }} openTodayInspections={() => { setOpenInspId(null); setInspDatePreset("0"); setPage("inspections"); }} /> : <ControllerDashboard s={s} user={user} set={set} setPage={setPage} setOpenId={setOpenInspId} openPallet={hu => setSelPallet(hu)} openProduct={id => { setSelProduct(id); setPage("catalog"); }} />)}
       {!selPallet && safePage === "briefing" && <BriefingPage s={s} set={set} user={user} go={goBriefing} />}
-      {!selPallet && safePage === "rejections" && <RejectionsPage s={s} user={user} openProduct={id => { setSelProduct(id); setPage(user.role === "Head" ? "products" : "catalog"); }} />}
+      {!selPallet && safePage === "rejections" && <RejectionsPage s={s} set={set} user={user} openProduct={id => { setSelProduct(id); setPage(user.role === "Head" ? "products" : "catalog"); }} />}
       {!selPallet && safePage === "profile" && <ProfilePage s={s} set={set} user={user} openInspection={id => { setOpenInspId(id); setPage("inspections"); }} />}
       {!selPallet && safePage === "categories" && <CategoriesPage s={s} set={set} onMessage={ctx => { setPendingChatContext(ctx); setPage("messages"); }} onOpenProduct={id => { setSelProduct(id); setPage("products"); }} presetSel={presetCategory} clearPresetSel={() => setPresetCategory(null)} />}
       {!selPallet && safePage === "problems" && <ProblemsPage s={s} set={set} />}
