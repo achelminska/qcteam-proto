@@ -187,6 +187,7 @@ const GLOBAL_CSS = () => `
   .qc button:disabled{cursor:not-allowed;opacity:.6}
   .qc button:focus-visible,.qc a:focus-visible{outline:2px solid ${C.accent};outline-offset:2px}
   .qc .label-sm{font-size:11.5px;font-weight:600;color:${C.muted};letter-spacing:0;text-transform:none}
+  .qc-sticky-bar{position:sticky;top:0;z-index:20}
   .qc .row:hover{background:${C.bg}}
   .qc ::-webkit-scrollbar{width:10px;height:10px}.qc ::-webkit-scrollbar-thumb{background:${C.line};border-radius:8px;border:2px solid transparent;background-clip:padding-box}
   @media (prefers-reduced-motion:reduce){.qc *{transition:none!important}}
@@ -2123,7 +2124,7 @@ function Phone({ children, nav, onNav, page, badges, fab, dark, onTheme, overlay
     </div>
   );
 }
-const TopBar = ({ title, onBack, right }) => <div className="flex items-center gap-3 px-4 pt-2 pb-3" style={{ borderBottom: `1px solid ${C.line}` }}>{onBack && <button onClick={onBack} className="flex" style={{ color: C.ink }}><Ic i={ChevronLeft} s={22} mr={0} /></button>}{title ? <p className="text-base font-semibold flex-1 truncate">{title}</p> : <div className="flex-1" />}{right}</div>;
+const TopBar = ({ title, onBack, right, stick = true }) => <div className={`${stick ? "qc-sticky-bar" : ""} flex items-center gap-3 px-4 pt-2 pb-3`} style={{ borderBottom: `1px solid ${C.line}`, background: C.surface }}>{onBack && <button onClick={onBack} className="flex" style={{ color: C.ink }}><Ic i={ChevronLeft} s={22} mr={0} /></button>}{title ? <p className="text-base font-semibold flex-1 truncate">{title}</p> : <div className="flex-1" />}{right}</div>;
 // Sheets and modals sit inside the scrolling page, so "absolute inset-0" spans the whole scrolled content and ends
 // above the bottom nav — a tall sheet got cut off there. On a real phone (.qc-real) they are fixed to the viewport
 // instead: the sheet rests on the actual bottom edge, over the nav, and gets nearly the whole screen for its content.
@@ -2603,7 +2604,7 @@ function MPriorityList({ s, user, go, priority, focus }) {
         {rows.length === 0 && <p className="text-sm py-8 text-center" style={{ color: C.muted }}>{searching ? (lostRows.length ? "Nothing findable matches — only lost pallets below." : "Nothing matches.") : lostRows.length ? "Nothing findable here — only lost pallets below." : isNeeded ? "Nothing is flagged as needed today." : isAll ? (subTab === "skippable" ? "No skippable pallets on the docks right now." : "Nothing on the docks right now.") : "Nothing at this priority right now."}</p>}
         {days.map(d => { const items = itemsFor(byDay[d]); const n = byDay[d].length; const old = ageDays(d) >= 1; return (
           <div key={d || "none"} className="mt-3">
-            <div className="flex items-center gap-2 py-1.5 sticky top-0" style={{ background: C.surface }}>
+            <div className="flex items-center gap-2 py-1.5 sticky z-10" style={{ top: 52, background: C.surface }}>
               <p className="text-xs font-semibold flex-1" style={{ color: old && d ? C.bad : C.ink }}>{dayTitle(d)}</p>
               <span className="text-[10px] px-1.5 py-0.5 rounded-full" style={{ background: old && d ? C.badBg : C.bg, color: old && d ? C.bad : C.muted, border: old && d ? "none" : `1px solid ${C.line}` }}>{n} pallet{n === 1 ? "" : "s"}{old && d ? ` · ${ageDays(d)}d on dock` : ""}</span>
             </div>
@@ -2681,6 +2682,7 @@ function MDashboard({ s, set, user, go, dismissed, setDismissed, onAssign }) {
   const groups = []; mine.slice(0, HISTORY_LIMIT).forEach(i => { const k = dayLabel(i.completedAt || i.startedAt); let g = groups.find(x => x.k === k); if (!g) { g = { k, items: [] }; groups.push(g); } g.items.push(i); });
   return (
     <div style={bottomPad}>
+      <div className="qc-sticky-bar" style={{ background: C.surface, borderBottom: `1px solid ${C.line}` }}>
       <div className="flex items-center justify-between px-5 pt-2 pb-2">
         <div><p className="text-xs" style={{ color: C.muted }}>{new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "short" })}</p><p className="text-lg font-semibold">Hi, {user.name.split(" ")[0]}</p></div>
         <div className="flex items-center gap-3">{(() => { const n = complaintsNewCount(s, user.id); return <button onClick={() => go("complaints")} className="relative flex" title="Complaints"><Ic i={ThumbsDown} s={22} mr={0} />{n > 0 && <span className="absolute -top-1 -right-2 text-[9px] px-1 rounded-full" style={{ background: C.bad, color: C.onDark }}>{n}</span>}</button>; })()}<button onClick={() => go("notifications")} className="relative flex"><Ic i={Bell} s={22} mr={0} />{unread > 0 && <span className="absolute -top-1 -right-2 text-[9px] px-1 rounded-full" style={{ background: C.bad, color: C.onDark }}>{unread}</span>}</button><button onClick={() => go("profile")} className="flex"><Avatar user={user} size={36} /></button></div>
@@ -2690,6 +2692,7 @@ function MDashboard({ s, set, user, go, dismissed, setDismissed, onAssign }) {
           {fr.map(f => { const stale = now - new Date(f.at).getTime() > 10 * 60000; return <span key={f.purpose} className="text-[11px] flex items-center gap-1" style={{ color: stale ? C.warn : C.muted }}><Ic i={stale ? AlertTriangle : Clock} s={11} mr={0} />{f.purpose === "Dock" ? "Dock data" : "Blocked pallets"} · {ago(f.at)}</span>; })}
         </div>
       ); })()}
+      </div>
       {(() => {
         const pulse = briefingUnseen(s, user.id);
         const seen = pulse.total === 0;
@@ -3468,8 +3471,10 @@ function MCatalog({ s, user, go, onStart, setState, notify, onVisual, preset }) 
   const Grid = ({ items }) => items.length === 0 ? <p className="text-sm py-6 text-center" style={{ color: C.muted }}>Nothing matches.</p> : <div className="grid grid-cols-2 gap-2">{items.map(p => <Tile key={p.id} p={p} />)}</div>;
   return (
     <div className="pb-4 relative" style={{ minHeight: "100%" }}>
-      <TopBar title="Product catalog" right={<button onClick={() => setFOpen(true)} className="text-xs px-3 py-1.5 rounded-full inline-flex items-center" style={{ border: `1px solid ${fCount ? C.ink : C.line}`, fontWeight: fCount ? 600 : 400 }}><Ic i={Filter} s={12} mr={4} />Filters{fCount ? ` · ${fCount}` : ""}</button>} />
-      <div className="px-4 pt-3"><SearchBox value={q} onChange={setQ} placeholder="Product, ID, category, supplier, variety…" inputClass="rounded-xl py-2.5" /></div>
+      <div className="qc-sticky-bar" style={{ background: C.surface }}>
+      <TopBar stick={false} title="Product catalog" right={<button onClick={() => setFOpen(true)} className="text-xs px-3 py-1.5 rounded-full inline-flex items-center" style={{ border: `1px solid ${fCount ? C.ink : C.line}`, fontWeight: fCount ? 600 : 400 }}><Ic i={Filter} s={12} mr={4} />Filters{fCount ? ` · ${fCount}` : ""}</button>} />
+      <div className="px-4 pt-3 pb-2"><SearchBox value={q} onChange={setQ} placeholder="Product, ID, category, supplier, variety…" inputClass="rounded-xl py-2.5" /></div>
+      </div>
       {qq ? (
         <div className="px-4 pt-3">
           {matchingCats.length > 0 && <><p className="label-sm mb-1.5">Categories</p><div className="flex flex-wrap gap-1.5 mb-4">{matchingCats.map(c => <Chip key={c.id} on={false} onClick={() => { setCat(c.id); setQ(""); }}>{c.name} · {countIn(c.id)}</Chip>)}</div></>}
@@ -3619,7 +3624,7 @@ function MChat({ s, set, user, go, initialContext, clearInitialContext }) {
   const create = () => { if (!pick.length) return; const isGroup = pick.length > 1 || !!gname.trim(); if (!isGroup) { const ex = s.conversations.find(c => !c.isGroup && c.participantIds.length === 2 && c.participantIds.includes(user.id) && c.participantIds.includes(pick[0])); if (ex) { setOpen(ex.id); markRead(ex.id); setCreating(false); setPick([]); return; } } const id = uid(); set(x => ({ ...x, conversations: [...x.conversations, { id, isGroup, name: isGroup ? (gname.trim() || null) : null, participantIds: [user.id, ...pick], createdBy: user.id, createdAt: nowISO(), messages: [], lastRead: { [user.id]: nowISO() }, isActive: true }] })); setOpen(id); setCreating(false); setPick([]); setGname(""); };
   if (conv) { const other = convOther(conv, s, user.id); const people = conv.participantIds.map(id => s.users.find(u => u.id === id)?.name.split(" ")[0]).filter(Boolean); return (
     <div className="flex flex-col" style={{ height: "100%" }}>
-      <div className="flex items-center gap-2.5 px-3 pt-2 pb-2.5" style={{ borderBottom: `1px solid ${C.line}`, background: C.surface }}>
+      <div className="qc-sticky-bar flex items-center gap-2.5 px-3 pt-2 pb-2.5" style={{ borderBottom: `1px solid ${C.line}`, background: C.surface }}>
         <button onClick={() => setOpen(null)} className="flex -ml-1" style={{ color: C.ink }}><Ic i={ChevronLeft} s={22} mr={0} /></button>
         <ConvAvatar conv={conv} s={s} userId={user.id} size={36} />
         <div className="flex-1 min-w-0"><p className="text-[15px] font-semibold leading-tight truncate">{convName(conv, s, user.id)}</p><p className="text-[11px] truncate" style={{ color: C.muted }}>{other ? (other.role === "Head" ? "Head of QC" : "Controller") : `${people.length} people · ${people.join(", ")}`}</p></div>
@@ -3635,7 +3640,7 @@ function MChat({ s, set, user, go, initialContext, clearInitialContext }) {
   ); }
   return (
     <div className="pb-4">
-      <div className="flex items-center gap-3 px-4 pt-3 pb-2">
+      <div className="qc-sticky-bar flex items-center gap-3 px-4 pt-3 pb-2" style={{ background: C.surface }}>
         <div className="flex-1"><h2 className="leading-tight">Chat</h2><p className="text-[11px]" style={{ color: C.muted }}>{totalUnread ? `${totalUnread} unread` : mine.length ? `${mine.length} conversation${mine.length === 1 ? "" : "s"}` : "Talk to the Head and the team"}</p></div>
         <button onClick={() => setCreating(true)} className="w-10 h-10 rounded-full flex items-center justify-center" style={{ background: C.accent, color: C.onDark, boxShadow: "0 4px 12px rgba(0,0,0,.15)" }} title="New conversation"><Ic i={Plus} s={20} mr={0} /></button>
       </div>
