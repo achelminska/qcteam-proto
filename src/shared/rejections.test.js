@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseRejectionTime, parseSortableCell, normArticle, buildRejectionDigest, extRejectionsFor, extRejectedRecently, extRejectionLine, extRejectionsAll, extRejectionsYear, extRejectionYearLine, groupRejectionsByMonth, extRejectionsRecent, topCats, personName, linkLabel, parseReportName, indexReports, attachReports } from "./rejections.js";
+import { parseRejectionTime, parseSortableCell, normArticle, buildRejectionDigest, extRejectionsFor, extRejectedRecently, extRejectionLine, extRejectionsAll, extRejectionsYear, extRejectionYearLine, groupRejectionsByMonth, extRejectionsRecent, topCats, personName, linkLabel, parseReportName, indexReports, attachReports, hideExtRejection, unhideExtRejection, extRejectionHideKey, extRejectionsEverything, searchRejections } from "./rejections.js";
 
 describe("reading one cell — the formats the DC5 sheet uses today", () => {
   it("both timestamp styles, ISO, and junk", () => {
@@ -142,5 +142,38 @@ describe("QC One inspection PDFs from the Drive folder", () => {
   });
   it("no reports → nothing added, nothing breaks", () => {
     const d = buildRejectionDigest(rows, { now: NOW }); expect(d.reports).toBeUndefined(); expect(attachReports(d, [])).toBe(0);
+  });
+});
+
+describe("Head hides a cancelled sheet rejection", () => {
+  const d = buildRejectionDigest(rows, { now: NOW });
+  const cold = { a: "90006116", d: "2026-10-01T16:48", po: "1094749", tu: 15, reason: "Major remarks (cold damage)" };
+  const hidden = hideExtRejection([], cold, { userId: "u-head", at: NOW });
+  const s = { extRejections: d, hiddenExtRejections: hidden };
+  const nowMs = new Date(NOW).getTime();
+
+  it("stores one row and is idempotent", () => {
+    expect(hidden).toHaveLength(1);
+    expect(hidden[0].key).toBe(extRejectionHideKey(cold));
+    expect(hideExtRejection(hidden, cold)).toHaveLength(1);
+    expect(unhideExtRejection(hidden, hidden[0].key)).toEqual([]);
+  });
+  it("drops that row from lists, search, counts and the recently-rejected flag", () => {
+    expect(extRejectionsYear(s, "90006116").map(r => r.po)).toEqual(["1095000", "1000001"]);
+    expect(extRejectionYearLine(s, "90006116")).toMatchObject({ count: 2, shown: 2 });
+    expect(extRejectionLine(s, "90006116", nowMs)).toMatchObject({ count: 1, total: 1, tu: 20 });
+    expect(extRejectionLine(s, "90006116", nowMs).recent.map(r => r.po)).toEqual(["1095000"]);
+    expect(extRejectionsRecent(s, 7, nowMs).map(e => e.po)).toEqual(["1093779", "1095000"]);
+    expect(searchRejections(extRejectionsEverything(s), "1094749")).toHaveLength(0);
+    expect(searchRejections(extRejectionsEverything(s), "1095000")).toHaveLength(1);
+    expect(extRejectedRecently(s, "90006116", 3, nowMs)).toBe(false);
+    expect(extRejectedRecently(s, "90006116", 14, nowMs)).toBe(true);
+  });
+  it("hides the article's floor tile when every row is hidden", () => {
+    const all = extRejectionsYear({ extRejections: d }, "90006116").reduce((list, e) => hideExtRejection(list, e), []);
+    const gone = { extRejections: d, hiddenExtRejections: all };
+    expect(extRejectionYearLine(gone, "90006116")).toBe(null);
+    expect(extRejectionLine(gone, "90006116", nowMs)).toBe(null);
+    expect(extRejectedRecently(gone, "90006116", 14, nowMs)).toBe(false);
   });
 });
