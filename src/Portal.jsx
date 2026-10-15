@@ -6380,6 +6380,13 @@ export default function App() {
   // the sheet pushed). Also notice a redeploy (bootId changed) and offer a refresh. Pull as well when the tab comes back to the front.
   useEffect(() => { if (!loaded) return; const tick = async () => {
     if (window.storage?.getBootId) { const b = await window.storage.getBootId(); if (b) { if (bootIdRef.current === null) bootIdRef.current = b; else if (b !== bootIdRef.current) setNewVersion(true); } }
+    try {
+      if (navigator.serviceWorker?.getRegistration) { const reg = await navigator.serviceWorker.getRegistration(); await reg?.update(); }
+      const html = await fetch("/index.html", { cache: "no-store" }).then(r => r.ok ? r.text() : "");
+      const next = html.match(/src="(\/assets\/[^"]+)"/)?.[1];
+      const cur = document.querySelector('script[type="module"][src]')?.getAttribute("src") || "";
+      if (next && cur && !cur.includes(next.replace(/^\//, ""))) setNewVersion(true);
+    } catch {}
     await syncerRef.current.tick();
   }; const id = setInterval(tick, 5000);
   const onVisible = () => { if (document.visibilityState === "visible") syncerRef.current.tick(); }; document.addEventListener("visibilitychange", onVisible); window.addEventListener("focus", onVisible);

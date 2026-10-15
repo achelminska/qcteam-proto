@@ -187,8 +187,7 @@ const GLOBAL_CSS = () => `
   .qc button:disabled{cursor:not-allowed;opacity:.6}
   .qc button:focus-visible,.qc a:focus-visible{outline:2px solid ${C.accent};outline-offset:2px}
   .qc .label-sm{font-size:11.5px;font-weight:600;color:${C.muted};letter-spacing:0;text-transform:none}
-  .qc-sticky-bar{position:sticky;top:0;z-index:25;isolation:isolate}
-  .qc-tile,.qc-elev{position:relative;z-index:0}
+  .qc-sticky-bar{position:-webkit-sticky;position:sticky;top:0;z-index:100;isolation:isolate;-webkit-transform:translate3d(0,0,0);transform:translate3d(0,0,0)}
   .qc .row:hover{background:${C.bg}}
   .qc ::-webkit-scrollbar{width:10px;height:10px}.qc ::-webkit-scrollbar-thumb{background:${C.line};border-radius:8px;border:2px solid transparent;background-clip:padding-box}
   @media (prefers-reduced-motion:reduce){.qc *{transition:none!important}}
@@ -4445,6 +4444,13 @@ export default function App() {
   // gate on visibility — the cost of an occasional background fetch is negligible for a prototype. Also notices a redeploy.
   useEffect(() => { if (!loaded) return; const tick = async () => {
     if (window.storage?.getBootId) { const b = await window.storage.getBootId(); if (b) { if (bootIdRef.current === null) bootIdRef.current = b; else if (b !== bootIdRef.current) setNewVersion(true); } }
+    try {
+      if (navigator.serviceWorker?.getRegistration) { const reg = await navigator.serviceWorker.getRegistration(); await reg?.update(); }
+      const html = await fetch("/index.html", { cache: "no-store" }).then(r => r.ok ? r.text() : "");
+      const next = html.match(/src="(\/assets\/[^"]+)"/)?.[1];
+      const cur = document.querySelector('script[type="module"][src]')?.getAttribute("src") || "";
+      if (next && cur && !cur.includes(next.replace(/^\//, ""))) setNewVersion(true);
+    } catch {}
     await syncerRef.current.tick();
   }; const id = setInterval(tick, 5000); return () => clearInterval(id); }, [loaded]);
   useEffect(() => { const h = () => { if (document.visibilityState === "visible") syncerRef.current.tick(); }; document.addEventListener("visibilitychange", h); window.addEventListener("focus", h); window.addEventListener("pageshow", h); return () => { document.removeEventListener("visibilitychange", h); window.removeEventListener("focus", h); window.removeEventListener("pageshow", h); }; }, []);
