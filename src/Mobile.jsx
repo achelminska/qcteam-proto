@@ -5,7 +5,7 @@ import { extRejectionsEverything, filterRejectionsByPeriod, searchRejections } f
 import { mergeDockLines, mergedLineCount } from "./shared/dock-merge.js";
 import { useState, useEffect, useRef, Fragment } from "react";
 import { createSyncer, guardUnload } from "./sync.js";
-import { hasV, specLabel, dayLabel, typesOf, typeById, legacyTypeId, inspType, countsAs, listCheck, matchFieldSpec, numberSpecCheck, reportStatusFields, toleranceDisplay, matchesInspSearch } from "./shared/format.js";
+import { hasV, specLabel, specOriginLabel, dayLabel, typesOf, typeById, legacyTypeId, inspType, countsAs, listCheck, matchFieldSpec, numberSpecCheck, reportStatusFields, toleranceDisplay, matchesInspSearch } from "./shared/format.js";
 import { SPEC_TARGETS, SPEC_ALIASES } from "./shared/specsync.js";
 import { REJECTION_TARGETS, REJECTION_ALIASES, extRejectionsFor, extRejectedRecently, extRejectionLine, extRejectionsAll, extRejectionsYear, extRejectionYearLine, groupRejectionsByMonth, extRejectionsRecent, extRejectionKey, topCats, fmtRejectionDay, linkLabel, reportUrls } from "./shared/rejections.js";
 import { activeTempForSpec, applyTempSpec, closeExpiredTempSpecs, tempUntilLabel } from "./shared/tempspec.js";
@@ -1395,10 +1395,11 @@ function ListInput({ f, spec, value, problems, allProblems, overrides, totals, o
   const lp = linkedId && problems.find(p => p.id === linkedId);
   const bad = check && !check.ok;
   const expected = spec && spec.value && spec.value !== "—" ? spec.value : check?.expected;
+  const origin = spec ? specOriginLabel(spec) : "product";
   return (
     <div>
       {picker}
-      {expected && !bad && <p className="text-[11px] mt-1" style={{ color: check ? C.ok : C.muted }}>{check ? "✓ Matches the specification" : "Specification"}: <b>{expected}</b>{spec?.source && spec.source !== "product" ? <span style={{ color: C.muted }}> · {spec.source}</span> : null}</p>}
+      {expected && !bad && <p className="text-[11px] mt-1" style={{ color: check ? C.ok : C.muted }}>{check ? "✓ Matches the specification" : "Specification"}: <b>{expected}</b>{origin !== "product" ? <span style={{ color: origin === "temporary" ? C.bad : C.muted }}> · {origin}</span> : null}</p>}
       {bad && !lp && <div className="rounded-lg px-3 py-1.5 mt-1.5 text-xs" style={{ background: C.warnBg, color: C.warn }}>Doesn't match the specification (expected <b>{check.expected}</b>) — warning only.</div>}
       {bad && lp && !raised && <RaiseForm problems={problems} overrides={overrides} linkedId={linkedId} totals={totals} onRaise={onRaise} intro={<>Doesn't match the specification (expected <b>{check.expected}</b>)</>} />}
       {bad && lp && raised && <p className="text-xs mt-1.5" style={{ color: C.ok }}>✓ {lp.name} reported from this field.</p>}
@@ -1414,6 +1415,7 @@ function NumberInput({ f, problems, allProblems, overrides, specs, totals, value
   const sameName = (specs || []).filter(q => (q.name || "").trim().toLowerCase() === wanted);
   const spec = (f.specId && specs?.find(q => q.id === f.specId)) || sameName.find(q => specBasis(q) === fieldBasis(f)) || sameName[0] || null;
   const byName = spec && !(f.specId && spec.id === f.specId);
+  const origin = specOriginLabel(spec);
   let side = null, ref = null;
   const lim = limitsFor(spec, f, piecesPerCu); const mn = lim.min, mx = lim.max;
   if (avg !== null && (hasV(mn) || hasV(mx))) { ref = specLabel({ min: mn, max: mx, unit: spec ? spec.unit : "" }) + (fieldBasis(f) === "cu" ? " per CU" : ""); side = hasV(mn) && avg < Number(mn) ? "below" : hasV(mx) && avg > Number(mx) ? "above" : null; }
@@ -1432,7 +1434,7 @@ function NumberInput({ f, problems, allProblems, overrides, specs, totals, value
         : <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${n}, minmax(0,1fr))` }}>{ms.map((m, i) => <input key={i} type="number" inputMode="decimal" value={m} onChange={e => setM(i, e.target.value)} placeholder={`reading ${i + 1}`} className="text-base rounded-xl px-2 py-2.5 outline-none text-center" style={{ ...inp, fontVariantNumeric: "tabular-nums" }} />)}</div>}
       {lim.note && <p className="text-[11px] mt-1" style={{ color: C.muted }}>{lim.note}</p>}
       {spec?.temp && <p className="text-[11px] mt-1" style={{ color: C.warn }}>Temporary spec {tempUntilLabel(spec.temp)}{spec.temp.note ? ` — ${spec.temp.note}` : ""}</p>}
-      {avg !== null && <p className="text-xs mt-1.5" style={{ color: C.muted }}>average <b style={{ color: C.ink }}>{fmt(avg)}</b>{ref ? ` · reference ${ref}${byName ? ` (by name “${spec.name}"${spec.source !== "product" ? ", " + spec.source : ""})` : ""}` : (f.problemBelowId || f.problemAboveId) ? <span style={{ color: C.warn }}> · no reference — the product has no specification “{(f.specName || "").trim() || f.label}“ and the field has no min/max</span> : ""}</p>}
+      {avg !== null && <p className="text-xs mt-1.5" style={{ color: C.muted }}>average <b style={{ color: C.ink }}>{fmt(avg)}</b>{ref ? ` · reference ${ref}${byName ? ` (by name “${spec.name}"${origin !== "product" ? ", " + origin : ""})` : ""}` : (f.problemBelowId || f.problemAboveId) ? <span style={{ color: C.warn }}> · no reference — the product has no specification “{(f.specName || "").trim() || f.label}“ and the field has no min/max</span> : ""}</p>}
       {bad && !lp && <div className="rounded-lg px-3 py-1.5 mt-1.5 text-xs" style={{ background: C.warnBg, color: C.warn }}>Out of spec — warning only.</div>}
       {bad && lp && !raised && <RaiseForm problems={problems} overrides={overrides} linkedId={linkedId} totals={totals} onRaise={onRaise} intro="Out of spec" />}
       {raised && <p className="text-xs mt-1.5" style={{ color: C.ok }}>✓ {lp?.name} reported from this field.</p>}
@@ -1711,7 +1713,7 @@ function InspectionRunner({ insp, patch, t, problems, product, suppliers, dictio
               {f.type === "ProductInfo" && <div className="rounded-2xl px-4 py-3.5" style={{ background: C.accentSoft, color: C.ink, border: `1px solid ${C.line}`, borderLeft: `3px solid ${C.accent}` }}>
                 <p className="text-[11px] uppercase tracking-wide font-medium" style={{ color: C.accent, letterSpacing: ".06em" }}>Inspecting</p>
                 <p className="text-base font-semibold leading-snug mt-0.5">{product.name}{product.isBio && <span className="text-[10px] ml-2 px-1.5 py-0.5 rounded-full align-middle font-medium" style={{ background: C.okBg, color: C.ok }}>bio</span>}</p>
-                <div className="flex flex-wrap gap-1.5 mt-2.5">{specs.length ? specs.map(q => <span key={q.id || q.name} className="text-[11px] px-2 py-1 rounded-full" style={{ background: C.bg, color: C.ink, border: `1px solid ${C.line}` }}>{q.name} <b>{specLabel(q)}</b>{q.source !== "product" ? <span style={{ color: C.muted }}> · {q.source}</span> : null}</span>) : <span className="text-[11px]" style={{ color: C.muted }}>no specifications</span>}</div>
+                <div className="flex flex-wrap gap-1.5 mt-2.5">{specs.length ? specs.map(q => { const origin = specOriginLabel(q); return <span key={q.id || q.name} className="text-[11px] px-2 py-1 rounded-full" style={{ background: C.bg, color: C.ink, border: `1px solid ${C.line}` }}>{q.name} <b>{specLabel(q)}</b>{origin !== "product" ? <span style={{ color: origin === "temporary" ? C.bad : C.muted }}> · {origin}</span> : null}</span>; }) : <span className="text-[11px]" style={{ color: C.muted }}>no specifications</span>}</div>
               </div>}
               {f.type === "Supplier" && (productSuppliers.length ? <div><SearchSelect value={insp.supplier || ""} onChange={v => set({ supplier: v })} options={productSuppliers.map(x => ({ value: x.name, label: x.name }))} empty="— choose supplier —" placeholder="Search suppliers…" searchFrom={11} />{suppliersUnrestricted && <p className="text-[10px] mt-1" style={{ color: C.muted }}>product has no assigned suppliers — showing all</p>}</div> : <p className="text-xs" style={{ color: C.warn }}>The supplier list is empty — fill it in Dictionaries → Suppliers.</p>)}
               {f.type === "Variety" && (() => { const vars = effectiveVarieties(sctx, product); return vars.length ? <SearchSelect value={insp.variety || ""} onChange={v => set({ variety: v })} options={vars.map(x => ({ value: x.name, label: x.name }))} empty="— choose variety —" placeholder="Search varieties…" searchFrom={11} /> : <p className="text-xs" style={{ color: C.warn }}>No varieties — add them on the category or the product.</p>; })()}
@@ -2963,12 +2965,16 @@ function MProductInfo({ s, user, product, go, setState, embedded }) {
       {ref && <button onClick={() => go("inspection", ref.id)} className="w-full rounded-xl px-3 py-2 mb-2 text-[13px] text-left flex items-center" style={{ background: C.okBg, color: C.ok }}><Ic i={Star} s={14} />Reference inspection<span className="ml-1" style={{ opacity: .75 }}>· what a good pallet looks like</span><Ic i={ChevronRight} s={14} mr={0} style={{ marginLeft: "auto" }} /></button>}
 
       {guide.length > 0 && <MSection title="Encyclopedia" count={guide.length}>{guide.map((e, ix) => <MEncyclopediaEntry key={e.id} e={e} last={ix === guide.length - 1} />)}</MSection>}
-      {specs.length > 0 && <MSection title="Specifications" count={specs.length}>{specs.map((q, ix) => (
+      {specs.length > 0 && <MSection title="Specifications" count={specs.length}>{specs.map((q, ix) => {
+        const origin = specOriginLabel(q);
+        return (
         <div key={q.id} className="py-1.5" style={{ borderBottom: ix === specs.length - 1 ? "none" : `1px solid ${C.line}` }}>
           <div className="flex items-baseline justify-between gap-3 text-[13px]"><span style={{ color: C.muted }}>{q.name}</span><SpecValue spec={q} colors={C} /></div>
+          <p className="text-[11px] mt-0.5 leading-snug" style={{ color: origin === "temporary" ? C.bad : C.muted }}>{origin}</p>
           {q.temp?.note && <p className="text-[12px] mt-1 leading-snug" style={{ color: C.bad }}>{q.temp.note}</p>}
         </div>
-      ))}</MSection>}
+        );
+      })}</MSection>}
       {attrs.length > 0 && <MSection title="Properties" count={attrs.length}>{attrs.map((a, ix) => <MRow key={a.dictionaryId} k={a.list} v={a.value} last={ix === attrs.length - 1} />)}</MSection>}
       <YearRejectionTile s={s} articleId={product.articleId} go={go} />
       {refNotes.length > 0 && <MSection title="Reference guide" count={refNotes.length}>

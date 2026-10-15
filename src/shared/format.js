@@ -9,6 +9,15 @@ export const specLabel = q => {
   return `${core} ${q.unit || ""}`.trim();
 };
 
+// Where a spec on the product profile came from — same wording as the portal catalog.
+export const specOriginLabel = q => {
+  if (!q) return "product";
+  if (q.temp) return "temporary";
+  if (q.origin === "sheet") return "commercial sheet";
+  if (q.source && q.source !== "product") return q.source;
+  return "product";
+};
+
 // Kind of the add/edit spec form: a range, a floor, or a ceiling.
 export const specFormKind = q => {
   const mn = hasV(q?.min), mx = hasV(q?.max);
