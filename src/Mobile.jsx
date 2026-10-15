@@ -2819,7 +2819,7 @@ function MSearch({ s, user, go, onStart, setState, notify, onVisual }) {
   const [q, setQ] = useState(""); const [sel, setSel] = useBackSel("searchSel", null);
   const list = s.products.filter(p => p.isActive !== false && (!q || (p.name + " " + (p.articleId || "") + " " + (p.barcodeCu || "") + " " + (p.barcodeTu || "")).toLowerCase().includes(q.toLowerCase())));
   const product = s.products.find(p => p.id === sel);
-  if (product) return <MProductCard s={s} user={user} product={product} onBack={() => setSel(null)} onStart={typeId => onStart(product.id, null, typeId)} go={go} setState={setState} notify={notify} onVisual={onVisual} />;
+  if (product) return <MProductCard s={s} user={user} product={product} onBack={() => go("back")} onStart={typeId => onStart(product.id, null, typeId)} go={go} setState={setState} notify={notify} onVisual={onVisual} />;
   return (
     <div>
       <TopBar title="New inspection" onBack={() => go("back")} />
@@ -3431,9 +3431,10 @@ function MCatalog({ s, user, go, onStart, setState, notify, onVisual, preset }) 
   const [q, setQ] = useState(""); const [sel, setSel] = useBackSel("catalogSel", preset || null); const [cat, setCat] = useBackSel("catalogCat", null); const [fOpen, setFOpen] = useState(false);
   const [f, setF] = useState({ bio: "", supplier: "", flagged: false, reference: false, sort: "name" });
   const product = s.products.find(p => p.id === sel);
-  // `preset` means we were opened as go("catalog", productId) from another screen (rejections, pallet, chat, …).
-  // Back must pop that screen; clearing sel would dump the controller onto the category grid.
-  if (product) return <MProductCard s={s} user={user} product={product} onBack={() => preset ? go("back") : setSel(null)} onStart={typeId => onStart(product.id, null, typeId)} go={go} setState={setState} notify={notify} onVisual={onVisual} />;
+  // Product back always pops one history step: go("catalog", id) from rejections / pallet / chat / flags / briefing /
+  // notifications returns to that screen; a catalog-internal drill (category → product) returns to the category.
+  // Clearing sel instead would dump the controller onto the category grid.
+  if (product) return <MProductCard s={s} user={user} product={product} onBack={() => go("back")} onStart={typeId => onStart(product.id, null, typeId)} go={go} setState={setState} notify={notify} onVisual={onVisual} />;
   const supName = id => (s.suppliers || []).find(x => x.id === id)?.name || "";
   const catOf = id => s.categories.find(c => c.id === id);
   const catChain = id => { const out = []; let c = catOf(id); while (c) { out.unshift(c); c = c.parentId ? catOf(c.parentId) : null; } return out; };
