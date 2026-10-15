@@ -2090,6 +2090,10 @@ const Lock = () => null;
 // Real device (narrow screen or launched from the home screen): full-bleed, safe-area aware, no fake status bar.
 // Wide screen (desktop preview): the phone frame.
 const useRealDevice = () => { const [real, setReal] = useState(() => typeof window !== "undefined" && (window.matchMedia("(max-width: 560px)").matches || window.navigator.standalone === true || window.matchMedia("(display-mode: standalone)").matches)); useEffect(() => { const mq = window.matchMedia("(max-width: 560px)"); const h = () => setReal(mq.matches || window.navigator.standalone === true || window.matchMedia("(display-mode: standalone)").matches); mq.addEventListener ? mq.addEventListener("change", h) : mq.addListener(h); return () => { mq.removeEventListener ? mq.removeEventListener("change", h) : mq.removeListener(h); }; }, []); return real; };
+// iPhone Face ID reports ~34px safe-area-inset-bottom. Putting the full value under the tab bar
+// (plus 10px) left a dead band below the labels. Keep a fraction so icons stay above the home
+// indicator without doubling the inset. Never 0 — taps would land on the home gesture.
+const NAV_SAFE_BOTTOM = "calc(8px + env(safe-area-inset-bottom) * 0.4)";
 function Phone({ children, nav, onNav, page, badges, fab, dark, onTheme, overlay }) {
   const items = [["home", "🏠", "Dashboard"], ["chat", "💬", "Chat"], ["catalog", "🧺", "Catalog"], ["menu", "☰", "Menu"]];
   const real = useRealDevice();
@@ -2097,19 +2101,19 @@ function Phone({ children, nav, onNav, page, badges, fab, dark, onTheme, overlay
   const shell = real ? { width: "100%", height: "100dvh", background: C.surface, paddingTop: "env(safe-area-inset-top)", overscrollBehavior: "none" } : { width: 390, height: 844, background: C.surface, borderRadius: 44, border: `10px solid ${C.ink}`, overflow: "hidden", boxShadow: "0 30px 60px rgba(0,0,0,.28)" };
   return (
     <div className={`qc flex items-start justify-center ${real ? "" : "min-h-screen p-4 md:p-8"}`} style={outer}>
-      <style>{GLOBAL_CSS() + (real ? " html,body{overscroll-behavior:none;background:" + C.surface + "} body{position:fixed;inset:0;} .qc-sheet{position:fixed;} " : "")}</style>
+      <style>{GLOBAL_CSS() + (real ? " html,body,#root{overscroll-behavior:none;background:" + C.surface + ";min-height:100dvh} body{position:fixed;inset:0;} .qc-sheet{position:fixed;} " : "")}</style>
       <div className="relative flex flex-col" style={shell}>
         {!real && <div className="flex items-center justify-between px-6 pt-3 pb-1 text-[11px] font-medium" style={{ color: C.ink }}><span>{new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}</span><span className="flex items-center gap-2"><button onClick={onTheme} title="theme" className="flex">{dark ? <Ic i={Sun} s={13} mr={0} /> : <Ic i={Moon} s={13} mr={0} />}</button>●●● ᯤ ▮</span></div>}
         <div className="flex-1 overflow-y-auto relative" style={{ color: C.ink }}>{children}</div>
         {overlay}
         {fab && (
-          <div className="absolute flex flex-col items-end gap-3" style={{ right: 18, bottom: real ? `calc(${nav ? 78 : 22}px + env(safe-area-inset-bottom))` : (nav ? 78 : 22), zIndex: 30 }}>
+          <div className="absolute flex flex-col items-end gap-3" style={{ right: 18, bottom: real ? `calc(${nav ? 78 : 22}px + env(safe-area-inset-bottom) * 0.4)` : (nav ? 78 : 22), zIndex: 30 }}>
             <button onClick={fab.scan} className="qc-elev w-11 h-11 rounded-full flex items-center justify-center text-lg" style={{ background: C.surface, border: `1px solid ${C.line}`, boxShadow: lift() }} title="Scan code"><Ic i={ScanLine} s={20} mr={0} /></button>
             <button onClick={fab.add} className="qc-elev w-14 h-14 rounded-full flex items-center justify-center text-2xl" style={{ background: C.ink, color: C.onDark, boxShadow: lift(2) }} title="New inspection"><Ic i={Plus} s={26} mr={0} /></button>
           </div>
         )}
         {nav && (
-          <div className="flex justify-around pt-2.5" style={{ borderTop: `1px solid ${C.line}`, background: C.surface, paddingBottom: real ? "calc(10px + env(safe-area-inset-bottom))" : 10 }}>
+          <div className="flex justify-around pt-2.5" style={{ borderTop: `1px solid ${C.line}`, background: C.surface, paddingBottom: real ? NAV_SAFE_BOTTOM : 10 }}>
             {items.map(([k, ic, l]) => <button key={k} onClick={() => onNav(k)} className="flex flex-col items-center gap-0.5 relative px-3" style={{ color: page === k ? C.accent : C.muted }}><span className="px-3 rounded-full flex items-center" style={{ background: page === k ? C.accentSoft : "transparent", height: 26 }}><Ic i={NAV_ICON[k]} s={19} mr={0} /></span><span className="text-[10px]" style={{ fontWeight: page === k ? 600 : 500 }}>{l}</span>{badges?.[k] > 0 && <span className="absolute -top-1 right-0 text-[9px] px-1 rounded-full" style={{ background: C.bad, color: C.onDark }}>{badges[k]}</span>}</button>)}
           </div>
         )}
