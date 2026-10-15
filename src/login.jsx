@@ -97,7 +97,7 @@ return function LoginScreen({ s, onLogin, allowRoles }) {
           .qc-login{grid-template-columns:1fr;grid-template-rows:auto 1fr;background:#0D1410!important;position:relative}
           .qc-login::before{content:"";position:fixed;inset:0;z-index:0;background:#0D1410 url(/login-mobile-bg.jpg?v=${LOGIN_HERO_V}) center bottom / 100% auto no-repeat}
           .qc-login>*{position:relative;z-index:1}
-          .qc-login-brand{padding:56px 20px 0;min-height:0;background:transparent;align-items:center}
+          .qc-login-brand{padding:calc(env(safe-area-inset-top) + 18vh) 20px 0;min-height:0;background:transparent;align-items:center}
           .qc-login-brand .hero,.qc-login-brand .tint,.qc-login-brand .grain,.qc-login-brand .lines,.qc-login-brand .nav,.qc-login-brand .cap{display:none}
           .qc-login-brand .logo{margin:0 auto}
           .qc-login-brand .logo svg{width:240px;height:auto;color:#C4DCCB!important;opacity:.95}
