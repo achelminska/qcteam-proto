@@ -12,7 +12,7 @@ import { activeTempForSpec, applyTempSpec, closeExpiredTempSpecs, tempUntilLabel
 import { SpecValue } from "./shared/SpecValue.jsx";
 import { peopleOnFloor, peopleAtDock, floorWhere, floorVerb, doneTodayCount } from "./shared/floor.js";
 import { adoptLocalBriefingSeen, briefingFp, clearBriefingSeen, markBriefingSeen, seenFingerprints } from "./shared/briefing-seen.js";
-import { briefingDefaultTab, briefingItemsKey, briefingRemark, briefingTabDeck, briefingUnseen, liveBriefingFps } from "./shared/briefing-cards.js";
+import { briefingDeckStep, briefingDefaultTab, briefingItemsKey, briefingRemark, briefingTabDeck, briefingUnseen, liveBriefingFps } from "./shared/briefing-cards.js";
 import { attachableSameDay, otherDeliveryDay, sameDeliveryRows } from "./shared/delivery-pallets.js";
 import { liveNoteOf, fmtUntil } from "./shared/specsync.js";
 import { poRequiredOnReject, poSourceHint, sheetPoForInspection, suggestedPo } from "./shared/rejection-po.js";
@@ -3979,7 +3979,14 @@ function MBriefing({ s, set, user, go }) {
   const dragging = useRef(false);
   const wheelLock = useRef(false);
   const stage = useRef(null);
-  useEffect(() => { setCards(briefingTabDeck(s, tab, user.id)); setI(0); setDx(0); }, [tab]);
+  const closing = useRef(false);
+  const closeTimer = useRef(null);
+  useEffect(() => () => { if (closeTimer.current) clearTimeout(closeTimer.current); }, []);
+  useEffect(() => {
+    closing.current = false;
+    if (closeTimer.current) { clearTimeout(closeTimer.current); closeTimer.current = null; }
+    setCards(briefingTabDeck(s, tab, user.id)); setI(0); setDx(0);
+  }, [tab]);
   const n = cards.length;
   const ix = n ? Math.max(0, Math.min(i, n - 1)) : 0;
   useEffect(() => {
@@ -3988,11 +3995,34 @@ function MBriefing({ s, set, user, go }) {
     const t = setTimeout(() => set(x => markBriefingSeen(x, user.id, fp, nowISO(), liveBriefingFps(x))), 400);
     return () => clearTimeout(t);
   }, [ix, tab, cards, user.id]);
-  const goTo = nI => { if (!n) return; setAnim(true); setDx(0); setI(Math.max(0, Math.min(n - 1, nI))); };
+  const goTo = nI => {
+    if (!n || closing.current) return;
+    const delta = nI - ix;
+    const step = briefingDeckStep(ix, n, delta);
+    setAnim(true);
+    if (step.done) {
+      closing.current = true;
+      const fp = briefingFp(cards[ix]);
+      if (fp) set(x => markBriefingSeen(x, user.id, fp, nowISO(), liveBriefingFps(x)));
+      const off = -(Math.max(stage.current?.clientWidth || 360, 280));
+      setDx(prev => (prev < off ? prev : off));
+      closeTimer.current = setTimeout(() => {
+        setCards([]);
+        setI(0);
+        setDx(0);
+        setAnim(false);
+        closing.current = false;
+        closeTimer.current = null;
+      }, 300);
+      return;
+    }
+    setDx(0);
+    setI(step.i);
+  };
   const catPath = id => { const c = s.categories.find(x => x.id === id); if (!c) return null; const p = c.parentId && s.categories.find(x => x.id === c.parentId); return p ? `${p.name} › ${c.name}` : c.name; };
   const who = id => s.users.find(u => u.id === id)?.name.split(" ")[0];
   const onDown = e => {
-    if (e.target.closest("[data-story-cta]")) return;
+    if (closing.current || e.target.closest("[data-story-cta]")) return;
     dragging.current = true;
     start.current = { y: e.clientY, x: e.clientX };
     setAnim(false);

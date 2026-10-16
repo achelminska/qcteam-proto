@@ -56,6 +56,16 @@ export const briefingDefaultTab = (s, userId) => {
   return "rejections";
 };
 
+// Swipe / tap on the deck. Stepping past the last card is "done" — the empty "you're up to date"
+// screen — not a clamp back onto that last card.
+export const briefingDeckStep = (ix, n, delta) => {
+  if (n <= 0) return { i: 0, done: true };
+  const next = ix + delta;
+  if (next < 0) return { i: 0, done: false };
+  if (next >= n) return { i: n, done: true };
+  return { i: next, done: false };
+};
+
 export const briefingRemark = (s, r) => {
   const name = (problemPath(s?.problems || [], r.leafId) || "").split(" › ").pop() || "?";
   if (r.mode === "Presence") return name;

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   briefingAnnouncements,
   briefingComplaints,
+  briefingDeckStep,
   briefingDefaultTab,
   briefingRemark,
   briefingRejections,
@@ -73,5 +74,17 @@ describe("rejections from the DC5 sheet in the deck", () => {
   });
   it("sheet rejections alone open the rejections tab", () => {
     expect(briefingDefaultTab({ ...s2, announcements: [], inspections: [], complaints: { rows: [] } }, "u-anna")).toBe("rejections");
+  });
+});
+
+describe("briefingDeckStep", () => {
+  it("swiping the last card (including a deck of one) finishes the deck", () => {
+    expect(briefingDeckStep(0, 1, 1)).toEqual({ i: 1, done: true });
+    expect(briefingDeckStep(2, 3, 1)).toEqual({ i: 3, done: true });
+  });
+  it("advances inside the deck and does not go before the first card", () => {
+    expect(briefingDeckStep(0, 3, 1)).toEqual({ i: 1, done: false });
+    expect(briefingDeckStep(0, 3, -1)).toEqual({ i: 0, done: false });
+    expect(briefingDeckStep(1, 3, -1)).toEqual({ i: 0, done: false });
   });
 });
