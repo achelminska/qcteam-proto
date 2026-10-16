@@ -23,6 +23,7 @@ import { AnnounceAttachButton, AnnounceFileList, AnnounceFileThumbs } from "./sh
 import { readAsDataUrl, keepPhoto, shrinkPhoto, memoPdfPhoto, fetchPdfPhotoSrc, rotateImage } from "./shared/report-images.js";
 import { attachRemarkPhotos, photoGroupsByModule, pickedPhotos, replacePhoto, replaceRemarkPhoto, THUMB_EDGE, thumbSrc, thumbsMissing, withThumb } from "./shared/photos.js";
 import { CameraSheet } from "./shared/CameraSheet.jsx";
+import { primeScanCamera, takeScanCamera } from "./shared/camera.js";
 import { PhotoReview } from "./shared/PhotoReview.jsx";
 import { drawReportPdf } from "./shared/report-pdf.js";
 import { needsShareToSave, savePdfFile, triggerAnchorDownload } from "./shared/pdf-save.js";
@@ -1729,7 +1730,7 @@ function InspectionRunner({ insp, patch, t, problems, product, suppliers, dictio
                 const picker = <SearchSelect value={values[f.id] || ""} onChange={v => setV(f.id, v)} options={d.items.map(o => ({ value: o.value, label: o.value }))} empty={`— choose (${d.items.length} options) —`} placeholder={`Search ${d.name.toLowerCase()}…`} searchFrom={11} />;
                 return <ListInput f={f} spec={preset} value={values[f.id]} problems={problems} allProblems={sctx?.problems} overrides={t.overrides} totals={totals} onRaise={(leafId, mode, raw) => setRemarks(r => [...r, { id: uid(), leafId, mode, raw, auto: true, fieldId: f.id }])} raised={remarks.some(r => r.auto && r.fieldId === f.id)} picker={picker} />;
               })()}
-              {f.type === "Pallet" && <div>{pallets.map((p, i) => <div key={i} className="flex gap-1.5 mb-1.5"><input value={p} onChange={e => setPallets(ps => ps.map((x, j) => j === i ? e.target.value : x))} placeholder={`pallet ${i + 1}`} className="flex-1 text-sm rounded px-2 py-1.5 outline-none font-mono" style={{ ...inp }} /><button onClick={() => setScanPalletIdx(i)} className="text-xs px-2 rounded" style={{ background: C.accentSoft, color: C.accent }} title="scan pallet barcode (SSCC)"><Ic i={ScanLine} s={13} mr={0} /></button>{pallets.length > 1 && <button onClick={() => setPallets(ps => ps.filter((_, j) => j !== i))} className="text-xs px-1" style={{ color: C.muted }}>×</button>}</div>)}<button onClick={() => setPallets(ps => [...ps, ""])} className="text-xs" style={{ color: C.accent }}>+ another pallet</button><DeliveryPallets product={product} insp={insp} onAdd={hus => setPallets(ps => [...ps.filter(Boolean), ...hus.filter(h => !ps.includes(h))])} />
+              {f.type === "Pallet" && <div>{pallets.map((p, i) => <div key={i} className="flex gap-1.5 mb-1.5"><input value={p} onChange={e => setPallets(ps => ps.map((x, j) => j === i ? e.target.value : x))} placeholder={`pallet ${i + 1}`} className="flex-1 text-sm rounded px-2 py-1.5 outline-none font-mono" style={{ ...inp }} /><button onClick={() => { primeScanCamera(); setScanPalletIdx(i); }} className="text-xs px-2 rounded" style={{ background: C.accentSoft, color: C.accent }} title="scan pallet barcode (SSCC)"><Ic i={ScanLine} s={13} mr={0} /></button>{pallets.length > 1 && <button onClick={() => setPallets(ps => ps.filter((_, j) => j !== i))} className="text-xs px-1" style={{ color: C.muted }}>×</button>}</div>)}<button onClick={() => setPallets(ps => [...ps, ""])} className="text-xs" style={{ color: C.accent }}>+ another pallet</button><DeliveryPallets product={product} insp={insp} onAdd={hus => setPallets(ps => [...ps.filter(Boolean), ...hus.filter(h => !ps.includes(h))])} />
                 {scanPalletIdx !== null && (
                   <Modal open>
                     <p className="text-sm font-semibold mb-2">Scan pallet {scanPalletIdx + 1}</p>
@@ -3085,7 +3086,7 @@ function MProductCard({ s, user, product, onBack, onStart, go, setState, notify,
 }
 
 function LiveScanner({ onCode }) {
-  const [state, setState] = useState("idle"); const [err, setErr] = useState(""); const [decoder, setDecoder] = useState(""); const videoRef = useRef(null); const streamRef = useRef(null); const timerRef = useRef(null); const zxingRef = useRef(null);
+  const [state, setState] = useState("starting"); const [err, setErr] = useState(""); const [decoder, setDecoder] = useState(""); const videoRef = useRef(null); const streamRef = useRef(null); const timerRef = useRef(null); const zxingRef = useRef(null);
   const secure = typeof window !== "undefined" && (window.isSecureContext || location.hostname === "localhost");
   // One scan session. stop() retires it immediately, so a detect() that was already running (often 1–2s on a phone)
   // cannot apply the previous pallet after Scan another has cleared the screen.
@@ -3106,16 +3107,20 @@ function LiveScanner({ onCode }) {
     const code = String(txt || "").replace(/[^0-9A-Za-z]/g, ""); if (!code) return;
     claimed.current = true; stop(); onCode(code);
   };
-  const start = async () => {
-    if (mouseClickBlocked()) return;
+  const start = async (ev) => {
+    // Overlay taps still ignore the ghost mouse click from the previous gesture. Programmatic start (mount / FAB
+    // prime) must not — go() arms that guard, which is why the camera used to wait for a second tap.
+    if (ev && mouseClickBlocked()) return;
     const my = ++sessionRef.current; claimed.current = false;
-    setErr(""); if (!secure) { setErr("The camera only works over HTTPS (or localhost)."); return; }
-    if (!navigator.mediaDevices?.getUserMedia) { setErr("This browser exposes no camera API. Type the code below."); return; }
+    setErr(""); if (!secure) { setErr("The camera only works over HTTPS (or localhost)."); setState("idle"); return; }
+    if (!navigator.mediaDevices?.getUserMedia) { setErr("This browser exposes no camera API. Type the code below."); setState("idle"); return; }
     setState("starting");
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
+      const stream = await takeScanCamera();
       if (sessionRef.current !== my) { stream.getTracks().forEach(t => t.stop()); return; }
-      streamRef.current = stream; const v = videoRef.current; v.srcObject = stream; v.setAttribute("playsinline", "true"); v.muted = true; await v.play();
+      streamRef.current = stream; const v = videoRef.current;
+      if (!v) { stream.getTracks().forEach(t => t.stop()); return; }
+      v.srcObject = stream; v.setAttribute("playsinline", "true"); v.muted = true; await v.play();
       if (sessionRef.current !== my) { try { stream.getTracks().forEach(t => t.stop()); } catch (e) {} return; }
       setState("live");
       if (window.BarcodeDetector) {
@@ -3127,13 +3132,13 @@ function LiveScanner({ onCode }) {
       } else { setDecoder("none"); }
     } catch (e) { if (sessionRef.current !== my) return; setErr(e?.name === "NotAllowedError" ? "Camera permission denied — allow it in Settings → Safari → Camera." : e?.name === "NotFoundError" ? "No camera found." : String(e?.message || e)); stop(); }
   };
-  useEffect(() => () => stop(), []);
+  useEffect(() => { start(); return () => stop(); }, []);
   return (
     <div className="rounded-2xl overflow-hidden mb-3 relative" style={{ background: "#0b0f0d", minHeight: 220 }}>
       <video ref={videoRef} autoPlay muted playsInline style={{ width: "100%", height: 220, objectFit: "cover", display: state === "live" ? "block" : "none", background: "#000" }} />
       {state === "live" && <div className="absolute pointer-events-none" style={{ left: "8%", right: "8%", top: "30%", height: "40%", border: "2px solid rgba(255,255,255,.7)", borderRadius: 10 }} />}
       {state === "live" && <div className="absolute left-0 right-0 bottom-0 flex items-center gap-2 px-3 py-1.5 text-[11px]" style={{ color: "#fff", background: "rgba(0,0,0,.5)" }}><span className="flex-1">{decoder === "native" ? "Scanning (native)" : decoder === "zxing" ? "Scanning (ZXing)" : "Preview only — no decoder in this browser, type the code below"}</span><button onClick={stop} className="underline">stop</button></div>}
-      {state !== "live" && <button onClick={start} className="absolute inset-0 w-full flex flex-col items-center justify-center" style={{ color: "#fff" }}><ScanLine size={40} strokeWidth={1.5} /><span className="text-sm mt-2 font-medium">{state === "starting" ? "Starting camera…" : "Tap to scan with the camera"}</span><span className="text-[11px] opacity-70 mt-0.5">pallet SSCC · product EAN</span></button>}
+      {state !== "live" && <button type="button" onClick={start} disabled={state === "starting"} className="absolute inset-0 w-full flex flex-col items-center justify-center" style={{ color: "#fff" }}><ScanLine size={40} strokeWidth={1.5} /><span className="text-sm mt-2 font-medium">{state === "starting" ? "Starting camera…" : "Tap to scan with the camera"}</span><span className="text-[11px] opacity-70 mt-0.5">pallet SSCC · product EAN</span></button>}
       {err && <p className="absolute left-0 right-0 top-0 text-[11px] px-3 py-2" style={{ color: "#fff", background: "#5a2a2a" }}>{err}</p>}
     </div>
   );
@@ -3267,7 +3272,7 @@ function MScan({ s, user, go, onStart, onVisual, onSkip, setState, notify, prese
   };
   const start = (pid, typeId = "type-full") => { if (draft && draft.controllerId !== user.id) { setConfirmCollision({ draft, pid, typeId }); return; } onStart(pid, pallet || null, typeId); };
   const pickPalletOfProduct = hu => { setCode(hu); setPallet(hu); const done = s.inspections.find(i => (i.pallets || []).some(x => samePallet(x, hu)) && i.status === "Completed"); setMode(done ? "done" : "pallet"); };
-  const clearScan = () => { armClickGuard(); setMode(null); setPallet(""); setCode(""); setAskInspect(false); setLostOpen(false); };
+  const clearScan = () => { armClickGuard(); primeScanCamera(); setMode(null); setPallet(""); setCode(""); setAskInspect(false); setLostOpen(false); };
   // The code text used to sit outside the button, so a finger on the chip did nothing. A 1px press-shift can also
   // cancel the click on a short label. pointerup still counts as the tap; the click guard drops the follow-up.
   const chipDown = useRef(null);
@@ -4522,7 +4527,7 @@ export default function App() {
   if (!loaded) return <div className="min-h-screen flex items-center justify-center text-sm" style={{ color: C.muted }}>Loading…</div>;
   const user = s.users.find(u => u.id === userId && u.active !== false) || null;
   if (!user) return <LoginScreen s={{ ...s, __set: set }} allowRoles={["Head", "Controller"]} onLogin={id => setUserId(id)} />;
-  const go = (p, prm = null) => { if (p === "back") { if (depthRef.current > 0) { explicitBack = true; try { history.back(); return; } catch {} } setPage("home"); setParam(null); return; } armClickGuard(); armGestureLock(); setPage(p); setParam(prm); };
+  const go = (p, prm = null) => { if (p === "back") { if (depthRef.current > 0) { explicitBack = true; try { history.back(); return; } catch {} } setPage("home"); setParam(null); return; } if (p === "scan" && (prm == null || prm === "")) primeScanCamera(); armClickGuard(); armGestureLock(); setPage(p); setParam(prm); };
   const notify = (type, message, entityType, entityId, toUserId) => set(x => { const targets = toUserId ? [toUserId] : x.users.filter(u => u.role === "Head").map(u => u.id); return { ...x, notifications: [...x.notifications, ...targets.map(t => ({ id: uid(), userId: t, type, message, entityType, entityId, createdAt: nowISO(), readAt: null }))] }; });
   const startInspection = (pid, palletNo, force = false, typeId = "type-full") => {
     const p = s.products.find(x => x.id === pid); const t = resolveTemplate(s, p, typeId); if (!p || !t) { setToast(`No form for “${typeById(s, typeId)?.name || "this type"}” — the Head must build it in Forms.`); return; }
