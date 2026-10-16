@@ -2099,26 +2099,44 @@ const useRealDevice = () => { const [real, setReal] = useState(() => typeof wind
 // (plus 10px) left a dead band below the labels. Keep a fraction so icons stay above the home
 // indicator without doubling the inset. Never 0 — taps would land on the home gesture.
 const NAV_SAFE_BOTTOM = "calc(8px + env(safe-area-inset-bottom) * 0.4)";
-// iOS home-screen PWAs leave the layout shifted after the keyboard (or a focused search field) closes.
-// Pin the shell to visualViewport.height and slam scroll back to 0 whenever that viewport moves.
+const isKbField = el => el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) && !/^(checkbox|radio|file|button|submit|reset|hidden)$/i.test(el.type || "");
+const slamScroll = () => {
+  try { window.scrollTo(0, 0); } catch {}
+  try { document.documentElement.scrollTop = 0; document.body.scrollTop = 0; } catch {}
+  try { document.querySelectorAll(".qc-page-scroll").forEach(el => { el.scrollTop = 0; }); } catch {}
+};
+// Fit the shell to the keyboard only while a field is focused. After blur, always return to 100dvh —
+// trusting visualViewport.height after the keyboard closes is what left the screen lifted.
 function useIosViewport(real) {
   const [h, setH] = useState(null);
+  const focused = useRef(false);
   useEffect(() => {
     if (!real) return;
-    const sync = () => {
-      try { window.scrollTo(0, 0); } catch {}
+    const fit = () => {
+      slamScroll();
       const vv = window.visualViewport;
-      setH(Math.round(vv && vv.height ? vv.height : window.innerHeight));
+      if (vv && vv.height) setH(Math.round(vv.height));
     };
-    sync();
+    const restore = () => { slamScroll(); setH(null); };
+    const onFocusIn = e => { if (!isKbField(e.target)) return; focused.current = true; fit(); };
+    const onFocusOut = () => {
+      [0, 80, 220, 400, 600].forEach(ms => setTimeout(() => {
+        if (isKbField(document.activeElement)) { focused.current = true; return; }
+        focused.current = false;
+        restore();
+      }, ms));
+    };
+    const onVv = () => { slamScroll(); if (focused.current) fit(); else restore(); };
     const vv = window.visualViewport;
-    vv && vv.addEventListener("resize", sync);
-    vv && vv.addEventListener("scroll", sync);
-    window.addEventListener("focusout", sync);
+    document.addEventListener("focusin", onFocusIn);
+    document.addEventListener("focusout", onFocusOut);
+    vv && vv.addEventListener("resize", onVv);
+    vv && vv.addEventListener("scroll", onVv);
     return () => {
-      vv && vv.removeEventListener("resize", sync);
-      vv && vv.removeEventListener("scroll", sync);
-      window.removeEventListener("focusout", sync);
+      document.removeEventListener("focusin", onFocusIn);
+      document.removeEventListener("focusout", onFocusOut);
+      vv && vv.removeEventListener("resize", onVv);
+      vv && vv.removeEventListener("scroll", onVv);
     };
   }, [real]);
   return h;
@@ -2137,7 +2155,7 @@ function Phone({ children, nav, onNav, page, badges, fab, dark, onTheme, overlay
         {!real && <div className="flex items-center justify-between px-6 pt-3 pb-1 text-[11px] font-medium" style={{ color: C.ink }}><span>{new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}</span><span className="flex items-center gap-2"><button onClick={onTheme} title="theme" className="flex">{dark ? <Ic i={Sun} s={13} mr={0} /> : <Ic i={Moon} s={13} mr={0} />}</button>●●● ᯤ ▮</span></div>}
         {banner}
         {pin}
-        <div className="flex-1 overflow-y-auto relative min-h-0" style={{ color: C.ink }}>{children}</div>
+        <div className="qc-page-scroll flex-1 overflow-y-auto relative min-h-0" style={{ color: C.ink }}>{children}</div>
         {overlay}
         {fab && (
           <div className="absolute flex flex-col items-end gap-3" style={{ right: 18, bottom: real ? `calc(${nav ? 78 : 22}px + env(safe-area-inset-bottom) * 0.4)` : (nav ? 78 : 22), zIndex: 30 }}>
@@ -3592,7 +3610,7 @@ function ChatThread({ s, conv, user, onOpenCtx, wide }) {
   const hh = iso => new Date(iso).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
   const gap = (a, b) => Math.abs(new Date(a) - new Date(b)) > 5 * 60000;
   return (
-    <div ref={ref} className="flex-1 min-h-0 overflow-y-auto px-3 py-3" style={{ background: C.bg }}>
+    <div ref={ref} className="qc-chat-thread flex-1 min-h-0 overflow-y-auto px-3 py-3" style={{ background: C.bg }}>
       {msgs.length === 0 && <div className="flex flex-col items-center justify-center text-center py-10 px-6"><ConvAvatar conv={conv} s={s} userId={user.id} size={56} /><p className="text-sm font-semibold mt-3">{convName(conv, s, user.id)}</p><p className="text-xs mt-1 leading-snug" style={{ color: C.muted }}>No messages yet. Say hello, attach a photo or link a pallet, product or inspection.</p></div>}
       {msgs.map((m, i) => { const me = m.senderId === user.id; const prev = msgs[i - 1], next = msgs[i + 1];
         const newDay = !prev || new Date(prev.at).toDateString() !== new Date(m.at).toDateString();
@@ -3669,7 +3687,7 @@ function MChat({ s, set, user, go, initialContext, clearInitialContext }) {
       <ChatThread s={s} conv={conv} user={user} onOpenCtx={openCtx} />
       <div className="px-3 pt-2 pb-2.5" style={{ borderTop: `1px solid ${C.line}`, background: C.surface }}>
         <ComposerExtras s={s} user={user} pending={pending} setPending={setPending} compact bar={<>
-          <textarea value={text} onChange={e => setText(e.target.value)} placeholder="Message…" rows={1} className="flex-1 text-[14px] px-3.5 py-2 outline-none resize-none" style={{ ...inp, background: C.bg, borderRadius: 20, maxHeight: 120, minHeight: 36, lineHeight: "20px" }} />
+          <textarea value={text} onChange={e => setText(e.target.value)} onBlur={() => { setTimeout(() => { slamScroll(); const t = document.querySelector(".qc-chat-thread"); if (t) t.scrollTop = t.scrollHeight; }, 350); }} placeholder="Message…" rows={1} className="flex-1 text-[14px] px-3.5 py-2 outline-none resize-none" style={{ ...inp, background: C.bg, borderRadius: 20, maxHeight: 120, minHeight: 36, lineHeight: "20px" }} />
           <button onClick={send} disabled={!canSend} className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 transition-colors" style={{ background: canSend ? C.accent : C.line, color: canSend ? C.onDark : C.muted }}><Ic i={Send} s={16} mr={0} style={{ marginLeft: -2 }} /></button>
         </>} />
       </div>
