@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { QCWordmark } from "./brand.jsx";
 import { Eye, EyeOff } from "lucide-react";
+import { useHeadCss } from "./shared/head-css.js";
 
 export function createLoginScreen({ DARK, GLOBAL_CSS, Ic, ChevronLeft, ChevronRight, Check, notifyHeads, nowISO, writeSession }) {
 // Bump when public/login-hero.jpg changes: the service worker and the browser cache the old picture under the same URL.
@@ -60,9 +61,7 @@ return function LoginScreen({ s, onLogin, allowRoles }) {
   const field = (label, value, onChange, props = {}) => (
     <label className="block mb-4"><span className="lbl">{label}</span><input className="fld" value={value} onChange={e => { onChange(e.target.value); setErr(""); }} {...props} /></label>
   );
-  return (
-    <div className="qc min-h-screen qc-login" style={{ background: D.bg, color: D.ink }}>
-      <style>{GLOBAL_CSS()}{`
+  const loginCss = GLOBAL_CSS() + `
         .qc-login{display:grid;grid-template-columns:minmax(380px,46%) minmax(0,1fr);min-height:100vh;color:${D.ink}}
         .qc-login-form{position:relative;overflow:hidden;display:flex;align-items:center;justify-content:center;padding:48px 32px;background:#0D1410}
         .qc-login-form>div{position:relative}
@@ -105,7 +104,10 @@ return function LoginScreen({ s, onLogin, allowRoles }) {
           .qc-login-form h1{display:block;font-size:22px!important;margin:18px 0 12px!important;color:#C4DCCB!important;opacity:.95}.qc-login-form h1+p{display:none}
           .qc-login-form .link{color:${D.muted}}
         }
-      `}</style>
+  `;
+  useHeadCss("qc-login-css", loginCss);
+  return (
+    <div className="qc min-h-screen qc-login" style={{ background: D.bg, color: D.ink }}>
       <aside className={`qc-login-brand${hero ? " photo" : ""}`} onMouseEnter={() => setPaused(true)} onMouseLeave={() => setPaused(false)} onTouchStart={e => { touchX.current = e.touches[0].clientX; }} onTouchEnd={e => { const x0 = touchX.current; touchX.current = null; if (x0 == null) return; const dx = e.changedTouches[0].clientX - x0; if (Math.abs(dx) > 40) goSlide(dx < 0 ? 1 : -1); }}>
         {hero && HERO_SLIDES.map((h, i) => <img key={h.src} className={`hero ${h.cls}${slide === i ? " on" : ""}`} src={h.src} alt="" onError={() => { if (i === 0) setHero(false); }} />)}
         {hero && <div className="tint" />}

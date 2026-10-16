@@ -24,6 +24,7 @@ import { readAsDataUrl, keepPhoto, shrinkPhoto, memoPdfPhoto, fetchPdfPhotoSrc, 
 import { attachRemarkPhotos, photoGroupsByModule, pickedPhotos, replacePhoto, replaceRemarkPhoto, THUMB_EDGE, thumbSrc, thumbsMissing, withThumb } from "./shared/photos.js";
 import { CameraSheet } from "./shared/CameraSheet.jsx";
 import { primeScanCamera, takeScanCamera } from "./shared/camera.js";
+import { useHeadCss } from "./shared/head-css.js";
 import { PhotoReview } from "./shared/PhotoReview.jsx";
 import { drawReportPdf } from "./shared/report-pdf.js";
 import { needsShareToSave, savePdfFile, triggerAnchorDownload } from "./shared/pdf-save.js";
@@ -2147,12 +2148,12 @@ function Phone({ children, nav, onNav, page, badges, fab, dark, onTheme, overlay
   const real = useRealDevice();
   const vvH = useIosViewport(real);
   const css = GLOBAL_CSS() + (real ? " html,body,#root{overscroll-behavior:none;background:" + C.surface + ";min-height:100dvh} body{position:fixed;inset:0;} .qc-sheet{position:fixed;} " : "");
+  useHeadCss("qc-phone-css", css);
   const outer = real ? { background: C.surface, minHeight: "100dvh", overflow: "hidden" } : { background: C.frameBg };
   const shell = real ? { width: "100%", height: vvH || "100dvh", background: C.surface, paddingTop: "env(safe-area-inset-top, 47px)", overscrollBehavior: "none" } : { width: 390, height: 844, background: C.surface, borderRadius: 44, border: `10px solid ${C.ink}`, overflow: "hidden", boxShadow: "0 30px 60px rgba(0,0,0,.28)" };
   return (
     <div className={`qc flex items-start justify-center ${real ? "" : "min-h-screen p-4 md:p-8"}`} style={outer}>
       <div className="relative flex flex-col" style={shell}>
-        <style dangerouslySetInnerHTML={{ __html: css }} />
         {!real && <div className="flex items-center justify-between px-6 pt-3 pb-1 text-[11px] font-medium" style={{ color: C.ink }}><span>{new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}</span><span className="flex items-center gap-2"><button onClick={onTheme} title="theme" className="flex">{dark ? <Ic i={Sun} s={13} mr={0} /> : <Ic i={Moon} s={13} mr={0} />}</button>●●● ᯤ ▮</span></div>}
         {banner}
         {pin}
