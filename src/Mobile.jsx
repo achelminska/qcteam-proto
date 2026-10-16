@@ -2142,7 +2142,7 @@ function useIosViewport(real) {
   }, [real]);
   return h;
 }
-function Phone({ children, nav, onNav, page, badges, fab, dark, onTheme, overlay, banner, pin }) {
+function Phone({ children, nav, onNav, page, badges, fab, dark, onTheme, overlay, banner, pin, scrollKey }) {
   const items = [["home", "🏠", "Dashboard"], ["chat", "💬", "Chat"], ["catalog", "🧺", "Catalog"], ["menu", "☰", "Menu"]];
   const real = useRealDevice();
   const vvH = useIosViewport(real);
@@ -2156,7 +2156,7 @@ function Phone({ children, nav, onNav, page, badges, fab, dark, onTheme, overlay
         {!real && <div className="flex items-center justify-between px-6 pt-3 pb-1 text-[11px] font-medium" style={{ color: C.ink }}><span>{new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}</span><span className="flex items-center gap-2"><button onClick={onTheme} title="theme" className="flex">{dark ? <Ic i={Sun} s={13} mr={0} /> : <Ic i={Moon} s={13} mr={0} />}</button>●●● ᯤ ▮</span></div>}
         {banner}
         {pin}
-        <div className="qc-page-scroll flex-1 overflow-y-auto relative min-h-0" style={{ color: C.ink }}>{children}</div>
+        <div key={scrollKey || page || "page"} className="qc-page-scroll flex-1 overflow-y-auto relative min-h-0" style={{ color: C.ink }}>{children}</div>
         {overlay}
         {fab && (
           <div className="absolute flex flex-col items-end gap-3" style={{ right: 18, bottom: real ? `calc(${nav ? 78 : 22}px + env(safe-area-inset-bottom) * 0.4)` : (nav ? 78 : 22), zIndex: 30 }}>
@@ -4500,6 +4500,14 @@ export default function App() {
     if (skipPushRef.current) { skipPushRef.current = false; return; }
     try { history.pushState({ __qcNav: true, page, param }, ""); depthRef.current += 1; armPopShield(); } catch {}
   }, [page, param]);
+  // Every screen shares one .qc-page-scroll node. Without a reset, scrolling Catalog then opening Menu
+  // (or any other page) lands at the same offset. Remount via scrollKey plus slamScroll covers iOS too.
+  useEffect(() => {
+    slamScroll();
+    const a = requestAnimationFrame(() => slamScroll());
+    const t = setTimeout(slamScroll, 50);
+    return () => { cancelAnimationFrame(a); clearTimeout(t); };
+  }, [page, param]);
   useEffect(() => {
     try { history.replaceState({ __qcNav: true, page, param }, ""); } catch {}
     const onPop = () => {
@@ -4586,7 +4594,7 @@ export default function App() {
   const unreadMsgs = s.conversations.filter(c => c.participantIds.includes(user.id)).reduce((a, c) => a + unreadIn(c, user.id), 0);
   const withNav = true;
   return (
-    <Phone overlay={<MBlocking s={s} set={set} user={user} />} nav={withNav} page={navPage} onNav={k => go(k)} badges={{ chat: unreadMsgs }} fab={page === "home" ? { scan: () => go("scan"), add: () => go("search") } : null} dark={dark} onTheme={toggleTheme} pin={page === "home" ? <MDashHead s={s} user={user} go={go} /> : null} banner={<>
+    <Phone overlay={<MBlocking s={s} set={set} user={user} />} nav={withNav} page={navPage} onNav={k => go(k)} badges={{ chat: unreadMsgs }} fab={page === "home" ? { scan: () => go("scan"), add: () => go("search") } : null} dark={dark} onTheme={toggleTheme} pin={page === "home" ? <MDashHead s={s} user={user} go={go} /> : null} scrollKey={`${page}:${param && typeof param === "object" ? JSON.stringify(param) : (param ?? "")}`} banner={<>}
       {!online && <div className="flex items-center gap-2 px-4 py-2 text-xs font-semibold" style={{ background: C.warn, color: "#fff" }}><Ic i={AlertTriangle} s={14} mr={0} /><span className="flex-1">No connection — working offline. {pendingSync ? `${pendingSync} change${pendingSync === 1 ? "" : "s"} waiting to sync.` : "Changes will sync when you're back online."} Others can't see what you're working on.</span></div>}
       {newVersion && <div className="flex items-center gap-2 px-4 py-2 text-xs font-semibold" style={{ background: C.accent, color: C.onDark }}><span className="flex-1">A new version is live</span><button onClick={hardReload} className="px-2.5 py-1 rounded-lg" style={{ background: C.onDark, color: C.accent }}>Refresh</button></div>}
     </>}>
