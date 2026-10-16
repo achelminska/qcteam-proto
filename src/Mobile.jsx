@@ -24,6 +24,7 @@ import { readAsDataUrl, keepPhoto, shrinkPhoto, memoPdfPhoto, fetchPdfPhotoSrc, 
 import { attachRemarkPhotos, photoGroupsByModule, pickedPhotos, replacePhoto, replaceRemarkPhoto, THUMB_EDGE, thumbSrc, thumbsMissing, withThumb } from "./shared/photos.js";
 import { CameraSheet } from "./shared/CameraSheet.jsx";
 import { primeScanCamera, takeScanCamera } from "./shared/camera.js";
+import { useHeadCss } from "./shared/head-css.js";
 import { PhotoReview } from "./shared/PhotoReview.jsx";
 import { drawReportPdf } from "./shared/report-pdf.js";
 import { needsShareToSave, savePdfFile, triggerAnchorDownload } from "./shared/pdf-save.js";
@@ -2147,12 +2148,12 @@ function Phone({ children, nav, onNav, page, badges, fab, dark, onTheme, overlay
   const real = useRealDevice();
   const vvH = useIosViewport(real);
   const css = GLOBAL_CSS() + (real ? " html,body,#root{overscroll-behavior:none;background:" + C.surface + ";min-height:100dvh} body{position:fixed;inset:0;} .qc-sheet{position:fixed;} " : "");
+  useHeadCss("qc-phone-css", css);
   const outer = real ? { background: C.surface, minHeight: "100dvh", overflow: "hidden" } : { background: C.frameBg };
   const shell = real ? { width: "100%", height: vvH || "100dvh", background: C.surface, paddingTop: "env(safe-area-inset-top, 47px)", overscrollBehavior: "none" } : { width: 390, height: 844, background: C.surface, borderRadius: 44, border: `10px solid ${C.ink}`, overflow: "hidden", boxShadow: "0 30px 60px rgba(0,0,0,.28)" };
   return (
     <div className={`qc flex items-start justify-center ${real ? "" : "min-h-screen p-4 md:p-8"}`} style={outer}>
       <div className="relative flex flex-col" style={shell}>
-        <style dangerouslySetInnerHTML={{ __html: css }} />
         {!real && <div className="flex items-center justify-between px-6 pt-3 pb-1 text-[11px] font-medium" style={{ color: C.ink }}><span>{new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}</span><span className="flex items-center gap-2"><button onClick={onTheme} title="theme" className="flex">{dark ? <Ic i={Sun} s={13} mr={0} /> : <Ic i={Moon} s={13} mr={0} />}</button>●●● ᯤ ▮</span></div>}
         {banner}
         {pin}
@@ -4594,10 +4595,12 @@ export default function App() {
   const unreadMsgs = s.conversations.filter(c => c.participantIds.includes(user.id)).reduce((a, c) => a + unreadIn(c, user.id), 0);
   const withNav = true;
   return (
-    <Phone overlay={<MBlocking s={s} set={set} user={user} />} nav={withNav} page={navPage} onNav={k => go(k)} badges={{ chat: unreadMsgs }} fab={page === "home" ? { scan: () => go("scan"), add: () => go("search") } : null} dark={dark} onTheme={toggleTheme} pin={page === "home" ? <MDashHead s={s} user={user} go={go} /> : null} scrollKey={`${page}:${param && typeof param === "object" ? JSON.stringify(param) : (param ?? "")}`} banner={<>}
+    <Phone overlay={<MBlocking s={s} set={set} user={user} />} nav={withNav} page={navPage} onNav={k => go(k)} badges={{ chat: unreadMsgs }} fab={page === "home" ? { scan: () => go("scan"), add: () => go("search") } : null} dark={dark} onTheme={toggleTheme} pin={page === "home" ? <MDashHead s={s} user={user} go={go} /> : null} scrollKey={`${page}:${param && typeof param === "object" ? JSON.stringify(param) : (param ?? "")}`} banner={
+      <>
       {!online && <div className="flex items-center gap-2 px-4 py-2 text-xs font-semibold" style={{ background: C.warn, color: "#fff" }}><Ic i={AlertTriangle} s={14} mr={0} /><span className="flex-1">No connection — working offline. {pendingSync ? `${pendingSync} change${pendingSync === 1 ? "" : "s"} waiting to sync.` : "Changes will sync when you're back online."} Others can't see what you're working on.</span></div>}
       {newVersion && <div className="flex items-center gap-2 px-4 py-2 text-xs font-semibold" style={{ background: C.accent, color: C.onDark }}><span className="flex-1">A new version is live</span><button onClick={hardReload} className="px-2.5 py-1 rounded-lg" style={{ background: C.onDark, color: C.accent }}>Refresh</button></div>}
-    </>}>
+      </>
+    }>
       {toast && <div className="absolute left-4 right-4 rounded-xl px-3.5 py-2.5 text-sm" style={{ top: 12, zIndex: 60, background: C.ink, color: C.onDark, boxShadow: "0 8px 20px rgba(0,0,0,.25)" }}>{toast}</div>}
       <Modal open={!!pendingStart}>
         <p className="font-semibold mb-1">Someone is already on this product</p>
