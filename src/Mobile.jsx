@@ -1150,7 +1150,8 @@ function ComposerExtras({ s, user, pending, setPending, compact, bar }) {
   const [open, setOpen] = useState(false); const [q, setQ] = useState(""); const [tab, setTab] = useState("product");
   const qq = q.trim().toLowerCase();
   const has = ctx => (pending.contexts || []).some(c => c.kind === ctx.kind && c.id === ctx.id);
-  const add = ctx => { setPending(p => { const cur = p.contexts || []; const exists = cur.some(c => c.kind === ctx.kind && c.id === ctx.id); return { ...p, contexts: exists ? cur.filter(c => !(c.kind === ctx.kind && c.id === ctx.id)) : [...cur, ctx] }; }); };
+  const dropKeyboard = () => { try { document.activeElement && document.activeElement.blur(); } catch {} try { window.scrollTo(0, 0); } catch {} };
+  const add = ctx => { setPending(p => { const cur = p.contexts || []; const exists = cur.some(c => c.kind === ctx.kind && c.id === ctx.id); return { ...p, contexts: exists ? cur.filter(c => !(c.kind === ctx.kind && c.id === ctx.id)) : [...cur, ctx] }; }); setOpen(false); setQ(""); dropKeyboard(); };
   const [busy, setBusy] = useState(false);
   const addFiles = async () => { setBusy(true); try { const got = await pickFiles(); if (got.length) setPending(p => ({ ...p, attachments: [...(p.attachments || []), ...got] })); } finally { setBusy(false); } };
   const products = s.products.filter(p => p.isActive !== false && (!qq || (p.name + " " + (p.articleId || "")).toLowerCase().includes(qq))).slice(0, 8);
@@ -1167,11 +1168,11 @@ function ComposerExtras({ s, user, pending, setPending, compact, bar }) {
       </div>}
       {!bar && <div className="flex gap-1.5 mb-1.5">
         <button onClick={addFiles} disabled={busy} className="text-[11px] px-2 py-1 rounded-lg inline-flex items-center" style={{ background: C.bg, border: `1px solid ${C.line}`, color: C.ink }} title="MessageAttachment"><Ic i={Paperclip} s={12} mr={4} />{busy ? "Processing…" : "Attach"}</button>
-        <button onClick={() => setOpen(o => !o)} className="text-[11px] px-2 py-1 rounded-lg inline-flex items-center" style={{ background: open ? C.ink : C.bg, border: `1px solid ${open ? C.ink : C.line}`, color: open ? C.onDark : C.ink }} title="MessageContext — link a product, inspection, pallet or flag"><Ic i={Tag} s={12} mr={4} />Add context</button>
+        <button onClick={() => { setOpen(o => !o); dropKeyboard(); }} className="text-[11px] px-2 py-1 rounded-lg inline-flex items-center" style={{ background: open ? C.ink : C.bg, border: `1px solid ${open ? C.ink : C.line}`, color: open ? C.onDark : C.ink }} title="MessageContext — link a product, inspection, pallet or flag"><Ic i={Tag} s={12} mr={4} />Add context</button>
       </div>}
       {open && <div className="rounded-xl p-2 mb-2" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
         <div className="flex gap-1 mb-1.5 flex-wrap">{[["product", "Products"], ["inspection", "Inspections"], ["pallet", "Pallets on dock"], ["flag", "Open flags"]].map(([k, l]) => <button key={k} onClick={() => setTab(k)} className="text-[11px] px-2 py-1 rounded-full" style={{ background: tab === k ? C.ink : "transparent", color: tab === k ? C.onDark : C.ink, border: `1px solid ${tab === k ? C.ink : C.line}` }}>{l}</button>)}</div>
-        <div className="flex gap-1.5 mb-1"><input autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder="search…" className="flex-1 text-sm" style={{ minHeight: 30 }} /><button onClick={() => { setOpen(false); setQ(""); }} className="text-xs px-3 rounded-lg font-semibold" style={{ background: C.ink, color: C.onDark }}>Done{(pending.contexts || []).length ? ` (${pending.contexts.length})` : ""}</button></div>
+        <div className="flex gap-1.5 mb-1"><input value={q} onChange={e => setQ(e.target.value)} placeholder="search…" className="flex-1 text-sm" style={{ minHeight: 30 }} enterKeyHint="search" /><button onClick={() => { setOpen(false); setQ(""); dropKeyboard(); }} className="text-xs px-3 rounded-lg font-semibold" style={{ background: C.ink, color: C.onDark }}>Done{(pending.contexts || []).length ? ` (${pending.contexts.length})` : ""}</button></div>
         <div style={{ maxHeight: 200, overflowY: "auto" }}>
           {tab === "product" && products.map(p => <Row key={p.id} icon={Package} main={p.name} sub={p.articleId} on={has({ kind: "product", id: p.id })} onClick={() => add({ kind: "product", id: p.id })} />)}
           {tab === "inspection" && inspections.map(i => { const p = s.products.find(x => x.id === i.productId); return <Row key={i.id} icon={ClipboardList} main={p?.name || "inspection"} sub={`${i.status === "Completed" ? (i.result || inspType(s, i).name) : i.status} · ${fmtTime(i.completedAt || i.startedAt)} · ${s.users.find(u => u.id === i.controllerId)?.name || ""}`} on={has({ kind: "inspection", id: i.id })} onClick={() => add({ kind: "inspection", id: i.id })} />; })}
@@ -1182,7 +1183,7 @@ function ComposerExtras({ s, user, pending, setPending, compact, bar }) {
       </div>}
       {bar && <div className="flex items-end gap-1.5">
         <button onClick={addFiles} disabled={busy} className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: C.bg, color: busy ? C.muted : C.ink, border: `1px solid ${C.line}` }} title="Attach a photo or file"><Ic i={Paperclip} s={16} mr={0} /></button>
-        <button onClick={() => setOpen(o => !o)} className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 relative" style={{ background: open ? C.ink : C.bg, color: open ? C.onDark : C.ink, border: `1px solid ${open ? C.ink : C.line}` }} title="Link a product, inspection, pallet or flag"><Ic i={Tag} s={16} mr={0} />{(pending.contexts || []).length > 0 && <span className="absolute -top-1 -right-1 text-[9px] font-semibold min-w-[16px] h-4 px-1 rounded-full flex items-center justify-center" style={{ background: C.accent, color: C.onDark }}>{pending.contexts.length}</span>}</button>
+        <button onClick={() => { setOpen(o => !o); dropKeyboard(); }} className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 relative" style={{ background: open ? C.ink : C.bg, color: open ? C.onDark : C.ink, border: `1px solid ${open ? C.ink : C.line}` }} title="Link a product, inspection, pallet or flag"><Ic i={Tag} s={16} mr={0} />{(pending.contexts || []).length > 0 && <span className="absolute -top-1 -right-1 text-[9px] font-semibold min-w-[16px] h-4 px-1 rounded-full flex items-center justify-center" style={{ background: C.accent, color: C.onDark }}>{pending.contexts.length}</span>}</button>
         {bar}
       </div>}
     </div>
@@ -2098,12 +2099,37 @@ const useRealDevice = () => { const [real, setReal] = useState(() => typeof wind
 // (plus 10px) left a dead band below the labels. Keep a fraction so icons stay above the home
 // indicator without doubling the inset. Never 0 — taps would land on the home gesture.
 const NAV_SAFE_BOTTOM = "calc(8px + env(safe-area-inset-bottom) * 0.4)";
+// iOS home-screen PWAs leave the layout shifted after the keyboard (or a focused search field) closes.
+// Pin the shell to visualViewport.height and slam scroll back to 0 whenever that viewport moves.
+function useIosViewport(real) {
+  const [h, setH] = useState(null);
+  useEffect(() => {
+    if (!real) return;
+    const sync = () => {
+      try { window.scrollTo(0, 0); } catch {}
+      const vv = window.visualViewport;
+      setH(Math.round(vv && vv.height ? vv.height : window.innerHeight));
+    };
+    sync();
+    const vv = window.visualViewport;
+    vv && vv.addEventListener("resize", sync);
+    vv && vv.addEventListener("scroll", sync);
+    window.addEventListener("focusout", sync);
+    return () => {
+      vv && vv.removeEventListener("resize", sync);
+      vv && vv.removeEventListener("scroll", sync);
+      window.removeEventListener("focusout", sync);
+    };
+  }, [real]);
+  return h;
+}
 function Phone({ children, nav, onNav, page, badges, fab, dark, onTheme, overlay, banner, pin }) {
   const items = [["home", "🏠", "Dashboard"], ["chat", "💬", "Chat"], ["catalog", "🧺", "Catalog"], ["menu", "☰", "Menu"]];
   const real = useRealDevice();
+  const vvH = useIosViewport(real);
   const css = GLOBAL_CSS() + (real ? " html,body,#root{overscroll-behavior:none;background:" + C.surface + ";min-height:100dvh} body{position:fixed;inset:0;} .qc-sheet{position:fixed;} " : "");
   const outer = real ? { background: C.surface, minHeight: "100dvh", overflow: "hidden" } : { background: C.frameBg };
-  const shell = real ? { width: "100%", height: "100dvh", background: C.surface, paddingTop: "env(safe-area-inset-top, 47px)", overscrollBehavior: "none" } : { width: 390, height: 844, background: C.surface, borderRadius: 44, border: `10px solid ${C.ink}`, overflow: "hidden", boxShadow: "0 30px 60px rgba(0,0,0,.28)" };
+  const shell = real ? { width: "100%", height: vvH || "100dvh", background: C.surface, paddingTop: "env(safe-area-inset-top, 47px)", overscrollBehavior: "none" } : { width: 390, height: 844, background: C.surface, borderRadius: 44, border: `10px solid ${C.ink}`, overflow: "hidden", boxShadow: "0 30px 60px rgba(0,0,0,.28)" };
   return (
     <div className={`qc flex items-start justify-center ${real ? "" : "min-h-screen p-4 md:p-8"}`} style={outer}>
       <div className="relative flex flex-col" style={shell}>
@@ -2111,7 +2137,7 @@ function Phone({ children, nav, onNav, page, badges, fab, dark, onTheme, overlay
         {!real && <div className="flex items-center justify-between px-6 pt-3 pb-1 text-[11px] font-medium" style={{ color: C.ink }}><span>{new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}</span><span className="flex items-center gap-2"><button onClick={onTheme} title="theme" className="flex">{dark ? <Ic i={Sun} s={13} mr={0} /> : <Ic i={Moon} s={13} mr={0} />}</button>●●● ᯤ ▮</span></div>}
         {banner}
         {pin}
-        <div className="flex-1 overflow-y-auto relative" style={{ color: C.ink }}>{children}</div>
+        <div className="flex-1 overflow-y-auto relative min-h-0" style={{ color: C.ink }}>{children}</div>
         {overlay}
         {fab && (
           <div className="absolute flex flex-col items-end gap-3" style={{ right: 18, bottom: real ? `calc(${nav ? 78 : 22}px + env(safe-area-inset-bottom) * 0.4)` : (nav ? 78 : 22), zIndex: 30 }}>
@@ -3566,7 +3592,7 @@ function ChatThread({ s, conv, user, onOpenCtx, wide }) {
   const hh = iso => new Date(iso).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
   const gap = (a, b) => Math.abs(new Date(a) - new Date(b)) > 5 * 60000;
   return (
-    <div ref={ref} className="flex-1 overflow-y-auto px-3 py-3" style={{ background: C.bg }}>
+    <div ref={ref} className="flex-1 min-h-0 overflow-y-auto px-3 py-3" style={{ background: C.bg }}>
       {msgs.length === 0 && <div className="flex flex-col items-center justify-center text-center py-10 px-6"><ConvAvatar conv={conv} s={s} userId={user.id} size={56} /><p className="text-sm font-semibold mt-3">{convName(conv, s, user.id)}</p><p className="text-xs mt-1 leading-snug" style={{ color: C.muted }}>No messages yet. Say hello, attach a photo or link a pallet, product or inspection.</p></div>}
       {msgs.map((m, i) => { const me = m.senderId === user.id; const prev = msgs[i - 1], next = msgs[i + 1];
         const newDay = !prev || new Date(prev.at).toDateString() !== new Date(m.at).toDateString();
@@ -3634,7 +3660,7 @@ function MChat({ s, set, user, go, initialContext, clearInitialContext }) {
   const openCtx = c => { if (c.kind === "product") go("catalog", c.id); else if (c.kind === "inspection") go("inspection", c.id); else if (c.kind === "pallet") go("palletInfo", c.id); else if (c.kind === "flag") go(user.role === "Head" ? "head-flags" : "flags"); };
   const create = () => { if (!pick.length) return; const isGroup = pick.length > 1 || !!gname.trim(); if (!isGroup) { const ex = s.conversations.find(c => !c.isGroup && c.participantIds.length === 2 && c.participantIds.includes(user.id) && c.participantIds.includes(pick[0])); if (ex) { setOpen(ex.id); markRead(ex.id); setCreating(false); setPick([]); return; } } const id = uid(); set(x => ({ ...x, conversations: [...x.conversations, { id, isGroup, name: isGroup ? (gname.trim() || null) : null, participantIds: [user.id, ...pick], createdBy: user.id, createdAt: nowISO(), messages: [], lastRead: { [user.id]: nowISO() }, isActive: true }] })); setOpen(id); setCreating(false); setPick([]); setGname(""); };
   if (conv) { const other = convOther(conv, s, user.id); const people = conv.participantIds.map(id => s.users.find(u => u.id === id)?.name.split(" ")[0]).filter(Boolean); return (
-    <div className="flex flex-col" style={{ height: "100%" }}>
+    <div className="flex flex-col overflow-hidden" style={{ position: "absolute", inset: 0 }}>
       <div className="qc-sticky-bar flex items-center gap-2.5 px-3 pt-2 pb-2.5" style={{ borderBottom: `1px solid ${C.line}`, background: C.surface }}>
         <button onClick={() => setOpen(null)} className="flex -ml-1" style={{ color: C.ink }}><Ic i={ChevronLeft} s={22} mr={0} /></button>
         <ConvAvatar conv={conv} s={s} userId={user.id} size={36} />
