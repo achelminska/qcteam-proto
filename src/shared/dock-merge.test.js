@@ -15,6 +15,14 @@ describe("one pallet split over several sheet lines", () => {
     const [p] = mergeDockLines([line({ po: "1285850" }), line({ po: "1286618" })]);
     expect(p.pos).toEqual(["1285850", "1286618"]); expect(p.po).toBe("1285850");
   });
+  it("shortens a PO the sheet wrote twice in one cell", () => {
+    const [p] = mergeDockLines([line({ po: "12927001293776" })]);
+    expect(p.po).toBe("1293776"); expect(p.pos).toEqual(["1293776"]);
+  });
+  it("does not flag mixed PO when one line glued the same number", () => {
+    const [p] = mergeDockLines([line({ po: "12927001293776" }), line({ po: "1293776", quantity: 60 })]);
+    expect(p.po).toBe("1293776"); expect(p.pos).toEqual(["1293776"]);
+  });
   it("takes the earliest arrival and the most urgent priority", () => {
     const [p] = mergeDockLines([line({ arrivedTime: "07:41", priority: "Inspection due" }), line({ arrivedTime: "07:40", priority: "Now needed" })]);
     expect(p.arrivedTime).toBe("07:40"); expect(p.priority).toBe("Now needed");
