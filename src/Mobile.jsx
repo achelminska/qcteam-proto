@@ -2104,6 +2104,7 @@ const useRealDevice = () => { const [real, setReal] = useState(() => typeof wind
 const NAV_SAFE_BOTTOM = "calc(8px + env(safe-area-inset-bottom) * 0.4)";
 // Same inset the phone shell uses. `fixed` overlays (product peek from an inspection) sit on the
 // viewport, so they need this themselves or the title lands under the iPhone clock.
+// max(47px, env) — the CSS fallback only applies when env() is unsupported, not when it is 0.
 const PHONE_SAFE_TOP = "env(safe-area-inset-top, 47px)";
 const isKbField = el => el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) && !/^(checkbox|radio|file|button|submit|reset|hidden)$/i.test(el.type || "");
 const slamScroll = () => {
