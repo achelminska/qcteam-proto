@@ -2102,6 +2102,9 @@ const useRealDevice = () => { const [real, setReal] = useState(() => typeof wind
 // (plus 10px) left a dead band below the labels. Keep a fraction so icons stay above the home
 // indicator without doubling the inset. Never 0 — taps would land on the home gesture.
 const NAV_SAFE_BOTTOM = "calc(8px + env(safe-area-inset-bottom) * 0.4)";
+// Same inset the phone shell uses. `fixed` overlays (product peek from an inspection) sit on the
+// viewport, so they need this themselves or the title lands under the iPhone clock.
+const PHONE_SAFE_TOP = "env(safe-area-inset-top, 47px)";
 const isKbField = el => el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) && !/^(checkbox|radio|file|button|submit|reset|hidden)$/i.test(el.type || "");
 const slamScroll = () => {
   try { window.scrollTo(0, 0); } catch {}
@@ -2151,7 +2154,7 @@ function Phone({ children, nav, onNav, page, badges, fab, dark, onTheme, overlay
   const css = GLOBAL_CSS() + (real ? " html,body,#root{overscroll-behavior:none;background:" + C.surface + ";min-height:100dvh} body{position:fixed;inset:0;} .qc-sheet{position:fixed;} " : "");
   useHeadCss("qc-phone-css", css);
   const outer = real ? { background: C.surface, minHeight: "100dvh", overflow: "hidden" } : { background: C.frameBg };
-  const shell = real ? { width: "100%", height: vvH || "100dvh", background: C.surface, paddingTop: "env(safe-area-inset-top, 47px)", overscrollBehavior: "none" } : { width: 390, height: 844, background: C.surface, borderRadius: 44, border: `10px solid ${C.ink}`, overflow: "hidden", boxShadow: "0 30px 60px rgba(0,0,0,.28)" };
+  const shell = real ? { width: "100%", height: vvH || "100dvh", background: C.surface, paddingTop: PHONE_SAFE_TOP, overscrollBehavior: "none" } : { width: 390, height: 844, background: C.surface, borderRadius: 44, border: `10px solid ${C.ink}`, overflow: "hidden", boxShadow: "0 30px 60px rgba(0,0,0,.28)" };
   return (
     <div className={`qc flex items-start justify-center ${real ? "" : "min-h-screen p-4 md:p-8"}`} style={outer}>
       <div className="relative flex flex-col" style={shell}>
@@ -4475,8 +4478,8 @@ function MInspection({ s, set, user, inspId, go, notify }) {
     <div className="pb-4">
       <TopBar title={runner ? "Inspection" : ""} onBack={() => { setEditing(false); go("back"); }} right={runner && product ? <button onClick={() => setProfileOpen(true)} className="text-xs px-2.5 py-1.5 rounded-full inline-flex items-center font-medium" style={{ background: C.accentSoft, color: C.accent }}><Ic i={BookOpen} s={13} mr={4} />Product</button> : null} />
       {profileOpen && product && (
-        <div className="fixed inset-0 flex flex-col" style={{ background: C.bg, zIndex: 70 }}>
-          <div className="flex items-center gap-3 px-4 pt-2 pb-3 flex-shrink-0" style={{ borderBottom: `1px solid ${C.line}`, background: C.surface }}>
+        <div className="fixed inset-0 flex flex-col" style={{ background: C.bg, zIndex: 70, paddingBottom: "env(safe-area-inset-bottom)" }}>
+          <div data-qc="profile-peek-bar" className="flex items-center gap-3 px-4 pb-3 flex-shrink-0" style={{ borderBottom: `1px solid ${C.line}`, background: C.surface, paddingTop: `calc(8px + ${PHONE_SAFE_TOP})` }}>
             <div className="flex-1 min-w-0"><p className="text-[11px]" style={{ color: C.muted }}>Product profile · inspection stays open</p><p className="text-base font-semibold truncate">{product.name}</p></div>
             <button onClick={closeProfile} className="text-sm px-3.5 py-2 rounded-full font-semibold" style={{ background: C.ink, color: C.onDark }}>Back to inspection</button>
           </div>
