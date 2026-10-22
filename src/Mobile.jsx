@@ -4479,7 +4479,7 @@ function MInspection({ s, set, user, inspId, go, notify }) {
       <TopBar title={runner ? "Inspection" : ""} onBack={() => { setEditing(false); go("back"); }} right={runner && product ? <button onClick={() => setProfileOpen(true)} className="text-xs px-2.5 py-1.5 rounded-full inline-flex items-center font-medium" style={{ background: C.accentSoft, color: C.accent }}><Ic i={BookOpen} s={13} mr={4} />Product</button> : null} />
       {profileOpen && product && (
         <div className="fixed inset-0 flex flex-col" style={{ background: C.bg, zIndex: 70, paddingBottom: "env(safe-area-inset-bottom)" }}>
-          <div data-qc="profile-peek-bar" className="flex items-center gap-3 px-4 pb-3 flex-shrink-0" style={{ borderBottom: `1px solid ${C.line}`, background: C.surface, paddingTop: `calc(8px + ${PHONE_SAFE_TOP})` }}>
+          <div data-qc="profile-peek-bar" className="flex items-center gap-3 px-4 pb-3 flex-shrink-0" style={{ borderBottom: `1px solid ${C.line}`, background: C.surface, paddingTop: `calc(8px + max(47px, ${PHONE_SAFE_TOP}))` }}>
             <div className="flex-1 min-w-0"><p className="text-[11px]" style={{ color: C.muted }}>Product profile · inspection stays open</p><p className="text-base font-semibold truncate">{product.name}</p></div>
             <button onClick={closeProfile} className="text-sm px-3.5 py-2 rounded-full font-semibold" style={{ background: C.ink, color: C.onDark }}>Back to inspection</button>
           </div>
