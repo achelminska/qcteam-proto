@@ -24,6 +24,7 @@ import { readAsDataUrl, keepPhoto, shrinkPhoto, memoPdfPhoto, fetchPdfPhotoSrc, 
 import { attachRemarkPhotos, photoGroupsByModule, pickedPhotos, replacePhoto, replaceRemarkPhoto, THUMB_EDGE, thumbSrc, thumbsMissing, withThumb } from "./shared/photos.js";
 import { CameraSheet } from "./shared/CameraSheet.jsx";
 import { primeScanCamera, takeScanCamera } from "./shared/camera.js";
+import { extractSSCC, isPalletCode, scanNavParam } from "./shared/scan-nav.js";
 import { useHeadCss } from "./shared/head-css.js";
 import { PhotoReview } from "./shared/PhotoReview.jsx";
 import { drawReportPdf } from "./shared/report-pdf.js";
@@ -3145,10 +3146,7 @@ function LiveScanner({ onCode }) {
   );
 }
 // Code classification: a pallet number (SSCC) is long (≥14 digits); a product code is an EAN (8/13) or an article ID.
-const isPalletCode = code => /^\d{14,}$/.test(code.trim());
-// GS1-128 pallet labels encode the SSCC behind application identifier "00" (often with more AIs concatenated):
-// "00087205744101641093" → "087205744101641093". Sheets sometimes drop the leading zero, so matching is by suffix.
-const extractSSCC = raw => { const d = String(raw || "").replace(/\D/g, ""); const m = /(?:^|\D)00(\d{18})/.exec(String(raw || "")) || (d.length >= 20 && d.startsWith("00") ? [null, d.slice(2, 20)] : null); if (m) return m[1]; if (d.length >= 18) return d.slice(0, 18); return d; };
+// isPalletCode / extractSSCC live in shared/scan-nav.js. Sheets sometimes drop the SSCC leading zero, so matching is by suffix.
 const samePallet = (a, b) => { const x = String(a || "").replace(/\D/g, "").replace(/^0+/, ""), y = String(b || "").replace(/\D/g, "").replace(/^0+/, ""); return !!x && !!y && (x === y || x.endsWith(y) || y.endsWith(x)); };
 // A phone tap often grows a second click one or two seconds later, aimed at whatever replaced the control
 // (the camera, the back arrow, the pallet that used to be under the finger). That click is a mouse event.
@@ -3254,9 +3252,24 @@ function DockPresence({ s, set, user, product, onPickPallet, showLost, compact }
     </div>
   );
 }
+// First paint of Scan must already be the pallet / product when history restored a code.
+// Waiting for an effect flashes the empty camera after Product profile → Back.
+function initialScanView(s, preset) {
+  const val = String(preset || "").trim();
+  if (!val) return { code: "", mode: null, pallet: "" };
+  if (isPalletCode(val)) {
+    const sscc = extractSSCC(val);
+    const done = (s.inspections || []).some(i => i.status === "Completed" && (i.pallets || []).some(x => samePallet(x, sscc)));
+    return { code: val, mode: done ? "done" : "pallet", pallet: sscc };
+  }
+  const hit = (s.products || []).find(p => p.isActive !== false && matchesCode(p, val));
+  return { code: val, mode: hit ? "product" : "unknown-product", pallet: "" };
+}
+
 function MScan({ s, user, go, onStart, onVisual, onSkip, setState, notify, preset }) {
-  const [code, setCode] = useState(preset || ""); const [mode, setMode] = useState(null); const [confirmCollision, setConfirmCollision] = useState(null); const [starting, setStarting] = useState(null);
-  const [pallet, setPallet] = useState(""); const [askInspect, setAskInspect] = useState(false); const [lostOpen, setLostOpen] = useState(false);
+  const boot = initialScanView(s, preset);
+  const [code, setCode] = useState(boot.code); const [mode, setMode] = useState(boot.mode); const [confirmCollision, setConfirmCollision] = useState(null); const [starting, setStarting] = useState(null);
+  const [pallet, setPallet] = useState(boot.pallet); const [askInspect, setAskInspect] = useState(false); const [lostOpen, setLostOpen] = useState(false);
   const scanned = code.trim();
   const byPallet = pallet ? s.inspections.filter(i => (i.pallets || []).some(x => samePallet(x, pallet)) && i.status !== "Cancelled") : [];
   const completed = byPallet.find(i => i.status === "Completed"), draft = byPallet.find(i => ["Draft", "PendingReview"].includes(i.status));
@@ -3265,15 +3278,18 @@ function MScan({ s, user, go, onStart, onVisual, onSkip, setState, notify, prese
   const wms = pallet ? dockRowsLive(s).find(r => samePallet(r.hu, pallet)) || null : null;
   const blockedRow = pallet ? blockedQueue(s).find(b => b.hu && samePallet(b.hu, pallet)) || null : null;
   const wmsProduct = wms ? (s.products.find(p => p.articleId === wms.article) || productForArticle(s, wms.article)) : null;
+  // Keep the resolved code in the scan history entry (replace, don't push) so catalog back
+  // remounts this screen with that preset instead of an empty camera.
+  const persistScan = next => { const prm = scanNavParam(next); if ((preset ?? null) === (prm ?? null)) return; go("scan", prm, { replace: true }); };
   const scan = (given) => {
     const val = (given ?? scanned).trim(); if (given != null) setCode(val); if (!val) return; const scannedNow = val;
-    if (isPalletCode(scannedNow)) { const sscc = extractSSCC(scannedNow); setPallet(sscc); setAskInspect(false); const lostRow = dockRowsLive(s).find(r => samePallet(r.hu, sscc)) || blockedRowsLive(s).find(r => samePallet(r.hu, sscc)); if (lostRow && lostOf(s, lostRow)) markFound(setState, lostRow, user); const done = s.inspections.find(i => (i.pallets || []).some(x => samePallet(x, sscc)) && i.status === "Completed"); setMode(done ? "done" : "pallet"); }
-    else if (productByCode(scannedNow)) { setPallet(""); setMode("product"); }
-    else setMode("unknown-product");
+    if (isPalletCode(scannedNow)) { const sscc = extractSSCC(scannedNow); setPallet(sscc); setAskInspect(false); const lostRow = dockRowsLive(s).find(r => samePallet(r.hu, sscc)) || blockedRowsLive(s).find(r => samePallet(r.hu, sscc)); if (lostRow && lostOf(s, lostRow)) markFound(setState, lostRow, user); const done = s.inspections.find(i => (i.pallets || []).some(x => samePallet(x, sscc)) && i.status === "Completed"); setMode(done ? "done" : "pallet"); persistScan(sscc); }
+    else if (productByCode(scannedNow)) { setPallet(""); setMode("product"); persistScan(scannedNow); }
+    else { setMode("unknown-product"); persistScan(scannedNow); }
   };
   const start = (pid, typeId = "type-full") => { if (draft && draft.controllerId !== user.id) { setConfirmCollision({ draft, pid, typeId }); return; } onStart(pid, pallet || null, typeId); };
-  const pickPalletOfProduct = hu => { setCode(hu); setPallet(hu); const done = s.inspections.find(i => (i.pallets || []).some(x => samePallet(x, hu)) && i.status === "Completed"); setMode(done ? "done" : "pallet"); };
-  const clearScan = () => { armClickGuard(); primeScanCamera(); setMode(null); setPallet(""); setCode(""); setAskInspect(false); setLostOpen(false); };
+  const pickPalletOfProduct = hu => { setCode(hu); setPallet(hu); const done = s.inspections.find(i => (i.pallets || []).some(x => samePallet(x, hu)) && i.status === "Completed"); setMode(done ? "done" : "pallet"); persistScan(hu); };
+  const clearScan = () => { armClickGuard(); primeScanCamera(); setMode(null); setPallet(""); setCode(""); setAskInspect(false); setLostOpen(false); persistScan(null); };
   // The code text used to sit outside the button, so a finger on the chip did nothing. A 1px press-shift can also
   // cancel the click on a short label. pointerup still counts as the tap; the click guard drops the follow-up.
   const chipDown = useRef(null);
@@ -3283,8 +3299,8 @@ function MScan({ s, user, go, onStart, onVisual, onSkip, setState, notify, prese
     if (Math.abs(e.clientX - d.x) > 12 || Math.abs(e.clientY - d.y) > 12) return;
     clearScan();
   };
-  // Opened with a code already in hand (e.g. from a pallet list): resolve it immediately instead of asking for a tap on "Scan".
-  useEffect(() => { if (preset) scan(preset); }, []);
+  // Opened with a code already in hand (list, or back from the product profile): resolve it instead of the empty camera.
+  useEffect(() => { if (preset) scan(preset); }, [preset]);
   const Actions = () => { const known = wmsProduct || (completed && s.products.find(p => p.id === completed.productId)); const types = known ? allowedTypes(s, known) : typesOf(s); const pol = known ? effectivePolicy(s, known) : null; return (
     <div className="flex flex-col gap-2 mt-1">
       {types.map((t, idx) => <button key={t.id} onClick={() => setStarting({ kind: t.id })} className="qc-elev qc-tile w-full py-3 rounded-xl text-sm font-medium inline-flex items-center justify-center gap-2" style={idx === 0 ? { background: C.ink, color: C.onDark } : { background: C.surface, color: C.ink, border: `1px solid ${C.line}` }}><span className="inline-block rounded-full" style={{ width: 8, height: 8, background: t.color }} />{t.name} inspection</button>)}
@@ -4500,6 +4516,8 @@ export default function App() {
   useEffect(() => {
     if (skipPushRef.current) { skipPushRef.current = false; return; }
     try { history.pushState({ __qcNav: true, page, param }, ""); depthRef.current += 1; armPopShield(); } catch {}
+    // go(..., { replace: true }) sets skipPushRef so a scan-result persist updates this
+    // entry in place — profile → Back then restores the pallet, not an extra empty scan.
   }, [page, param]);
   // Every screen shares one .qc-page-scroll node. Without a reset, scrolling Catalog then opening Menu
   // (or any other page) lands at the same offset. Remount via scrollKey plus slamScroll covers iOS too.
@@ -4566,7 +4584,7 @@ export default function App() {
   if (!loaded) return <div className="min-h-screen flex items-center justify-center text-sm" style={{ color: C.muted }}>Loading…</div>;
   const user = s.users.find(u => u.id === userId && u.active !== false) || null;
   if (!user) return <LoginScreen s={{ ...s, __set: set }} allowRoles={["Head", "Controller"]} onLogin={id => setUserId(id)} />;
-  const go = (p, prm = null) => { if (p === "back") { if (depthRef.current > 0) { explicitBack = true; try { history.back(); return; } catch {} } setPage("home"); setParam(null); return; } if (p === "scan" && (prm == null || prm === "")) primeScanCamera(); armClickGuard(); armGestureLock(); setPage(p); setParam(prm); };
+  const go = (p, prm = null, opts) => { if (p === "back") { if (depthRef.current > 0) { explicitBack = true; try { history.back(); return; } catch {} } setPage("home"); setParam(null); return; } if (p === "scan" && (prm == null || prm === "")) primeScanCamera(); if (opts && opts.replace) { skipPushRef.current = true; try { history.replaceState({ __qcNav: true, page: p, param: prm }, ""); } catch {} } else { armClickGuard(); armGestureLock(); } setPage(p); setParam(prm); };
   const notify = (type, message, entityType, entityId, toUserId) => set(x => { const targets = toUserId ? [toUserId] : x.users.filter(u => u.role === "Head").map(u => u.id); return { ...x, notifications: [...x.notifications, ...targets.map(t => ({ id: uid(), userId: t, type, message, entityType, entityId, createdAt: nowISO(), readAt: null }))] }; });
   const startInspection = (pid, palletNo, force = false, typeId = "type-full") => {
     const p = s.products.find(x => x.id === pid); const t = resolveTemplate(s, p, typeId); if (!p || !t) { setToast(`No form for “${typeById(s, typeId)?.name || "this type"}” — the Head must build it in Forms.`); return; }
@@ -4610,7 +4628,7 @@ export default function App() {
       </Modal>
       {page === "home" && <MDashboard s={s} set={set} user={user} go={go} dismissed={dismissed} setDismissed={setDismissed} onAssign={al => { setPendingChatContext({ kind: "pallet", id: al.hu, label: `${al.name} · ${al.location}` }); go("chat"); }} />}
       {page === "search" && <MSearch s={s} user={user} go={go} onStart={(pid, palletNo, typeId) => startInspection(pid, palletNo, false, typeId)} setState={set} notify={notify} onVisual={visualInspection} />}
-      {page === "scan" && <MScan key={param || "scan"} s={s} user={user} go={go} onStart={(pid, palletNo, typeId) => startInspection(pid, palletNo, false, typeId)} onVisual={visualInspection} onSkip={skipInspection} setState={set} notify={notify} preset={param} />}
+      {page === "scan" && <MScan key="scan" s={s} user={user} go={go} onStart={(pid, palletNo, typeId) => startInspection(pid, palletNo, false, typeId)} onVisual={visualInspection} onSkip={skipInspection} setState={set} notify={notify} preset={param} />}
       {page === "history" && <MHistory s={s} user={user} go={go} />}
       {page === "priority" && <MPriorityList s={s} user={user} go={go} priority={param && typeof param === "object" ? param.priority : param} focus={param && typeof param === "object" ? param.focus : null} />}
       {page === "blockedInfo" && <MBlockedInfo s={s} set={set} user={user} go={go} itemKey={param} />}
