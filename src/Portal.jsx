@@ -15,6 +15,7 @@ import { peopleOnFloor, peopleAtDock, floorWhere, floorVerb, doneTodayCount, don
 import { attachableSameDay, otherDeliveryDay, sameDeliveryRows } from "./shared/delivery-pallets.js";
 import { poRequiredOnReject, poSourceHint, sheetPoForInspection, suggestedPo } from "./shared/rejection-po.js";
 import { dockMatches } from "./shared/dock-search.js";
+import { hasProductBarcode, productsMissingBarcode } from "./shared/product-codes.js";
 import { dockMapGroupKey, dockMapOpen, dockMapRows, isBlockedMapRow, openBlockedForMap, QUEUE_STATUS } from "./shared/dock-map.js";
 import { adoptLocalBriefingSeen, briefingFp, clearBriefingSeen, markBriefingSeen, seenFingerprints } from "./shared/briefing-seen.js";
 import { briefingComplaintsMeta, briefingDefaultTab, briefingItemsKey, briefingRemark, briefingTabDeck, briefingUnseen, liveBriefingFps } from "./shared/briefing-cards.js";
@@ -3937,11 +3938,12 @@ function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset, onMessag
   const setCategory = (pid, cid) => set(x => ({ ...x, products: x.products.map(p => p.id === pid ? { ...p, categoryId: cid || null } : p) }));
   // Browse: category chips (a parent includes its children), bio / inactive toggles, sort. The bulk-assign below works on
   // whatever is visible, so "No category" + a search term + Assign is the fast way through a fresh import.
-  const [catSel, setCatSel] = useState(""); const [onlyBio, setOnlyBio] = useState(false); const [showInactive, setShowInactive] = useState(false); const [sortBy, setSortBy] = useState("az");
+  const [catSel, setCatSel] = useState(""); const [onlyBio, setOnlyBio] = useState(false); const [onlyNoBarcode, setOnlyNoBarcode] = useState(false); const [showInactive, setShowInactive] = useState(false); const [sortBy, setSortBy] = useState("az");
   const inCat = (p, cid) => cid === "none" ? !p.categoryId : cid ? (p.categoryId === cid || s.categories.some(c => c.id === p.categoryId && c.parentId === cid)) : true;
   const roots = s.categories.filter(c => !c.parentId); const children = pid => s.categories.filter(c => c.parentId === pid);
   const countIn = cid => s.products.filter(p => inCat(p, cid) && (showInactive || p.isActive !== false)).length;
   const unassigned = s.products.filter(p => !p.categoryId).length;
+  const noBarcode = productsMissingBarcode(s.products, { includeInactive: showInactive }).length;
   const catFilterOptions = [
     ...(unassigned > 0 ? [{ value: "none", label: `No category · ${countIn("none")}` }] : []),
     ...roots.map(c => ({ value: c.id, label: `${c.name} · ${countIn(c.id)}` })),
@@ -3950,7 +3952,7 @@ function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset, onMessag
     const cur = s.categories.find(c => c.id === catSel);
     if (cur) catFilterOptions.push({ value: cur.id, label: `${cur.name} · ${countIn(cur.id)}` });
   }
-  const visible = s.products.filter(p => (showInactive || p.isActive !== false) && inCat(p, catSel) && (!onlyBio || p.isBio) && (!filter || (p.name + " " + (p.articleId || "")).toLowerCase().includes(filter.toLowerCase())))
+  const visible = s.products.filter(p => (showInactive || p.isActive !== false) && inCat(p, catSel) && (!onlyBio || p.isBio) && (!onlyNoBarcode || !hasProductBarcode(p)) && (!filter || (p.name + " " + (p.articleId || "")).toLowerCase().includes(filter.toLowerCase())))
     .sort((a, b) => sortBy === "az" ? a.name.localeCompare(b.name) : sortBy === "id" ? String(a.articleId || "").localeCompare(String(b.articleId || "")) : sortBy === "cat" ? catPath(a.categoryId).localeCompare(catPath(b.categoryId)) || a.name.localeCompare(b.name) : 0);
   const [bulkCat, setBulkCat] = useState("");
   const visibleUnassigned = visible.filter(p => !p.categoryId);
@@ -3978,11 +3980,11 @@ function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset, onMessag
   const markRef = id => product && toggleReferenceInspection(set, product.id, id);
   const completedForProduct = product ? s.inspections.filter(i => i.productId === product.id && i.status === "Completed").sort((a, b) => (b.completedAt || "").localeCompare(a.completedAt || "")) : [];
   const tabs = product ? [["profile", "Profile"], ["photos", `Photos${asPhotoList(product.photos).length ? ` · ${asPhotoList(product.photos).length}` : ""}`], ["specs", `Specifications${effectiveSpecs(s, product).length ? ` · ${effectiveSpecs(s, product).length}` : ""}`], ["attrs", `Properties${effectiveAttributes(s, product).length ? ` · ${effectiveAttributes(s, product).length}` : ""}`], ["supply", `Suppliers${(product.supplierIds || []).length ? ` · ${(product.supplierIds || []).length}` : ""}`], ["reference", `Reference guide${refCount ? ` · ${refCount}` : ""}`], ["guide", `Encyclopedia${effectiveGuide(s, product).length ? ` · ${effectiveGuide(s, product).length}` : ""}`], ["history", `Inspection history${histAll.length ? ` · ${histAll.length}` : ""}`], ["refreport", "Reference report"], ["policy", "Inspection types"]] : [];
-  const missing = product ? [!product.articleId && "article ID", !product.barcodeCu && !product.barcodeTu && "barcode", !product.categoryId && "category", !asPhotoList(product.photos).length && "photo"].filter(Boolean) : [];
+  const missing = product ? [!product.articleId && "article ID", !hasProductBarcode(product) && "barcode", !product.categoryId && "category", !asPhotoList(product.photos).length && "photo"].filter(Boolean) : [];
   return (
     <div>
       <div className="flex items-end gap-3 mb-4">
-        <div className="flex-1"><h1>Products</h1><p className="text-sm mt-0.5" style={{ color: C.muted }}>{s.products.length} product{s.products.length === 1 ? "" : "s"}{unassigned ? ` · ${unassigned} without category` : ""} · changes save automatically</p></div>
+        <div className="flex-1"><h1>Products</h1><p className="text-sm mt-0.5" style={{ color: C.muted }}>{s.products.length} product{s.products.length === 1 ? "" : "s"}{noBarcode ? ` · ${noBarcode} without barcode` : ""}{unassigned ? ` · ${unassigned} without category` : ""} · changes save automatically</p></div>
         <button onClick={() => { setImportOpen(o => !o); setNewOpen(false); }} className="text-sm px-3 py-2 rounded-xl inline-flex items-center" style={{ background: importOpen ? C.ink : C.surface, color: importOpen ? C.onDark : C.ink, border: `1px solid ${importOpen ? C.ink : C.line}` }}><Ic i={Download} s={14} />Import list</button>
         <Primary onClick={() => { setNewOpen(o => !o); setImportOpen(false); }}><Ic i={Plus} s={14} />New product</Primary>
       </div>
@@ -4190,12 +4192,14 @@ function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset, onMessag
           <span style={{ minWidth: 220, display: "inline-block" }}><SearchSelect value={catSel} onChange={setCatSel} options={catFilterOptions} empty={`All categories · ${countIn("")}`} placeholder="Search categories…" searchFrom={6} /></span>
           <select value={sortBy} onChange={e => setSortBy(e.target.value)} className="text-[13px] rounded-md px-1.5 outline-none flex-shrink-0" style={{ ...inp, height: 32, width: 92 }}><option value="az">A–Z</option><option value="id">by ID</option><option value="cat">by cat.</option></select>
           <label className="flex items-center gap-1 cursor-pointer text-xs ml-1" style={{ color: C.muted }}><input type="checkbox" checked={onlyBio} onChange={e => setOnlyBio(e.target.checked)} />bio</label>
+          <label className="flex items-center gap-1 cursor-pointer text-xs" style={{ color: C.muted }}><input type="checkbox" checked={onlyNoBarcode} onChange={e => setOnlyNoBarcode(e.target.checked)} />no barcode</label>
           <label className="flex items-center gap-1 cursor-pointer text-xs" style={{ color: C.muted }}><input type="checkbox" checked={showInactive} onChange={e => setShowInactive(e.target.checked)} />inactive</label>
           <span className="text-xs ml-auto" style={{ color: C.muted }}>{visible.length} of {s.products.length}</span>
         </div>
         {catSel && catSel !== "none" && children(catSel).length > 0 && <div className="flex flex-wrap gap-1.5 mb-2" style={{ maxHeight: 64, overflowY: "auto" }}>{children(catSel).map(c => <button key={c.id} onClick={() => setCatSel(c.id)} className="text-[11px] px-2 py-0.5 rounded-full flex-shrink-0" style={{ background: C.bg, border: `1px solid ${C.line}` }}>{c.name} · {countIn(c.id)}</button>)}</div>}
         {catSel && catSel !== "none" && s.categories.find(c => c.id === catSel)?.parentId && <p className="text-[11px] mb-2" style={{ color: C.muted }}>{catPath(catSel)} · <button onClick={() => setCatSel(s.categories.find(c => c.id === catSel).parentId)} className="underline">up</button></p>}
         {unassigned > 0 && catSel !== "none" && <button onClick={() => setCatSel("none")} className="w-full text-left text-xs rounded-lg px-2.5 py-2 mb-2" style={{ background: C.warnBg, color: C.warn }}>{unassigned} product{unassigned === 1 ? "" : "s"} without a category — they get no category specs. Show them →</button>}
+        {noBarcode > 0 && !onlyNoBarcode && <button onClick={() => setOnlyNoBarcode(true)} className="w-full text-left text-xs rounded-lg px-2.5 py-2 mb-2" style={{ background: C.warnBg, color: C.warn }}>{noBarcode} product{noBarcode === 1 ? "" : "s"} without a CU or TU barcode — the scanner cannot match them. Show them →</button>}
         {catSel === "none" && unassigned > 0 && <CategorySuggestPanel s={s} set={set} products={s.products.filter(p => !p.categoryId)} />}
         {visibleUnassigned.length > 0 && (
           <div className="flex items-center gap-2 mb-2 rounded-lg p-2" style={{ background: C.accentSoft }}>
@@ -4213,6 +4217,7 @@ function ProductsPage({ s, set, sel, setSel, presetFilter, clearPreset, onMessag
                 <p className="text-[10px] mt-0.5 truncate" style={{ color: C.muted }}>{p.articleId || "no ID"} · {p.categoryId ? catPath(p.categoryId) : <span style={{ color: C.warn }}>no category</span>}</p>
                 <div className="flex items-center gap-1 mt-1">
                   {p.isBio && <span className="text-[9px] px-1.5 py-0.5 rounded-full" style={{ background: C.okBg, color: C.ok }}>bio</span>}
+                  {!hasProductBarcode(p) && <span className="text-[9px] px-1.5 py-0.5 rounded-full" style={{ background: C.warnBg, color: C.warn }}>no barcode</span>}
                   {p.isActive === false && <span className="text-[9px] px-1.5 py-0.5 rounded-full" style={{ background: C.line, color: C.muted }}>inactive</span>}
                 </div>
               </button>
