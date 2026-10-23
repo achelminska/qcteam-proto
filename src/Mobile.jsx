@@ -2955,11 +2955,11 @@ function MEncyclopediaEntry({ e, last }) {
     </div>
   );
 }
-function MSection({ title, count, action, tone, defaultOpen = false, children }) {
+function MSection({ title, count, action, tone, defaultOpen = false, qc, children }) {
   const [open, setOpen] = useState(defaultOpen);
   const fg = tone === "bad" ? C.bad : C.ink;
   return (
-    <div className="qc-tile rounded-2xl mb-2.5" style={{ background: C.surface, border: `1px solid ${tone === "bad" ? C.bad : C.line}` }}>
+    <div data-qc={qc} className="qc-tile rounded-2xl mb-2.5" style={{ background: C.surface, border: `1px solid ${tone === "bad" ? C.bad : C.line}` }}>
       <div className="flex items-center gap-2 pl-3.5 pr-2" style={{ minHeight: 42 }}>
         <button onClick={() => setOpen(o => !o)} className="flex-1 flex items-center gap-2 text-left py-2" style={{ color: fg }}><span className="text-[13px] font-semibold">{title}</span>{count != null && <span className="text-[11px] px-1.5 rounded-full leading-[18px]" style={{ background: C.bg, color: C.muted, fontVariantNumeric: "tabular-nums" }}>{count}</span>}</button>
         {action}
@@ -3186,12 +3186,12 @@ const completedInspectionFor = (s, hu) => (s.inspections || []).filter(i => i.st
 const dockRowsFor = product => product ? dockRowsLive(_S).filter(r => r.article === product.articleId) : [];
 // showLost (only passed from the product profile, not from inside the scan flow) also renders Mark-as-lost inline per
 // pallet, so acting on a specific pallet from here never needs a hop through a separate info screen first.
-function DockPalletTile({ r, onPick, inspected }) {
+function DockPalletTile({ r, onPick, inspected, nested }) {
   const status = dockStatus(r); const col = dockStatusColor(status);
   const label = DOCK_STATUS.find(x => x[0] === status)?.[1] || r.priority;
-  const Chip = ({ children, tone }) => <span className="text-[11px] px-1.5 rounded-md leading-[18px]" style={{ background: tone === "bad" ? C.badBg : tone === "ok" ? C.okBg : C.bg, color: tone === "bad" ? C.bad : tone === "ok" ? C.ok : C.ink, border: `1px solid ${tone === "bad" || tone === "ok" ? "transparent" : C.line}` }}>{children}</span>;
+  const Chip = ({ children, tone }) => <span className="text-[11px] px-1.5 rounded-md leading-[18px]" style={{ background: tone === "bad" ? C.badBg : tone === "ok" ? C.okBg : nested ? C.surface : C.bg, color: tone === "bad" ? C.bad : tone === "ok" ? C.ok : C.ink, border: `1px solid ${tone === "bad" || tone === "ok" ? "transparent" : C.line}` }}>{children}</span>;
   return (
-    <button type="button" onClick={e => { e.preventDefault(); e.stopPropagation(); onPick && onPick(r.hu); }} disabled={!onPick} className="qc-tile w-full text-left rounded-2xl px-3 py-2.5" style={{ background: C.surface, border: `1px solid ${C.line}`, borderLeft: `3px solid ${col}` }}>
+    <button type="button" data-qc={nested ? "dock-pallet-chip" : "dock-pallet-tile"} onClick={e => { e.preventDefault(); e.stopPropagation(); onPick && onPick(r.hu); }} disabled={!onPick} className={`w-full text-left ${nested ? "rounded-xl px-3 py-2" : "qc-tile rounded-2xl px-3 py-2.5"}`} style={{ background: nested ? C.bg : C.surface, border: `1px solid ${C.line}`, borderLeft: `3px solid ${col}` }}>
       <div className="flex items-start gap-2">
         <div className="min-w-0 flex-1">
           <p className="text-[13px] font-semibold leading-snug">{r.location || "—"}</p>
@@ -3210,25 +3210,17 @@ function DockPalletTile({ r, onPick, inspected }) {
   );
 }
 function SameArticleDocks({ others, pos, s, onPickPallet }) {
-  const [open, setOpen] = useState(true);
   return (
-    <div className="mb-2.5">
-      <button type="button" onClick={() => setOpen(o => !o)} className="qc-tile w-full rounded-2xl px-3.5 flex items-center gap-2 text-left" style={{ background: C.surface, border: `1px solid ${C.line}`, minHeight: 42 }} aria-expanded={open}>
-        <span className="text-[13px] font-semibold flex-1">Same article on the docks</span>
-        <span className="text-[11px] px-1.5 rounded-full leading-[18px]" style={{ background: C.bg, color: C.muted, fontVariantNumeric: "tabular-nums" }}>{others.length}</span>
-        <Ic i={ChevronDown} s={16} mr={0} style={{ color: C.muted, transform: open ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform .15s" }} />
-      </button>
-      {open && <div className="mt-2">
-        {pos.length > 1 && <p className="mb-2 px-2.5 py-1.5 rounded-lg text-[11px] flex items-center" style={{ background: C.warnBg, color: C.warn }}><Ic i={AlertTriangle} s={11} mr={4} />Different PO numbers ({pos.join(", ")}) — likely separate deliveries, one inspection doesn't cover all.</p>}
-        <div className="flex flex-col gap-2">
-          {others.map(x => <DockPalletTile key={x.hu} r={x} inspected={!!completedInspectionFor(s, x.hu)} onPick={onPickPallet && (hu => { if (gestureLocked()) return; armGestureLock(); armClickGuard(); onPickPallet(hu); })} />)}
-        </div>
-      </div>}
-    </div>
+    <MSection title="Same article on the docks" count={others.length} defaultOpen qc="same-article-docks">
+      {pos.length > 1 && <p className="mb-2 px-2.5 py-1.5 rounded-lg text-[11px] flex items-center" style={{ background: C.warnBg, color: C.warn }}><Ic i={AlertTriangle} s={11} mr={4} />Different PO numbers ({pos.join(", ")}) — likely separate deliveries, one inspection doesn't cover all.</p>}
+      <div className="flex flex-col gap-1.5">
+        {others.map(x => <DockPalletTile key={x.hu} r={x} nested inspected={!!completedInspectionFor(s, x.hu)} onPick={onPickPallet && (hu => { if (gestureLocked()) return; armGestureLock(); armClickGuard(); onPickPallet(hu); })} />)}
+      </div>
+    </MSection>
   );
 }
 function DockPresence({ s, set, user, product, onPickPallet, showLost, compact }) {
-  const rows = dockRowsFor(product); const [open, setOpen] = useState(false);
+  const rows = dockRowsFor(product);
   const pallets = rows.length;
   const blocked = blockedRowsLive(_S).filter(b => b.article === product?.articleId && b.status !== "Completed");
   if (!rows.length && !blocked.length) return <div className="qc-tile rounded-2xl px-3 py-2 mb-2 text-xs flex items-center" style={{ background: C.bg, color: C.muted, border: `1px solid ${C.line}` }}><Ic i={Truck} s={13} />Not on the docks right now.</div>;
@@ -3239,21 +3231,13 @@ function DockPresence({ s, set, user, product, onPickPallet, showLost, compact }
   const tu = rows.some(r => r.quantity != null) ? rows.reduce((a, r) => a + (r.quantity || 0), 0) : null;
   const blockedBit = (rows.some(r => r.blocking) || blocked.length) ? ` · blocked for picking${blocked.length ? ` (${blocked.length})` : ""}` : "";
   return (
-    <div className="mb-2.5">
-      <button type="button" onClick={() => setOpen(o => !o)} className="qc-tile w-full rounded-2xl px-3.5 flex items-center gap-2 text-left" style={{ background: C.surface, border: `1px solid ${C.line}`, minHeight: 42 }} aria-expanded={open}>
-        <span style={{ color: C.accent }}><Ic i={Truck} s={15} mr={0} /></span>
-        <span className="text-[13px] font-semibold flex-1">On the docks now</span>
-        <span className="text-[11px] px-1.5 rounded-full leading-[18px]" style={{ background: C.bg, color: C.muted, fontVariantNumeric: "tabular-nums" }}>{pallets}</span>
-        <Ic i={ChevronDown} s={16} mr={0} style={{ color: C.muted, transform: open ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform .15s" }} />
-      </button>
-      {open && <div className="mt-2">
-        <p className="text-[11px] mb-1.5 leading-snug" style={{ color: C.muted }}>{pallets} pallet{pallets === 1 ? "" : "s"} · {rows.length} HU{tu != null ? ` · ${tu} TU` : ""}<span style={{ color: blockedBit ? C.bad : C.muted }}>{blockedBit}</span></p>
-        {pos.length > 1 && <p className="mb-2 px-2.5 py-1.5 rounded-lg text-[11px] flex items-center" style={{ background: C.warnBg, color: C.warn }}><Ic i={AlertTriangle} s={11} mr={4} />Different PO numbers on these pallets ({pos.join(", ")}) — likely separate deliveries, don't assume one inspection covers all.</p>}
-        <div className="flex flex-col gap-2">
-          {rows.map(r => <DockPalletTile key={r.hu} r={r} onPick={onPickPallet} />)}
-        </div>
-      </div>}
-    </div>
+    <MSection title="On the docks now" count={pallets} qc="dock-presence">
+      <p className="text-[11px] mb-1.5 leading-snug" style={{ color: C.muted }}>{pallets} pallet{pallets === 1 ? "" : "s"} · {rows.length} HU{tu != null ? ` · ${tu} TU` : ""}<span style={{ color: blockedBit ? C.bad : C.muted }}>{blockedBit}</span></p>
+      {pos.length > 1 && <p className="mb-2 px-2.5 py-1.5 rounded-lg text-[11px] flex items-center" style={{ background: C.warnBg, color: C.warn }}><Ic i={AlertTriangle} s={11} mr={4} />Different PO numbers on these pallets ({pos.join(", ")}) — likely separate deliveries, don't assume one inspection covers all.</p>}
+      <div className="flex flex-col gap-1.5">
+        {rows.map(r => <DockPalletTile key={r.hu} r={r} onPick={onPickPallet} nested />)}
+      </div>
+    </MSection>
   );
 }
 // First paint of Scan must already be the pallet / product when history restored a code.
