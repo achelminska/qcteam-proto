@@ -1,16 +1,24 @@
 import { describe, it, expect } from "vitest";
-import { parseRejectionTime, parseSortableCell, normArticle, buildRejectionDigest, extRejectionsFor, extRejectedRecently, extRejectionLine, extRejectionsAll, extRejectionsYear, extRejectionYearLine, groupRejectionsByMonth, extRejectionsRecent, topCats, personName, linkLabel, parseReportName, indexReports, attachReports } from "./rejections.js";
+import { parseRejectionTime, parseSortableCell, normArticle, buildRejectionDigest, extRejectionsFor, extRejectedRecently, extRejectionLine, extRejectionsAll, extRejectionsYear, extRejectionYearLine, groupRejectionsByMonth, extRejectionsRecent, topCats, personName, linkLabel, parseReportName, indexReports, attachReports, fmtRejectionClock, rejectionDate } from "./rejections.js";
 
 describe("reading one cell — the formats the DC5 sheet uses today", () => {
   it("both timestamp styles, ISO, and junk", () => {
-    expect(parseRejectionTime("Jan 1, 2026, 16:48:39")).toBe("2026-01-01T16:48");
-    expect(parseRejectionTime("Sept 30, 2026, 07:34:01")).toBe("2026-09-30T07:34");
-    expect(parseRejectionTime("18/05/2026 16:43:47")).toBe("2026-05-18T16:43");
-    expect(parseRejectionTime("Thu Jan 01 2026 16:48:39 GMT+0100 (Central European Standard Time)")).toBe("2026-01-01T16:48"); // Apps Script Date.toString()
-    expect(parseRejectionTime("Sat Oct 03 2026 14:12:00 GMT+0200 (Central European Summer Time)")).toBe("2026-10-03T14:12");
-    expect(parseRejectionTime("2026-05-18T16:43:47.000Z")).toBe("2026-05-18T16:43");
-    expect(parseRejectionTime("2026-05-18")).toBe("2026-05-18T00:00");
+    expect(parseRejectionTime("Jan 1, 2026, 16:48:39")).toBe("2026-01-01T16:48:00+01:00");
+    expect(parseRejectionTime("Sept 30, 2026, 07:34:01")).toBe("2026-09-30T07:34:00+02:00");
+    expect(parseRejectionTime("18/05/2026 16:43:47")).toBe("2026-05-18T16:43:00+02:00");
+    expect(parseRejectionTime("Thu Jan 01 2026 16:48:39 GMT+0100 (Central European Standard Time)")).toBe("2026-01-01T16:48:00+01:00"); // Apps Script Date.toString()
+    expect(parseRejectionTime("Sat Oct 03 2026 14:12:00 GMT+0200 (Central European Summer Time)")).toBe("2026-10-03T14:12:00+02:00");
+    expect(parseRejectionTime("2026-05-18T16:43:47.000Z")).toBe("2026-05-18T18:43:00+02:00"); // UTC ISO → Amsterdam
+    expect(parseRejectionTime("2026-05-18")).toBe("2026-05-18T00:00:00+02:00");
     expect(parseRejectionTime("")).toBe(null); expect(parseRejectionTime("Time")).toBe(null); expect(parseRejectionTime("45/13/2026")).toBe(null);
+  });
+  it("UTC hours from the sheet are not shown two hours late in Amsterdam", () => {
+    // Live digest still has the old naive form (Z stripped). 05:00Z is 07:00 at DC5 in summer.
+    expect(fmtRejectionClock("2026-10-23T05:00")).toBe("07:00");
+    expect(fmtRejectionClock("2026-10-23T05:00:00.000Z")).toBe("07:00");
+    expect(fmtRejectionClock(parseRejectionTime("2026-10-23T05:00:00.000Z"))).toBe("07:00");
+    expect(parseRejectionTime("Thu Oct 23 2026 05:00:00 GMT+0000 (Coordinated Universal Time)")).toBe("2026-10-23T07:00:00+02:00");
+    expect(rejectionDate("2026-10-23T05:00").toISOString()).toBe("2026-10-23T05:00:00.000Z");
   });
   it("sortable column carries yes/no plus the reason class", () => {
     expect(parseSortableCell("Yes - Quality (according to list)")).toEqual({ sortable: true, cat: "Quality (according to list)" });
@@ -48,10 +56,10 @@ describe("building the digest", () => {
   });
   it("per-article: counts, TU, last, 30/90-day counts, reason classes, newest-first recent rows", () => {
     const a = extRejectionsFor(s, "90006116");
-    expect(a).toMatchObject({ name: "Merkloos Andijvie 1 stuk", count: 3, tu: 40, last: "2026-10-01T16:48", c30: 2, c90: 2 });
+    expect(a).toMatchObject({ name: "Merkloos Andijvie 1 stuk", count: 3, tu: 40, last: "2026-10-01T16:48:00+02:00", c30: 2, c90: 2 });
     expect(topCats(a)).toEqual([{ name: "Quality (according to list)", count: 2 }, { name: "Overripe", count: 1 }]);
     expect(a.recent.map(r => r.po)).toEqual(["1094749", "1095000", "1000001"]);
-    expect(a.recent[0]).toMatchObject({ d: "2026-10-01T16:48", tu: 15, reason: "Major remarks (cold damage)", cat: "Quality (according to list)", sortable: true, user: "Wieneke Konings", outcome: "Picked up", group: "DC5-fruchtkontor-nl-primeale", link: expect.stringMatching(/^https:\/\/teampicnic/) });
+    expect(a.recent[0]).toMatchObject({ d: "2026-10-01T16:48:00+02:00", tu: 15, reason: "Major remarks (cold damage)", cat: "Quality (according to list)", sortable: true, user: "Wieneke Konings", outcome: "Picked up", group: "DC5-fruchtkontor-nl-primeale", link: expect.stringMatching(/^https:\/\/teampicnic/) });
     expect(a.recent[0]).not.toHaveProperty("a"); expect(a.recent[0]).not.toHaveProperty("n");
     expect(a.recent[1]).toMatchObject({ user: "Damian Mrowka", sortable: false, cat: "Overripe" }); expect(a.recent[1]).not.toHaveProperty("outcome"); expect(a.recent[1]).not.toHaveProperty("link"); // empty cells are not stored
   });
@@ -63,7 +71,7 @@ describe("building the digest", () => {
     const nowMs = new Date(NOW).getTime();
     expect(extRejectedRecently(s, "90006116", 14, nowMs)).toBe(true); expect(extRejectedRecently(s, "90006116", 1, nowMs)).toBe(false); expect(extRejectedRecently(s, "123", 14, nowMs)).toBe(false);
     const l = extRejectionLine(s, "90006116", nowMs);
-    expect(l).toMatchObject({ count: 2, span: "30 days", total: 2, tu: 35, last: "2026-10-01T16:48", tail: "", yearCount: 3 });
+    expect(l).toMatchObject({ count: 2, span: "30 days", total: 2, tu: 35, last: "2026-10-01T16:48:00+02:00", tail: "", yearCount: 3 });
     expect(l.recent.map(r => r.po)).toEqual(["1094749", "1095000"]); // the January row is not shown on the floor
     expect(extRejectionLine(s, "11295128", nowMs)).toMatchObject({ count: 1, span: "30 days", total: 1 });
     expect(extRejectionLine(s, "x", nowMs)).toBe(null);
@@ -90,7 +98,7 @@ describe("building the digest", () => {
   it("year line still shows when nothing happened in the last 30 days", () => {
     const s = { extRejections: buildRejectionDigest([row({ time: "Jan 3, 2026, 07:56:09", po: "1000001" })], { now: NOW }) };
     expect(extRejectionLine(s, "90006116", new Date(NOW).getTime())).toBe(null);
-    expect(extRejectionYearLine(s, "90006116")).toMatchObject({ count: 1, span: "12 months", last: "2026-01-03T07:56" });
+    expect(extRejectionYearLine(s, "90006116")).toMatchObject({ count: 1, span: "12 months", last: "2026-01-03T07:56:00+01:00" });
     expect(groupRejectionsByMonth(extRejectionsYear(s, "90006116")).map(g => g.label)).toEqual(["January 2026"]);
   });
   it("all-rows list merges latest leftovers from a 3-row digest", () => {

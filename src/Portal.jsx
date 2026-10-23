@@ -7,7 +7,7 @@ import { demoConversation } from "./demo-chat.js";
 import { createSyncer, guardUnload } from "./sync.js";
 import { applySpecEdit, hasV, specFieldsFromForm, specFormKind, specLabel, specOriginLabel, dayLabel, problemPath, typesOf, typeById, legacyTypeId, inspType, countsAs, listCheck, matchFieldSpec, numberSpecCheck, reportStatusFields, toleranceDisplay, matchesInspSearch } from "./shared/format.js";
 import { SPEC_TARGETS, SPEC_ALIASES, SPEC_COLUMNS, applySpecSheet, fmtRange, liveNoteOf, fmtUntil, resolveSpecConflict } from "./shared/specsync.js";
-import { REJECTION_TARGETS, REJECTION_ALIASES, buildRejectionDigest, extRejectionsFor, extRejectedRecently, extRejectionLine, extRejectionsYear, extRejectionYearLine, groupRejectionsByMonth, extRejectionsRecent, extRejectionKey, topCats, fmtRejectionDay, linkLabel, reportUrls } from "./shared/rejections.js";
+import { REJECTION_TARGETS, REJECTION_ALIASES, buildRejectionDigest, extRejectionsFor, extRejectedRecently, extRejectionLine, extRejectionsYear, extRejectionYearLine, groupRejectionsByMonth, extRejectionsRecent, extRejectionKey, topCats, fmtRejectionDay, fmtRejectionClock, linkLabel, reportUrls } from "./shared/rejections.js";
 import { normArticle, isoWeekOf, todayISO, weekLabel, weekRange, shiftWeek, sortSnapshots, latestSnapshot, snapshotTotal, upsertSnapshot, snapshotsOfWeek, previousInWeek, deltaRows, subTypeMix, weekSeries, articleTrend, topArticles, asLegacyMeta, migrateLegacy, rowFor, parseComplaintRows, fmtPer1k } from "./shared/complaints.js";
 import { activeTempForSpec, applyTempSpec, tempSpecIsActive, clearTempSpec, closeExpiredTempSpecs, tempOwnerLabel, tempUntilLabel, upsertTempSpec } from "./shared/tempspec.js";
 import { SpecValue } from "./shared/SpecValue.jsx";
@@ -2869,7 +2869,7 @@ function BriefingPage({ s, set, user, go }) {
       const x = c.x, prod = productForArticle(s, x.a);
       hero = <Hero product={prod} name={prod?.name || x.n} vertical={vertical} />;
       body = <>
-        <p className="text-[11px] font-semibold uppercase tracking-[0.16em]" style={{ color: C.bad }}>Rejected on the dock · {dayLabel(x.d)}, {hhmm(x.d)}</p>
+        <p className="text-[11px] font-semibold uppercase tracking-[0.16em]" style={{ color: C.bad }}>Rejected on the dock · {dayLabel(x.d)}, {fmtRejectionClock(x.d)}</p>
         <p className="text-[17px] font-semibold leading-tight mt-1">{prod?.name || x.n || x.a}</p>
         <p className="text-[12px] mt-1" style={{ color: C.muted }}>{[`ID ${x.a}`, x.tu != null && `${x.tu} TU`, x.po && `PO ${x.po}`, x.group].filter(Boolean).join(" · ")}</p>
         <p className="text-[13px] mt-2.5" style={{ color: C.ink }}>by {x.user || "the team"}{x.sortable != null ? ` · ${x.sortable ? "sortable" : "not sortable"}` : ""}</p>

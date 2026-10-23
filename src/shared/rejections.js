@@ -38,17 +38,64 @@ export const REJECTION_ALIASES = {
 
 const MONTHS = { jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, sept: 8, oct: 9, nov: 10, dec: 11 };
 const pad = n => String(n).padStart(2, "0");
-const iso = (y, mo, d, h = 0, mi = 0) => { const Y = Number(y), M = Number(mo), D = Number(d); if (!(Y > 1990 && M >= 0 && M < 12 && D >= 1 && D <= 31)) return null; return `${Y}-${pad(M + 1)}-${pad(D)}T${pad(h)}:${pad(mi)}`; };
+export const REJECTION_TZ = "Europe/Amsterdam";
+const wallParts = d => {
+  const o = Object.fromEntries(new Intl.DateTimeFormat("en-GB", {
+    timeZone: REJECTION_TZ, year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+  }).formatToParts(d).map(p => [p.type, p.value]));
+  return { y: o.year, mo: o.month, d: o.day, h: o.hour, mi: o.minute };
+};
+// Instant → Amsterdam wall clock with the offset for that day (so slice(0,10) is the dock calendar day).
+export function formatAmsterdam(d) {
+  if (!d || isNaN(d)) return null;
+  const w = wallParts(d);
+  const asUtc = Date.parse(`${w.y}-${w.mo}-${w.d}T${w.h}:${w.mi}:00Z`);
+  const offH = Math.round((asUtc - d.getTime()) / 3600000);
+  const sign = offH >= 0 ? "+" : "-";
+  return `${w.y}-${w.mo}-${w.d}T${w.h}:${w.mi}:00${sign}${pad(Math.abs(offH))}:00`;
+}
+// Sheet cells without a zone are DC5 local time, not UTC.
+const amsterdamWall = (y, mo, d, h = 0, mi = 0) => {
+  const Y = Number(y), M = Number(mo), D = Number(d), H = Number(h) || 0, Mi = Number(mi) || 0;
+  if (!(Y > 1990 && M >= 0 && M < 12 && D >= 1 && D <= 31)) return null;
+  const wall = `${Y}-${pad(M + 1)}-${pad(D)}T${pad(H)}:${pad(Mi)}:00`;
+  for (const off of ["+02:00", "+01:00"]) { const t = formatAmsterdam(new Date(wall + off)); if (t && t.startsWith(wall)) return t; }
+  return wall + "+01:00";
+};
+const fromZoned = iso => { const d = new Date(iso); return isNaN(d) ? null : formatAmsterdam(d); };
+const normOffset = off => !off || /^z$/i.test(off) ? "Z" : off.includes(":") ? off : `${off.slice(0, 3)}:${off.slice(3)}`;
 // Sheets shows the timestamp two ways depending on who typed it: "Jan 1, 2026, 16:48:39" and "18/05/2026 16:43:47".
-// ISO ("2026-01-01T16:48:39") comes through getValues(). Local wall-clock, no zone — the day is what matters.
+// Apps Script JSON.stringify turns a Date into UTC ISO ("…Z"). The old parser stripped the Z and kept the UTC
+// clock, so Amsterdam (UTC+2 in summer) showed every sheet time two hours late. Honour the zone when it is
+// there; treat a bare clock as Europe/Amsterdam.
 export function parseRejectionTime(raw) {
   const v = String(raw ?? "").trim(); if (!v) return null; let m;
-  if ((m = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2}))?/.exec(v))) return iso(m[1], Number(m[2]) - 1, m[3], m[4] || 0, m[5] || 0);
+  if ((m = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?)?(Z|[+-]\d{2}:?\d{2})?/.exec(v))) {
+    if (m[7]) return fromZoned(`${m[1]}-${m[2]}-${m[3]}T${m[4] || "00"}:${m[5] || "00"}:${m[6] || "00"}${normOffset(m[7])}`);
+    return amsterdamWall(m[1], Number(m[2]) - 1, m[3], m[4] || 0, m[5] || 0);
+  }
   // Apps Script's getValues() dates arrive as Date.toString(): "Thu Jan 01 2026 16:48:39 GMT+0100 (Central European Standard Time)"
-  if ((m = /^[A-Za-z]{3},? ([A-Za-z]{3}) (\d{1,2}) (\d{4})(?: (\d{2}):(\d{2}))?/.exec(v))) { const mo = MONTHS[m[1].toLowerCase()]; return mo == null ? null : iso(m[3], mo, m[2], m[4] || 0, m[5] || 0); }
-  if ((m = /^([A-Za-z]{3,4})\.? (\d{1,2}),? (\d{4})(?:,? (\d{1,2}):(\d{2}))?/.exec(v))) { const mo = MONTHS[m[1].toLowerCase()]; return mo == null ? null : iso(m[3], mo, m[2], m[4] || 0, m[5] || 0); }
-  if ((m = /^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})(?:,? (\d{1,2}):(\d{2}))?/.exec(v))) return iso(m[3], Number(m[2]) - 1, m[1], m[4] || 0, m[5] || 0);
+  if ((m = /^[A-Za-z]{3},? ([A-Za-z]{3}) (\d{1,2}) (\d{4})(?: (\d{2}):(\d{2}))?(?::\d{2})?(?: GMT([+-]\d{4}))?/.exec(v))) {
+    const mo = MONTHS[m[1].toLowerCase()]; if (mo == null) return null;
+    if (m[6]) return fromZoned(`${m[3]}-${pad(mo + 1)}-${pad(m[2])}T${pad(m[4] || 0)}:${pad(m[5] || 0)}:00${normOffset(m[6])}`);
+    return amsterdamWall(m[3], mo, m[2], m[4] || 0, m[5] || 0);
+  }
+  if ((m = /^([A-Za-z]{3,4})\.? (\d{1,2}),? (\d{4})(?:,? (\d{1,2}):(\d{2}))?/.exec(v))) { const mo = MONTHS[m[1].toLowerCase()]; return mo == null ? null : amsterdamWall(m[3], mo, m[2], m[4] || 0, m[5] || 0); }
+  if ((m = /^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})(?:,? (\d{1,2}):(\d{2}))?/.exec(v))) return amsterdamWall(m[3], Number(m[2]) - 1, m[1], m[4] || 0, m[5] || 0);
   return null;
+}
+// Instant for a digest timestamp. Legacy rows are "YYYY-MM-DDTHH:mm" with the Z already stripped — those hours are UTC.
+export function rejectionDate(t) {
+  if (!t) return null;
+  const v = String(t).trim();
+  if (/[zZ]$/.test(v) || /[+-]\d{2}:\d{2}$/.test(v)) { const d = new Date(v); return isNaN(d) ? null : d; }
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(v)) { const d = new Date(/[zZ]$/.test(v) ? v : `${v}Z`); return isNaN(d) ? null : d; }
+  const d = new Date(v); return isNaN(d) ? null : d;
+}
+export function fmtRejectionClock(t) {
+  const d = rejectionDate(t); if (!d) return "";
+  const w = wallParts(d); return `${w.h}:${w.mi}`;
 }
 // "Yes - Quality (according to list)" → { sortable: true, cat: "Quality (according to list)" }; "No - Overripe" → false/Overripe.
 export function parseSortableCell(raw) {
@@ -138,7 +185,7 @@ export function buildRejectionDigest(rows, { now = new Date().toISOString(), win
 
 // ── Reading the digest ──────────────────────────────────────────────────────────────────────────────────────────
 export const extRejectionsFor = (s, articleId) => { const k = normArticle(articleId); return k && s?.extRejections?.byArticle ? s.extRejections.byArticle[k] || null : null; };
-export const extRejectedRecently = (s, articleId, days, nowMs = Date.now()) => { const g = extRejectionsFor(s, articleId); if (!g?.last) return false; return nowMs - new Date(g.last).getTime() <= days * 86400000; };
+export const extRejectedRecently = (s, articleId, days, nowMs = Date.now()) => { const g = extRejectionsFor(s, articleId); if (!g?.last) return false; const at = rejectionDate(g.last); return !!(at && nowMs - at.getTime() <= days * 86400000); };
 export const topCats = (g, n = 2) => Object.entries(g?.cats || {}).sort((a, b) => b[1] - a[1]).slice(0, n).map(([name, count]) => ({ name, count }));
 // One line for the pallet header / scan result / product profile. The apps only care about the last 30 days: an article
 // rejected in spring says nothing about today's pallet. Nothing in 30 days → null → nothing shown. (The Head's Integrations
@@ -178,7 +225,7 @@ export function extRejectionsAll(s, articleId, nowMs = Date.now(), days = EXT_RE
   const cutoff = nowMs - days * 86400000;
   const seen = new Set(); const out = [];
   const add = e => {
-    if (!e?.d || new Date(e.d).getTime() < cutoff) return;
+    const at = rejectionDate(e.d); if (!e?.d || !at || at.getTime() < cutoff) return;
     const key = rejectionRowKey(e); if (seen.has(key)) return;
     seen.add(key); const { a, n, ...rest } = e; out.push(rest);
   };
@@ -189,7 +236,7 @@ export function extRejectionsAll(s, articleId, nowMs = Date.now(), days = EXT_RE
 export function extRejectionLine(s, articleId, nowMs = Date.now(), days = EXT_REJECTION_DAYS) {
   const g = extRejectionsFor(s, articleId); if (!g || !g.count) return null;
   const cutoff = nowMs - days * 86400000;
-  const kept = (g.recent || []).filter(e => e.d && new Date(e.d).getTime() >= cutoff);
+  const kept = (g.recent || []).filter(e => { const at = rejectionDate(e.d); return at && at.getTime() >= cutoff; });
   const recent = extRejectionsAll(s, articleId, nowMs, days);
   if (!kept.length && !recent.length) return null;
   const count = kept.length >= (g.recent || []).length && g.c30 > Math.max(kept.length, recent.length) ? g.c30 : Math.max(recent.length, kept.length);
@@ -199,9 +246,14 @@ export function extRejectionLine(s, articleId, nowMs = Date.now(), days = EXT_RE
   return { count, span: `${days} days`, total: count, tu, last: (recent[0] || kept[0]).d, cats, mostly, tail: mostly, recent, preview: recent.slice(0, EXT_REJECTION_PREVIEW), name: g.name, yearCount: g.count };
 }
 // Shift-update cards: sheet rejections from the last `days` days, newest first (latest holds the newest 60 rows).
-export const extRejectionsRecent = (s, days = 7, nowMs = Date.now()) => (s?.extRejections?.latest || []).filter(e => e.d && nowMs - new Date(e.d).getTime() <= days * 86400000);
+export const extRejectionsRecent = (s, days = 7, nowMs = Date.now()) => (s?.extRejections?.latest || []).filter(e => { const at = rejectionDate(e.d); return at && nowMs - at.getTime() <= days * 86400000; });
 export const extRejectionKey = e => `${e.a}:${e.d}:${e.po || ""}`;
-export const fmtRejectionDay = (t, now = new Date()) => { if (!t) return "—"; const d = new Date(t); const day = x => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime(); const diff = Math.round((day(now) - day(d)) / 86400000); return diff === 0 ? "today" : diff === 1 ? "yesterday" : diff < 7 ? `${diff} days ago` : d.toLocaleDateString("en-GB", { day: "numeric", month: "short" }); };
+export const fmtRejectionDay = (t, now = new Date()) => {
+  const d = rejectionDate(t); if (!d) return "—";
+  const day = x => { const w = wallParts(x); return Date.UTC(Number(w.y), Number(w.mo) - 1, Number(w.d)); };
+  const diff = Math.round((day(now instanceof Date ? now : new Date(now)) - day(d)) / 86400000);
+  return diff === 0 ? "today" : diff === 1 ? "yesterday" : diff < 7 ? `${diff} days ago` : new Intl.DateTimeFormat("en-GB", { timeZone: REJECTION_TZ, day: "numeric", month: "short" }).format(d);
+};
 export const reportUrls = e => e?.pdfs?.length ? e.pdfs : e?.pdf ? [e.pdf] : [];
 export const linkLabel = url => /slack\.com/i.test(url || "") ? "Slack thread" : /drive\.google|docs\.google/i.test(url || "") ? "Attached file" : "Open link";
 
