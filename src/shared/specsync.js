@@ -10,9 +10,9 @@
 //   - a sheet spec is matched by (name, basis). It is created or updated only where the product has no spec of that
 //     name, or the existing one is itself from the sheet. A Head spec of the same name is left alone; if the sheet
 //     disagrees with it, that is reported as a conflict — the Head decides, not the sync.
-//   - a cell that cannot be read (placeholder, empty, junk) never deletes a spec the sheet wrote before: the last
-//     good value stays, and the cell is reported. The commercial team's "fill in min accepted spec" is exactly the
-//     to-do list the Head wants to see.
+//   - an empty or placeholder cell ("fill in", "None", "N/A") drops the sheet-owned spec of that name. The daily
+//     push is the current sheet, not a memory of last week's cell. The Head's own spec of the same name is left
+//     alone. Unreadable junk still keeps the last sheet value and is reported.
 //   - unknown article IDs can be added to the catalog (createMissing) — the sheet is the commercial master list.
 
 // Columns the sheet has, what each becomes. `spec` targets carry the specification's default name / unit / basis.
@@ -129,7 +129,17 @@ export function applySpecSheet(products, rows, { createMissing = true, now = new
       // A bare number ("4", "12") in a mm column next to the Head's own spec in cm is almost always cm with the unit left
       // off — read it in the Head's unit rather than flagging 4 mm vs 4–8 cm as a conflict.
       if (!cell.issue && def.unit === "mm" && !/[a-z]/i.test(String(r[k] ?? ""))) { const own = (next.specs || []).find(q => (q.name || "").toLowerCase() === def.name.toLowerCase() && (q.basis || "piece") === def.basis && q.origin !== "sheet" && q.unit && q.unit !== def.unit); if (own) cell = { ...cell, unit: own.unit, note: `read as ${own.unit} (no unit in the sheet)` }; }
-      if (cell.issue) { coverage[k][cell.issue]++; if (cell.issue !== "empty") issues.push({ articleId: p.articleId, kind: cell.issue, column: k, spec: def.name, note: cell.note || "" }); continue; }
+      if (cell.issue) {
+        coverage[k][cell.issue]++;
+        if (cell.issue !== "empty") issues.push({ articleId: p.articleId, kind: cell.issue, column: k, spec: def.name, note: cell.note || "" });
+        // Daily push: empty / "fill in" / "None" means the sheet no longer states this spec.
+        if (cell.issue === "empty" || cell.issue === "placeholder") {
+          const specs = next.specs || [];
+          const gone = specs.findIndex(q => (q.name || "").toLowerCase() === def.name.toLowerCase() && (q.basis || "piece") === def.basis && q.origin === "sheet");
+          if (gone >= 0) patch({ specs: specs.filter((_, i) => i !== gone) });
+        }
+        continue;
+      }
       coverage[k].filled++;
       const specs = next.specs || []; const ix = specs.findIndex(q => (q.name || "").toLowerCase() === def.name.toLowerCase() && (q.basis || "piece") === def.basis);
       const ex = ix >= 0 ? specs[ix] : null;

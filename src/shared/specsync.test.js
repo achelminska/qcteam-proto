@@ -75,12 +75,31 @@ describe("applying a push to the catalog", () => {
     expect(report.issues.find(i => i.kind === "conflict")).toMatchObject({ articleId: "10468928", spec: "CU weight" });
     expect(report.conflicts).toBe(1);
   });
-  it("updates a sheet spec in place and keeps the last good value when the cell went bad", () => {
+  it("updates a sheet spec in place and does not write a placeholder as a new spec", () => {
     const b = byId["90006132"];
     expect(b.specs.find(q => q.name === "Caliber")).toMatchObject({ id: "s1", min: 31, max: 39, sheetRaw: "31-39" }); // same id, new values
     expect(b.specs.find(q => q.name === "Length")).toMatchObject({ min: 200, max: 260, unit: "mm" });
     expect(b.specs.find(q => q.name === "CU weight")).toBeUndefined(); // "None" writes nothing
     expect(report.issues).toContainEqual(expect.objectContaining({ articleId: "90006132", kind: "placeholder", column: "weight" }));
+  });
+  it("drops a sheet spec on the daily push when the cell is empty or a placeholder", () => {
+    const catalog = [{
+      id: "p1", articleId: "90006100", name: "Knoflook",
+      specs: [
+        { id: "s1", name: "Count per pack", unit: "pcs", basis: "cu", min: null, max: 3, origin: "sheet", sheetRaw: "max 3" },
+        { id: "s2", name: "CU weight", unit: "g", basis: "cu", min: 150, max: null, origin: "sheet", sheetRaw: "150g" },
+        { id: "h1", name: "Caliber", unit: "mm", basis: "piece", min: 60, max: null },
+      ],
+    }];
+    const empty = applySpecSheet(catalog, [{ articleId: "90006100", countPerPack: "", weight: "150g", caliber: "" }], { createMissing: false, now: "2026-10-24T12:00:00Z" });
+    expect(empty.products[0].specs.find(q => q.name === "Count per pack")).toBeUndefined();
+    expect(empty.products[0].specs.find(q => q.name === "CU weight")).toMatchObject({ min: 150, origin: "sheet" });
+    expect(empty.products[0].specs.find(q => q.name === "Caliber")).toMatchObject({ id: "h1", min: 60 }); // Head's own stays
+    const none = applySpecSheet(catalog, [{ articleId: "90006100", countPerPack: "None", weight: "150g" }], { createMissing: false, now: "2026-10-24T12:00:00Z" });
+    expect(none.products[0].specs.find(q => q.name === "Count per pack")).toBeUndefined();
+    const junk = applySpecSheet(catalog, [{ articleId: "90006100", countPerPack: "blue", weight: "150g" }], { createMissing: false, now: "2026-10-24T12:00:00Z" });
+    expect(junk.products[0].specs.find(q => q.name === "Count per pack")).toMatchObject({ max: 3, sheetRaw: "max 3" });
+    expect(junk.report.issues).toContainEqual(expect.objectContaining({ kind: "unreadable", column: "countPerPack" }));
   });
   it("adds unknown articles to the catalog (the sheet is the commercial master list) and says so", () => {
     expect(byId["12747877"]).toMatchObject({ id: "new", name: "Merkloos Sweet lightning pompoen 1 stuk", fromSpecSheet: true, categoryId: null });
